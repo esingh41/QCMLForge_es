@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qcmlforge"
+version = "0.0.1"
+authors = [
+  { name="Austin M. Wallace", email="awallace43@gatech.edu" },
+]
+description = "Provides QCArchive data for creating QC ML models. The AP-Net2 has been re-implemnented in PyTorch with newer versions to come."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+]
+dependencies = [
+    "matplotlib",
+    "qm_tools_aw",
+    "numpy>=1.20.0",
+    "pandas>=1.4.3"
+
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Awallace3/QCMLForge"
+"Bug Tracker" = "https://github.com/Awallace3/QCMLForge/issues"
