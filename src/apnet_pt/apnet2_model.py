@@ -606,6 +606,7 @@ class APNet2Model:
         ds_num_devices=1,
         ds_datapoint_storage_n_molecules=1000,
         ds_prebatched=False,
+        print_lvl=0,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -653,7 +654,6 @@ class APNet2Model:
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = APNet2_MPNN(
-                # atom_model=self.atom_model,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -661,7 +661,11 @@ class APNet2Model:
                 r_cut_im=checkpoint["config"]["r_cut_im"],
                 r_cut=checkpoint["config"]["r_cut"],
             )
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+            model_state_dict = {
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.model.load_state_dict(model_state_dict)
         else:
             self.model = APNet2_MPNN(
                 # atom_model=self.atom_model,
@@ -694,6 +698,7 @@ class APNet2Model:
                     skip_processed=ds_skip_process,
                     datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
                     prebatched=ds_prebatched,
+                    print_level=print_lvl,
                 )
 
             self.dataset = setup_ds()
@@ -723,6 +728,7 @@ class APNet2Model:
                         split="train",
                         datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
                         prebatched=ds_prebatched,
+                        print_level=print_lvl,
                     ),
                     apnet2_module_dataset(
                         root=ds_root,
@@ -738,6 +744,7 @@ class APNet2Model:
                         split="test",
                         datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
                         prebatched=ds_prebatched,
+                        print_level=print_lvl,
                     ),
                 ]
 

@@ -171,3 +171,5 @@ cython_debug/
 .pypirc
 *.sbatch
 data_dir
+tmp.py
+train.sh

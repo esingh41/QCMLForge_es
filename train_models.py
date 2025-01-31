@@ -53,8 +53,12 @@ def train_pairwise_model(
 
     batch_size = 16
     omp_num_threads_per_process = 8
-    pretrained_model = model_out if os.path.exists(model_out) else None
-    print(f"{pretrained_model=}")
+    if os.path.exists(model_out):
+        pretrained_model = model_out
+        print(f"\nTraining from {model_out}\n")
+    else:
+        pretrained_model = None
+        print("\nTraining from scratch...\n")
     apnet2 = APNet2Model(
         atom_model_pre_trained_path=am_model_path,
         pre_trained_model_path=pretrained_model,
@@ -103,13 +107,13 @@ def main():
     args.add_argument(
         "--am_model_path",
         type=str,
-        default="./models/am_ensemble/am_1.pt",
+        default="./models/am_ensemble/am_0.pt",
         help="specify where to save output model (default: ./models/am_ensemble/am_1.pt)"
     )
     args.add_argument(
-        "--ap_model_output_path",
+        "--ap_model_path",
         type=str,
-        default="./models/ap2_ensemble/ap2_1.pt",
+        default="./models/ap2_ensemble/ap2_0.pt",
         help="specify where to save output model (default: ./models/ap2_ensemble/ap2_1.pt)"
     )
     args.add_argument(
@@ -149,6 +153,12 @@ def main():
         type=str,
         default="./data_dir",
         help="specify data_dir for datasets (default: ./data_dir)"
+    )
+    args.add_argument(
+        "--n_epochs",
+        type=int,
+        default=50,
+        help="Number of epochs for training"
     )
     args = args.parse_args()
     set_all_seeds(args.random_seed)
