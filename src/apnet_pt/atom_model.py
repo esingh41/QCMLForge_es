@@ -632,7 +632,7 @@ class AtomModel:
             qpole_MAE_t = np.mean(np.abs(qpole_errors_t))
 
             charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []
-            _, charge_errors_v, dipole_errors_v, qpole_errors_v = (
+            test_loss, charge_errors_v, dipole_errors_v, qpole_errors_v = (
                 self.evaluate_model_collate_eval(
                     test_loader,  # loss_fn=criterion
                 )
@@ -646,7 +646,7 @@ class AtomModel:
                 f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f}",
                 flush=True,
             )
-        return
+        return test_loss
 
     def train_batches_single_proc(
         self, rank, dataloader, criterion, optimizer, rank_device
@@ -915,8 +915,9 @@ class AtomModel:
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         criterion = torch.nn.MSELoss()
 
-        lowest_test_loss = torch.tensor(float("inf"))
-        # print(f"{rank = }")
+        test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
+
+        lowest_test_loss = test_loss
 
         for epoch in range(n_epochs):
             t1 = time.time()

@@ -10,9 +10,10 @@ import numpy as np
 import pytest
 
 spec_type = 5
-am_path = "./models/am_ensemble/am_0.pt"
 current_file_path = os.path.dirname(os.path.realpath(__file__))
 data_path = f"{current_file_path}/test_data_path"
+am_path = f"{current_file_path}/../models/am_ensemble/am_0.pt"
+ap_path = f"{current_file_path}/../models/ap2_ensemble/ap2_0.pt"
 
 ds = apnet2_module_dataset(
     root=data_path,
@@ -63,6 +64,7 @@ def test_apnet_data_object():
 def test_apnet2_model_train():
     apnet2 = APNet2Model(
         atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=ap_path,
         dataset=ds,
         ds_root=data_path,
         ds_spec_type=spec_type,

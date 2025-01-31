@@ -1456,7 +1456,7 @@ units angstrom
         )
 
         # (6) Main training loop
-        lowest_test_loss = float("inf")
+        lowest_test_loss = test_loss
         for epoch in range(n_epochs):
             t1 = time.time()
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = \
