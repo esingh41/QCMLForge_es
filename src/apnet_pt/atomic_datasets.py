@@ -267,18 +267,18 @@ def edges(R, r_cut):
     RB = np.tile(RB, [1, natom, 1])
     dist = np.linalg.norm(RA - RB, axis=2)
     mask = np.logical_and(dist < r_cut, dist > 0.0)
-    edges = np.where(mask)  # dimensions [n_edge x 2]
-    return edges[0], edges[1]
+    edges = np.array(np.where(mask))  # dimensions [n_edge x 2]
+    return edges
 
 
 def qcel_mon_to_pyg_data(mon, r_cut=5.0, custom=False):
     Z = mon.atomic_numbers
     node_features = torch.tensor(np.array(Z), dtype=torch.int64)
-    R = torch.tensor(mon.geometry * constants.au2ang, dtype=torch.float32)
-    total_charge = torch.tensor(mon.molecular_charge, dtype=torch.int64)
+    R = torch.tensor(np.array(mon.geometry) * constants.au2ang, dtype=torch.float32)
+    total_charge = torch.tensor(np.array(mon.molecular_charge), dtype=torch.int64)
     if custom:
         edge_index = edge_function_system_index_only(R, r_c=r_cut)
-        edge_index = torch.tensor(edge_index).t().long()
+        edge_index = torch.tensor(np.array(edge_index)).t().long()
     else:
         edge_index = torch.tensor(edges(R, r_cut)).long()
     data = Data(
@@ -463,7 +463,7 @@ class atomic_module_dataset(Dataset):
             t = time()
             self.data = []
             for i in self.processed_file_names:
-                self.data.append(torch.load(osp.join(self.processed_dir, i)))
+                self.data.append(torch.load(osp.join(self.processed_dir, i), weights_only=False));
             total_time_seconds = int(time() - t)
             print(f"Loaded in {total_time_seconds:4d} seconds")
             self.get = self.get_in_memory
@@ -623,10 +623,10 @@ class atomic_module_dataset(Dataset):
 
     def get(self, idx):
         if self.testing:
-            return torch.load(osp.join(self.processed_dir, f"data_{idx}.pt"))
+            return torch.load(osp.join(self.processed_dir, f"data_{idx}.pt"), weights_only=False)
         else:
             return torch.load(
-                osp.join(self.processed_dir, f"data_spec_{self.spec_type}_{idx}.pt")
+                osp.join(self.processed_dir, f"data_spec_{self.spec_type}_{idx}.pt"), weights_only=False
             )
         return
 

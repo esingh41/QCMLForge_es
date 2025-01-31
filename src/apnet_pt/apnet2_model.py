@@ -624,7 +624,7 @@ class APNet2Model:
             print(
                 f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
             )
-            checkpoint = torch.load(atom_model_pre_trained_path, map_location=device)
+            checkpoint = torch.load(atom_model_pre_trained_path, map_location=device, weights_only=False)
             self.atom_model = AtomMPNN(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
@@ -651,7 +651,7 @@ class APNet2Model:
             print(
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
             )
-            checkpoint = torch.load(pre_trained_model_path)
+            checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = APNet2_MPNN(
                 # atom_model=self.atom_model,
                 n_message=checkpoint["config"]["n_message"],

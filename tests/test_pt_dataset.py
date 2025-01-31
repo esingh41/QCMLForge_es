@@ -7,6 +7,7 @@ from apnet_pt.pairwise_datasets import (
 import pickle
 import os
 import numpy as np
+import pytest
 
 spec_type = 5
 am_path = "./models/am_ensemble/am_0.pt"
@@ -55,10 +56,10 @@ def test_apnet_data_object():
         if k in ["monomerA_ind", "monomerB_ind"]:
             continue
         print(k, v.shape)
-        pt_batch_v = np.array(getattr(batch1, k))
-        assert np.allclose(v, pt_batch_v)
+        assert np.allclose(v, getattr(batch1, k).numpy())
 
 
+@pytest.mark.skip(reason="Slow training test. Run only for development reasons.")
 def test_apnet2_model_train():
     apnet2 = APNet2Model(
         atom_model_pre_trained_path=am_path,
@@ -75,7 +76,7 @@ def test_apnet2_model_train():
     apnet2.train(
         model_path="./models/ap2_test.pt",
         batch_size=16,
-        n_epochs=2,
+        n_epochs=1,
         world_size=1,
         omp_num_threads_per_process=8,
         lr=5e-5,

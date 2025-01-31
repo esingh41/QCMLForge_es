@@ -470,7 +470,7 @@ class AtomModel:
 
         if pre_trained_model_path:
             # print(f"Loading pre-trained AtomMPNN model from {pre_trained_model_path}")
-            checkpoint = torch.load(pre_trained_model_path)
+            checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = AtomMPNN(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],

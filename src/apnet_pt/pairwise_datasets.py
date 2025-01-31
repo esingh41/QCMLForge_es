@@ -431,7 +431,7 @@ class apnet2_module_dataset(Dataset):
             t = time()
             self.data = []
             for i in self.processed_file_names:
-                self.data.append(torch.load(osp.join(self.processed_dir, i)))
+                self.data.append(torch.load(osp.join(self.processed_dir, i), weights_only=False))
             total_time_seconds = int(time() - t)
             print(f"Loaded in {total_time_seconds:4d} seconds")
             self.get = self.get_in_memory
@@ -717,8 +717,9 @@ class apnet2_module_dataset(Dataset):
     def len(self):
         if self.prebatched:
             return len(self.processed_file_names)
-        d = torch.load(osp.join(self.processed_dir,
-                       self.processed_file_names[-1]))
+        d = torch.load(
+            osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
+        )
         return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_molecules + len(d)
 
     def get(self, idx):
@@ -734,8 +735,8 @@ class apnet2_module_dataset(Dataset):
                 self.spec_type}_{idx_datapath}.pt"
         )
         if self.spec_type in [1, 2, 7]:
-            return torch.load(datapath)
-        self.active_data = torch.load(datapath)
+            return torch.load(datapath, weights_only=False)
+        self.active_data = torch.load(datapath, weights_only=False)
         return self.active_data[dimer_ind]
         # if self.active_data[idx_datapath]:
         #     return self.active_data[idx_datapath][dimer_ind]
