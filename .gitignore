@@ -174,3 +174,4 @@ data_dir
 tmp.py
 train.sh
 *.out
+train.sh
