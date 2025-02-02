@@ -5,6 +5,7 @@ import argparse
 import numpy as np
 import random
 import os
+from pprint import pprint
 
 
 def train_atom_model(
@@ -12,6 +13,7 @@ def train_atom_model(
     data_dir="data_atomic",
     spec_type=3,
     testing=False,
+    n_epochs=500,
 ):
     atom_model = AtomModel(
         n_message=3,
@@ -26,7 +28,7 @@ def train_atom_model(
         use_GPU=True,
     )
     atom_model.train(
-        n_epochs=500,
+        n_epochs=n_epochs,
         batch_size=16,
         lr=5e-4,
         split_percent=0.9,
@@ -44,6 +46,7 @@ def train_pairwise_model(
     model_out="./models/ap2_ensemble/ap2_1.pt",
     am_model_path="./models/ap2_ensemble/am_1.pt",
     data_dir="./data_pairwise",
+    n_epochs=50,
 ):
     if torch.cuda.is_available():
         world_size = torch.cuda.device_count()
@@ -74,7 +77,7 @@ def train_pairwise_model(
     apnet2.train(
         model_path=model_out,
         batch_size=1,
-        n_epochs=50,
+        n_epochs=n_epochs,
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads_per_process,
         lr=5e-4,
@@ -161,18 +164,21 @@ def main():
         help="Number of epochs for training"
     )
     args = args.parse_args()
+    pprint(args)
     set_all_seeds(args.random_seed)
     if args.train_am:
         train_atom_model(
             model_path=args.am_model_path,
             data_dir=args.data_dir,
-            spec_type=args.spec_type_am
+            spec_type=args.spec_type_am,
+            n_epochs=args.n_epochs,
         )
     if args.train_ap2:
         train_pairwise_model(
             model_out=args.ap_model_path,
             am_model_path=args.am_model_path,
             data_dir=args.data_dir,
+            n_epochs=args.n_epochs,
         )
     return
 

@@ -173,3 +173,4 @@ cython_debug/
 data_dir
 tmp.py
 train.sh
+*.out

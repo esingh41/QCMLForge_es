@@ -408,7 +408,7 @@ class apnet2_module_dataset(Dataset):
         self.skip_processed = skip_processed
         self.datapoint_storage_n_molecules = datapoint_storage_n_molecules
         if os.path.exists(root) is False:
-            os.makedirs(root)
+            os.makedirs(root, exist_ok=True)
         if atom_model_path is not None and not self.skip_processed:
             self.atom_model = AtomModel(
                 pre_trained_model_path=atom_model_path,
