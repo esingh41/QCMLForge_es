@@ -1170,7 +1170,7 @@ class AtomModel:
         return
 
     @torch.inference_mode()
-    def predict_multipoles_batch(self, batch):
+    def predict_multipoles_batch(self, batch, isolate_predictions=True):
         batch.to(self.device)
         qA, muA, thA, hlistA = self.model_predict(batch)
         batch = batch.cpu()
@@ -1178,7 +1178,10 @@ class AtomModel:
         muA = muA.detach().detach().cpu()
         thA = thA.detach().detach().cpu()
         hlistA = hlistA.detach().cpu()
-        return isolate_atomic_property_predictions(batch, (qA, muA, thA, hlistA))
+        if isolate_predictions:
+            return isolate_atomic_property_predictions(batch, (qA, muA, thA, hlistA))
+        else:
+            return qA, muA, thA, hlistA
 
     @torch.inference_mode()
     def predict_multipoles_dataset(
