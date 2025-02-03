@@ -509,6 +509,22 @@ class AtomModel:
         # torch.jit.enable_onednn_fusion(True)
         return
 
+    def set_pretrained_model(self, model_path):
+        checkpoint = torch.load(model_path)
+        model_state_dict = {
+            k.replace("_orig_mod.", ""):
+            v for k, v in checkpoint["model_state_dict"].items()
+        }
+        self.model.load_state_dict(model_state_dict)
+        return
+
+    def compile_model(self):
+        torch._dynamo.config.dynamic_shapes = True
+        torch._dynamo.config.capture_dynamic_output_shape_ops = True
+        torch._dynamo.config.capture_scalar_outputs = True
+        self.model = torch.compile(self.model, dynamic=True)
+        return
+
     def setup(self, rank, world_size):
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "12355"
@@ -1154,7 +1170,7 @@ class AtomModel:
         return
 
     @torch.inference_mode()
-    def predict_multipoles_batch(self, batch):
+    def predict_multipoles_batch(self, batch, isolate_predictions=True):
         batch.to(self.device)
         qA, muA, thA, hlistA = self.model_predict(batch)
         batch = batch.cpu()
@@ -1162,7 +1178,10 @@ class AtomModel:
         muA = muA.detach().detach().cpu()
         thA = thA.detach().detach().cpu()
         hlistA = hlistA.detach().cpu()
-        return isolate_atomic_property_predictions(batch, (qA, muA, thA, hlistA))
+        if isolate_predictions:
+            return isolate_atomic_property_predictions(batch, (qA, muA, thA, hlistA))
+        else:
+            return qA, muA, thA, hlistA
 
     @torch.inference_mode()
     def predict_multipoles_dataset(
