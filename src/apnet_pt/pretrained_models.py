@@ -48,7 +48,6 @@ def atom_model_predict(
             q, d, qp, _ = models[i].predict_multipoles_batch(
                 batch, isolate_predictions=False,
             )
-            print(i, q)
             qs_t += q.numpy()
             ds_t += d.numpy()
             qps_t += qp.numpy()
@@ -70,5 +69,22 @@ def apnet2_model_predict(
     num_models = 5
     ap2 = apnet2_model.APNet2Model(
         pre_trained_model_path=f"{model_dir}ap2_ensemble/ap2_0.pt",
+        atom_model_pre_trained_path=f"{model_dir}am_ensemble/am_0.pt",
     )
-    return
+    if compile:
+        print("Compiling models...")
+        ap2.compile_model()
+    models = [copy.deepcopy(ap2) for _ in range(num_models)]
+    for i in range(1, num_models):
+        models[i].set_pretrained_model(
+            ap2_model_path=f"{model_dir}ap2_ensemble/ap2_{i}.pt",
+            am_model_path=f"{model_dir}am_ensemble/am_{i}.pt",
+        )
+    pred_IEs = np.zeros((len(mols), 5))
+    print("Processing mols...")
+    for i in range(num_models):
+        IEs = models[i].predict_qcel_mols(mols, batch_size=batch_size)
+        pred_IEs[:, 1:] += IEs
+        pred_IEs[:, 0] += np.sum(IEs, axis=1)
+    pred_IEs /= num_models
+    return pred_IEs

@@ -770,6 +770,35 @@ class APNet2Model:
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
         return
 
+    def compile_model(self):
+        self.model.to(self.device)
+        torch._dynamo.config.dynamic_shapes = True
+        torch._dynamo.config.capture_dynamic_output_shape_ops = False
+        torch._dynamo.config.capture_scalar_outputs = False
+        self.model = torch.compile(self.model)
+        return
+
+    def set_pretrained_model(self, ap2_model_path, am_model_path):
+        checkpoint = torch.load(ap2_model_path)
+        if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
+            model_state_dict = {
+                k.replace("_orig_mod.", ""):
+                v for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.model.load_state_dict(model_state_dict)
+        else:
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+        checkpoint = torch.load(am_model_path)
+        if "_orig_mod" not in list(self.atom_model.state_dict().keys())[0]:
+            model_state_dict = {
+                k.replace("_orig_mod.", ""):
+                v for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.atom_model.load_state_dict(model_state_dict)
+        else:
+            self.atom_model.load_state_dict(checkpoint['model_state_dict'])
+        return
+
     ############################################################################
     # The main forward/eval function
     ############################################################################
@@ -908,9 +937,7 @@ class APNet2Model:
         r_cut_im=8.0,
     ):
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
-        print(len(mol_data), batch_size)
         predictions = np.zeros((len(mol_data), 4))
-        print(np.shape(predictions))
         for i in range(0, len(mol_data), batch_size):
             batch_mol_data = mol_data[i: i + batch_size]
             data_A = [d[0] for d in batch_mol_data]
