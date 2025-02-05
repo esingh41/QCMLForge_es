@@ -511,11 +511,14 @@ class AtomModel:
 
     def set_pretrained_model(self, model_path):
         checkpoint = torch.load(model_path)
-        model_state_dict = {
-            k.replace("_orig_mod.", ""):
-            v for k, v in checkpoint["model_state_dict"].items()
-        }
-        self.model.load_state_dict(model_state_dict)
+        if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
+            model_state_dict = {
+                k.replace("_orig_mod.", ""):
+                v for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.model.load_state_dict(model_state_dict)
+        else:
+            self.model.load_state_dict(checkpoint['model_state_dict'])
         return
 
     def compile_model(self):

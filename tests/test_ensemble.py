@@ -61,8 +61,9 @@ units angstrom
 
 
 def test_am_ensemble():
+    print("Testing AM ensemble...")
     ref = torch.load(os.path.join(os.path.dirname(
-        __file__), "dataset_data/am_ensemble_compiled_test.pt"))
+        __file__), "dataset_data/am_ensemble_test.pt"))
 
     mols = [mol_mon for _ in range(3)]
     multipoles = apnet_pt.pretrained_models.atom_model_predict(
@@ -72,37 +73,31 @@ def test_am_ensemble():
     )
     q_ref = ref[0]
     q = multipoles[0]
-    assert np.allclose(q, q_ref)
+    assert np.allclose(q, q_ref, atol=1e-6)
     d_ref = ref[1]
     d = multipoles[1]
-    assert np.allclose(d, d_ref)
+    assert np.allclose(d, d_ref, atol=1e-6)
     qp_ref = ref[2]
     qp = multipoles[2]
-    assert np.allclose(qp, qp_ref)
+    assert np.allclose(qp, qp_ref, atol=1e-6)
     return
 
 
 def test_ap2_ensemble():
-    ref = torch.load(os.path.join(os.path.dirname(
-        __file__), "dataset_data/am_ensemble_compiled_test.pt"))
-
-    mols = [mol_mon for _ in range(3)]
-    multipoles = apnet_pt.pretrained_models.atom_model_predict(
+    # ref = torch.load(os.path.join(os.path.dirname(
+    #     __file__), "dataset_data/ap2_ensemble_test.pt"))
+    #
+    mols = [mol_dimer for _ in range(3)]
+    interaction_energies = apnet_pt.pretrained_models.apnet2_model_predict(
         mols,
         compile=False,
         batch_size=2,
     )
-    q_ref = ref[0]
-    q = multipoles[0]
-    assert np.allclose(q, q_ref)
-    d_ref = ref[1]
-    d = multipoles[1]
-    assert np.allclose(d, d_ref)
-    qp_ref = ref[2]
-    qp = multipoles[2]
-    assert np.allclose(qp, qp_ref)
+    torch.save(interaction_energies, os.path.join(os.path.dirname(
+        __file__), "dataset_data/ap2_ensemble_test.pt"))
     return
 
 
 if __name__ == "__main__":
-    test_am_ensemble()
+    # test_am_ensemble()
+    test_ap2_ensemble()

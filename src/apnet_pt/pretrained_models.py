@@ -1,9 +1,10 @@
-# from . import apnet2_model
+from . import apnet2_model
 from . import atom_model
 from . import atomic_datasets
 from qcelemental.models.molecule import Molecule
 import os
 import numpy as np
+import copy
 
 model_dir = os.path.dirname(os.path.realpath(__file__)) + "/../../models/"
 
@@ -20,6 +21,11 @@ def atom_model_predict(
     if compile:
         print("Compiling models...")
         am.compile_model()
+    models = [copy.deepcopy(am) for _ in range(num_models)]
+    for i in range(1, num_models):
+        models[i].set_pretrained_model(
+            model_path=f"{model_dir}am_ensemble/am_{i}.pt",
+        )
     print("Processing mols...")
     data = [atomic_datasets.qcel_mon_to_pyg_data(
         mol, r_cut=am.model.r_cut) for mol in mols]
@@ -39,9 +45,10 @@ def atom_model_predict(
         ds_t = np.zeros((len(batch.x), 3))
         qps_t = np.zeros((len(batch.x), 3, 3))
         for i in range(num_models):
-            q, d, qp, _ = am.predict_multipoles_batch(
+            q, d, qp, _ = models[i].predict_multipoles_batch(
                 batch, isolate_predictions=False,
             )
+            print(i, q)
             qs_t += q.numpy()
             ds_t += d.numpy()
             qps_t += qp.numpy()
@@ -53,3 +60,15 @@ def atom_model_predict(
         pred_qps[atom_idx:atom_idx + len(batch.x)] = qps_t
         atom_idx += len(batch.x)
     return pred_qs, pred_ds, pred_qps
+
+
+def apnet2_model_predict(
+    mols: [Molecule],
+    compile: bool = True,
+    batch_size: int = 3,
+):
+    num_models = 5
+    ap2 = apnet2_model.APNet2Model(
+        pre_trained_model_path=f"{model_dir}ap2_ensemble/ap2_0.pt",
+    )
+    return
