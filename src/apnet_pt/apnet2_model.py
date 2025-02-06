@@ -50,7 +50,7 @@ class AsymptoticDecayLR(torch.optim.lr_scheduler._LRScheduler):
 
 class ModLambdaDecayLR(torch.optim.lr_scheduler._LRScheduler):
     def __init__(
-        self, optimizer, decay_coefficient, initial_lr, min_lr=4e-5, last_epoch=-1
+        self, optimizer, decay_coefficient, initial_lr, min_lr=1e-7, last_epoch=-1
     ):
         self.decay_coefficient = decay_coefficient
         self.initial_lr = initial_lr
