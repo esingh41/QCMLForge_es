@@ -1525,7 +1525,7 @@ units angstrom
     def train(
         self,
         dataset=None,
-        n_epochs=500,
+        n_epochs=50,
         batch_size=16,
         lr=5e-4,
         split_percent=0.9,

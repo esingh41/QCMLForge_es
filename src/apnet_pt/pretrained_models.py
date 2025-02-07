@@ -64,7 +64,7 @@ def atom_model_predict(
 def apnet2_model_predict(
     mols: [Molecule],
     compile: bool = True,
-    batch_size: int = 3,
+    batch_size: int = 16,
 ):
     num_models = 5
     ap2 = apnet2_model.APNet2Model(
