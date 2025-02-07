@@ -81,8 +81,9 @@ def test_apnet2_model_train():
         n_epochs=1,
         world_size=1,
         omp_num_threads_per_process=8,
-        lr=5e-5,
-        lr_decay=None,
+        lr=2e-3,
+        lr_decay=0.10,
+        # lr_decay=None,
     )
     return
 

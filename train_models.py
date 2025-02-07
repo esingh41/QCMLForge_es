@@ -47,6 +47,7 @@ def train_pairwise_model(
     am_model_path="./models/ap2_ensemble/am_1.pt",
     data_dir="./data_pairwise",
     n_epochs=50,
+    lr=5e-4,
     lr_decay=None,
 ):
     if torch.cuda.is_available():
@@ -81,7 +82,10 @@ def train_pairwise_model(
         n_epochs=n_epochs,
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads_per_process,
-        lr=5e-4,
+        # lr=5e-4,
+        # lr=2e-3,
+        lr=lr,
+        # lr_decay=0.10,
         lr_decay=lr_decay,
         dataloader_num_workers=4,
     )
@@ -165,6 +169,12 @@ def main():
         help="Number of epochs for training"
     )
     args.add_argument(
+        "--lr",
+        type=float,
+        default=5e-4,
+        help="Learning Rate: (5e-4 is default)"
+    )
+    args.add_argument(
         "--lr_decay",
         type=float,
         default=None,
@@ -186,6 +196,7 @@ def main():
             am_model_path=args.am_model_path,
             data_dir=args.data_dir,
             n_epochs=args.n_epochs,
+            lr=args.lr,
             lr_decay=args.lr_decay,
         )
     return

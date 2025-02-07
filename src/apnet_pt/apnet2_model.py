@@ -25,6 +25,19 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 
+
+def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
+    p = step / decay_steps
+    if staircase:
+        p = np.floor(p)
+    return initial_lr / (1 + decay_rate * p)
+
+
+class InverseTimeDecayLR(torch.optim.lr_scheduler.LambdaLR):
+    def __init__(self, optimizer, initial_lr, decay_steps, decay_rate):
+        super().__init__(optimizer, lr_lambda=lambda step: inverse_time_decay(step, initial_lr, decay_steps, decay_rate))
+
+
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
 
@@ -44,25 +57,6 @@ class AsymptoticDecayLR(torch.optim.lr_scheduler._LRScheduler):
     def get_lr(self):
         return [
             base_lr / (1 + self.last_epoch / self.decay_coefficient)
-            for base_lr in self.base_lrs
-        ]
-
-
-class ModLambdaDecayLR(torch.optim.lr_scheduler._LRScheduler):
-    def __init__(
-        self, optimizer, decay_coefficient, initial_lr, min_lr=1e-7, last_epoch=-1
-    ):
-        self.decay_coefficient = decay_coefficient
-        self.initial_lr = initial_lr
-        self.min_lr = min_lr
-        super(ModLambdaDecayLR, self).__init__(optimizer, last_epoch)
-
-    def get_lr(self):
-        return [
-            max(
-                self.initial_lr * (self.decay_coefficient**self.last_epoch), self.min_lr
-            )
-            / self.initial_lr
             for base_lr in self.base_lrs
         ]
 
@@ -1084,8 +1078,8 @@ units angstrom
             optimizer.step()
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
-            if n % 50 == 0:
-                print(f"    Time for {n/len(dataloader)*100:.2f}%", time.time() - t)
+            # if n % 50 == 0:
+            #     print(f"    Time for {n/len(dataloader)*100:.2f}%", time.time() - t)
 
         if scheduler is not None:
             scheduler.step()
@@ -1116,8 +1110,8 @@ units angstrom
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
-                if n % 50 == 0:
-                    print(f"    Time for {n/len(dataloader)*100:.2f}%", time.time() - t)
+                # if n % 50 == 0:
+                #     print(f"    Time for {n/len(dataloader)*100:.2f}%", time.time() - t)
 
         comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
         total_MAE_t = torch.mean(torch.abs(comp_errors_t))
@@ -1328,7 +1322,7 @@ units angstrom
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         if lr_decay:
-            scheduler = ModLambdaDecayLR(optimizer, lr_decay, initial_lr=lr)
+            scheduler = InverseTimeDecayLR(optimizer, lr, len(train_loader) * 60, lr_decay)
         else:
             scheduler = None
         criterion = None
@@ -1426,6 +1420,7 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
+        # if False:
         print("Compiling model")
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
@@ -1459,7 +1454,10 @@ units angstrom
 
         # (3) Optim/Scheduler
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-        scheduler = ModLambdaDecayLR(optimizer, lr_decay, lr) if lr_decay else None
+        # scheduler = ModLambdaDecayLR(optimizer, lr_decay, lr) if lr_decay else None
+        scheduler = InverseTimeDecayLR(optimizer, lr, len(train_loader) * 2, lr_decay) if lr_decay else None
+        print(lr)
+        print(scheduler.get_lr())
         criterion = None  # defaults to MSE
 
         # (4) Print table header
