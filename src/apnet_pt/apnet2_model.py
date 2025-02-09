@@ -1491,26 +1491,26 @@ units angstrom
 
             # Track best model
             star_marker = " "
-            if test_loss < lowest_test_loss:
-                lowest_test_loss = test_loss
-                star_marker = "*"
-                if self.model_save_path:
-                    cpu_model = unwrap_model(self.model).to("cpu")
-                    torch.save(
-                        {
-                            "model_state_dict": cpu_model.state_dict(),
-                            "config": {
-                                "n_message": cpu_model.n_message,
-                                "n_rbf": cpu_model.n_rbf,
-                                "n_neuron": cpu_model.n_neuron,
-                                "n_embed": cpu_model.n_embed,
-                                "r_cut_im": cpu_model.r_cut_im,
-                                "r_cut": cpu_model.r_cut,
-                            },
+            # if test_loss < lowest_test_loss:
+            lowest_test_loss = test_loss
+            star_marker = "*"
+            if self.model_save_path:
+                cpu_model = unwrap_model(self.model).to("cpu")
+                torch.save(
+                    {
+                        "model_state_dict": cpu_model.state_dict(),
+                        "config": {
+                            "n_message": cpu_model.n_message,
+                            "n_rbf": cpu_model.n_rbf,
+                            "n_neuron": cpu_model.n_neuron,
+                            "n_embed": cpu_model.n_embed,
+                            "r_cut_im": cpu_model.r_cut_im,
+                            "r_cut": cpu_model.r_cut,
                         },
-                        self.model_save_path,
-                    )
-                    self.model.to(rank_device)
+                    },
+                    self.model_save_path,
+                )
+                self.model.to(rank_device)
 
             print(
                 f"  EPOCH: {epoch:4d} ({time.time()-t1:<7.2f}s)  MAE: "
