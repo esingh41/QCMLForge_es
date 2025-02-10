@@ -14,6 +14,7 @@ def train_atom_model(
     spec_type=3,
     testing=False,
     n_epochs=500,
+    random_seed=42,
 ):
     atom_model = AtomModel(
         n_message=3,
@@ -38,6 +39,7 @@ def train_atom_model(
         optimize_for_speed=True,
         world_size=1,
         omp_num_threads_per_process=8,
+        random_seed=random_seed,
     )
     return
 
@@ -49,6 +51,7 @@ def train_pairwise_model(
     n_epochs=50,
     lr=5e-4,
     lr_decay=None,
+    random_seed=42,
 ):
     if torch.cuda.is_available():
         world_size = torch.cuda.device_count()
@@ -88,6 +91,7 @@ def train_pairwise_model(
         lr=lr,
         lr_decay=lr_decay,
         dataloader_num_workers=4,
+        random_seed=random_seed,
     )
     return
 
@@ -198,7 +202,7 @@ def main():
     if args.train_am:
         train_atom_model(
             model_path=args.am_model_path,
-            data_dir=args.data_dir_atomic,
+            data_dir=args.data_dir_atom,
             spec_type=args.spec_type_am,
             n_epochs=args.n_epochs_atom,
             random_seed=args.random_seed,
