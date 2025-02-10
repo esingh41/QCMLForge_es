@@ -157,10 +157,22 @@ def main():
         help="dataset spec_type recommended: (2 for AP2)"
     )
     args.add_argument(
+        "--data_dir_atom",
+        type=str,
+        default="./data_dir",
+        help="specify data_dir for datasets (default: ./data_dir)"
+    )
+    args.add_argument(
         "--data_dir",
         type=str,
         default="./data_dir",
         help="specify data_dir for datasets (default: ./data_dir)"
+    )
+    args.add_argument(
+        "--n_epochs_atom",
+        type=int,
+        default=500,
+        help="Number of epochs for training"
     )
     args.add_argument(
         "--n_epochs",
@@ -186,9 +198,10 @@ def main():
     if args.train_am:
         train_atom_model(
             model_path=args.am_model_path,
-            data_dir=args.data_dir,
+            data_dir=args.data_dir_atomic,
             spec_type=args.spec_type_am,
-            n_epochs=args.n_epochs,
+            n_epochs=args.n_epochs_atom,
+            random_seed=args.random_seed,
         )
     if args.train_ap2:
         train_pairwise_model(
@@ -198,6 +211,7 @@ def main():
             n_epochs=args.n_epochs,
             lr=args.lr,
             lr_decay=args.lr_decay,
+            random_seed=args.random_seed,
         )
     return
 

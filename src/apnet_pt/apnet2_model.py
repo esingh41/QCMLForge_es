@@ -1952,6 +1952,7 @@ units angstrom
         world_size=1,
         omp_num_threads_per_process=6,
         lr_decay=None,
+        random_seed=42,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1965,7 +1966,7 @@ units angstrom
         if self.dataset is None:
             raise ValueError("No dataset provided")
         self.batch_size = batch_size
-        np.random.seed(42)
+        np.random.seed(random_seed)
         self.model_save_path = model_path
         print(f"Saving training results to...\n{model_path}")
         if self.ds_spec_type in [2, 6, 7]:

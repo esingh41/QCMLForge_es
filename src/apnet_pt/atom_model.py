@@ -1089,7 +1089,7 @@ class AtomModel:
         dataloader_num_workers=0,
         world_size=1,  # Default to 1 for single-core operation
         omp_num_threads_per_process=None,
-        random=False,
+        random_seed=42,
     ):
         self.model_save_path = model_path
         if self.model_save_path is not None:
@@ -1103,12 +1103,15 @@ class AtomModel:
             raise ValueError("No dataset provided")
         self.train_shuffle = shuffle
 
-        if not random:
-            np.random.seed(42)
-            torch.manual_seed(42)
+        np.random.seed(42)
+        torch.manual_seed(42)
         random_indices = np.random.permutation(len(self.dataset))
         train_indices = random_indices[: int(len(self.dataset) * split_percent)]
         test_indices = random_indices[int(len(self.dataset) * split_percent) :]
+        if random_seed:
+            np.random.seed(random_seed)
+            torch.manual_seed(random_seed)
+            train_indices = np.random.permutation(train_indices)
         train_dataset = self.dataset[train_indices]
         test_dataset = self.dataset[test_indices]
 
