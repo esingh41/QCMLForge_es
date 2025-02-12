@@ -151,7 +151,7 @@ def main():
     args.add_argument(
         "--spec_type_am",
         type=int,
-        default=2,
+        default=3,
         help="dataset spec_type recommended: (3 for AM)"
     )
     args.add_argument(
