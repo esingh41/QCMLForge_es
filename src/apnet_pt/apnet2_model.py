@@ -1484,7 +1484,6 @@ units angstrom
         self.model.train()
         comp_errors_t = []
         total_loss = 0.0
-        t = time.time()
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
@@ -1496,9 +1495,6 @@ units angstrom
             optimizer.step()
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
-            # if n % 50 == 0:
-            #     print(f"    Time for {n/len(dataloader)*100:.2f}%", time.time() - t)
-
         if scheduler is not None:
             scheduler.step()
 
