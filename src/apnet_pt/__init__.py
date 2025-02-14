@@ -12,3 +12,4 @@ from .util import load_dimer_dataset, load_monomer_dataset, load_atomic_module_g
 from .apnet2_model import APNet2Model
 from .atom_model import AtomModel
 from .pretrained_models import atom_model_predict
+from . import classical_induction
