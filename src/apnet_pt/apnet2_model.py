@@ -1484,7 +1484,6 @@ units angstrom
         self.model.train()
         comp_errors_t = []
         total_loss = 0.0
-        t = time.time()
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
@@ -1496,9 +1495,6 @@ units angstrom
             optimizer.step()
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
-            # if n % 50 == 0:
-            #     print(f"    Time for {n/len(dataloader)*100:.2f}%", time.time() - t)
-
         if scheduler is not None:
             scheduler.step()
 
@@ -1909,26 +1905,26 @@ units angstrom
 
             # Track best model
             star_marker = " "
-            # if test_loss < lowest_test_loss:
-            lowest_test_loss = test_loss
-            star_marker = "*"
-            if self.model_save_path:
-                cpu_model = unwrap_model(self.model).to("cpu")
-                torch.save(
-                    {
-                        "model_state_dict": cpu_model.state_dict(),
-                        "config": {
-                            "n_message": cpu_model.n_message,
-                            "n_rbf": cpu_model.n_rbf,
-                            "n_neuron": cpu_model.n_neuron,
-                            "n_embed": cpu_model.n_embed,
-                            "r_cut_im": cpu_model.r_cut_im,
-                            "r_cut": cpu_model.r_cut,
+            if test_loss < lowest_test_loss:
+                lowest_test_loss = test_loss
+                star_marker = "*"
+                if self.model_save_path:
+                    cpu_model = unwrap_model(self.model).to("cpu")
+                    torch.save(
+                        {
+                            "model_state_dict": cpu_model.state_dict(),
+                            "config": {
+                                "n_message": cpu_model.n_message,
+                                "n_rbf": cpu_model.n_rbf,
+                                "n_neuron": cpu_model.n_neuron,
+                                "n_embed": cpu_model.n_embed,
+                                "r_cut_im": cpu_model.r_cut_im,
+                                "r_cut": cpu_model.r_cut,
+                            },
                         },
-                    },
-                    self.model_save_path,
-                )
-                self.model.to(rank_device)
+                        self.model_save_path,
+                    )
+                    self.model.to(rank_device)
 
             print(
                 f"  EPOCH: {epoch:4d} ({time.time()-t1:<7.2f}s)  MAE: "
