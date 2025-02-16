@@ -101,5 +101,5 @@ def test_ap2_ensemble_compile():
 
 
 if __name__ == "__main__":
-    # test_am_ensemble()
-    test_ap2_ensemble()
+    test_am_ensemble()
+    # test_ap2_ensemble()

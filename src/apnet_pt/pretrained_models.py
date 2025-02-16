@@ -13,6 +13,7 @@ def atom_model_predict(
     mols: [Molecule],
     compile: bool = True,
     batch_size: int = 3,
+    return_mol_arrays: bool = True,
 ):
     num_models = 5
     am = atom_model.AtomModel(
@@ -39,6 +40,7 @@ def atom_model_predict(
     pred_ds = np.zeros((atom_count, 3))
     pred_qps = np.zeros((atom_count, 3, 3))
     atom_idx = 0
+    mol_ids = []
     for batch in batched_data:
         # Intermediates which get averaged from num_models
         qs_t = np.zeros((len(batch.x)))
@@ -57,8 +59,21 @@ def atom_model_predict(
         pred_qs[atom_idx:atom_idx + len(batch.x)] = qs_t
         pred_ds[atom_idx:atom_idx + len(batch.x)] = ds_t
         pred_qps[atom_idx:atom_idx + len(batch.x)] = qps_t
+        tmp = np.unique([batch.molecule_ind[i] for i in range(len(batch.molecule_ind))], return_counts=True)
+        mol_id_ranges = [atom_idx]
+        for i in range(len(tmp[1]) - 1):
+            mol_id_ranges.append(int(mol_id_ranges[i] + tmp[1][i + 1]))
         atom_idx += len(batch.x)
-    return pred_qs, pred_ds, pred_qps
+        mol_ids.extend(
+            mol_id_ranges
+        )
+    mol_ids.append(atom_idx)
+    if return_mol_arrays:
+        pred_qs = np.split(pred_qs, mol_ids[1:-1])
+        pred_ds = np.split(pred_ds, mol_ids[1:-1])
+        pred_qps = np.split(pred_qps, mol_ids[1:-1])
+        return pred_qs, pred_ds, pred_qps
+    return pred_qs, pred_ds, pred_qps, mol_ids
 
 
 def apnet2_model_predict(
