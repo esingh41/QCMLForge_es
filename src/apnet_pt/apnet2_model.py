@@ -1870,8 +1870,6 @@ units angstrom
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         # scheduler = ModLambdaDecayLR(optimizer, lr_decay, lr) if lr_decay else None
         scheduler = InverseTimeDecayLR(optimizer, lr, len(train_loader) * 2, lr_decay) if lr_decay else None
-        print(lr)
-        print(scheduler.get_lr())
         criterion = None  # defaults to MSE
 
         # (4) Print table header
