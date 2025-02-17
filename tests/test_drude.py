@@ -61,6 +61,25 @@ PyTorch U_ind = -19.8161 kJ/mol
 
 data_dir = os.path.join(os.path.dirname(__file__), "drude_test_data/")
 
+# Drude charge, (or q^shell_i) is what is assumed fixed, needs parameterization
+# so MBIS charge != -q^shell_i for charged, but will for neutral
+
+# Drude charge, polarizability, thole are fixed
+# polarizability nm^3, from 2013 McDaniel first SAPT papers
+# thole will largely be 1
+
+# coupling of drude charge and polarizability, so might be issue with -D4
+# Charges and polarizabilities should be from the same source, they used CAMCASP
+
+# for acnit, stack N to N very close (2.5 A), need strong electric field to
+# ensure thole model works correctly
+# Could formulate in terms of interaction tensor E_elst = q_i * T_ij * q_j
+
+# Need to get the non-additive 3body energy
+
+# McDaniel - need to focus on crystal first before tackling generalization of
+# atomic polarizabilities, cannot just use simple equations to map from one
+# model to another. Energies will be bad
 
 @pytest.mark.parametrize(
     "molecule,ref_uind",

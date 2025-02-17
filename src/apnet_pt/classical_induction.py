@@ -154,6 +154,7 @@ def Uind(Rij, Dij, Qi_shell, Qj_shell, Qi_core, Qj_core, u_scale, k, reshape=Non
         Dij = Dij.view(reshape)
     U_pol = Upol(Dij, k)
     U_coul_val = Ucoul(Rij, Dij, Qi_shell, Qj_shell, Qi_core, Qj_core, u_scale)
+    print(f"U_pol: {U_pol:.4f}, U_coul: {U_coul_val:.4f}")
     return U_pol + U_coul_val
 
 
