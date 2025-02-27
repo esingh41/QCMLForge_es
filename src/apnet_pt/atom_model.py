@@ -459,12 +459,13 @@ class AtomModel:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
-        if torch.cuda.is_available():
-            gpu_enabled = True
+        if not use_GPU:
+            device = torch.device("cpu")
+            print("running on the CPU")
+        elif torch.cuda.is_available():
             device = torch.device("cuda:0")
             print("running on the GPU")
         else:
-            gpu_enabled = False
             device = torch.device("cpu")
             print("running on the CPU")
 
@@ -1178,6 +1179,7 @@ class AtomModel:
     @torch.inference_mode()
     def predict_multipoles_batch(self, batch, isolate_predictions=True):
         batch.to(self.device)
+        self.model.to(self.device)
         qA, muA, thA, hlistA = self.model_predict(batch)
         batch = batch.cpu()
         qA = qA.detach().detach().cpu()
