@@ -29,3 +29,10 @@ python3 ./train_models.py \
 # Objectives
 
 - [ ] Extend AtomMPNN to predict Hirshfeld ratios
+
+# Acknowledgements
+
+The free-atom polarizabilities come from
+[libmbd](https://github.com/libmbd/libmbd/blob/master/src/pymbd/vdw-params.csv).
+To cite Hirshfeld model, please cite libmbd and the original paper to give
+appropriate credit for their indirect contributions.

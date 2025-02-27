@@ -2,7 +2,6 @@
 General utility functions for pre-processing molecules
 """
 
-import os
 import numpy as np
 import pandas as pd
 import qcelemental as qcel
@@ -30,7 +29,7 @@ def qcel_to_dimerdata(dimer):
     try:
         ZA = np.array([constants.elem_to_z[za] for za in ZA])
         ZB = np.array([constants.elem_to_z[zb] for zb in ZB])
-    except:
+    except (Exception):
         return None
 
     RA = dimer.geometry[dimer.fragments[0]] * constants.au2ang
@@ -134,7 +133,6 @@ def load_bms_dimer(file):
     geom = lines[-natom:]
 
     nA = int(dimerinfo[-1])
-    nB = natom - nA
     TQ = int(dimerinfo[1])
     TQA = int(dimerinfo[2])
     TQB = int(dimerinfo[3])
@@ -222,124 +220,6 @@ def load_dimer_dataset(
 
         return dimers, labels
     return RA, RB, ZA, ZB, TQA, TQB, labels
-
-
-# def load_monomer_dataset(file, max_size=None):
-#     """Load multiple monomers from a :class:`~pandas.DataFrame`
-#
-#     Loads monomers from the :class:`~pandas.DataFrame` format associated with the original AP-Net publication.
-#     Each row of the :class:`~pandas.DataFrame` corresponds to a molecular dimer.
-#
-#     The columns [`Z`, `R`, and `total_charge`] are required.
-#     `Z` is atom types (:class:`~numpy.ndarray` of `int` with shape (`n`,)).
-#     `R` is atomic positions in Angstrom (:class:`~numpy.ndarray` of `float` with shape (`n`,3)).
-#     `total_charge` are monomer charges (int).
-#
-#     The columns [`cartesian_multipoles`, `volume_ratios`, and `valence_widths`] are optional.
-#     `cartesian_multipoles` describes atom-centered charges, dipoles, and quadrupoles (:class:`~numpy.ndarray` of `float` with shape (`n`, 10). The ordering convention is [q, u_x, u_y, u_z, Q_xx, Q_xy, Q_xz, Q_yy, Q_yz, Q_zz], all in a.u.)
-#     `volume_ratios` is the ratio of the volume of the atom-in-molecule to the free atom (:class:`~numpy.ndarray` of `float` with shape (`n`, 1), unitless
-#     `valence_widths` is the width describing the valence electron density (:class:`~numpy.ndarray` of `float` with shape (`n`, 1), TODO: check units. a.u. ? inverse width?
-#
-#     Parameters
-#     ----------
-#     file : str
-#         The name of a file containing the :class:`~pandas.DataFrame`
-#
-#     Returns
-#     -------
-#     monomers : list of :class:`~qcelemental.models.Molecule`
-#     cartesian_multipoles : list of :class:`~numpy.ndarray` or None
-#         None is returned if the `cartesian_multipoles` column is not present in the :class:`~pandas.DataFrame`
-#     volume_ratios : list of :class:`~numpy.ndarray` or None
-#         None is returned if the `volume_ratios` column is not present in the :class:`~pandas.DataFrame`
-#     valence_widths : list of :class:`~numpy.ndarray` or None
-#         None is returned if the `valence_widths` column is not present in the :class:`~pandas.DataFrame`
-#     """
-#
-#     df = pd.read_pickle(file)
-#     N = len(df.index)
-#     # filter df to ensure all Z elements are in constants.z_to_elem, drop row if not
-#     ids_to_drop = []
-#     for i in range(N):
-#         if not all([z in constants.z_to_elem.keys() for z in df.Z[i]]):
-#             for z in df.Z[i]:
-#                 if z not in constants.z_to_elem.keys():
-#                     print(f"Z: {z} not in constants.z_to_elem")
-#             print(f"Removing row {df.iloc[i]['Z']} from dataset")
-#             ids_to_drop.append(i)
-#
-#     df = df.drop(ids_to_drop)
-#     df.reset_index(drop=True, inplace=True)
-#     N = len(df.index)
-#
-#     if max_size is not None and max_size < N:
-#         df = df.head(max_size)
-#         N = max_size
-#
-#     R = df.R.tolist()
-#     Z = df.Z.tolist()
-#     TQ = df.total_charge.tolist()
-#     aQ = [TQ[i] / np.sum(Z[i] > 0) for i in range(N)]
-#
-#     try:
-#         cartesian_multipoles = df["cartesian_multipoles"].to_numpy()
-#     except:
-#         cartesian_multipoles = None
-#
-#     try:
-#         volume_ratios = df["volume_ratios"].to_numpy()
-#     except:
-#         volume_ratios = None
-#
-#     try:
-#         valence_widths = df["valence_widths"].to_numpy()
-#     except:
-#         valence_widths = None
-#
-#     monomers = []
-#     for i in range(N):
-#         monomers.append(monomerdata_to_qcel(R[i], Z[i], aQ[i]))
-#
-#     return monomers, cartesian_multipoles, volume_ratios, valence_widths
-
-
-class atomic_module_dataset(Dataset):
-    def __init__(self, root, transform=None, pre_transform=None):
-        super(atomic_module_dataset, self).__init__(root, transform, pre_transform)
-
-    @property
-    def raw_file_names(self):
-        return ["some_file_1"]
-
-    @property
-    def processed_file_names(self):
-        return ["data_1.pt", "data_2.pt", ...]
-
-    def download(self):
-        # Download to `self.raw_dir`.
-        path = download_url(url, self.raw_dir)
-
-    def process(self):
-        idx = 0
-        for raw_path in self.raw_paths:
-            # Read data from `raw_path`.
-            data = Data(...)
-
-            if self.pre_filter is not None and not self.pre_filter(data):
-                continue
-
-            if self.pre_transform is not None:
-                data = self.pre_transform(data)
-
-            torch.save(data, osp.join(self.processed_dir, f"data_{idx}.pt"))
-            idx += 1
-
-    def len(self):
-        return len(self.processed_file_names)
-
-    def get(self, idx):
-        data = torch.load(osp.join(self.processed_dir, f"data_{idx}.pt"))
-        return data
 
 
 def load_atomic_module_graph_dataset(
@@ -478,6 +358,7 @@ def load_monomer_dataset(
     Z_label="Z",
     TQ_label="TQ",
     cartesian_multipoles_label="cartesian_multipoles",
+    hirshfeld_props=False,
 ):
     """Load multiple monomers from a :class:`~pandas.DataFrame`
 
@@ -511,6 +392,8 @@ def load_monomer_dataset(
     """
 
     df = pd.read_pickle(file)
+    print(df.columns.values)
+    print(df[['R', 'cartesian_multipoles', 'valence_widths', 'valence_charges', 'total_charge']].iloc[0])
     # if "TQ" not in df.columns:
     #     df["TQ"] = df["total_charge"]
     N = len(df.index)
@@ -531,21 +414,10 @@ def load_monomer_dataset(
         cartesian_multipoles_in = df[cartesian_multipoles_label].to_numpy()
     else:
         cartesian_multipoles_in = None
-    # try:
-    #     # cartesian_multipoles_in = df['cartesian_multipoles'].to_numpy()
-    #     cartesian_multipoles_in = df['multipoles_a'].to_numpy()
-    # except:
-    #     cartesian_multipoles_in = None
 
-    try:
-        volume_ratios = df["volume_ratios"].to_numpy()
-    except:
-        volume_ratios = None
-
-    try:
+    if hirshfeld_props:
+        volume_ratios = df["valence_charges"].to_numpy()
         valence_widths = df["valence_widths"].to_numpy()
-    except:
-        valence_widths = None
 
     monomers = []
     cartesian_multipoles = []
@@ -559,6 +431,9 @@ def load_monomer_dataset(
                 cartesian_multipoles.append(cartesian_multipoles_in[i])
         except Exception as e:
             pass
+
+    if hirshfeld_props:
+        return monomers, cartesian_multipoles, total_charge, volume_ratios, valence_widths
 
     return monomers, cartesian_multipoles, total_charge
 
@@ -608,7 +483,3 @@ if __name__ == "__main__":
     print(R)
     print(Z)
     print(aQ)
-
-    # dimers, labels = load_dimer_dataset("data/200_dimers.pkl")
-    # load_dimer_dataset("/theoryfs2/common/data/dimer-pickles/1600K_val_dimers-fixed.pkl")
-    # print(labels)
