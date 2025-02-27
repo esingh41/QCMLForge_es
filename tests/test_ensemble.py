@@ -61,6 +61,8 @@ def test_ap2_ensemble():
         compile=False,
         batch_size=2,
     )
+    # torch.save(interaction_energies, os.path.join(os.path.dirname(
+    #     __file__), "dataset_data/ap2_ensemble_test.pt"))
     assert np.allclose(interaction_energies, ref, atol=1e-6)
 
 

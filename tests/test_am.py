@@ -19,11 +19,16 @@ def test_am():
     hlistB_ref = torch.load(f"{current_file_path}/dataset_data/mol_hlist_B.pt", weights_only=False)
 
     am = AtomModel(
+        use_GPU=False,
         pre_trained_model_path="./models/am_ensemble/am_0.pt",
     )
     # Batch A: All full molecules
     batch_A = torch.load(f"{current_file_path}/dataset_data/batch_A.pt", weights_only=False)
     qA, muA, thetaA, hlistA = am.predict_multipoles_batch(batch_A)
+    # torch.save(qA, f"{current_file_path}/dataset_data/mol_charges_A.pt")
+    # torch.save(muA, f"{current_file_path}/dataset_data/mol_dipoles_A.pt")
+    # torch.save(thetaA, f"{current_file_path}/dataset_data/mol_qpoles_A.pt")
+    # torch.save(hlistA, f"{current_file_path}/dataset_data/mol_hlist_A.pt")
     charge_cnt = 0
     for mol_charge in qA:
         charge_cnt += mol_charge.shape[0]
@@ -37,6 +42,10 @@ def test_am():
     # Batch B: Final molecule is single atom
     batch_B = torch.load(f"{current_file_path}/dataset_data/batch_B.pt", weights_only=False)
     qB, muB, thetaB, hlistB = am.predict_multipoles_batch(batch_B)
+    # torch.save(qB, f"{current_file_path}/dataset_data/mol_charges_B.pt")
+    # torch.save(muB, f"{current_file_path}/dataset_data/mol_dipoles_B.pt")
+    # torch.save(thetaB, f"{current_file_path}/dataset_data/mol_qpoles_B.pt")
+    # torch.save(hlistB, f"{current_file_path}/dataset_data/mol_hlist_B.pt")
     charge_cnt = 0
     for mol_charge in qB:
         charge_cnt += mol_charge.shape[0]
@@ -52,6 +61,10 @@ def test_am():
     print(batch_C)
     qC, muC, thetaC, hlistC = am.predict_multipoles_batch(batch_C)
     print("batch_C complete")
+    return
+
+
+def test_am_hirshfeld():
     return
 
 
