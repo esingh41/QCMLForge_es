@@ -25,3 +25,7 @@ python3 ./train_models.py \
     --am_model_path ./models/example/am_example.pt \
     --n_epochs 5 
 ```
+
+# Objectives
+
+- [ ] Extend AtomMPNN to predict Hirshfeld ratios
