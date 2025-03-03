@@ -182,3 +182,7 @@ data_2
 data_3
 data_4
 data_dir_ex
+tests/test_qca.py
+timer.dat
+water_test.py
+
