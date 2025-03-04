@@ -1,4 +1,3 @@
-import sys
 import os
 import argparse
 import pandas as pd
@@ -18,9 +17,9 @@ print(client)
 ROOT = os.getcwd()
 
 # df['qcel'] are qcelemental monomer Molecule objects
-# df = pd.read_pickle("./data_dir/raw/monomers_ap3_spec_1.pkl")
+df = pd.read_pickle("../data_dir/raw/monomers_ap3_spec_1.pkl")
 # df.head().to_pickle("./data_dir/raw/monomers_ap3_spec_1_head.pkl")
-df = pd.read_pickle("./data_dir/raw/monomers_ap3_spec_1_head.pkl")
+# df = pd.read_pickle("../data_dir/raw/monomers_ap3_spec_1_head.pkl")
 print(df.columns.values)
 
 
@@ -36,7 +35,7 @@ def add_QCdataset(
 
     Must be in a directory with input files to read from (at least to get Molecule entries)
     """
-    # client.delete_dataset(dataset_id=1, delete_records=True)
+    # client.delete_dataset(dataset_id=2, delete_records=True)
     try:
         ds = client.add_dataset("singlepoint", system,
                                 f"Dataset to contain {system}")
@@ -58,10 +57,9 @@ def add_QCdataset(
             mol = Molecule.from_data(mol.dict(), extras=extras)
             ent = SinglepointDatasetEntry(name=name, molecule=mol)
             entry_list.append(ent)
-            break
 
         ds.add_entries(entry_list)
-        print("Added molecules to dataset")
+        print(f"Added {len(entry_list)} molecules to dataset")
 
         spec = QCSpecification(
             program="psi4",
@@ -78,11 +76,10 @@ def add_QCdataset(
                 "mbis_maxiter": 1000,
                 "mbis_radial_points": 99,
                 "mbis_spherical_points": 590,
-                "scf_properties": ["mbis_charges"],
+                "scf_properties": ["mbis_charges", "MBIS_VOLUME_RATIOS"],
                 "scf_type": "df",
             },
             protocols={"wavefunction": "orbitals_and_eigenvalues"},
-            extras={"description": "MBIS calculations for Hirshfeld Volumes"}
         )
         ds.add_specification(name=f"psi4/{method}/{basis}", specification=spec)
         print(f"Added {method}/{basis} specification to dataset")
@@ -99,6 +96,8 @@ def submit(ds: SinglepointDataset, tag: str = "short") -> None:
 
 
 def main():
+    # mode = "create"
+    # mode = "run"
     mode = "analyze"
     system = "AP2-monomers"
     method = "PBE0"
@@ -109,21 +108,30 @@ def main():
             submit(ds, tag="normal")
     else:
         ds.status()
+        ds.print_status()
+        # ds.list_specifications()
+        # print(
+        #     f"{len([0 for i in ds.iterate_records(status='complete')])} / {len(df)} comp. complete"
+        # )
         # return
-        for entry_name, spec_name, record in tqdm(
-            ds.iterate_records(status="complete")
-        ):
-            record_dict = record.dict()
-            qcvars = record_dict["properties"]
-            charges = qcvars["mbis charges"]
-            dipoles = qcvars["mbis dipoles"]
-            quadrupoles = qcvars["mbis quadrupoles"]
-            level_of_theory = f"{record_dict['specification']['method']}/{record_dict['specification']['basis']}"
-            pp(record_dict)
-            pp(qcvars)
-            break
-        df2 = ds.get_properties_df(['mbis charges', 'mbis dipoles', 'mbis quadrupoles', 'mbis radial moments <r^2>', 'mbis radial moments <r^3>', 'mbis radial moments <r^4>', 'mbis valence widths'])
-        print(df2)
+        # for entry_name, spec_name, record in tqdm(
+        #     ds.iterate_records(status="complete")
+        # ):
+        #     print(entry_name, spec_name)
+        #     mols = client.get_molecules(record.molecule_id)
+        #     # print(mols.to_string(dtype="xyz"))
+        #     record_dict = record.dict()
+        #     qcvars = record_dict["properties"]
+        #     charges = qcvars["mbis charges"]
+        #     dipoles = qcvars["mbis dipoles"]
+        #     quadrupoles = qcvars["mbis quadrupoles"]
+        #     level_of_theory = f"{record_dict['specification']['method']}/{record_dict['specification']['basis']}"
+        #     # pp(record_dict.keys())
+        #     # pp(qcvars.keys())
+        #     # pp(qcvars)
+        #     break
+        # df2 = ds.get_properties_df(['mbis charges', 'mbis dipoles', 'mbis quadrupoles', 'mbis radial moments <r^2>', 'mbis radial moments <r^3>', 'mbis radial moments <r^4>', 'mbis valence widths', 'mbis volume ratios', 'mbis free atom c volume', 'mbis free atom h volume', 'mbis free atom n volume', 'mbis free atom s volume',])
+        # print(df2)
 
 
 if __name__ == "__main__":
