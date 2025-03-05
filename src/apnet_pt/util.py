@@ -414,8 +414,8 @@ def load_monomer_dataset(
         cartesian_multipoles_in = None
 
     if hirshfeld_props:
-        volume_ratios = df["valence_charges"].to_numpy()
-        valence_widths = df["valence_widths"].to_numpy()
+        volume_ratios = df["volume ratios"].to_numpy()
+        valence_widths = df["valence widths"].to_numpy()
 
     monomers = []
     cartesian_multipoles = []

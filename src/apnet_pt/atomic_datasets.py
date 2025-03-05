@@ -701,11 +701,11 @@ class atomic_hirshfeld_module_dataset(Dataset):
         if self.spec_type == 1:
             print(
                 # f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
-                "monomers_apnet2_spec_3_62.pkl",
+                "monomers_ap3_spec_1_pbe0_62.pkl",
             )
             return [
                 # f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
-                "monomers_apnet2_spec_3_62.pkl",
+                "monomers_ap3_spec_1_pbe0_62.pkl",
             ]
         raise ValueError("spec_type must 1!")
         return []
