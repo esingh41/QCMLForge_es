@@ -1,5 +1,5 @@
 from . import apnet2_model
-from . import atom_model
+from . import AtomModels
 from . import atomic_datasets
 from qcelemental.models.molecule import Molecule
 import os
@@ -16,7 +16,7 @@ def atom_model_predict(
     return_mol_arrays: bool = True,
 ):
     num_models = 5
-    am = atom_model.AtomModel(
+    am = AtomModels.ap2_atom_model.AtomModel(
         pre_trained_model_path=f"{model_dir}am_ensemble/am_0.pt",
     )
     if compile:
