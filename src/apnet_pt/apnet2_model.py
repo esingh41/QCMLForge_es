@@ -5,8 +5,7 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-
-from .atom_model import AtomMPNN, isolate_atomic_property_predictions
+from .AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
 from . import atomic_datasets
 from . import pairwise_datasets
 from .pairwise_datasets import (
@@ -35,7 +34,12 @@ def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True
 
 class InverseTimeDecayLR(torch.optim.lr_scheduler.LambdaLR):
     def __init__(self, optimizer, initial_lr, decay_steps, decay_rate):
-        super().__init__(optimizer, lr_lambda=lambda step: inverse_time_decay(step, initial_lr, decay_steps, decay_rate))
+        super().__init__(
+            optimizer,
+            lr_lambda=lambda step: inverse_time_decay(
+                step, initial_lr, decay_steps, decay_rate
+            ),
+        )
 
 
 warnings.filterwarnings("ignore")
@@ -217,7 +221,6 @@ class APNet2_MPNN(nn.Module):
         dR_ang,
         dR_xyz_ang,
     ):
-
         dR = dR_ang / constants.au2ang
         dR_xyz = dR_xyz_ang / constants.au2ang
         oodR = 1.0 / dR
@@ -264,7 +267,9 @@ class APNet2_MPNN(nn.Module):
         nedge = e_source.numel()
         if nedge == 0:
             # No intramolecular edges
-            return torch.zeros(0, self.n_embed * 4 * self.n_rbf + self.n_embed * 4 + self.n_rbf)
+            return torch.zeros(
+                0, self.n_embed * 4 * self.n_rbf + self.n_embed * 4 + self.n_rbf
+            )
 
         h0_source = h0.index_select(0, e_source)
         h0_target = h0.index_select(0, e_target)
@@ -346,8 +351,10 @@ class APNet2_MPNN(nn.Module):
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
 
         # interatomic distances
-        dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
-        dR_lr, dR_lr_xyz = self.get_distances(RA, RB, e_ABlr_source, e_ABlr_target)
+        dR_sr, dR_sr_xyz = self.get_distances(
+            RA, RB, e_ABsr_source, e_ABsr_target)
+        dR_lr, dR_lr_xyz = self.get_distances(
+            RA, RB, e_ABlr_source, e_ABlr_target)
         # TODO: need to handle single atoms correctly without self edge because
         # this goes to zero causing nans later...
         dRA, dRA_xyz = self.get_distances(RA, RA, e_AA_source, e_AA_target)
@@ -395,8 +402,10 @@ class APNet2_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0, reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0, reduce="sum", dim_size=natomB)
+            mA_i = scatter(mA_ij, e_AA_source, dim=0,
+                           reduce="sum", dim_size=natomA)
+            mB_i = scatter(mB_ij, e_BB_source, dim=0,
+                           reduce="sum", dim_size=natomB)
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
@@ -434,8 +443,10 @@ class APNet2_MPNN(nn.Module):
         # mock right sized output with N_dimer, 4 components
 
         # atom-pair features are a combo of atomic hidden states and the interatomic distance
-        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr, e_ABsr_source, e_ABsr_target)
-        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr, e_ABsr_target, e_ABsr_source)
+        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr,
+                            e_ABsr_source, e_ABsr_target)
+        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr,
+                            e_ABsr_target, e_ABsr_source)
 
         # project the directional atomic hidden states along the interatomic axis
         hA_dir = torch.cat(hA_dir_list, dim=-1)
@@ -492,7 +503,8 @@ class APNet2_MPNN(nn.Module):
         # if ndimer < 1:
         #     return torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), hAB, hBA
         # print(E_sr.dtype, dimer_ind.dtype, ndimer.dtype)
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
+        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
+                             reduce="add", dim_size=ndimer)
 
         ####################################################
         ### predict multipole electrostatic interactions ###
@@ -660,7 +672,6 @@ class APNet3_MPNN(nn.Module):
         dR_ang,
         dR_xyz_ang,
     ):
-
         dR = dR_ang / constants.au2ang
         dR_xyz = dR_xyz_ang / constants.au2ang
         oodR = 1.0 / dR
@@ -707,7 +718,9 @@ class APNet3_MPNN(nn.Module):
         nedge = e_source.numel()
         if nedge == 0:
             # No intramolecular edges
-            return torch.zeros(0, self.n_embed * 4 * self.n_rbf + self.n_embed * 4 + self.n_rbf)
+            return torch.zeros(
+                0, self.n_embed * 4 * self.n_rbf + self.n_embed * 4 + self.n_rbf
+            )
 
         h0_source = h0.index_select(0, e_source)
         h0_target = h0.index_select(0, e_target)
@@ -786,8 +799,10 @@ class APNet3_MPNN(nn.Module):
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
 
         # interatomic distances
-        dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
-        dR_lr, dR_lr_xyz = self.get_distances(RA, RB, e_ABlr_source, e_ABlr_target)
+        dR_sr, dR_sr_xyz = self.get_distances(
+            RA, RB, e_ABsr_source, e_ABsr_target)
+        dR_lr, dR_lr_xyz = self.get_distances(
+            RA, RB, e_ABlr_source, e_ABlr_target)
         dRA, dRA_xyz = self.get_distances(RA, RA, e_AA_source, e_AA_target)
         dRB, dRB_xyz = self.get_distances(RB, RB, e_BB_source, e_BB_target)
 
@@ -833,8 +848,10 @@ class APNet3_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0, reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0, reduce="sum", dim_size=natomB)
+            mA_i = scatter(mA_ij, e_AA_source, dim=0,
+                           reduce="sum", dim_size=natomA)
+            mB_i = scatter(mB_ij, e_BB_source, dim=0,
+                           reduce="sum", dim_size=natomB)
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
@@ -872,8 +889,10 @@ class APNet3_MPNN(nn.Module):
         # mock right sized output with N_dimer, 4 components
 
         # atom-pair features are a combo of atomic hidden states and the interatomic distance
-        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr, e_ABsr_source, e_ABsr_target)
-        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr, e_ABsr_target, e_ABsr_source)
+        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr,
+                            e_ABsr_source, e_ABsr_target)
+        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr,
+                            e_ABsr_target, e_ABsr_source)
 
         # project the directional atomic hidden states along the interatomic axis
         hA_dir = torch.cat(hA_dir_list, dim=-1)
@@ -912,7 +931,8 @@ class APNet3_MPNN(nn.Module):
 
         cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
         E_sr *= cutoff
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
+        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
+                             reduce="add", dim_size=ndimer)
 
         ####################################################
         ### predict multipole electrostatic interactions ###
@@ -1037,7 +1057,9 @@ class APNet2Model:
             print(
                 f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
             )
-            checkpoint = torch.load(atom_model_pre_trained_path, map_location=device, weights_only=False)
+            checkpoint = torch.load(
+                atom_model_pre_trained_path, map_location=device, weights_only=False
+            )
             self.atom_model = AtomMPNN(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
@@ -1116,7 +1138,7 @@ class APNet2Model:
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
             if ds_max_size:
-                self.dataset = self.dataset[: ds_max_size]
+                self.dataset = self.dataset[:ds_max_size]
         elif (
             not ignore_database_null
             and self.dataset is None
@@ -1163,8 +1185,8 @@ class APNet2Model:
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
             if ds_max_size:
-                self.dataset[0] = self.dataset[0][: ds_max_size]
-                self.dataset[1] = self.dataset[1][: ds_max_size]
+                self.dataset[0] = self.dataset[0][:ds_max_size]
+                self.dataset[1] = self.dataset[1][:ds_max_size]
         print(f"{self.dataset=}")
         self.model.to(device)
         self.device = device
@@ -1179,7 +1201,8 @@ class APNet2Model:
         self.model.eval()
         for batch in self.dataset:
             batch = batch.to(self.device)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                batch)
         return
 
     def compile_model(self):
@@ -1194,21 +1217,21 @@ class APNet2Model:
         checkpoint = torch.load(ap2_model_path)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
-                k.replace("_orig_mod.", ""):
-                v for k, v in checkpoint["model_state_dict"].items()
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.model.load_state_dict(checkpoint["model_state_dict"])
         checkpoint = torch.load(am_model_path)
         if "_orig_mod" not in list(self.atom_model.state_dict().keys())[0]:
             model_state_dict = {
-                k.replace("_orig_mod.", ""):
-                v for k, v in checkpoint["model_state_dict"].items()
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
             }
             self.atom_model.load_state_dict(model_state_dict)
         else:
-            self.atom_model.load_state_dict(checkpoint['model_state_dict'])
+            self.atom_model.load_state_dict(checkpoint["model_state_dict"])
         return
 
     ############################################################################
@@ -1295,10 +1318,13 @@ class APNet2Model:
                         qB = qB.unsqueeze(0).unsqueeze(0)
                     elif len(qB.size()) == 1:
                         qB = qB.unsqueeze(-1)
-                        e_AA_source, e_AA_target = pairwise_edges(data_A[j].R, r_cut)
-                        e_BB_source, e_BB_target = pairwise_edges(data_B[j].R, r_cut)
+                        e_AA_source, e_AA_target = pairwise_edges(
+                            data_A[j].R, r_cut)
+                        e_BB_source, e_BB_target = pairwise_edges(
+                            data_B[j].R, r_cut)
                         e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                            pairwise_edges_im(data_A[j].R, data_B[j].R, r_cut_im)
+                            pairwise_edges_im(
+                                data_A[j].R, data_B[j].R, r_cut_im)
                         )
                         dimer_ind = torch.ones((1), dtype=torch.long) * 0
                         data = Data(
@@ -1395,10 +1421,13 @@ class APNet2Model:
                         qB = qB.unsqueeze(0).unsqueeze(0)
                     elif len(qB.size()) == 1:
                         qB = qB.unsqueeze(-1)
-                        e_AA_source, e_AA_target = pairwise_edges(data_A[j].R, r_cut)
-                        e_BB_source, e_BB_target = pairwise_edges(data_B[j].R, r_cut)
+                        e_AA_source, e_AA_target = pairwise_edges(
+                            data_A[j].R, r_cut)
+                        e_BB_source, e_BB_target = pairwise_edges(
+                            data_B[j].R, r_cut)
                         e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                            pairwise_edges_im(data_A[j].R, data_B[j].R, r_cut_im)
+                            pairwise_edges_im(
+                                data_A[j].R, data_B[j].R, r_cut_im)
                         )
                         dimer_ind = torch.ones((1), dtype=torch.long) * 0
                         data = Data(
@@ -1455,8 +1484,7 @@ class APNet2Model:
 1   2.645502399   -0.412039965   0.766632411
 1   2.641145101   -0.449872874   -0.744894473
 units angstrom
-        """
-)
+        """)
         return self._qcel_example_input([mol], batch_size=1)
 
     ########################################################################
@@ -1487,10 +1515,15 @@ units angstrom
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                batch)
             preds = E_sr_dimer.reshape(-1, 4)
             comp_errors = preds - batch.y
-            batch_loss = torch.mean(torch.square(comp_errors)) if (loss_fn is None) else loss_fn(preds, batch.y)
+            batch_loss = (
+                torch.mean(torch.square(comp_errors))
+                if (loss_fn is None)
+                else loss_fn(preds, batch.y)
+            )
             batch_loss.backward()
             optimizer.step()
             total_loss += batch_loss.item()
@@ -1520,7 +1553,9 @@ units angstrom
                 preds = E_sr_dimer.reshape(-1, 4)
                 comp_errors = preds - batch.y
                 batch_loss = (
-                    torch.mean(torch.square(comp_errors)) if (loss_fn is None) else loss_fn(preds, batch.y)
+                    torch.mean(torch.square(comp_errors))
+                    if (loss_fn is None)
+                    else loss_fn(preds, batch.y)
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
@@ -1554,7 +1589,8 @@ units angstrom
             batch_loss = 0.0
             optimizer.zero_grad()
             batch = batch.to(rank_device)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                batch)
             preds = E_sr_dimer.reshape(-1, 4)
             comp_errors = preds - batch.y
             if loss_fn is None:
@@ -1576,11 +1612,16 @@ units angstrom
         if scheduler is not None:
             scheduler.step()
 
-        total_loss = torch.tensor(total_loss, dtype=torch.float32, device=rank_device)
-        total_error = torch.tensor(total_error, dtype=torch.float32, device=rank_device)
-        elst_error = torch.tensor(elst_error, dtype=torch.float32, device=rank_device)
-        exch_error = torch.tensor(exch_error, dtype=torch.float32, device=rank_device)
-        indu_error = torch.tensor(indu_error, dtype=torch.float32, device=rank_device)
+        total_loss = torch.tensor(
+            total_loss, dtype=torch.float32, device=rank_device)
+        total_error = torch.tensor(
+            total_error, dtype=torch.float32, device=rank_device)
+        elst_error = torch.tensor(
+            elst_error, dtype=torch.float32, device=rank_device)
+        exch_error = torch.tensor(
+            exch_error, dtype=torch.float32, device=rank_device)
+        indu_error = torch.tensor(
+            indu_error, dtype=torch.float32, device=rank_device)
         count = torch.tensor(count, dtype=torch.int, device=rank_device)
 
         dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
@@ -1611,7 +1652,8 @@ units angstrom
             for batch in dataloader:
                 batch_loss = 0.0
                 batch = batch.to(rank_device)
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
+                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                    batch)
                 preds = E_sr_dimer.reshape(-1, 4)
                 comp_errors = preds - batch.y
                 if loss_fn is None:
@@ -1648,7 +1690,6 @@ units angstrom
         indu_MAE_t = (indu_error / count).cpu()
         disp_MAE_t = (disp_error / count).cpu()
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
-
 
     def ddp_train(
         self,
@@ -1736,7 +1777,9 @@ units angstrom
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         if lr_decay:
-            scheduler = InverseTimeDecayLR(optimizer, lr, len(train_loader) * 60, lr_decay)
+            scheduler = InverseTimeDecayLR(
+                optimizer, lr, len(train_loader) * 60, lr_decay
+            )
         else:
             scheduler = None
         criterion = None
@@ -1751,10 +1794,12 @@ units angstrom
         t1 = time.time()
         with torch.no_grad():
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-                self.__evaluate_batches(rank, train_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank, train_loader, criterion, rank_device)
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(rank, test_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank, test_loader, criterion, rank_device)
             )
             dt = time.time() - t1
             if rank == 0:
@@ -1776,7 +1821,8 @@ units angstrom
                 )
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(rank, test_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank, test_loader, criterion, rank_device)
             )
 
             if rank == 0:
@@ -1844,6 +1890,7 @@ units angstrom
         # (2) Dataloaders
         if self.ds_spec_type in [1, 5, 6]:
             from .pairwise_datasets import apnet2_collate_update
+
             collate_fn = apnet2_collate_update
         else:
             collate_fn = apnet2_collate_update_prebatched
@@ -1869,7 +1916,11 @@ units angstrom
         # (3) Optim/Scheduler
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         # scheduler = ModLambdaDecayLR(optimizer, lr_decay, lr) if lr_decay else None
-        scheduler = InverseTimeDecayLR(optimizer, lr, len(train_loader) * 2, lr_decay) if lr_decay else None
+        scheduler = (
+            InverseTimeDecayLR(optimizer, lr, len(train_loader) * 2, lr_decay)
+            if lr_decay
+            else None
+        )
         criterion = None  # defaults to MSE
 
         # (4) Print table header
@@ -1880,13 +1931,17 @@ units angstrom
 
         # (5) Evaluate once pre-training
         t0 = time.time()
-        train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = \
-            self.__evaluate_batches_single_proc(train_loader, criterion, rank_device)
-        test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = \
-            self.__evaluate_batches_single_proc(test_loader, criterion, rank_device)
+        train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
+            self.__evaluate_batches_single_proc(
+                train_loader, criterion, rank_device)
+        )
+        test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
+            self.__evaluate_batches_single_proc(
+                test_loader, criterion, rank_device)
+        )
 
         print(
-            f"  (Pre-training) ({time.time()-t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} "
+            f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} "
             f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
             f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
             flush=True,
@@ -1896,10 +1951,15 @@ units angstrom
         lowest_test_loss = test_loss
         for epoch in range(n_epochs):
             t1 = time.time()
-            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = \
-                self.__train_batches_single_proc(train_loader, criterion, optimizer, rank_device, scheduler)
-            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = \
-                self.__evaluate_batches_single_proc(test_loader, criterion, rank_device)
+            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
+                self.__train_batches_single_proc(
+                    train_loader, criterion, optimizer, rank_device, scheduler
+                )
+            )
+            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
+                self.__evaluate_batches_single_proc(
+                    test_loader, criterion, rank_device)
+            )
 
             # Track best model
             star_marker = " "
@@ -1925,7 +1985,7 @@ units angstrom
                     self.model.to(rank_device)
 
             print(
-                f"  EPOCH: {epoch:4d} ({time.time()-t1:<7.2f}s)  MAE: "
+                f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
                 f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
                 f"{exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} "
                 f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
@@ -1982,8 +2042,10 @@ units angstrom
                 order_indices = np.random.permutation(len(self.dataset))
             else:
                 order_indices = np.arange(len(self.dataset))
-            train_indices = order_indices[: int(len(self.dataset) * split_percent)]
-            test_indices = order_indices[int(len(self.dataset) * split_percent) :]
+            train_indices = order_indices[: int(
+                len(self.dataset) * split_percent)]
+            test_indices = order_indices[int(
+                len(self.dataset) * split_percent):]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
 
@@ -2012,8 +2074,8 @@ units angstrom
             pin_memory = False
 
         # if optimize_for_speed:
-            # torch.jit.enable_onednn_fusion(False)
-            # torch.autograd.set_detect_anomaly(True)
+        # torch.jit.enable_onednn_fusion(False)
+        # torch.autograd.set_detect_anomaly(True)
 
         self.shuffle = shuffle
 

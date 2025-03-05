@@ -55,7 +55,7 @@ def test_ap2_architecture():
         4.996978532290086150e-06,  # INDU
         4.996978532290086150e-06,  # DISP
     ]
-    atom_model = apnet_pt.AtomModel(
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
     )
