@@ -1,4 +1,4 @@
-from apnet_pt.atom_model import AtomModel
+from .AtomModels.ap2_atom_model import AtomModel
 from apnet_pt.apnet2_model import APNet2Model
 import torch
 import argparse

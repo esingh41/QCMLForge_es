@@ -1,4 +1,6 @@
 from apnet_pt.apnet2_model import APNet2Model
+from apnet_pt import atomic_datasets
+from apnet_pt import AtomModels
 from apnet_pt.pairwise_datasets import (
     apnet2_module_dataset,
     apnet2_collate_update,
@@ -15,19 +17,6 @@ data_path = f"{current_file_path}/test_data_path"
 am_path = f"{current_file_path}/../models/am_ensemble/am_0.pt"
 ap_path = f"{current_file_path}/../models/ap2_ensemble/ap2_0.pt"
 
-ds = apnet2_module_dataset(
-    root=data_path,
-    r_cut=5.0,
-    r_cut_im=8.0,
-    spec_type=5,
-    max_size=None,
-    force_reprocess=False,
-    atom_model_path=am_path,
-    atomic_batch_size=1000,
-    num_devices=1,
-    skip_processed=False,
-    split="train",
-)
 
 
 def test_apnet_data_object():
@@ -36,6 +25,19 @@ def test_apnet_data_object():
         inp_batch0 = pickle.load(f)
     with open(f"{current_file_path}/dataset_data/ie_batch0.pkl", "rb") as f:
         ie_batch0 = pickle.load(f)
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        atomic_batch_size=1000,
+        num_devices=1,
+        skip_processed=False,
+        split="train",
+    )
     batch_size = 16
 
     train_loader = APNet2_DataLoader(
@@ -62,6 +64,19 @@ def test_apnet_data_object():
 
 @pytest.mark.skip(reason="Slow training test. Run only for development reasons.")
 def test_apnet2_model_train():
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        atomic_batch_size=1000,
+        num_devices=1,
+        skip_processed=False,
+        split="train",
+    )
     apnet2 = APNet2Model(
         atom_model_pre_trained_path=am_path,
         pre_trained_model_path=ap_path,
@@ -87,7 +102,43 @@ def test_apnet2_model_train():
     )
     return
 
+def test_atomhirshfeld_model_train():
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root="./data_dir",
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=1,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        optimize_for_speed=False,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+    return
+
 
 if __name__ == "__main__":
     # test_apnet_data_object()
-    test_apnet2_model_train()
+    # test_apnet2_model_train()
+    test_atomhirshfeld_model_train()

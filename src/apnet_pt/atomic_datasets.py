@@ -32,22 +32,26 @@ def natural_key(text):
 
 
 def distance_matrix(r):
-    v = np.sqrt(np.sum(np.square(r[:, np.newaxis, :] - r[np.newaxis, :, :]), axis=-1))
+    v = np.sqrt(
+        np.sum(np.square(r[:, np.newaxis, :] - r[np.newaxis, :, :]), axis=-1))
     return v
 
 
 def distance_matrix_torch(r):
-    v = torch.sqrt(torch.sum(torch.square(r[:, None, :] - r[None, :, :]), axis=-1))
+    v = torch.sqrt(torch.sum(torch.square(
+        r[:, None, :] - r[None, :, :]), axis=-1))
     return v
 
 
 def generate_monomer_multipole_dataset(file):
-    monomers, cartesian_multipoles, _, _ = util.load_monomer_dataset("mon200.pkl")
+    monomers, cartesian_multipoles, _, _ = util.load_monomer_dataset(
+        "mon200.pkl")
     return
 
 
 def vec_func(R_ij, R_c=5.0, n_bessel=8):
-    edge_feature_vector = np.zeros((len(R_ij), len(R_ij), n_bessel), dtype=np.float32)
+    edge_feature_vector = np.zeros(
+        (len(R_ij), len(R_ij), n_bessel), dtype=np.float32)
     edge_index = []
     for i in range(R_ij.shape[0]):
         for j in range(R_ij.shape[1]):
@@ -55,7 +59,8 @@ def vec_func(R_ij, R_c=5.0, n_bessel=8):
                 r_ij = R_ij[i, j]
                 for n in range(n_bessel):
                     edge_feature_vector[i, j, n] = (
-                        np.sqrt(2 / R_c) * np.sin(n * np.pi * r_ij / R_c) / r_ij
+                        np.sqrt(2 / R_c) * np.sin(n *
+                                                  np.pi * r_ij / R_c) / r_ij
                     )
                 edge_index.append([i, j])
                 # disagree with original apnet tf code here because we have bidirectional edges
@@ -108,7 +113,8 @@ def atomic_collate_update(batch):
         # print(data.edge_index.shape)
         edge_indices.append(data.edge_index + current_count)
         data.molecule_ind = (
-            torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
+            torch.ones(data.molecule_ind.size(
+                0), dtype=data.molecule_ind.dtype) * i
         )
         # data.molecule_ind.fill_(i)
         current_count += data.x.size(0)
@@ -145,7 +151,8 @@ def atomic_hirshfeld_collate_update(batch):
         # print(data.edge_index.shape)
         edge_indices.append(data.edge_index + current_count)
         data.molecule_ind = (
-            torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
+            torch.ones(data.molecule_ind.size(
+                0), dtype=data.molecule_ind.dtype) * i
         )
         # data.molecule_ind.fill_(i)
         current_count += data.x.size(0)
@@ -166,7 +173,8 @@ def atomic_hirshfeld_collate_update(batch):
         ),
         natom_per_mol=natom_per_mol,
         volume_ratios=torch.cat([data.volume_ratios for data in batch], dim=0),
-        valence_widths=torch.cat([data.valence_widths for data in batch], dim=0),
+        valence_widths=torch.cat(
+            [data.valence_widths for data in batch], dim=0),
     )
     return batched_data
 
@@ -183,7 +191,8 @@ def atomic_collate_update_no_target(batch):
     for i, data in enumerate(batch):
         edge_indices.append(data.edge_index + current_count)
         data.molecule_ind = (
-            torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
+            torch.ones(data.molecule_ind.size(
+                0), dtype=data.molecule_ind.dtype) * i
         )
         # data.molecule_ind.fill_(i)
         current_count += data.x.size(0)
@@ -313,8 +322,10 @@ def edges(R, r_cut):
 def qcel_mon_to_pyg_data(mon, r_cut=5.0, custom=False):
     Z = mon.atomic_numbers
     node_features = torch.tensor(np.array(Z), dtype=torch.int64)
-    R = torch.tensor(np.array(mon.geometry) * constants.au2ang, dtype=torch.float32)
-    total_charge = torch.tensor(np.array(mon.molecular_charge), dtype=torch.int64)
+    R = torch.tensor(np.array(mon.geometry) *
+                     constants.au2ang, dtype=torch.float32)
+    total_charge = torch.tensor(
+        np.array(mon.molecular_charge), dtype=torch.int64)
     if custom:
         edge_index = edge_function_system_index_only(R, r_c=r_cut)
         edge_index = torch.tensor(np.array(edge_index)).t().long()
@@ -329,7 +340,6 @@ def qcel_mon_to_pyg_data(mon, r_cut=5.0, custom=False):
         natom_per_mol=torch.tensor([len(R)], dtype=torch.int64),
     )
     return data
-
 
 
 def create_atomic_data(
@@ -420,7 +430,8 @@ class atomic_module_dataset(Dataset):
                     for i in spec_files:
                         os.remove(f"{root}/processed/{i}")
 
-        super(atomic_module_dataset, self).__init__(root, transform, pre_transform)
+        super(atomic_module_dataset, self).__init__(
+            root, transform, pre_transform)
         print(
             f"{self.root = }, {self.spec_type = }, {self.testing = }, {self.in_memory = }"
         )
@@ -429,7 +440,10 @@ class atomic_module_dataset(Dataset):
             t = time()
             self.data = []
             for i in self.processed_file_names:
-                self.data.append(torch.load(osp.join(self.processed_dir, i), weights_only=False));
+                self.data.append(
+                    torch.load(osp.join(self.processed_dir, i),
+                               weights_only=False)
+                )
             total_time_seconds = int(time() - t)
             print(f"Loaded in {total_time_seconds:4d} seconds")
             self.get = self.get_in_memory
@@ -497,7 +511,8 @@ class atomic_module_dataset(Dataset):
             }
             print("Downloading data from QCArchive")
             for entry_name, spec_name, record in tqdm(
-                ds.iterate_records(status="complete", specification_names="spec_1")
+                ds.iterate_records(status="complete",
+                                   specification_names="spec_1")
             ):
                 record_dict = record.dict()
                 qcvars = record_dict["properties"]
@@ -514,7 +529,8 @@ class atomic_module_dataset(Dataset):
 
                 quad = [q[np.triu_indices(3)] for q in quad]
                 quadrupoles = np.array(quad)
-                multipoles = np.concatenate([charges, dipoles, quadrupoles], axis=1)
+                multipoles = np.concatenate(
+                    [charges, dipoles, quadrupoles], axis=1)
 
                 data["id"].append(cnt)
                 data["Z"].append(record.molecule.atomic_numbers)
@@ -559,8 +575,10 @@ class atomic_module_dataset(Dataset):
                 cart_mult = np.array(
                     [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
                 )
-                data.charges = torch.tensor(cart_mult[:, 0], dtype=torch.float32)
-                data.dipoles = torch.tensor(cart_mult[:, 1:4], dtype=torch.float32)
+                data.charges = torch.tensor(
+                    cart_mult[:, 0], dtype=torch.float32)
+                data.dipoles = torch.tensor(
+                    cart_mult[:, 1:4], dtype=torch.float32)
                 data.quadrupoles = torch.tensor(
                     multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
                 )
@@ -571,7 +589,8 @@ class atomic_module_dataset(Dataset):
                     data = self.pre_transform(data)
 
                 if self.testing:
-                    torch.save(data, osp.join(self.processed_dir, f"data_{idx}.pt"))
+                    torch.save(data, osp.join(
+                        self.processed_dir, f"data_{idx}.pt"))
                 else:
                     torch.save(
                         data,
@@ -589,10 +608,14 @@ class atomic_module_dataset(Dataset):
 
     def get(self, idx):
         if self.testing:
-            return torch.load(osp.join(self.processed_dir, f"data_{idx}.pt"), weights_only=False)
+            return torch.load(
+                osp.join(self.processed_dir, f"data_{idx}.pt"), weights_only=False
+            )
         else:
             return torch.load(
-                osp.join(self.processed_dir, f"data_spec_{self.spec_type}_{idx}.pt"), weights_only=False
+                osp.join(self.processed_dir,
+                         f"data_spec_{self.spec_type}_{idx}.pt"),
+                weights_only=False,
             )
         return
 
@@ -619,6 +642,7 @@ class atomic_module_dataset(Dataset):
             ),
         )
 
+
 class atomic_hirshfeld_module_dataset(Dataset):
     def __init__(
         self,
@@ -627,20 +651,20 @@ class atomic_hirshfeld_module_dataset(Dataset):
         pre_transform=None,
         r_cut=5.0,
         testing=False,
-        spec_type=3,
+        spec_type=1,
         max_size=None,
         force_reprocess=False,
         in_memory=True,
         batch_size=1,
     ):
-        """ """
         try:
-            assert spec_type in [3]
+            assert spec_type in [1]
         except Exception:
             print(
                 "Currently spec_type must be 3 for HF/jun-cc-pV(D+D)Z (APNET2) respectively. No downloads are available at the moment."
             )
             raise ValueError
+        self.batch_size = batch_size
         self.testing = testing
         if self.testing and max_size is None:
             self.MAX_SIZE = 200
@@ -648,44 +672,42 @@ class atomic_hirshfeld_module_dataset(Dataset):
             self.MAX_SIZE = max_size
         self.spec_type = spec_type
         self.force_reprocess = force_reprocess
-
+        self.root = root
         self.in_memory = in_memory
         if os.path.exists(root) is False:
             os.makedirs(root)
-
-        if self.force_reprocess:
-            file_cmd = f"{root}/processed/data_hf_spec_{self.spec_type}_*.pt"
-            spec_files = glob(file_cmd)
-            spec_files = [i.split("/")[-1] for i in spec_files]
-            if len(spec_files) > 0:
-                if self.force_reprocess:
-                    self.force_reprocess = False
-                    for i in spec_files:
-                        os.remove(f"{root}/processed/{i}")
-
-        super(atomic_hirshfeld_module_dataset, self).__init__(root, transform, pre_transform)
         print(
             f"{self.root = }, {self.spec_type = }, {self.testing = }, {self.in_memory = }"
+        )
+        super(atomic_hirshfeld_module_dataset, self).__init__(
+            root, transform, pre_transform
         )
         if self.in_memory:
             print("Loading data into memory")
             t = time()
             self.data = []
             for i in self.processed_file_names:
-                self.data.append(torch.load(osp.join(self.processed_dir, i), weights_only=False));
+                self.data.append(
+                    torch.load(osp.join(self.processed_dir, i),
+                               weights_only=False)
+                )
             total_time_seconds = int(time() - t)
             print(f"Loaded in {total_time_seconds:4d} seconds")
             self.get = self.get_in_memory
-        self.batch_size = batch_size
 
     @property
     def raw_file_names(self):
         # spec_3 = "spec_3" # 'hf/jun-cc-pv_dpd_z' APNET2
-        if self.spec_type == 3:
+        if self.spec_type == 1:
+            print(
+                # f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
+                "monomers_apnet2_spec_3_62.pkl",
+            )
             return [
-                f"monomers_apnet2_spec_{self.spec_type}.pkl",
+                # f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
+                "monomers_apnet2_spec_3_62.pkl",
             ]
-        raise ValueError("spec_type must 3!")
+        raise ValueError("spec_type must 1!")
         return []
 
     @property
@@ -693,7 +715,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
         if self.force_reprocess:
             return ["file"]
         else:
-            file_cmd = f"{self.root}/processed/data_hf_spec_{self.spec_type}_*.pt"
+            file_cmd = f"{self.root}/processed/monomer_ap3_{self.spec_type}_*.pt"
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]
             if len(spec_files) > 0:
@@ -706,47 +728,68 @@ class atomic_hirshfeld_module_dataset(Dataset):
                 return [f"data_missing_{i}.pt" for i in range(1)]
 
     def download(self):
+        print(self.raw_file_names)
         raise ValueError("Downloads are not available!")
 
     def process(self, r_cut=5.0, edge_index_only=True):
         idx = 0
+        print(dir(self))
+        batch_size = self.batch_size
+        if self.spec_type in [1]:
+            print(
+                f"ENSURE THAT {batch_size=} is the same as the batch size used in the AtomHirshfeldModel training! This mode avoids collating completely."
+            )
         for raw_path in self.raw_paths:
             print(f"raw_path: {raw_path}")
             # converting to qcel monomer to crudely validate structure
-            monomers, cartesian_multipoles, total_charge, volume_ratios, valence_widths = util.load_monomer_dataset(
-                raw_path, self.MAX_SIZE, hirshfeld_props=True
-            )
+            (
+                monomers,
+                cartesian_multipoles,
+                total_charge,
+                volume_ratios,
+                valence_widths,
+            ) = util.load_monomer_dataset(raw_path, self.MAX_SIZE, hirshfeld_props=True)
             t = time()
-            for i in range(len(monomers)):
-                if i % 1000 == 0:
-                    print(f"{i}/{len(monomers)}, took {time() - t} seconds")
-                    t = time()
-                mol = monomers[i]
-                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
-                cart_mult = np.array(
-                    [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
-                )
-                data.charges = torch.tensor(cart_mult[:, 0], dtype=torch.float32)
-                data.dipoles = torch.tensor(cart_mult[:, 1:4], dtype=torch.float32)
-                data.quadrupoles = torch.tensor(
-                    multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
-                )
-                data.volume_ratios = torch.tensor(volume_ratios[i], dtype=torch.float32)
-                data.valence_widths = torch.tensor(valence_widths[i], dtype=torch.float32)
+            for i in range(0, len(monomers), batch_size):
+                batched_data = []
+                upper_bound = min(i + batch_size, len(monomers))
+                for j in range(i, upper_bound):
+                    mol = monomers[i]
+                    data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
+                    cart_mult = np.array(
+                        [j for j in cartesian_multipoles[i]
+                            if not np.all(j == 0)]
+                    )
+                    data.charges = torch.tensor(
+                        cart_mult[:, 0], dtype=torch.float32)
+                    data.dipoles = torch.tensor(
+                        cart_mult[:, 1:4], dtype=torch.float32)
+                    data.quadrupoles = torch.tensor(
+                        multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
+                    )
+                    data.volume_ratios = torch.tensor(
+                        volume_ratios[i], dtype=torch.float32
+                    )
+                    data.valence_widths = torch.tensor(
+                        valence_widths[i], dtype=torch.float32
+                    )
+                    batched_data.append(data)
+                batch = atomic_hirshfeld_collate_update(batched_data)
+                print("BATCH")
+                print(batch)
+                # break
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
 
                 if self.pre_transform is not None:
                     data = self.pre_transform(data)
 
-                if self.testing:
-                    torch.save(data, osp.join(self.processed_dir, f"data_{idx}.pt"))
-                else:
-                    torch.save(
-                        data,
-                        osp.join(
-                            self.processed_dir, f"data_hf_spec_{self.spec_type}_{idx}.pt"
-                        ),
+                torch.save(
+                    data,
+                    osp.join(
+                        self.processed_dir,
+                        f"monomer_ap3_{self.spec_type}_{idx}.pt",
+                    ),
                     )
                 if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
                     break
@@ -758,7 +801,9 @@ class atomic_hirshfeld_module_dataset(Dataset):
 
     def get(self, idx):
         return torch.load(
-            osp.join(self.processed_dir, f"data_hf_spec_{self.spec_type}_{idx}.pt"), weights_only=False
+            osp.join(self.processed_dir,
+                     f"data_hf_spec_{self.spec_type}_{idx}.pt"),
+            weights_only=False,
         )
 
     def get_in_memory(self, idx):

@@ -13,7 +13,7 @@ import torch
 from torch_geometric.data import download_url
 
 from . import util
-from .atom_model import AtomModel
+from .AtomModels.ap2_atom_model import AtomModel
 from . import atomic_datasets
 from glob import glob
 import tarfile

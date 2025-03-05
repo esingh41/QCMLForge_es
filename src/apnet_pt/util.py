@@ -359,6 +359,7 @@ def load_monomer_dataset(
     TQ_label="TQ",
     cartesian_multipoles_label="cartesian_multipoles",
     hirshfeld_props=False,
+    return_qcel_mons=False,
 ):
     """Load multiple monomers from a :class:`~pandas.DataFrame`
 
@@ -393,9 +394,6 @@ def load_monomer_dataset(
 
     df = pd.read_pickle(file)
     print(df.columns.values)
-    print(df[['R', 'cartesian_multipoles', 'valence_widths', 'valence_charges', 'total_charge']].iloc[0])
-    # if "TQ" not in df.columns:
-    #     df["TQ"] = df["total_charge"]
     N = len(df.index)
     print(f"Reading {file} with {N} rows")
 
