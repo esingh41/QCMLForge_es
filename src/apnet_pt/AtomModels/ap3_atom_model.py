@@ -18,6 +18,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import os
+import gc
 
 from .ap2_atom_model import (
     max_Z,
@@ -691,11 +692,11 @@ class AtomHirshfeldModel:
             total_loss += loss.item()
             total_count += q_error.numel()
 
-            total_charge_error += q_error.abs().sum()
-            total_dipole_error += d_error.abs().sum()
-            total_qpole_error += qp_error.abs().sum()
-            total_hfvr_error += hfvr_error.abs().sum()
-            total_vw_error += vw_error.abs().sum()
+            total_charge_error += q_error.detach().abs().sum()
+            total_dipole_error += d_error.detach().abs().sum()
+            total_qpole_error += qp_error.detach().abs().sum()
+            total_hfvr_error += hfvr_error.detach().abs().sum()
+            total_vw_error += vw_error.detach().abs().sum()
 
         final_count = total_count.item()
 
@@ -1133,6 +1134,11 @@ class AtomHirshfeldModel:
                     f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f} {test_lowered}",
                     flush=True,
                 )
+
+            # n = gc.collect()
+            # print("    Garbage collector: collected %d objects." % n)
+            # if rank_device != "cpu":
+            #     torch.cuda.empty_cache()
         if world_size > 1:
             self.cleanup()
         return
