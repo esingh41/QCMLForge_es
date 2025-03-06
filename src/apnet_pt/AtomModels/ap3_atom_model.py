@@ -46,7 +46,8 @@ class AtomHirshfeldMPNN(MessagePassing):
 
         # zero-th order charge guess, based solely on atom type
         self.guess_layer = nn.Embedding(max_Z + 1, 1)
-        self.guess_hirshfeldVolumeRatio = nn.Embedding(max_Z + 1, 1)
+        # self.guess_hirshfeldVolumeRatio = nn.Embedding(max_Z + 1, 1)
+        self.guess_valenceWidth = nn.Embedding(max_Z + 1, 1)
 
         # update layers for hidden states
         self.charge_update_layers = nn.ModuleList()
@@ -54,12 +55,14 @@ class AtomHirshfeldMPNN(MessagePassing):
         self.qpole1_update_layers = nn.ModuleList()
         self.qpole2_update_layers = nn.ModuleList()
         self.hirshfeldVolumeRatio_update_layers = nn.ModuleList()
+        self.valenceWidth_update_layers = nn.ModuleList()
 
         # readout layers for predicting multipoles from hidden states
         self.charge_readout_layers = nn.ModuleList()
         self.dipole_readout_layers = nn.ModuleList()
         self.qpole_readout_layers = nn.ModuleList()
         self.hirshfeldVolumeRatio_readout_layers = nn.ModuleList()
+        self.valenceWidth_readout_layers = nn.ModuleList()
 
         input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf
 
@@ -101,6 +104,9 @@ class AtomHirshfeldMPNN(MessagePassing):
             self.hirshfeldVolumeRatio_update_layers.append(
                 self._make_layers(layer_nodes_hidden, layer_activations)
             )
+            self.valenceWidth_update_layers.append(
+                self._make_layers(layer_nodes_hidden, layer_activations)
+            )
 
             self.charge_readout_layers.append(
                 self._make_layers(layer_nodes_readout, layer_activations)
@@ -108,6 +114,9 @@ class AtomHirshfeldMPNN(MessagePassing):
             self.dipole_readout_layers.append(nn.Linear(n_embed, 1))
             self.qpole_readout_layers.append(nn.Linear(n_embed, 1))
             self.hirshfeldVolumeRatio_readout_layers.append(
+                self._make_layers(layer_nodes_readout, layer_activations)
+            )
+            self.valenceWidth_readout_layers.append(
                 self._make_layers(layer_nodes_readout, layer_activations)
             )
 
@@ -158,7 +167,10 @@ class AtomHirshfeldMPNN(MessagePassing):
 
         # Initial guesses
         charge = self.guess_layer(Z)
-        volume_ratio = self.guess_hirshfeldVolumeRatio(Z)
+        # volume_ratio = self.guess_hirshfeldVolumeRatio(Z)
+        volume_ratio = torch.ones(natom, 1, dtype=torch.float32, device=Z.device)
+        # valence_widths = torch.ones(natom, 1, dtype=torch.float32, device=Z.device)
+        valence_width = self.guess_valenceWidth(Z)
 
         dipole = torch.zeros(natom, 3, dtype=torch.float32, device=Z.device)
         qpole = torch.zeros(natom, 3, 3, dtype=torch.float32, device=Z.device)
@@ -174,7 +186,8 @@ class AtomHirshfeldMPNN(MessagePassing):
         mol_ind = torch.where(natom_per_mol != 1)[0] 
         keep_mask = (molecule_ind.unsqueeze(1) == mol_ind).any(dim=1)
         filtered_charge = charge[keep_mask]
-        filtered_volume_ratios = volume_ratio[keep_mask]
+        filtered_volume_ratio = volume_ratio[keep_mask]
+        filtered_valence_width = valence_width[keep_mask]
         # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms.
         h_list = [h_list_0[0][keep_mask]]
 
@@ -266,7 +279,14 @@ class AtomHirshfeldMPNN(MessagePassing):
 
             # [edges x message_embedding_dim]
             m_ij_hirshfeldVolumeRatio = self.hirshfeldVolumeRatio_update_layers[i](m_i)
-            filtered_volume_ratios += self.hirshfeldVolumeRatio_readout_layers[i](m_ij_hirshfeldVolumeRatio)
+            filtered_volume_ratio += self.hirshfeldVolumeRatio_readout_layers[i](m_ij_hirshfeldVolumeRatio)
+
+            ############################
+            ### valence width update ###
+            ############################
+
+            m_ij_valenceWidth = self.valenceWidth_update_layers[i](m_i)
+            filtered_valence_width += self.valenceWidth_readout_layers[i](m_ij_valenceWidth)
 
         ####################################
         ### enforce traceless quadrupole ###
@@ -292,8 +312,11 @@ class AtomHirshfeldMPNN(MessagePassing):
         charge = charge - charge_err
         charge = charge.squeeze()
         h_list = torch.stack(h_list, dim=1)
-        volume_ratio[keep_mask] = filtered_volume_ratios
-        return charge, dipole, qpole, volume_ratio, h_list
+        volume_ratio[keep_mask] = filtered_volume_ratio
+        volume_ratio = volume_ratio.squeeze()
+        valence_width[keep_mask] = filtered_valence_width
+        valence_width = valence_width.squeeze()
+        return charge, dipole, qpole, volume_ratio, valence_width, h_list
 
 
 def unwrap_model(model):
@@ -428,7 +451,7 @@ class AtomHirshfeldModel:
         dist.destroy_process_group()
 
     def eval_fn(self, batch):
-        charge, dipole, qpole, hirshfeld_volume_ratios, hlist = self.model(
+        charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = self.model(
             batch.x,
             batch.edge_index,
             # batch.edge_attr,
@@ -437,7 +460,7 @@ class AtomHirshfeldModel:
             total_charge=batch.total_charge,
             natom_per_mol=batch.natom_per_mol,
         )
-        return charge, dipole, qpole, hirshfeld_volume_ratios, hlist
+        return charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist
 
     def evaluate_model_collate_train(self, data_loader, optimizer=None, loss_fn=None):
         charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []

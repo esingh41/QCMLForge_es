@@ -17,6 +17,7 @@ def train_atom_model(
     testing=False,
     n_epochs=500,
     random_seed=42,
+    ds_max_size=None,
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModel
@@ -34,6 +35,7 @@ def train_atom_model(
         r_cut=5.0,
         ds_root=data_dir,
         ds_spec_type=spec_type,
+        ds_max_size=ds_max_size,
         ignore_database_null=False,
         ds_in_memory=False,
         use_GPU=True,
@@ -195,6 +197,12 @@ def main():
         help="Number of epochs for training"
     )
     args.add_argument(
+        "--ds_max_size",
+        type=int,
+        default=None,
+        help="Limit dataset to N dataset objects",
+    )
+    args.add_argument(
         "--lr",
         type=float,
         default=5e-4,
@@ -217,6 +225,7 @@ def main():
             spec_type=args.spec_type_am,
             n_epochs=args.n_epochs_atom,
             random_seed=args.random_seed,
+            ds_max_size=args.ds_max_size,
         )
     if args.train_ap2:
         train_pairwise_model(

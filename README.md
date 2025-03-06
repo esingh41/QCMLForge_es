@@ -28,7 +28,8 @@ python3 ./train_models.py \
 
 # Objectives
 
-- [ ] Extend AtomMPNN to predict Hirshfeld ratios
+- [X] Extend AtomMPNN to predict Hirshfeld ratios
+- [ ] Add classical induction model for AP3
 
 # Acknowledgements
 
