@@ -658,10 +658,10 @@ class atomic_hirshfeld_module_dataset(Dataset):
         batch_size=1,
     ):
         try:
-            assert spec_type in [1]
+            assert spec_type in [1, 5]
         except Exception:
             print(
-                "Currently spec_type must be 3 for HF/jun-cc-pV(D+D)Z (APNET2) respectively. No downloads are available at the moment."
+                "Currently spec_type must be 1 for pbe0/aug-cc-pVDZ (APNET2) respectively. spec_type 5 is for testing. No downloads are available at the moment."
             )
             raise ValueError
         self.batch_size = batch_size
@@ -698,16 +698,16 @@ class atomic_hirshfeld_module_dataset(Dataset):
     @property
     def raw_file_names(self):
         # spec_3 = "spec_3" # 'hf/jun-cc-pv_dpd_z' APNET2
-        if self.spec_type == 1:
+        if self.spec_type in [1, 5]:
             print(
-                # f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
-                "monomers_ap3_spec_1_pbe0_62.pkl",
+                f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
+                # "monomers_ap3_spec_1_pbe0_62.pkl",
             )
             return [
-                # f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
-                "monomers_ap3_spec_1_pbe0_62.pkl",
+                f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
+                # "monomers_ap3_spec_1_pbe0_62.pkl",
             ]
-        raise ValueError("spec_type must 1!")
+        raise ValueError("spec_type must in [1, 5]!")
         return []
 
     @property
@@ -735,7 +735,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
         idx = 0
         print(dir(self))
         batch_size = self.batch_size
-        if self.spec_type in [1]:
+        if self.spec_type in [1, 5]:
             print(
                 f"ENSURE THAT {batch_size=} is the same as the batch size used in the AtomHirshfeldModel training! This mode avoids collating completely."
             )
@@ -775,9 +775,6 @@ class atomic_hirshfeld_module_dataset(Dataset):
                     )
                     batched_data.append(data)
                 batch = atomic_hirshfeld_collate_update(batched_data)
-                print("BATCH")
-                print(batch)
-                # break
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
 
@@ -785,7 +782,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
                     data = self.pre_transform(data)
 
                 torch.save(
-                    data,
+                    batch,
                     osp.join(
                         self.processed_dir,
                         f"monomer_ap3_{self.spec_type}_{idx}.pt",

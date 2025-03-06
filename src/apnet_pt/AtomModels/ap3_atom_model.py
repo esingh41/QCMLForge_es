@@ -484,14 +484,14 @@ class AtomHirshfeldModel:
         return total_loss, charge_errors_t, dipole_errors_t, qpole_errors_t
 
     def evaluate_model_collate_eval(self, data_loader, loss_fn=None):
-        charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []
+        charge_errors_t, dipole_errors_t, qpole_errors_t, hfvr_errors_t = [], [], [], []
         total_loss = 0.0
         self.model.eval()
         with torch.no_grad():
             for batch in data_loader:
                 batch_loss = 0.0
                 batch = batch.to(self.device)
-                charge, dipole, qpole, hlist = self.model(
+                charge, dipole, qpole, hirshfeld_volume_ratios, hlist = self.model(
                     batch.x,
                     batch.edge_index,
                     # batch.edge_attr,
@@ -505,32 +505,37 @@ class AtomHirshfeldModel:
                 q_error = charge - batch.charges
                 d_error = dipole - batch.dipoles
                 qp_error = qpole - batch.quadrupoles
+                hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
                 if loss_fn is None:
                     # perform mean squared error
                     charge_loss = torch.mean(torch.square(q_error))
                     dipole_loss = torch.mean(torch.square(d_error))
                     qpole_loss = torch.mean(torch.square(qp_error))
+                    hfvr_loss = torch.mean(torch.square(hfvr_error))
                 else:
                     # perform custom loss function, or pytorch criterion loss_fn
                     charge_loss = loss_fn(charge, batch.charges)
                     dipole_loss = torch.mean(loss_fn(dipole, batch.dipoles))
                     qpole_loss = torch.mean(loss_fn(qpole, batch.quadrupoles))
+                    hfvr_loss = torch.mean(loss_fn(hirshfeld_volume_ratios, batch.volume_ratios))
 
-                batch_loss = charge_loss + dipole_loss + qpole_loss
+                batch_loss = charge_loss + dipole_loss + qpole_loss + hfvr_loss
                 total_loss += batch_loss.detach()
 
             charge_errors_t.append(q_error.detach())
             dipole_errors_t.extend(d_error.detach())
             qpole_errors_t.extend(qp_error.detach())
+            hfvr_errors_t.extend(hfvr_error.detach())
         charge_errors_t = torch.cat(charge_errors_t)
         dipole_errors_t = torch.cat(dipole_errors_t)
         qpole_errors_t = torch.cat(qpole_errors_t)
-        return total_loss, charge_errors_t, dipole_errors_t, qpole_errors_t
+        hfvr_errors_t = torch.cat(hfvr_errors_t)
+        return total_loss, charge_errors_t, dipole_errors_t, qpole_errors_t, hfvr_errors_t
 
     def pretrain_statistics(self, train_loader, test_loader, criterion):
         t1 = time.time()
         with torch.no_grad():
-            _, charge_errors_t, dipole_errors_t, qpole_errors_t = (
+            _, charge_errors_t, dipole_errors_t, qpole_errors_t, hfvr_errors_t = (
                 self.evaluate_model_collate_eval(
                     train_loader,  # loss_fn=criterion
                 )
@@ -538,9 +543,10 @@ class AtomHirshfeldModel:
             charge_MAE_t = np.mean(np.abs(charge_errors_t))
             dipole_MAE_t = np.mean(np.abs(dipole_errors_t))
             qpole_MAE_t = np.mean(np.abs(qpole_errors_t))
+            hfvr_MAE_t = np.mean(np.abs(hfvr_errors_t))
 
-            charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []
-            test_loss, charge_errors_v, dipole_errors_v, qpole_errors_v = (
+            charge_errors_t, dipole_errors_t, qpole_errors_t, hfvr_errors_t = [], [], []
+            test_loss, charge_errors_v, dipole_errors_v, qpole_errors_v, hfvr_errors_v = (
                 self.evaluate_model_collate_eval(
                     test_loader,  # loss_fn=criterion
                 )
@@ -548,10 +554,11 @@ class AtomHirshfeldModel:
             charge_MAE_v = np.mean(np.abs(charge_errors_v))
             dipole_MAE_v = np.mean(np.abs(dipole_errors_v))
             qpole_MAE_v = np.mean(np.abs(qpole_errors_v))
-            charge_errors_v, dipole_errors_v, qpole_errors_v = [], [], []
+            hfvr_MAE_v = np.mean(np.abs(hfvr_errors_v))
+            charge_errors_v, dipole_errors_v, qpole_errors_v, hfvr_errors_v = [], [], [], []
             dt = time.time() - t1
             print(
-                f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f}",
+                f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f}",
                 flush=True,
             )
         return test_loss
@@ -563,6 +570,7 @@ class AtomHirshfeldModel:
         total_charge_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_dipole_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_qpole_error = torch.zeros([], dtype=torch.float32, device=rank_device)
+        total_hfvr_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_loss = 0.0
 
         total_count = torch.zeros([], dtype=torch.int, device=rank_device)
@@ -575,12 +583,14 @@ class AtomHirshfeldModel:
             q_error = charge - batch.charges
             d_error = dipole - batch.dipoles
             qp_error = qpole - batch.quadrupoles
+            hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
 
             charge_loss = (q_error ** 2).mean()
             dipole_loss = (d_error ** 2).mean()
             qpole_loss = (qp_error ** 2).mean()
+            hfvr_loss = (hfvr_error ** 2).mean()
 
-            loss = charge_loss + dipole_loss + qpole_loss
+            loss = charge_loss + dipole_loss + qpole_loss + hfvr_loss
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -589,6 +599,7 @@ class AtomHirshfeldModel:
             total_charge_error += q_error.abs().sum()
             total_dipole_error += d_error.abs().sum()
             total_qpole_error += qp_error.abs().sum()
+            total_hfvr_error += hfvr_error.abs().sum()
 
         final_count = total_count.item()
 
@@ -596,13 +607,15 @@ class AtomHirshfeldModel:
         charge_mae = total_charge_error.item() / final_count
         dipole_mae = total_dipole_error.item() / (final_count * 3)
         qpole_mae = total_qpole_error.item() / (final_count * 9)
-        return total_loss, charge_mae, dipole_mae, qpole_mae
+        hfvr_mae = total_hfvr_error.item() / final_count
+        return total_loss, charge_mae, dipole_mae, qpole_mae, hfvr_mae
 
     def train_batches(self, rank, dataloader, criterion, optimizer, rank_device):
         self.model.train()
         total_charge_error = 0
         total_dipole_error = 0
         total_qpole_error = 0
+        total_hfvr_error = 0
         total_loss = 0
         count = 0
 
@@ -614,12 +627,14 @@ class AtomHirshfeldModel:
             q_error = charge - batch.charges
             d_error = dipole - batch.dipoles
             qp_error = qpole - batch.quadrupoles
+            hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
 
             charge_loss = torch.mean(torch.square(q_error))
             dipole_loss = torch.mean(torch.square(d_error))
             qpole_loss = torch.mean(torch.square(qp_error))
+            hfvr_loss = torch.mean(torch.square(hfvr_error))
 
-            loss = charge_loss + dipole_loss + qpole_loss
+            loss = charge_loss + dipole_loss + qpole_loss + hfvr_loss
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -628,6 +643,7 @@ class AtomHirshfeldModel:
             total_charge_error += torch.sum(torch.abs(q_error)).item()
             total_dipole_error += torch.sum(torch.abs(d_error)).item()
             total_qpole_error += torch.sum(torch.abs(qp_error)).item()
+            total_hfvr_error += torch.sum(torch.abs(hfvr_error)).item()
 
         # Converting to tensors for all-reduce
         total_charge_error = torch.tensor(
@@ -639,26 +655,32 @@ class AtomHirshfeldModel:
         total_qpole_error = torch.tensor(
             total_qpole_error, dtype=torch.float32, device=rank_device
         )
+        total_hfvr_error = torch.tensor(
+            total_hfvr_error, dtype=torch.float32, device=rank_device
+        )
         count = torch.tensor(count, dtype=torch.int, device=rank_device)
 
         # All-reduce across processes
         dist.all_reduce(total_charge_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(total_dipole_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(total_qpole_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total_hfvr_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(count, op=dist.ReduceOp.SUM)
 
         # Calculating MAEs
         charge_mae = total_charge_error.item() / count.item()
         dipole_mae = total_dipole_error.item() / (count.item() * 3)
         qpole_mae = total_qpole_error.item() / (count.item() * 9)
+        hfvr_mae = total_hfvr_error.item() / count.item()
 
-        return total_loss, charge_mae, dipole_mae, qpole_mae
+        return total_loss, charge_mae, dipole_mae, qpole_mae, hfvr_mae
 
     def evaluate_batches_single_proc(self, rank, dataloader, criterion, rank_device):
         self.model.eval()
         total_charge_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_dipole_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_qpole_error = torch.zeros([], dtype=torch.float32, device=rank_device)
+        total_hfvr_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_loss = 0.0
 
         total_count = torch.zeros([], dtype=torch.int, device=rank_device)
@@ -671,18 +693,21 @@ class AtomHirshfeldModel:
                 q_error = charge - batch.charges
                 d_error = dipole - batch.dipoles
                 qp_error = qpole - batch.quadrupoles
+                hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
 
                 charge_loss = (q_error ** 2).mean()
                 dipole_loss = (d_error ** 2).mean()
                 qpole_loss = (qp_error ** 2).mean()
+                hfvr_loss = (hfvr_error ** 2).mean()
 
-                loss = charge_loss + dipole_loss + qpole_loss
+                loss = charge_loss + dipole_loss + qpole_loss + hfvr_loss
                 total_loss += loss.item()
                 total_count += q_error.numel()
 
                 total_charge_error += q_error.abs().sum()
                 total_dipole_error += d_error.abs().sum()
                 total_qpole_error += qp_error.abs().sum()
+                total_hfvr_error += hfvr_error.abs().sum()
 
         final_count = total_count.item()
 
@@ -690,13 +715,16 @@ class AtomHirshfeldModel:
         charge_mae = total_charge_error.item() / final_count
         dipole_mae = total_dipole_error.item() / (final_count * 3)
         qpole_mae = total_qpole_error.item() / (final_count * 9)
-        return total_loss, charge_mae, dipole_mae, qpole_mae
+        hfvr_mae = total_hfvr_error.item() / final_count
+        return total_loss, charge_mae, dipole_mae, qpole_mae, hfvr_mae
+
 
     def evaluate_batches(self, rank, dataloader, criterion, rank_device):
         self.model.eval()
         total_charge_error = 0
         total_dipole_error = 0
         total_qpole_error = 0
+        total_hfvr_error = 0
         total_loss = 0
         count = 0
 
@@ -708,16 +736,19 @@ class AtomHirshfeldModel:
                 q_error = charge - batch.charges
                 d_error = dipole - batch.dipoles
                 qp_error = qpole - batch.quadrupoles
+                hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
 
                 total_charge_error += torch.sum(torch.abs(q_error)).item()
                 total_dipole_error += torch.sum(torch.abs(d_error)).item()
                 total_qpole_error += torch.sum(torch.abs(qp_error)).item()
+                total_hfvr_error += torch.sum(torch.abs(hfvr_error)).item()
 
                 charge_loss = torch.mean(torch.square(q_error))
                 dipole_loss = torch.mean(torch.square(d_error))
                 qpole_loss = torch.mean(torch.square(qp_error))
+                hfvr_loss = torch.mean(torch.square(hfvr_error))
 
-                total_loss += charge_loss + dipole_loss + qpole_loss
+                total_loss += charge_loss + dipole_loss + qpole_loss + hfvr_loss
                 count += q_error.numel()
 
         # Converting to tensors for all-reduce
@@ -730,12 +761,16 @@ class AtomHirshfeldModel:
         total_qpole_error = torch.tensor(
             total_qpole_error, dtype=torch.float32, device=rank_device
         )
+        total_hfvr_error = torch.tensor(
+            total_hfvr_error, dtype=torch.float32, device=rank_device
+        )
         count = torch.tensor(count, dtype=torch.int, device=rank_device)
 
         # All-reduce across processes
         dist.all_reduce(total_charge_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(total_dipole_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(total_qpole_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total_hfvr_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(count, op=dist.ReduceOp.SUM)
 
         total_loss = torch.tensor(total_loss.item(), device=rank_device)
@@ -745,8 +780,9 @@ class AtomHirshfeldModel:
         charge_mae = total_charge_error.item() / count.item()
         dipole_mae = total_dipole_error.item() / (count.item() * 3)
         qpole_mae = total_qpole_error.item() / (count.item() * 9)
+        hfvr_mae = total_hfvr_error.item() / count.item()
 
-        return total_loss, charge_mae, dipole_mae, qpole_mae
+        return total_loss, charge_mae, dipole_mae, qpole_mae, hfvr_mae
 
     def ddp_train(
         self,
@@ -830,10 +866,10 @@ class AtomHirshfeldModel:
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False
-            train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t = self.train_batches(
+            train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t, hfvr_MAE_t = self.train_batches(
                 rank, train_loader, criterion, optimizer, rank_device
             )
-            test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v = self.evaluate_batches(
+            test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v = self.evaluate_batches(
                 rank, test_loader, criterion, rank_device
             )
 
@@ -864,7 +900,7 @@ class AtomHirshfeldModel:
                 test_loss = 0.0
                 # if (world_size==1 or rank == 0):
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {test_lowered}",
+                        f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {test_lowered}",
                     flush=True,
                 )
         if world_size > 1:
@@ -920,12 +956,12 @@ class AtomHirshfeldModel:
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False
-            train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t = (
+            train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t, hfvr_MAE_t = (
                 self.train_batches_single_proc(
                     rank, train_loader, criterion, optimizer, rank_device
                 )
             )
-            test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v = (
+            test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v = (
                 self.evaluate_batches_single_proc(
                     rank, test_loader, criterion, rank_device
                 )
@@ -957,7 +993,7 @@ class AtomHirshfeldModel:
                 dt = time.time() - t1
                 test_loss = 0.0
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {test_lowered}",
+                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {test_lowered}",
                     flush=True,
                 )
         if world_size > 1:
@@ -1068,14 +1104,15 @@ class AtomHirshfeldModel:
     def predict_multipoles_batch(self, batch, isolate_predictions=True):
         batch.to(self.device)
         self.model.to(self.device)
-        qA, muA, thA, hlistA = self.model_predict(batch)
+        qA, muA, thA, hfvrA, hlistA = self.model_predict(batch)
         batch = batch.cpu()
         qA = qA.detach().detach().cpu()
         muA = muA.detach().detach().cpu()
         thA = thA.detach().detach().cpu()
+        hfvrA = hfvrA.detach().detach().cpu()
         hlistA = hlistA.detach().cpu()
         if isolate_predictions:
-            return isolate_atomic_property_predictions(batch, (qA, muA, thA, hlistA))
+            return isolate_atomic_property_predictions(batch, (qA, muA, thA, hfvrA, hlistA))
         else:
             return qA, muA, thA, hlistA
 
@@ -1101,16 +1138,18 @@ class AtomHirshfeldModel:
             # )
         else:
             for batch in data:
-                charges, dipoles, qpoles, hlists = self.model_predict(batch)
+                charges, dipoles, qpoles, hirshfeld_volume_ratios, hlists = self.model_predict(batch)
                 # need to use batch.molecule_ind to reassemble the output
                 mol_charges = [[] for i in range(batch_size)]
                 mol_dipoles = [[] for i in range(batch_size)]
                 mol_qpoles = [[] for i in range(batch_size)]
+                mol_hfvr = [[] for i in range(batch_size)]
                 for n, i in enumerate(batch.molecule_ind):
                     mol_charges[i].append(charges[n])
                     mol_dipoles[i].append(dipoles[n])
                     mol_qpoles[i].append(qpoles[n])
-                output.append((mol_charges, mol_dipoles, mol_qpoles, hlists))
+                    mol_hfvr[i].append(hirshfeld_volume_ratios[n])
+                output.append((mol_charges, mol_dipoles, mol_qpoles, mol_hfvr, hlists))
         return output
 
     @torch.inference_mode()
@@ -1124,13 +1163,13 @@ class AtomHirshfeldModel:
             if len(mol_data) == batch_size or cnt == len(mols) - 1:
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
-                    charge, dipole, qpole, hlist = self.model_predict(batch)
-                    output.append((charge, dipole, qpole, hlist))
+                    charge, dipole, qpole, hirshfeld_volume_ratios, hlist = self.model_predict(batch)
+                    output.append((charge, dipole, qpole, hirshfeld_volume_ratios, hlist))
         return output
 
     @torch.inference_mode()
     def model_predict(self, data):
-        charge, dipole, qpole, hlist = self.model(
+        charge, dipole, qpole, hirshfeld_volume_ratios, hlist = self.model(
             data.x,
             data.edge_index,
             # data.edge_attr,
@@ -1139,4 +1178,4 @@ class AtomHirshfeldModel:
             total_charge=data.total_charge,
             natom_per_mol=data.natom_per_mol,
         )
-        return charge, dipole, qpole, hlist
+        return charge, dipole, qpole, hirshfeld_volume_ratios, hlist

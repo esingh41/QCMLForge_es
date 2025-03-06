@@ -1,4 +1,5 @@
-from .AtomModels.ap2_atom_model import AtomModel
+from apnet_pt.AtomModels.ap2_atom_model import AtomModel
+from apnet_pt.AtomModels.ap3_atom_model import AtomHirshfeldModel
 from apnet_pt.apnet2_model import APNet2Model
 import torch
 import argparse
@@ -9,6 +10,7 @@ from pprint import pprint
 
 
 def train_atom_model(
+    atom_model_type="AtomModel",
     model_path="./models/am_amw_1.pt",
     data_dir="data_atomic",
     spec_type=3,
@@ -16,7 +18,13 @@ def train_atom_model(
     n_epochs=500,
     random_seed=42,
 ):
-    atom_model = AtomModel(
+    if atom_model_type == "AtomModel":
+        AM = AtomModel
+    elif atom_model_type == "AtomHirshfeldModel":
+        AM = AtomHirshfeldModel
+    else:
+        raise ValueError("Invalid Atom Model Type")
+    atom_model = AM(
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -130,9 +138,8 @@ def main():
     )
     args.add_argument(
         "--train_am",
-        type=bool,
-        default=False,
-        action=argparse.BooleanOptionalAction,
+        type=str,
+        default="",
         help="Train AtomModel"
     )
     args.add_argument(
@@ -199,8 +206,9 @@ def main():
     args = args.parse_args()
     pprint(args)
     set_all_seeds(args.random_seed)
-    if args.train_am:
+    if args.train_am != "":
         train_atom_model(
+            atom_model_type=args.train_am,
             model_path=args.am_model_path,
             data_dir=args.data_dir_atom,
             spec_type=args.spec_type_am,

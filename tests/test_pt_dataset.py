@@ -104,12 +104,12 @@ def test_apnet2_model_train():
 
 def test_atomhirshfeld_model_train():
     ds = atomic_datasets.atomic_hirshfeld_module_dataset(
-        root="./data_dir",
+        root=data_path,
         transform=None,
         pre_transform=None,
         r_cut=5.0,
         testing=False,
-        spec_type=1,
+        spec_type=5,
         max_size=None,
         force_reprocess=False,
         in_memory=True,
