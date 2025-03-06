@@ -18,7 +18,6 @@ from . import util
 import os.path as osp
 import torch
 from time import time
-import qcelemental as qcel
 from qm_tools_aw import tools
 import re
 from . import multipole

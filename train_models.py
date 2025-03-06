@@ -37,7 +37,7 @@ def train_atom_model(
         ds_spec_type=spec_type,
         ds_max_size=ds_max_size,
         ignore_database_null=False,
-        ds_in_memory=False,
+        ds_in_memory=True,
         use_GPU=True,
     )
     print(atom_model.dataset)
