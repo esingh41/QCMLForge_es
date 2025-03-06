@@ -10,6 +10,7 @@ from ..atomic_datasets import (
     AtomicDataLoader,
     atomic_hirshfeld_collate_update,
     qcel_mon_to_pyg_data,
+    atomic_collate_update_prebatched,
     atomic_collate_update_no_target,
 )
 
@@ -843,7 +844,8 @@ class AtomHirshfeldModel:
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=atomic_hirshfeld_collate_update,
+            collate_fn=atomic_collate_update_prebatched,
+            # collate_fn=atomic_hirshfeld_collate_update,
         )
 
         test_loader = AtomicDataLoader(
@@ -853,7 +855,8 @@ class AtomHirshfeldModel:
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=atomic_hirshfeld_collate_update,
+            collate_fn=atomic_collate_update_prebatched,
+            # collate_fn=atomic_hirshfeld_collate_update,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -935,7 +938,8 @@ class AtomHirshfeldModel:
             shuffle=self.train_shuffle,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            collate_fn=atomic_hirshfeld_collate_update,
+            collate_fn=atomic_collate_update_prebatched,
+            # collate_fn=atomic_hirshfeld_collate_update,
         )
 
         test_loader = AtomicDataLoader(
@@ -944,7 +948,8 @@ class AtomHirshfeldModel:
             shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            collate_fn=atomic_hirshfeld_collate_update,
+            collate_fn=atomic_collate_update_prebatched,
+            # collate_fn=atomic_hirshfeld_collate_update,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -952,7 +957,7 @@ class AtomHirshfeldModel:
 
         lowest_test_loss = torch.tensor(float("inf"))
         print(f"{rank=}")
-
+        # self.pretrain_statistics(train_loader, test_loader, criterion)
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False

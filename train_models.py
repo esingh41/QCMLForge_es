@@ -20,8 +20,10 @@ def train_atom_model(
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModel
+        batch_size = 16
     elif atom_model_type == "AtomHirshfeldModel":
         AM = AtomHirshfeldModel
+        batch_size = 1
     else:
         raise ValueError("Invalid Atom Model Type")
     atom_model = AM(
@@ -36,9 +38,10 @@ def train_atom_model(
         ds_in_memory=False,
         use_GPU=True,
     )
+    print(atom_model.dataset)
     atom_model.train(
         n_epochs=n_epochs,
-        batch_size=16,
+        batch_size=batch_size,
         lr=5e-4,
         split_percent=0.9,
         model_path=model_path,

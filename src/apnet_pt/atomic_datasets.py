@@ -99,6 +99,8 @@ def edge_function_system_index_only(R, r_c):
 
 MAX_Z = 118  # largest atomic number
 
+def atomic_collate_update_prebatched(batch):
+    return batch[0]
 
 def atomic_collate_update(batch):
     """
@@ -799,7 +801,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
     def get(self, idx):
         return torch.load(
             osp.join(self.processed_dir,
-                     f"data_hf_spec_{self.spec_type}_{idx}.pt"),
+                     f"monomer_ap3_{self.spec_type}_{idx}.pt"),
             weights_only=False,
         )
 
