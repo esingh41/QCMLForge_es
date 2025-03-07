@@ -5,14 +5,14 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
+from ..AtomModels.ap3_atom_model import AtomHirshfeldMPNN, isolate_atomic_property_predictions
 from .. import atomic_datasets
 from .. import pairwise_datasets
 from ..pairwise_datasets import (
-    apnet2_module_dataset,
+    apnet3_module_dataset,
     APNet2_DataLoader,
-    apnet2_collate_update,
-    apnet2_collate_update_prebatched,
+    apnet3_collate_update,
+    apnet3_collate_update_prebatched,
     pairwise_edges,
     pairwise_edges_im,
     qcel_dimer_to_pyg_data,
@@ -122,7 +122,7 @@ def unwrap_model(model):
 
 # Maybe MessagePassing inheritance is not necessary and slowing down...
 # class APNet2_MPNN(MessagePassing):
-class APNet2_MPNN(nn.Module):
+class APNet3_MPNN(nn.Module):
     def __init__(
         self,
         # atom_model,
@@ -335,11 +335,15 @@ class APNet2_MPNN(nn.Module):
         qA,
         muA,
         quadA,
+        hfvrA,
+        vwA,
         hlistA,
         # monomer B properties
         qB,
         muB,
         quadB,
+        hfvrB,
+        vwB,
         hlistB,
     ):
         # counts
@@ -574,7 +578,7 @@ class APNet2_MPNN(nn.Module):
         return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
 
 
-class APNet2Model:
+class APNet3Model:
     def __init__(
         self,
         dataset=None,
@@ -615,12 +619,12 @@ class APNet2Model:
         self.ds_spec_type = ds_spec_type
         if atom_model_pre_trained_path:
             print(
-                f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
+                f"Loading pre-trained AtomHirshfeldMPNN model from {atom_model_pre_trained_path}"
             )
             checkpoint = torch.load(
                 atom_model_pre_trained_path, map_location=device, weights_only=False
             )
-            self.atom_model = AtomMPNN(
+            self.atom_model = AtomHirshfeldMPNN(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -644,10 +648,10 @@ class APNet2Model:
             )
         if pre_trained_model_path:
             print(
-                f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
+                f"Loading pre-trained APNet3_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = APNet2_MPNN(
+            self.model = APNet3_MPNN(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -661,7 +665,7 @@ class APNet2Model:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = APNet2_MPNN(
+            self.model = APNet3_MPNN(
                 # atom_model=self.atom_model,
                 n_message=n_message,
                 n_rbf=n_rbf,
@@ -679,7 +683,7 @@ class APNet2Model:
         ):
 
             def setup_ds(fp=ds_force_reprocess):
-                return apnet2_module_dataset(
+                return apnet3_module_dataset(
                     root=ds_root,
                     r_cut=r_cut,
                     r_cut_im=r_cut_im,
@@ -708,7 +712,7 @@ class APNet2Model:
 
             def setup_ds(fp=ds_force_reprocess):
                 return [
-                    apnet2_module_dataset(
+                    apnet3_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -724,7 +728,7 @@ class APNet2Model:
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
                     ),
-                    apnet2_module_dataset(
+                    apnet3_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -773,8 +777,8 @@ class APNet2Model:
         self.model = torch.compile(self.model)
         return
 
-    def set_pretrained_model(self, ap2_model_path, am_model_path):
-        checkpoint = torch.load(ap2_model_path)
+    def set_pretrained_model(self, ap3_model_path, am_model_path):
+        checkpoint = torch.load(ap3_model_path)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -818,10 +822,14 @@ class APNet2Model:
             qA=batch.qA,
             muA=batch.muA,
             quadA=batch.quadA,
+            hfvrA=batch.hfvrA,
+            vwA=batch.vwA,
             hlistA=batch.hlistA,
             qB=batch.qB,
             muB=batch.muB,
             quadB=batch.quadB,
+            hfvrB=batch.hfvrB,
+            vwB=batch.vwB,
             hlistB=batch.hlistB,
         )
 
@@ -856,10 +864,10 @@ class APNet2Model:
                     total_charge=batch_B.total_charge,
                     natom_per_mol=batch_B.natom_per_mol,
                 )
-                qAs, muAs, quadAs, hlistAs = isolate_atomic_property_predictions(
+                qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = isolate_atomic_property_predictions(
                     batch_A, am_out_A
                 )
-                qBs, muBs, quadBs, hlistBs = isolate_atomic_property_predictions(
+                qBs, muBs, quadBs, hfvrBs, vwBs, hlistBs = isolate_atomic_property_predictions(
                     batch_B, am_out_B
                 )
                 if len(batch_A.total_charge.size()) == 0:
@@ -868,16 +876,24 @@ class APNet2Model:
                     batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
                 dimer_ls = []
                 for j in range(len(batch_mol_data)):
-                    qA, muA, quadA, hlistA = qAs[j], muAs[j], quadAs[j], hlistAs[j]
-                    qB, muB, quadB, hlistB = qBs[j], muBs[j], quadBs[j], hlistBs[j]
+                    qA, muA, quadA, hfvrA, vwA, hlistA = qAs[j], muAs[j], quadAs[j], hfvrAs[j], vwAs[j], hlistAs[j]
+                    qB, muB, quadB, hfvrB, vwB, hlistB = qBs[j], muBs[j], quadBs[j], hfvrBs[j], vwBs[j], hlistBs[j]
                     if len(qA.size()) == 0:
                         qA = qA.unsqueeze(0).unsqueeze(0)
+                        hfvrA = hfvrA.unsqueeze(0).unsqueeze(0)
+                        vwA = vwA.unsqueeze(0).unsqueeze(0)
                     elif len(qA.size()) == 1:
                         qA = qA.unsqueeze(-1)
+                        hfvrA = hfvrA.unsqueeze(-1)
+                        vwA = vwA.unsqueeze(-1)
                     if len(qB.size()) == 0:
                         qB = qB.unsqueeze(0).unsqueeze(0)
+                        hfvrB = hfvrB.unsqueeze(0).unsqueeze(0)
+                        vwB = vwB.unsqueeze(0).unsqueeze(0)
                     elif len(qB.size()) == 1:
                         qB = qB.unsqueeze(-1)
+                        hfvrB = hfvrB.unsqueeze(-1)
+                        vwB = vwB.unsqueeze(-1)
                     e_AA_source, e_AA_target = pairwise_edges(
                         data_A[j].R, r_cut)
                     e_BB_source, e_BB_target = pairwise_edges(
@@ -913,15 +929,19 @@ class APNet2Model:
                         qA=qA,
                         muA=muA,
                         quadA=quadA,
+                        hfvrA=hfvrA,
+                        vwA=vwA,
                         hlistA=hlistA,
                         # monomer B properties
                         qB=qB,
                         muB=muB,
                         quadB=quadB,
+                        hfvrB=hfvrB,
+                        vwB=vwB,
                         hlistB=hlistB,
                     )
                     dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
+                dimer_batch = pairwise_datasets.apnet3_collate_update_no_target(
                     dimer_ls
                 )
         return dimer_batch
@@ -1024,7 +1044,7 @@ class APNet2Model:
                             hlistB=hlistB,
                         )
                         dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
+                dimer_batch = pairwise_datasets.apnet3_collate_update_no_target(
                     dimer_ls
                 )
                 dimer_batch.to(self.device)
@@ -1285,7 +1305,7 @@ units angstrom
                 shuffle=False,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
-                collate_fn=apnet2_collate_update,
+                collate_fn=apnet3_collate_update,
             )
             for b in first_pass_data:
                 b.to(rank_device)
@@ -1320,7 +1340,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=apnet2_collate_update,
+            collate_fn=apnet3_collate_update,
         )
 
         test_loader = APNet2_DataLoader(
@@ -1330,7 +1350,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=apnet2_collate_update,
+            collate_fn=apnet3_collate_update,
         )
         if rank == 0:
             print("Loaders setup\n")
@@ -1449,11 +1469,11 @@ units angstrom
 
         # (2) Dataloaders
         if self.ds_spec_type in [1, 5, 6]:
-            from .pairwise_datasets import apnet2_collate_update
+            from .pairwise_datasets import apnet3_collate_update
 
-            collate_fn = apnet2_collate_update
+            collate_fn = apnet3_collate_update
         else:
-            collate_fn = apnet2_collate_update_prebatched
+            collate_fn = apnet3_collate_update_prebatched
             print("Using default collate_fn")
             print(f"{batch_size = }")
         train_loader = APNet2_DataLoader(
