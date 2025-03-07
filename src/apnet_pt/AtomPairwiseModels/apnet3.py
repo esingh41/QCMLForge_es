@@ -263,6 +263,14 @@ class APNet3_MPNN(nn.Module):
 
         return E_elst
 
+    def valence_width_exch(self, vwA, vwB):
+        # TODO: Implement valence width exchange
+        return
+    
+    def induced_dipole_indu(self, hfvrA, hfvrB, dR_xyz):
+        # TODO: Implement induced dipole induction
+        return
+
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
         if nedge == 0:
