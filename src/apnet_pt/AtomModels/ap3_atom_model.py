@@ -179,7 +179,8 @@ class AtomHirshfeldMPNN(MessagePassing):
             # need h_list to have the same number of dimensions as the number of message passing layers
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
             h_list = torch.stack(h_list, dim=1)
-            return charge.squeeze(), dipole, qpole, h_list
+            # if we get a single atom, we should return ones for volume_ratio, valence_width
+            return charge.squeeze(), dipole, qpole, volume_ratio.squeeze(), volume_ratio.squeeze(), h_list
 
         # 1) Identify which molecules have more than one atom
         mol_ind = torch.where(natom_per_mol != 1)[0]

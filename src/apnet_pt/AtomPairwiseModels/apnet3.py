@@ -5,19 +5,19 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from .AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
-from . import atomic_datasets
-from . import pairwise_datasets
-from .pairwise_datasets import (
-    apnet2_module_dataset,
+from ..AtomModels.ap3_atom_model import AtomHirshfeldMPNN, isolate_atomic_property_predictions
+from .. import atomic_datasets
+from .. import pairwise_datasets
+from ..pairwise_datasets import (
+    apnet3_module_dataset,
     APNet2_DataLoader,
-    apnet2_collate_update,
-    apnet2_collate_update_prebatched,
+    apnet3_collate_update,
+    apnet3_collate_update_prebatched,
     pairwise_edges,
     pairwise_edges_im,
     qcel_dimer_to_pyg_data,
 )
-from . import constants
+from .. import constants
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -122,7 +122,7 @@ def unwrap_model(model):
 
 # Maybe MessagePassing inheritance is not necessary and slowing down...
 # class APNet2_MPNN(MessagePassing):
-class APNet2_MPNN(nn.Module):
+class APNet3_MPNN(nn.Module):
     def __init__(
         self,
         # atom_model,
@@ -263,6 +263,14 @@ class APNet2_MPNN(nn.Module):
 
         return E_elst
 
+    def valence_width_exch(self, vwA, vwB):
+        # TODO: Implement valence width exchange
+        return
+    
+    def induced_dipole_indu(self, hfvrA, hfvrB, dR_xyz):
+        # TODO: Implement induced dipole induction
+        return
+
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
         if nedge == 0:
@@ -335,11 +343,15 @@ class APNet2_MPNN(nn.Module):
         qA,
         muA,
         quadA,
+        hfvrA,
+        vwA,
         hlistA,
         # monomer B properties
         qB,
         muB,
         quadB,
+        hfvrB,
+        vwB,
         hlistB,
     ):
         # counts
@@ -574,447 +586,7 @@ class APNet2_MPNN(nn.Module):
         return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
 
 
-class APNet3_MPNN(nn.Module):
-    def __init__(
-        self,
-        n_message=3,
-        n_rbf=8,
-        n_neuron=128,
-        n_embed=8,
-        r_cut_im=8.0,
-        r_cut=5.0,
-    ):
-        super().__init__()
-        self.n_message = n_message
-        self.n_rbf = n_rbf
-        self.n_neuron = n_neuron
-        self.n_embed = n_embed
-        self.r_cut_im = r_cut_im
-        self.r_cut = r_cut
-
-        layer_nodes_hidden = [
-            # input_layer_size,
-            n_neuron * 2,
-            n_neuron,
-            n_neuron // 2,
-            n_embed,
-        ]
-        layer_nodes_readout = [
-            # n_embed,
-            n_neuron * 2,
-            n_neuron,
-            n_neuron // 2,
-            1,
-        ]
-        layer_activations = [
-            nn.ReLU(),
-            nn.ReLU(),
-            nn.ReLU(),
-            None,
-        ]  # None represents a linear activation
-
-        # embed interatomic distances into large orthogonal basis
-        self.distance_layer_im = DistanceLayer(n_rbf, self.r_cut_im)
-        self.distance_layer = DistanceLayer(n_rbf, self.r_cut)
-
-        # embed atom types
-        self.embed_layer = nn.Embedding(max_Z + 1, n_embed)
-
-        # embed atomic polarization parameters
-        self.embed_polarization_parameters = nn.Embedding(max_Z + 1, n_embed)
-
-        # readout layers for predicting final interaction energies
-        self.readout_layer_elst = self._make_layers(
-            layer_nodes_readout, layer_activations
-        )
-        self.readout_layer_exch = self._make_layers(
-            layer_nodes_readout, layer_activations
-        )
-        self.readout_layer_indu = self._make_layers(
-            layer_nodes_readout, layer_activations
-        )
-        self.readout_layer_disp = self._make_layers(
-            layer_nodes_readout, layer_activations
-        )
-
-        # update layers for hidden states
-        self.update_layers = nn.ModuleList()
-        self.directional_layers = nn.ModuleList()
-        for i in range(n_message):
-            self.update_layers.append(
-                self._make_layers(layer_nodes_hidden, layer_activations)
-            )
-            self.directional_layers.append(
-                self._make_layers(layer_nodes_hidden, layer_activations)
-            )
-
-    def _make_layers(self, layer_nodes, activations):
-        layers = []
-        # Start with a LazyLinear so we don't have to fix input dim
-        layers.append(nn.LazyLinear(layer_nodes[0]))
-        layers.append(activations[0])
-        for i in range(len(layer_nodes) - 1):
-            layers.append(nn.Linear(layer_nodes[i], layer_nodes[i + 1]))
-            if activations[i + 1] is not None:
-                layers.append(activations[i + 1])
-        return nn.Sequential(*layers)
-
-    def mtp_elst(
-        self,
-        qA,
-        muA,
-        quadA,
-        qB,
-        muB,
-        quadB,
-        e_ABsr_source,
-        e_ABsr_target,
-        dR_ang,
-        dR_xyz_ang,
-    ):
-        dR = dR_ang / constants.au2ang
-        dR_xyz = dR_xyz_ang / constants.au2ang
-        oodR = 1.0 / dR
-
-        # Identity for 3D
-        delta = torch.eye(3, device=qA.device)
-
-        # Extracting tensor elements
-        qA_source = qA.squeeze(-1).index_select(0, e_ABsr_source)
-        qB_source = qB.squeeze(-1).index_select(0, e_ABsr_target)
-
-        muA_source = muA.index_select(0, e_ABsr_source)
-        muB_source = muB.index_select(0, e_ABsr_target)
-
-        quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_ABsr_source)
-        quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_ABsr_target)
-
-        E_qq = qA_source * qB_source * oodR
-
-        T1 = -1.0 * dR_xyz * (oodR**3).unsqueeze(1)
-        qu = (qA_source.unsqueeze(1) * muB_source) - (
-            qB_source.unsqueeze(1) * muA_source
-        )
-        E_qu = (T1 * qu).sum(dim=1)
-
-        # T2 = 3(dR_xyz x dR_xyz) - dR * delta
-        T2 = 3 * torch.einsum("ij,ik->ijk", dR_xyz, dR_xyz) - torch.einsum(
-            "i,jk->ijk", dR, delta
-        )
-        T2 = T2 * (oodR**5).unsqueeze(1).unsqueeze(2)
-
-        # E_uu should be close to zero
-        E_uu = -1.0 * torch.einsum("ij,ik,ijk->i", muA_source, muB_source, T2)
-
-        qA_quadB_source = qA_source.unsqueeze(1).unsqueeze(2) * quadB_source
-        qB_quadA_source = qB_source.unsqueeze(1).unsqueeze(2) * quadA_source
-        E_qQ = (T2 * (qA_quadB_source + qB_quadA_source)).sum(dim=(1, 2)) / 3.0
-
-        E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu)
-
-        return E_elst
-
-    def get_messages(self, h0, h, rbf, e_source, e_target):
-        nedge = e_source.numel()
-        if nedge == 0:
-            # No intramolecular edges
-            return torch.zeros(
-                0, self.n_embed * 4 * self.n_rbf + self.n_embed * 4 + self.n_rbf
-            )
-
-        h0_source = h0.index_select(0, e_source)
-        h0_target = h0.index_select(0, e_target)
-        h_source = h.index_select(0, e_source)
-        h_target = h.index_select(0, e_target)
-
-        # [edges x 4 * n_embed]
-        h_all = torch.cat([h0_source, h0_target, h_source, h_target], dim=-1)
-
-        # print(nedge)
-        # print(h_all.size())
-        # [edges, 4 * n_embed, n_rbf]
-        h_all_dot = torch.einsum("ez,er->ezr", h_all, rbf).view(nedge, -1)
-        # h_all_dot = h_all_dot.view(nedge, -1)
-
-        # [edges,  n_embed * 4 * n_rbf + n_embed * 4 + n_rbf]
-        m_ij = torch.cat([h_all, h_all_dot, rbf], dim=-1)
-        return m_ij
-
-    def get_pair(self, hA, hB, qA, qB, rbf, e_source, e_target):
-        hA_source = hA.index_select(0, e_source)
-        hB_target = hB.index_select(0, e_target)
-
-        qA_source = qA.index_select(0, e_source)
-        qB_target = qB.index_select(0, e_target)
-        # print(f"{hA_source.size() = }, {hB_target.size() = }, {qA_source.size() = }, {qB_target.size() = }, {rbf.size() = }")
-        return torch.cat([hA_source, hB_target, qA_source, qB_target, rbf], dim=-1)
-
-    def get_distances(self, RA, RB, e_source, e_target):
-        RA_source = RA.index_select(0, e_source)
-        RB_target = RB.index_select(0, e_target)
-        dR_xyz = RB_target - RA_source
-
-        # Compute distances with safe operation for square root
-        # dR = torch.sqrt(nn.functional.relu(torch.sum(dR_xyz**2, dim=-1)))
-        dR = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
-        return dR, dR_xyz
-
-    def forward(
-        self,
-        ZA,
-        RA,
-        ZB,
-        RB,
-        # short range, intermolecular edges
-        e_ABsr_source,
-        e_ABsr_target,
-        dimer_ind,
-        # long range, intermolecular edges
-        e_ABlr_source,
-        e_ABlr_target,
-        dimer_ind_lr,
-        # intramonomer edges (monomer A)
-        e_AA_source,
-        e_AA_target,
-        # intramonomer edges (monomer B)
-        e_BB_source,
-        e_BB_target,
-        # monomer charges
-        total_charge_A,
-        total_charge_B,
-        # monomer A properties
-        qA,
-        muA,
-        quadA,
-        hlistA,
-        # monomer B properties
-        qB,
-        muB,
-        quadB,
-        hlistB,
-    ):
-        # counts
-        natomA = torch.tensor(ZA.size(0), dtype=torch.long)
-        natomB = torch.tensor(ZB.size(0), dtype=torch.long)
-        ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
-
-        # interatomic distances
-        dR_sr, dR_sr_xyz = self.get_distances(
-            RA, RB, e_ABsr_source, e_ABsr_target)
-        dR_lr, dR_lr_xyz = self.get_distances(
-            RA, RB, e_ABlr_source, e_ABlr_target)
-        dRA, dRA_xyz = self.get_distances(RA, RA, e_AA_source, e_AA_target)
-        dRB, dRB_xyz = self.get_distances(RB, RB, e_BB_source, e_BB_target)
-
-        # interatomic unit vectors
-        dR_sr_unit = dR_sr_xyz / dR_sr.unsqueeze(1)
-        dRA_unit = dRA_xyz / dRA.unsqueeze(1)
-        dRB_unit = dRB_xyz / dRB.unsqueeze(1)
-
-        # distance encodings
-        rbf_sr = self.distance_layer_im(dR_sr)
-        rbfA = self.distance_layer(dRA)
-        rbfB = self.distance_layer(dRB)
-
-        ################################################################
-        ### predict SAPT components via intramonomer message passing ###
-        ################################################################
-
-        # invariant hidden state lists
-        hA_list = [self.embed_layer(ZA).view(ZA.size(0), -1)]
-        hB_list = [self.embed_layer(ZB).view(ZB.size(0), -1)]
-
-        # directional hidden state lists
-        hA_dir_list = []
-        hB_dir_list = []
-
-        # TODO: need to determine how to handle all monA in batch having no
-        # monomer edges (single atoms)
-        for i in range(self.n_message):
-            mA_ij = self.get_messages(
-                hA_list[0], hA_list[-1], rbfA, e_AA_source, e_AA_target
-            )
-            mB_ij = self.get_messages(
-                hB_list[0], hB_list[-1], rbfB, e_BB_source, e_BB_target
-            )
-            if mA_ij is None or mB_ij is None:
-                # Single-atom corner case; skip
-                hA_list.append(hA_list[-1])
-                hB_list.append(hB_list[-1])
-                continue
-
-            #################
-            ### invariant ###
-            #################
-
-            # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0,
-                           reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0,
-                           reduce="sum", dim_size=natomB)
-
-            # get the next hidden state of the atom
-            hA_next = self.update_layers[i](mA_i)
-            hB_next = self.update_layers[i](mB_i)
-
-            hA_list.append(hA_next)
-            hB_list.append(hB_next)
-
-            ###################
-            ### directional ###
-            ###################
-
-            mA_ij_dir = self.directional_layers[i](mA_ij)
-            mB_ij_dir = self.directional_layers[i](mB_ij)
-            mA_ij_dir = torch.einsum("ex,em->exm", dRA_unit, mA_ij_dir)
-            mB_ij_dir = torch.einsum("ex,em->exm", dRB_unit, mB_ij_dir)
-
-            # sum directional messages to get directional atomic hidden states
-            # NOTE: this summation must be linear to guarantee equivariance.
-            #       because of this constraint, we applied a dense net before
-            #       the summation, not after
-            hA_dir = scatter(
-                mA_ij_dir, e_AA_source, dim=0, reduce="sum", dim_size=natomA
-            )
-            hB_dir = scatter(
-                mB_ij_dir, e_BB_source, dim=0, reduce="sum", dim_size=natomB
-            )
-            hA_dir_list.append(hA_dir)
-            hB_dir_list.append(hB_dir)
-
-        # concatenate hidden states over MP iterations
-        hA = torch.cat(hA_list, dim=-1)
-        hB = torch.cat(hB_list, dim=-1)
-
-        # mock right sized output with N_dimer, 4 components
-
-        # atom-pair features are a combo of atomic hidden states and the interatomic distance
-        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr,
-                            e_ABsr_source, e_ABsr_target)
-        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr,
-                            e_ABsr_target, e_ABsr_source)
-
-        # project the directional atomic hidden states along the interatomic axis
-        hA_dir = torch.cat(hA_dir_list, dim=-1)
-        hB_dir = torch.cat(hB_dir_list, dim=-1)
-
-        hA_dir_source = hA_dir.index_select(0, e_ABsr_source)
-        hB_dir_target = hB_dir.index_select(0, e_ABsr_target)
-
-        hA_dir_blah = torch.einsum("axf,ax->af", hA_dir_source, dR_sr_unit)
-        hB_dir_blah = torch.einsum("axf,ax->af", hB_dir_target, -dR_sr_unit)
-
-        hAB = torch.cat([hAB, hA_dir_blah, hB_dir_blah], dim=1)
-        hBA = torch.cat([hBA, hB_dir_blah, hA_dir_blah], dim=1)
-
-        # run atom-pair features through a dense net to predict SAPT components
-        EAB_sr = torch.cat(
-            [
-                self.readout_layer_elst(hAB),
-                self.readout_layer_exch(hAB),
-                self.readout_layer_indu(hAB),
-                self.readout_layer_disp(hAB),
-            ],
-            dim=1,
-        )
-        EBA_sr = torch.cat(
-            [
-                self.readout_layer_elst(hBA),
-                self.readout_layer_exch(hBA),
-                self.readout_layer_indu(hBA),
-                self.readout_layer_disp(hBA),
-            ],
-            dim=1,
-        )
-
-        E_sr = EAB_sr + EBA_sr
-
-        cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
-        E_sr *= cutoff
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
-                             reduce="add", dim_size=ndimer)
-
-        ####################################################
-        ### predict multipole electrostatic interactions ###
-        ####################################################
-
-        E_elst_sr = self.mtp_elst(
-            qA,
-            muA,
-            quadA,
-            qB,
-            muB,
-            quadB,
-            e_ABsr_source,
-            e_ABsr_target,
-            dR_sr,
-            dR_sr_xyz,
-        )
-
-        E_elst_sr_dimer = scatter(
-            E_elst_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer
-        )
-        E_elst_sr_dimer = E_elst_sr_dimer.unsqueeze(-1)
-
-        E_elst_lr = self.mtp_elst(
-            qA,
-            muA,
-            quadA,
-            qB,
-            muB,
-            quadB,
-            e_ABlr_source,
-            e_ABlr_target,
-            dR_lr,
-            dR_lr_xyz,
-        )
-        E_elst_lr_dimer = scatter(
-            E_elst_lr, dimer_ind_lr, dim=0, reduce="add", dim_size=ndimer
-        )
-        E_elst_lr_dimer = E_elst_lr_dimer.unsqueeze(-1)
-
-        # Example shapes for clarity:
-        # E_elst_sr_dimer : shape [N_sr, C]  (some # of rows, e.g. 4 columns)
-        # E_elst_lr_dimer : shape [N_lr, C]
-        # ndimer          : desired # of rows (N_sr, N_lr <= ndimer)
-
-        # 1) Expand E_elst_sr_dimer up to ndimer rows if needed
-        N_sr, num_cols = E_elst_sr_dimer.shape
-        sr_expanded = E_elst_sr_dimer.new_zeros((ndimer, num_cols))
-        sr_expanded[:N_sr] = E_elst_sr_dimer
-        E_elst_sr_dimer = sr_expanded
-
-        # 2) Expand E_elst_lr_dimer similarly
-        N_lr, num_cols = E_elst_lr_dimer.shape
-        lr_expanded = E_elst_lr_dimer.new_zeros((ndimer, num_cols))
-        lr_expanded[:N_lr] = E_elst_lr_dimer
-        E_elst_lr_dimer = lr_expanded
-
-        # 3) Sum them
-        E_elst_dimer = E_elst_sr_dimer + E_elst_lr_dimer
-
-        # 4) Finally, pad columns by 3 if you want to go from shape [ndimer, 4] to [ndimer, 7]
-        rows, cols = E_elst_dimer.shape
-        padded = E_elst_dimer.new_zeros((rows, cols + 3))
-        padded[:, :cols] = E_elst_dimer
-        E_elst_dimer = padded
-        E_output = E_sr_dimer + E_elst_dimer
-        return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
-
-        if E_elst_sr_dimer.size(0) < ndimer:
-            padding = (0, 0, 0, ndimer - E_elst_sr_dimer.size(0))
-            E_elst_sr_dimer = nn.functional.pad(E_elst_sr_dimer, padding)
-        if E_elst_lr_dimer.size(0) < ndimer:
-            padding = (0, 0, 0, ndimer - E_elst_lr_dimer.size(0))
-            E_elst_lr_dimer = nn.functional.pad(E_elst_lr_dimer, padding)
-
-        E_elst_dimer = E_elst_sr_dimer + E_elst_lr_dimer
-        E_elst_dimer = nn.functional.pad(E_elst_dimer, (0, 3))
-        E_ouptut = E_sr_dimer + E_elst_dimer
-        return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
-
-
-class APNet2Model:
+class APNet3Model:
     def __init__(
         self,
         dataset=None,
@@ -1055,12 +627,12 @@ class APNet2Model:
         self.ds_spec_type = ds_spec_type
         if atom_model_pre_trained_path:
             print(
-                f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
+                f"Loading pre-trained AtomHirshfeldMPNN model from {atom_model_pre_trained_path}"
             )
             checkpoint = torch.load(
                 atom_model_pre_trained_path, map_location=device, weights_only=False
             )
-            self.atom_model = AtomMPNN(
+            self.atom_model = AtomHirshfeldMPNN(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -1084,10 +656,10 @@ class APNet2Model:
             )
         if pre_trained_model_path:
             print(
-                f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
+                f"Loading pre-trained APNet3_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = APNet2_MPNN(
+            self.model = APNet3_MPNN(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -1101,7 +673,7 @@ class APNet2Model:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = APNet2_MPNN(
+            self.model = APNet3_MPNN(
                 # atom_model=self.atom_model,
                 n_message=n_message,
                 n_rbf=n_rbf,
@@ -1119,7 +691,7 @@ class APNet2Model:
         ):
 
             def setup_ds(fp=ds_force_reprocess):
-                return apnet2_module_dataset(
+                return apnet3_module_dataset(
                     root=ds_root,
                     r_cut=r_cut,
                     r_cut_im=r_cut_im,
@@ -1148,7 +720,7 @@ class APNet2Model:
 
             def setup_ds(fp=ds_force_reprocess):
                 return [
-                    apnet2_module_dataset(
+                    apnet3_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -1164,7 +736,7 @@ class APNet2Model:
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
                     ),
-                    apnet2_module_dataset(
+                    apnet3_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -1213,8 +785,8 @@ class APNet2Model:
         self.model = torch.compile(self.model)
         return
 
-    def set_pretrained_model(self, ap2_model_path, am_model_path):
-        checkpoint = torch.load(ap2_model_path)
+    def set_pretrained_model(self, ap3_model_path, am_model_path):
+        checkpoint = torch.load(ap3_model_path)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -1258,10 +830,14 @@ class APNet2Model:
             qA=batch.qA,
             muA=batch.muA,
             quadA=batch.quadA,
+            hfvrA=batch.hfvrA,
+            vwA=batch.vwA,
             hlistA=batch.hlistA,
             qB=batch.qB,
             muB=batch.muB,
             quadB=batch.quadB,
+            hfvrB=batch.hfvrB,
+            vwB=batch.vwB,
             hlistB=batch.hlistB,
         )
 
@@ -1296,10 +872,10 @@ class APNet2Model:
                     total_charge=batch_B.total_charge,
                     natom_per_mol=batch_B.natom_per_mol,
                 )
-                qAs, muAs, quadAs, hlistAs = isolate_atomic_property_predictions(
+                qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = isolate_atomic_property_predictions(
                     batch_A, am_out_A
                 )
-                qBs, muBs, quadBs, hlistBs = isolate_atomic_property_predictions(
+                qBs, muBs, quadBs, hfvrBs, vwBs, hlistBs = isolate_atomic_property_predictions(
                     batch_B, am_out_B
                 )
                 if len(batch_A.total_charge.size()) == 0:
@@ -1308,60 +884,72 @@ class APNet2Model:
                     batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
                 dimer_ls = []
                 for j in range(len(batch_mol_data)):
-                    qA, muA, quadA, hlistA = qAs[j], muAs[j], quadAs[j], hlistAs[j]
-                    qB, muB, quadB, hlistB = qBs[j], muBs[j], quadBs[j], hlistBs[j]
+                    qA, muA, quadA, hfvrA, vwA, hlistA = qAs[j], muAs[j], quadAs[j], hfvrAs[j], vwAs[j], hlistAs[j]
+                    qB, muB, quadB, hfvrB, vwB, hlistB = qBs[j], muBs[j], quadBs[j], hfvrBs[j], vwBs[j], hlistBs[j]
                     if len(qA.size()) == 0:
                         qA = qA.unsqueeze(0).unsqueeze(0)
+                        hfvrA = hfvrA.unsqueeze(0).unsqueeze(0)
+                        vwA = vwA.unsqueeze(0).unsqueeze(0)
                     elif len(qA.size()) == 1:
                         qA = qA.unsqueeze(-1)
+                        hfvrA = hfvrA.unsqueeze(-1)
+                        vwA = vwA.unsqueeze(-1)
                     if len(qB.size()) == 0:
                         qB = qB.unsqueeze(0).unsqueeze(0)
+                        hfvrB = hfvrB.unsqueeze(0).unsqueeze(0)
+                        vwB = vwB.unsqueeze(0).unsqueeze(0)
                     elif len(qB.size()) == 1:
                         qB = qB.unsqueeze(-1)
-                        e_AA_source, e_AA_target = pairwise_edges(
-                            data_A[j].R, r_cut)
-                        e_BB_source, e_BB_target = pairwise_edges(
-                            data_B[j].R, r_cut)
-                        e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                            pairwise_edges_im(
-                                data_A[j].R, data_B[j].R, r_cut_im)
-                        )
-                        dimer_ind = torch.ones((1), dtype=torch.long) * 0
-                        data = Data(
-                            ZA=data_A[j].x,
-                            RA=data_A[j].R,
-                            ZB=data_B[j].x,
-                            RB=data_B[j].R,
-                            # short range, intermolecular edges
-                            e_ABsr_source=e_ABsr_source,
-                            e_ABsr_target=e_ABsr_target,
-                            dimer_ind=dimer_ind,
-                            # long range, intermolecular edges
-                            e_ABlr_source=e_ABlr_source,
-                            e_ABlr_target=e_ABlr_target,
-                            dimer_ind_lr=dimer_ind,
-                            # intramonomer edges (monomer A)
-                            e_AA_source=e_AA_source,
-                            e_AA_target=e_AA_target,
-                            # intramonomer edges (monomer B)
-                            e_BB_source=e_BB_source,
-                            e_BB_target=e_BB_target,
-                            # monomer charges
-                            total_charge_A=data_A[j].total_charge,
-                            total_charge_B=data_B[j].total_charge,
-                            # monomer A properties
-                            qA=qA,
-                            muA=muA,
-                            quadA=quadA,
-                            hlistA=hlistA,
-                            # monomer B properties
-                            qB=qB,
-                            muB=muB,
-                            quadB=quadB,
-                            hlistB=hlistB,
-                        )
-                        dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
+                        hfvrB = hfvrB.unsqueeze(-1)
+                        vwB = vwB.unsqueeze(-1)
+                    e_AA_source, e_AA_target = pairwise_edges(
+                        data_A[j].R, r_cut)
+                    e_BB_source, e_BB_target = pairwise_edges(
+                        data_B[j].R, r_cut)
+                    e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
+                        pairwise_edges_im(
+                            data_A[j].R, data_B[j].R, r_cut_im)
+                    )
+                    dimer_ind = torch.ones((1), dtype=torch.long) * 0
+                    data = Data(
+                        ZA=data_A[j].x,
+                        RA=data_A[j].R,
+                        ZB=data_B[j].x,
+                        RB=data_B[j].R,
+                        # short range, intermolecular edges
+                        e_ABsr_source=e_ABsr_source,
+                        e_ABsr_target=e_ABsr_target,
+                        dimer_ind=dimer_ind,
+                        # long range, intermolecular edges
+                        e_ABlr_source=e_ABlr_source,
+                        e_ABlr_target=e_ABlr_target,
+                        dimer_ind_lr=dimer_ind,
+                        # intramonomer edges (monomer A)
+                        e_AA_source=e_AA_source,
+                        e_AA_target=e_AA_target,
+                        # intramonomer edges (monomer B)
+                        e_BB_source=e_BB_source,
+                        e_BB_target=e_BB_target,
+                        # monomer charges
+                        total_charge_A=data_A[j].total_charge,
+                        total_charge_B=data_B[j].total_charge,
+                        # monomer A properties
+                        qA=qA,
+                        muA=muA,
+                        quadA=quadA,
+                        hfvrA=hfvrA,
+                        vwA=vwA,
+                        hlistA=hlistA,
+                        # monomer B properties
+                        qB=qB,
+                        muB=muB,
+                        quadB=quadB,
+                        hfvrB=hfvrB,
+                        vwB=vwB,
+                        hlistB=hlistB,
+                    )
+                    dimer_ls.append(data)
+                dimer_batch = pairwise_datasets.apnet3_collate_update_no_target(
                     dimer_ls
                 )
         return dimer_batch
@@ -1464,7 +1052,7 @@ class APNet2Model:
                             hlistB=hlistB,
                         )
                         dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
+                dimer_batch = pairwise_datasets.apnet3_collate_update_no_target(
                     dimer_ls
                 )
                 dimer_batch.to(self.device)
@@ -1725,7 +1313,7 @@ units angstrom
                 shuffle=False,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
-                collate_fn=apnet2_collate_update,
+                collate_fn=apnet3_collate_update,
             )
             for b in first_pass_data:
                 b.to(rank_device)
@@ -1760,7 +1348,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=apnet2_collate_update,
+            collate_fn=apnet3_collate_update,
         )
 
         test_loader = APNet2_DataLoader(
@@ -1770,7 +1358,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=apnet2_collate_update,
+            collate_fn=apnet3_collate_update,
         )
         if rank == 0:
             print("Loaders setup\n")
@@ -1889,11 +1477,11 @@ units angstrom
 
         # (2) Dataloaders
         if self.ds_spec_type in [1, 5, 6]:
-            from .pairwise_datasets import apnet2_collate_update
+            from .pairwise_datasets import apnet3_collate_update
 
-            collate_fn = apnet2_collate_update
+            collate_fn = apnet3_collate_update
         else:
-            collate_fn = apnet2_collate_update_prebatched
+            collate_fn = apnet3_collate_update_prebatched
             print("Using default collate_fn")
             print(f"{batch_size = }")
         train_loader = APNet2_DataLoader(

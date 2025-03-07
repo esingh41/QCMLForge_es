@@ -1,4 +1,4 @@
-from apnet_pt.apnet2_model import APNet2Model
+from apnet_pt.AtomPairwiseModels.apnet2 import APNet2Model
 from apnet_pt import atomic_datasets
 from apnet_pt import AtomModels
 from apnet_pt.pairwise_datasets import (
