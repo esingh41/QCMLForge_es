@@ -27,6 +27,9 @@ def train_atom_model(
         batch_size = 1
     else:
         raise ValueError("Invalid Atom Model Type")
+    pretrained_model = None
+    if os.path.exists(model_path):
+        pretrained_model = model_path
     atom_model = AM(
         n_message=3,
         n_rbf=8,
@@ -39,6 +42,7 @@ def train_atom_model(
         ignore_database_null=False,
         ds_in_memory=True,
         use_GPU=True,
+        pre_trained_model_path=pretrained_model,
     )
     print(atom_model.dataset)
     atom_model.train(
