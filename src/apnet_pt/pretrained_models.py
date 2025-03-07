@@ -1,4 +1,4 @@
-from . import apnet2_model
+from . import AtomPairwiseModels
 from . import AtomModels
 from . import atomic_datasets
 from qcelemental.models.molecule import Molecule
@@ -82,7 +82,7 @@ def apnet2_model_predict(
     batch_size: int = 16,
 ):
     num_models = 5
-    ap2 = apnet2_model.APNet2Model(
+    ap2 = AtomPairwiseModels.apnet2.APNet2Model(
         pre_trained_model_path=f"{model_dir}ap2_ensemble/ap2_0.pt",
         atom_model_pre_trained_path=f"{model_dir}am_ensemble/am_0.pt",
     )

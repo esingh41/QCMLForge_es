@@ -60,7 +60,7 @@ def test_ap2_architecture():
         ignore_database_null=True,
     )
     set_weights_to_value(atom_model.model, 0.0001)
-    pair_model = apnet_pt.APNet2Model(
+    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
         atom_model=atom_model.model,
         ignore_database_null=True,
     )

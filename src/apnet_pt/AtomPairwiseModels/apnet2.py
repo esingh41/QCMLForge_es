@@ -5,10 +5,10 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from .AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
-from . import atomic_datasets
-from . import pairwise_datasets
-from .pairwise_datasets import (
+from ..AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
+from .. import atomic_datasets
+from .. import pairwise_datasets
+from ..pairwise_datasets import (
     apnet2_module_dataset,
     APNet2_DataLoader,
     apnet2_collate_update,
@@ -17,7 +17,7 @@ from .pairwise_datasets import (
     pairwise_edges_im,
     qcel_dimer_to_pyg_data,
 )
-from . import constants
+from .. import constants
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp

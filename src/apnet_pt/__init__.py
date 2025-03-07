@@ -9,7 +9,8 @@ __credits__ = "Georgia Institute of Technology"
 from . import atomic_datasets
 from . import pairwise_datasets
 from .util import load_dimer_dataset, load_monomer_dataset, load_atomic_module_graph_dataset
-from .apnet2_model import APNet2Model
+from .AtomPairwiseModels.apnet2 import APNet2Model
+from . import AtomPairwiseModels
 from . import AtomModels
 from .pretrained_models import atom_model_predict
 from . import classical_induction
