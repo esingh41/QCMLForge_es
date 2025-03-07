@@ -283,6 +283,7 @@ class AtomicDataLoader(torch.utils.data.DataLoader):
         follow_batch: Optional[List[str]] = None,
         exclude_keys: Optional[List[str]] = None,
         collate_fn=atomic_collate_update,
+        persistent_workers=True,
         **kwargs,
     ):
         if collate_fn is None:
@@ -304,6 +305,7 @@ class AtomicDataLoader(torch.utils.data.DataLoader):
             batch_size,
             shuffle,
             collate_fn=self.collate_fn,
+            persistent_workers=persistent_workers,
             **kwargs,
         )
 
