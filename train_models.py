@@ -22,7 +22,7 @@ def train_atom_model(
         AM = AtomModels.ap2_atom_model.AtomModel
         batch_size = 16
     elif atom_model_type == "AtomHirshfeldModel":
-        AM = AtomModels.ap2_atom_model.AtomHirshfeldModel
+        AM = AtomModels.ap3_atom_model.AtomHirshfeldModel
         batch_size = 1
     else:
         raise ValueError("Invalid Atom Model Type")
