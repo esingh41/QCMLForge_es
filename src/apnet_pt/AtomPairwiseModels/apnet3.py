@@ -285,7 +285,7 @@ class APNet3_MPNN(nn.Module):
         print(f"{r_ij = }")
         S_ij = (1.0/3.0 * (B_ij * r_ij) ** 2 + B_ij * r_ij + 1.0) * torch.exp(-B_ij * r_ij)
         print(f"{S_ij.size() = }")
-        # print(f"{S_ij = }")
+        print(f"{S_ij = }")
         return S_ij
     
     def induced_dipole_indu(self, hfvrA, hfvrB, dR_xyz):
@@ -1034,10 +1034,10 @@ class APNet3Model:
                     total_charge=batch_B.total_charge,
                     natom_per_mol=batch_B.natom_per_mol,
                 )
-                qAs, muAs, quadAs, hlistAs = isolate_atomic_property_predictions(
+                qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = isolate_atomic_property_predictions(
                     batch_A, am_out_A
                 )
-                qBs, muBs, quadBs, hlistBs = isolate_atomic_property_predictions(
+                qBs, muBs, quadBs, hfvrBs, vwBs, hlistBs = isolate_atomic_property_predictions(
                     batch_B, am_out_B
                 )
                 if len(batch_A.total_charge.size()) == 0:

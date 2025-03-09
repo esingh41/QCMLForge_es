@@ -42,19 +42,19 @@ def set_weights_to_value(model, value=0.9):
             param.fill_(value)  # Set all elements to the given value
 
 
-def test_ap2_architecture():
+def test_ap3_architecture():
     target_energies = [
         -3.402202606201171875e+01,  # ELST
         4.996978532290086150e-06,  # EXCH
         4.996978532290086150e-06,  # INDU
         4.996978532290086150e-06,  # DISP
     ]
-    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+    atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         ds_root=None,
         ignore_database_null=True,
     )
     set_weights_to_value(atom_model.model, 0.0001)
-    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
+    pair_model = apnet_pt.AtomPairwiseModels.apnet3.APNet3Model(
         atom_model=atom_model.model,
         ignore_database_null=True,
     )
@@ -67,4 +67,4 @@ def test_ap2_architecture():
 
 
 if __name__ == "__main__":
-    test_ap2_architecture()
+    test_ap3_architecture()
