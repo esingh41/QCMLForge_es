@@ -1,5 +1,6 @@
 from apnet_pt.AtomPairwiseModels.apnet2 import APNet2Model
 from apnet_pt import atomic_datasets
+from apnet_pt import pairwise_datasets
 from apnet_pt import AtomModels
 from apnet_pt.pairwise_datasets import (
     apnet2_module_dataset,
@@ -138,7 +139,35 @@ def test_atomhirshfeld_model_train():
     return
 
 
+def test_ap3_model_train():
+    ds = pairwise_datasets.apnet3_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=7,
+        max_size=None,
+        force_reprocess=True,
+        skip_processed=False,
+        # only need for processing
+        atom_model_path="./models/am_hf_ensemble/am_0.pt",
+        batch_size=16,
+        atomic_batch_size=16,
+        prebatched=False,
+        # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
+        datapoint_storage_n_molecules=1000,
+        in_memory=False,
+        num_devices=1,
+        split="test",  # train, test
+        print_level=1,
+
+    )
+    print(ds)
+
+
 if __name__ == "__main__":
     # test_apnet_data_object()
     # test_apnet2_model_train()
-    test_atomhirshfeld_model_train()
+    # test_atomhirshfeld_model_train()
+    test_ap3_model_train()
