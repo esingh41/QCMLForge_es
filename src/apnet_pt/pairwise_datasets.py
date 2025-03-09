@@ -996,6 +996,7 @@ class apnet3_module_dataset(Dataset):
             # torch._dynamo.config.capture_scalar_outputs = True
             # self.atom_model.model = torch.compile(
             #     self.atom_model.model, dynamic=True)
+        print(f"{spec_type = }")
         super(apnet3_module_dataset, self).__init__(
             root, transform, pre_transform)
         print(

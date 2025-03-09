@@ -70,6 +70,7 @@ def train_pairwise_model(
     lr=5e-4,
     lr_decay=None,
     random_seed=42,
+    spec_type=2,
 ):
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
@@ -98,7 +99,7 @@ def train_pairwise_model(
         atom_model_pre_trained_path=am_model_path,
         pre_trained_model_path=pretrained_model,
         # ds_spec_type=2,
-        ds_spec_type=7,
+        ds_spec_type=spec_type,
         ds_root=data_dir,
         ignore_database_null=False,
         ds_atomic_batch_size=batch_size,
@@ -251,6 +252,7 @@ def main():
             lr=args.lr,
             lr_decay=args.lr_decay,
             random_seed=args.random_seed,
+            spec_type=args.spec_type_ap,
         )
     return
 
