@@ -24,6 +24,8 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 
+hartree2kcal = qcel.constants.conversion_factor("hartree", "kcal/mol")
+
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
     p = step / decay_steps
@@ -281,11 +283,11 @@ class APNet3_MPNN(nn.Module):
         # print(f"{sigma_A_source.size() = }, {sigma_B_target.size() = }, {sigma_ij.size() = }")
         # dR = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
         B_ij = (1.0 / sigma_ij).squeeze()
-        print(f"{B_ij = }")
-        print(f"{r_ij = }")
-        S_ij = (1.0/3.0 * (B_ij * r_ij) ** 2 + B_ij * r_ij + 1.0) * torch.exp(-B_ij * r_ij)
-        print(f"{S_ij.size() = }")
-        print(f"{S_ij = }")
+        # print(f"{B_ij = }")
+        # print(f"{r_ij = }")
+        S_ij = (1.0/3.0 * (B_ij * r_ij) ** 2 + B_ij * r_ij + 1.0) * torch.exp(-B_ij * r_ij) * hartree2kcal
+        # print(f"{S_ij.size() = }")
+        # print(f"{S_ij = }")
         return S_ij
     
     def induced_dipole_indu(self, hfvrA, hfvrB, dR_xyz):
