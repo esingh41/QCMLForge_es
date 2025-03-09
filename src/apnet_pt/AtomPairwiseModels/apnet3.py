@@ -1046,59 +1046,71 @@ class APNet3Model:
                     batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
                 dimer_ls = []
                 for j in range(len(batch_mol_data)):
-                    qA, muA, quadA, hlistA = qAs[j], muAs[j], quadAs[j], hlistAs[j]
-                    qB, muB, quadB, hlistB = qBs[j], muBs[j], quadBs[j], hlistBs[j]
+                    qA, muA, quadA, hfvrA, vwA, hlistA = qAs[j], muAs[j], quadAs[j], hfvrAs[j], vwAs[j], hlistAs[j]
+                    qB, muB, quadB, hfvrB, vwB, hlistB = qBs[j], muBs[j], quadBs[j], hfvrBs[j], vwBs[j], hlistBs[j]
                     if len(qA.size()) == 0:
                         qA = qA.unsqueeze(0).unsqueeze(0)
+                        hfvrA = hfvrA.unsqueeze(0).unsqueeze(0)
+                        vwA = vwA.unsqueeze(0).unsqueeze(0)
                     elif len(qA.size()) == 1:
                         qA = qA.unsqueeze(-1)
+                        hfvrA = hfvrA.unsqueeze(-1)
+                        vwA = vwA.unsqueeze(-1)
                     if len(qB.size()) == 0:
                         qB = qB.unsqueeze(0).unsqueeze(0)
+                        hfvrB = hfvrB.unsqueeze(0).unsqueeze(0)
+                        vwB = vwB.unsqueeze(0).unsqueeze(0)
                     elif len(qB.size()) == 1:
                         qB = qB.unsqueeze(-1)
-                        e_AA_source, e_AA_target = pairwise_edges(
-                            data_A[j].R, r_cut)
-                        e_BB_source, e_BB_target = pairwise_edges(
-                            data_B[j].R, r_cut)
-                        e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                            pairwise_edges_im(
-                                data_A[j].R, data_B[j].R, r_cut_im)
-                        )
-                        dimer_ind = torch.ones((1), dtype=torch.long) * 0
-                        data = Data(
-                            ZA=data_A[j].x,
-                            RA=data_A[j].R,
-                            ZB=data_B[j].x,
-                            RB=data_B[j].R,
-                            # short range, intermolecular edges
-                            e_ABsr_source=e_ABsr_source,
-                            e_ABsr_target=e_ABsr_target,
-                            dimer_ind=dimer_ind,
-                            # long range, intermolecular edges
-                            e_ABlr_source=e_ABlr_source,
-                            e_ABlr_target=e_ABlr_target,
-                            dimer_ind_lr=dimer_ind,
-                            # intramonomer edges (monomer A)
-                            e_AA_source=e_AA_source,
-                            e_AA_target=e_AA_target,
-                            # intramonomer edges (monomer B)
-                            e_BB_source=e_BB_source,
-                            e_BB_target=e_BB_target,
-                            # monomer charges
-                            total_charge_A=data_A[j].total_charge,
-                            total_charge_B=data_B[j].total_charge,
-                            # monomer A properties
-                            qA=qA,
-                            muA=muA,
-                            quadA=quadA,
-                            hlistA=hlistA,
-                            # monomer B properties
-                            qB=qB,
-                            muB=muB,
-                            quadB=quadB,
-                            hlistB=hlistB,
-                        )
-                        dimer_ls.append(data)
+                        hfvrB = hfvrB.unsqueeze(-1)
+                        vwB = vwB.unsqueeze(-1)
+                    e_AA_source, e_AA_target = pairwise_edges(
+                        data_A[j].R, r_cut)
+                    e_BB_source, e_BB_target = pairwise_edges(
+                        data_B[j].R, r_cut)
+                    e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
+                        pairwise_edges_im(
+                            data_A[j].R, data_B[j].R, r_cut_im)
+                    )
+                    dimer_ind = torch.ones((1), dtype=torch.long) * 0
+                    data = Data(
+                        ZA=data_A[j].x,
+                        RA=data_A[j].R,
+                        ZB=data_B[j].x,
+                        RB=data_B[j].R,
+                        # short range, intermolecular edges
+                        e_ABsr_source=e_ABsr_source,
+                        e_ABsr_target=e_ABsr_target,
+                        dimer_ind=dimer_ind,
+                        # long range, intermolecular edges
+                        e_ABlr_source=e_ABlr_source,
+                        e_ABlr_target=e_ABlr_target,
+                        dimer_ind_lr=dimer_ind,
+                        # intramonomer edges (monomer A)
+                        e_AA_source=e_AA_source,
+                        e_AA_target=e_AA_target,
+                        # intramonomer edges (monomer B)
+                        e_BB_source=e_BB_source,
+                        e_BB_target=e_BB_target,
+                        # monomer charges
+                        total_charge_A=data_A[j].total_charge,
+                        total_charge_B=data_B[j].total_charge,
+                        # monomer A properties
+                        qA=qA,
+                        muA=muA,
+                        quadA=quadA,
+                        hfvrA=hfvrA,
+                        vwA=vwA,
+                        hlistA=hlistA,
+                        # monomer B properties
+                        qB=qB,
+                        muB=muB,
+                        quadB=quadB,
+                        hfvrB=hfvrB,
+                        vwB=vwB,
+                        hlistB=hlistB,
+                    )
+                    dimer_ls.append(data)
                 dimer_batch = pairwise_datasets.apnet3_collate_update_no_target(
                     dimer_ls
                 )
