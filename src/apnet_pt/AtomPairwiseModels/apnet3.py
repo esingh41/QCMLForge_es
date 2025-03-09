@@ -300,6 +300,7 @@ class APNet3_MPNN(nn.Module):
 
     def induced_dipole_indu(self, hfvrA, hfvrB, dR_xyz, alpha_0_A, alpha_0_B, S_ij):
         # TODO: Implement induced dipole induction
+        # https://github.com/jeffschriber/cliff/blob/660871c3949fcea5d907fe8cbe54352fd071e841/cliff/components/induction_calc.py#L122
         return
 
     def get_messages(self, h0, h, rbf, e_source, e_target):
