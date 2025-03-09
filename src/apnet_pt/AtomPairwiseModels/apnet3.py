@@ -298,9 +298,40 @@ class APNet3_MPNN(nn.Module):
         # print(f"{S_ij = }")
         return S_ij
 
-    def induced_dipole_indu(self, hfvrA, hfvrB, dR_xyz, alpha_0_A, alpha_0_B, S_ij):
+    def induced_dipole_indu(
+        self,
+        qA,
+        muA,
+        quadA,
+        qB,
+        muB,
+        quadB,
+        hfvrA,
+        hfvrB,
+        alpha_0_A,
+        alpha_0_B,
+        S_ij,
+        dR_sr,
+        dR_lr,
+        e_AA_source,
+        e_AA_target,
+        e_BB_source,
+        e_BB_target,
+        e_ABsr_source,
+        e_ABsr_target,
+        e_ABlr_source,
+        e_ABlr_target,
+        omega=0.7,
+        smearing=0.39,
+    ):
         # TODO: Implement induced dipole induction
         # https://github.com/jeffschriber/cliff/blob/660871c3949fcea5d907fe8cbe54352fd071e841/cliff/components/induction_calc.py#L122
+        print(f"{e_AA_source = }")
+        print(f"{e_AA_target = }")
+        # u = dR_ang / ((alpha_0_A * alpha_0_B) ** (1.0 / 6.0))
+        # print(f"{u = }")
+        # f_Thole = 3.0 * smearing / (4.0 * torch.pi) * torch.exp(-smearing * u**3)
+        # print(f"{f_Thole = }")
         return
 
     def get_messages(self, h0, h, rbf, e_source, e_target):
@@ -397,12 +428,9 @@ class APNet3_MPNN(nn.Module):
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
 
         # interatomic distances
-        dR_sr, dR_sr_xyz = self.get_distances(
-            RA, RB, e_ABsr_source, e_ABsr_target)
-        dR_lr, dR_lr_xyz = self.get_distances(
-            RA, RB, e_ABlr_source, e_ABlr_target)
-        # TODO: need to handle single atoms correctly without self edge because
-        # this goes to zero causing nans later...
+        dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
+        dR_lr, dR_lr_xyz = self.get_distances(RA, RB, e_ABlr_source, e_ABlr_target)
+
         dRA, dRA_xyz = self.get_distances(RA, RA, e_AA_source, e_AA_target)
         dRB, dRB_xyz = self.get_distances(RB, RB, e_BB_source, e_BB_target)
 
@@ -410,6 +438,8 @@ class APNet3_MPNN(nn.Module):
         dR_sr_unit = dR_sr_xyz / dR_sr.unsqueeze(1)
         dRA_unit = dRA_xyz / dRA.unsqueeze(1)
         dRB_unit = dRB_xyz / dRB.unsqueeze(1)
+
+        # interatomic distances for short range, long range, and intramonomer edges
 
         # distance encodings
         rbf_sr = self.distance_layer_im(dR_sr)
@@ -448,10 +478,8 @@ class APNet3_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0,
-                           reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0,
-                           reduce="sum", dim_size=natomB)
+            mA_i = scatter(mA_ij, e_AA_source, dim=0, reduce="sum", dim_size=natomA)
+            mB_i = scatter(mB_ij, e_BB_source, dim=0, reduce="sum", dim_size=natomB)
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
@@ -489,10 +517,8 @@ class APNet3_MPNN(nn.Module):
         # mock right sized output with N_dimer, 4 components
 
         # atom-pair features are a combo of atomic hidden states and the interatomic distance
-        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr,
-                            e_ABsr_source, e_ABsr_target)
-        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr,
-                            e_ABsr_target, e_ABsr_source)
+        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr, e_ABsr_source, e_ABsr_target)
+        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr, e_ABsr_target, e_ABsr_source)
 
         # project the directional atomic hidden states along the interatomic axis
         hA_dir = torch.cat(hA_dir_list, dim=-1)
@@ -551,24 +577,36 @@ class APNet3_MPNN(nn.Module):
         # print(E_sr.dtype, dimer_ind.dtype, ndimer.dtype)
 
         # CLASSICAL EXCHANGE
-        S_ij = self.valence_width_exch(
-            e_ABsr_source, e_ABsr_target, vwA, vwB, dR_sr)
+        S_ij = self.valence_width_exch(e_ABsr_source, e_ABsr_target, vwA, vwB, dR_sr)
         E_sr[:, 1] = S_ij * E_sr[:, 1]
 
         # CLASSICAL INDUCTION - INDUCED DIPOLE
 
-        E_indu = self.induced_dipole_indu(
-            hfvrA,
-            hfvrB,
-            alpha_0_A,
-            alpha_0_B,
-            dR_sr,
-            S_ij,
-        )
+        # E_indu = self.induced_dipole_indu(
+        #     qA,
+        #     muA,
+        #     quadA,
+        #     qB,
+        #     muB,
+        #     quadB,
+        #     hfvrA,
+        #     hfvrB,
+        #     alpha_0_A,
+        #     alpha_0_B,
+        #     S_ij,
+        #     dR_sr,
+        #     dR_lr,
+        #     e_AA_source,
+        #     e_AA_target,
+        #     e_BB_source,
+        #     e_BB_target,
+        #     e_ABsr_source,
+        #     e_ABsr_target,
+        #     e_ABlr_source,
+        #     e_ABlr_target,
+        # )
 
-
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
-                             reduce="add", dim_size=ndimer)
+        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
 
         print(f"{E_sr_dimer.size() = }")
         print(f"{E_sr.size() = }")
@@ -841,8 +879,7 @@ class APNet3Model:
         self.model.eval()
         for batch in self.dataset:
             batch = batch.to(self.device)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
-                batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
         return
 
     def compile_model(self):
@@ -920,7 +957,7 @@ class APNet3Model:
     ):
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
         for i in range(0, len(mol_data), batch_size):
-            batch_mol_data = mol_data[i: i + batch_size]
+            batch_mol_data = mol_data[i : i + batch_size]
             data_A = [d[0] for d in batch_mol_data]
             data_B = [d[1] for d in batch_mol_data]
             batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
@@ -986,16 +1023,18 @@ class APNet3Model:
                         qB = qB.unsqueeze(-1)
                         hfvrB = hfvrB.unsqueeze(-1)
                         vwB = vwB.unsqueeze(-1)
-                    e_AA_source, e_AA_target = pairwise_edges(
-                        data_A[j].R, r_cut)
-                    e_BB_source, e_BB_target = pairwise_edges(
-                        data_B[j].R, r_cut)
+                    e_AA_source, e_AA_target = pairwise_edges(data_A[j].R, r_cut)
+                    e_BB_source, e_BB_target = pairwise_edges(data_B[j].R, r_cut)
                     e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
                         pairwise_edges_im(data_A[j].R, data_B[j].R, r_cut_im)
                     )
                     dimer_ind = torch.ones((1), dtype=torch.long) * 0
-                    alpha_0_A = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_A.x])
-                    alpha_0_B = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_B.x])
+                    alpha_0_A = torch.tensor(
+                        [free_atom_polarizabilities[int(z)] for z in batch_A.x]
+                    )
+                    alpha_0_B = torch.tensor(
+                        [free_atom_polarizabilities[int(z)] for z in batch_B.x]
+                    )
                     data = Data(
                         ZA=data_A[j].x,
                         RA=data_A[j].R,
@@ -1052,7 +1091,7 @@ class APNet3Model:
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
         predictions = np.zeros((len(mol_data), 4))
         for i in range(0, len(mol_data), batch_size):
-            batch_mol_data = mol_data[i: i + batch_size]
+            batch_mol_data = mol_data[i : i + batch_size]
             data_A = [d[0] for d in batch_mol_data]
             data_B = [d[1] for d in batch_mol_data]
             batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
@@ -1118,16 +1157,18 @@ class APNet3Model:
                         qB = qB.unsqueeze(-1)
                         hfvrB = hfvrB.unsqueeze(-1)
                         vwB = vwB.unsqueeze(-1)
-                    e_AA_source, e_AA_target = pairwise_edges(
-                        data_A[j].R, r_cut)
-                    e_BB_source, e_BB_target = pairwise_edges(
-                        data_B[j].R, r_cut)
+                    e_AA_source, e_AA_target = pairwise_edges(data_A[j].R, r_cut)
+                    e_BB_source, e_BB_target = pairwise_edges(data_B[j].R, r_cut)
                     e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
                         pairwise_edges_im(data_A[j].R, data_B[j].R, r_cut_im)
                     )
                     dimer_ind = torch.ones((1), dtype=torch.long) * 0
-                    alpha_0_A = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_A.x])
-                    alpha_0_B = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_B.x])
+                    alpha_0_A = torch.tensor(
+                        [free_atom_polarizabilities[int(z)] for z in batch_A.x]
+                    )
+                    alpha_0_B = torch.tensor(
+                        [free_atom_polarizabilities[int(z)] for z in batch_B.x]
+                    )
                     data = Data(
                         ZA=data_A[j].x,
                         RA=data_A[j].R,
@@ -1173,7 +1214,7 @@ class APNet3Model:
                 )
                 dimer_batch.to(self.device)
                 preds = self.eval_fn(dimer_batch)
-                predictions[i: i + batch_size] = preds[0].cpu().numpy()
+                predictions[i : i + batch_size] = preds[0].cpu().numpy()
         return predictions
 
     def example_input(self):
@@ -1219,8 +1260,7 @@ units angstrom
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
-                batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
             preds = E_sr_dimer.reshape(-1, 4)
             comp_errors = preds - batch.y
             batch_loss = (
@@ -1293,8 +1333,7 @@ units angstrom
             batch_loss = 0.0
             optimizer.zero_grad()
             batch = batch.to(rank_device)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
-                batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
             preds = E_sr_dimer.reshape(-1, 4)
             comp_errors = preds - batch.y
             if loss_fn is None:
@@ -1316,16 +1355,11 @@ units angstrom
         if scheduler is not None:
             scheduler.step()
 
-        total_loss = torch.tensor(
-            total_loss, dtype=torch.float32, device=rank_device)
-        total_error = torch.tensor(
-            total_error, dtype=torch.float32, device=rank_device)
-        elst_error = torch.tensor(
-            elst_error, dtype=torch.float32, device=rank_device)
-        exch_error = torch.tensor(
-            exch_error, dtype=torch.float32, device=rank_device)
-        indu_error = torch.tensor(
-            indu_error, dtype=torch.float32, device=rank_device)
+        total_loss = torch.tensor(total_loss, dtype=torch.float32, device=rank_device)
+        total_error = torch.tensor(total_error, dtype=torch.float32, device=rank_device)
+        elst_error = torch.tensor(elst_error, dtype=torch.float32, device=rank_device)
+        exch_error = torch.tensor(exch_error, dtype=torch.float32, device=rank_device)
+        indu_error = torch.tensor(indu_error, dtype=torch.float32, device=rank_device)
         count = torch.tensor(count, dtype=torch.int, device=rank_device)
 
         dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
@@ -1356,8 +1390,7 @@ units angstrom
             for batch in dataloader:
                 batch_loss = 0.0
                 batch = batch.to(rank_device)
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
-                    batch)
+                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(batch)
                 preds = E_sr_dimer.reshape(-1, 4)
                 comp_errors = preds - batch.y
                 if loss_fn is None:
@@ -1498,12 +1531,10 @@ units angstrom
         t1 = time.time()
         with torch.no_grad():
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-                self.__evaluate_batches(
-                    rank, train_loader, criterion, rank_device)
+                self.__evaluate_batches(rank, train_loader, criterion, rank_device)
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(
-                    rank, test_loader, criterion, rank_device)
+                self.__evaluate_batches(rank, test_loader, criterion, rank_device)
             )
             dt = time.time() - t1
             if rank == 0:
@@ -1525,8 +1556,7 @@ units angstrom
                 )
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(
-                    rank, test_loader, criterion, rank_device)
+                self.__evaluate_batches(rank, test_loader, criterion, rank_device)
             )
 
             if rank == 0:
@@ -1639,12 +1669,10 @@ units angstrom
         # (5) Evaluate once pre-training
         t0 = time.time()
         train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-            self.__evaluate_batches_single_proc(
-                train_loader, criterion, rank_device)
+            self.__evaluate_batches_single_proc(train_loader, criterion, rank_device)
         )
         test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-            self.__evaluate_batches_single_proc(
-                test_loader, criterion, rank_device)
+            self.__evaluate_batches_single_proc(test_loader, criterion, rank_device)
         )
 
         print(
@@ -1664,8 +1692,7 @@ units angstrom
                 )
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches_single_proc(
-                    test_loader, criterion, rank_device)
+                self.__evaluate_batches_single_proc(test_loader, criterion, rank_device)
             )
 
             # Track best model
@@ -1749,10 +1776,8 @@ units angstrom
                 order_indices = np.random.permutation(len(self.dataset))
             else:
                 order_indices = np.arange(len(self.dataset))
-            train_indices = order_indices[: int(
-                len(self.dataset) * split_percent)]
-            test_indices = order_indices[int(
-                len(self.dataset) * split_percent):]
+            train_indices = order_indices[: int(len(self.dataset) * split_percent)]
+            test_indices = order_indices[int(len(self.dataset) * split_percent) :]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
 

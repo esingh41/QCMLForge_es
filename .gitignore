@@ -187,3 +187,4 @@ timer.dat
 water_test.py
 
 parsl_run_dir/
+tests/test_data_path/raw/splinter_spec1_0.tar.gz
