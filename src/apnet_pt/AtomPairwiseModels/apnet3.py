@@ -5,7 +5,10 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap3_atom_model import AtomHirshfeldMPNN, isolate_atomic_property_predictions
+from ..AtomModels.ap3_atom_model import (
+    AtomHirshfeldMPNN,
+    isolate_atomic_property_predictions,
+)
 from .. import atomic_datasets
 from .. import pairwise_datasets
 from ..pairwise_datasets import (
@@ -16,6 +19,7 @@ from ..pairwise_datasets import (
     pairwise_edges,
     pairwise_edges_im,
     qcel_dimer_to_pyg_data,
+    free_atom_polarizabilities,
 )
 from .. import constants
 import os
@@ -269,7 +273,7 @@ class APNet3_MPNN(nn.Module):
         # TODO: Implement valence width exchange;
         # vwA and vwB are the valence widths of monomer A and B,
         # respectively. r_ij is the interatomic distance between atoms i
-        # and j. Use distance matrix to compute r_ij. 
+        # and j. Use distance matrix to compute r_ij.
         sigma_A_source = vwA.index_select(0, e_source)
         sigma_B_target = vwB.index_select(0, e_target)
         # print(e_source)
@@ -285,12 +289,16 @@ class APNet3_MPNN(nn.Module):
         B_ij = (1.0 / sigma_ij).squeeze()
         # print(f"{B_ij = }")
         # print(f"{r_ij = }")
-        S_ij = (1.0/3.0 * (B_ij * r_ij) ** 2 + B_ij * r_ij + 1.0) * torch.exp(-B_ij * r_ij) * hartree2kcal
+        S_ij = (
+            (1.0 / 3.0 * (B_ij * r_ij) ** 2 + B_ij * r_ij + 1.0)
+            * torch.exp(-B_ij * r_ij)
+            * hartree2kcal
+        )
         # print(f"{S_ij.size() = }")
         # print(f"{S_ij = }")
         return S_ij
-    
-    def induced_dipole_indu(self, hfvrA, hfvrB, dR_xyz):
+
+    def induced_dipole_indu(self, hfvrA, hfvrB, dR_xyz, alpha_0_A, alpha_0_B, S_ij):
         # TODO: Implement induced dipole induction
         return
 
@@ -368,6 +376,7 @@ class APNet3_MPNN(nn.Module):
         quadA,
         hfvrA,
         vwA,
+        alpha_0_A,
         hlistA,
         # monomer B properties
         qB,
@@ -375,6 +384,7 @@ class APNet3_MPNN(nn.Module):
         quadB,
         hfvrB,
         vwB,
+        alpha_0_B,
         hlistB,
     ):
         # counts
@@ -541,12 +551,20 @@ class APNet3_MPNN(nn.Module):
 
         # CLASSICAL EXCHANGE
         S_ij = self.valence_width_exch(
-            e_ABsr_source, e_ABsr_target, vwA, vwB, dR_sr
-        )
-        print(f"{S_ij.size() = }")
-        print(f"{E_sr.size() = }")
-        print(f"{E_sr[:, :1].size() = }")
+            e_ABsr_source, e_ABsr_target, vwA, vwB, dR_sr)
         E_sr[:, 1] = S_ij * E_sr[:, 1]
+
+        # CLASSICAL INDUCTION - INDUCED DIPOLE
+
+        E_indu = self.induced_dipole_indu(
+            hfvrA,
+            hfvrB,
+            alpha_0_A,
+            alpha_0_B,
+            dR_sr,
+            S_ij,
+        )
+
 
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
                              reduce="add", dim_size=ndimer)
@@ -881,12 +899,14 @@ class APNet3Model:
             quadA=batch.quadA,
             hfvrA=batch.hfvrA,
             vwA=batch.vwA,
+            alpha_0_A=batch.alpha_0_A,
             hlistA=batch.hlistA,
             qB=batch.qB,
             muB=batch.muB,
             quadB=batch.quadB,
             hfvrB=batch.hfvrB,
             vwB=batch.vwB,
+            alpha_0_B=batch.alpha_0_B,
             hlistB=batch.hlistB,
         )
 
@@ -921,11 +941,11 @@ class APNet3Model:
                     total_charge=batch_B.total_charge,
                     natom_per_mol=batch_B.natom_per_mol,
                 )
-                qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = isolate_atomic_property_predictions(
-                    batch_A, am_out_A
+                qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = (
+                    isolate_atomic_property_predictions(batch_A, am_out_A)
                 )
-                qBs, muBs, quadBs, hfvrBs, vwBs, hlistBs = isolate_atomic_property_predictions(
-                    batch_B, am_out_B
+                qBs, muBs, quadBs, hfvrBs, vwBs, hlistBs = (
+                    isolate_atomic_property_predictions(batch_B, am_out_B)
                 )
                 if len(batch_A.total_charge.size()) == 0:
                     batch_A.total_charge = batch_A.total_charge.unsqueeze(0)
@@ -933,8 +953,22 @@ class APNet3Model:
                     batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
                 dimer_ls = []
                 for j in range(len(batch_mol_data)):
-                    qA, muA, quadA, hfvrA, vwA, hlistA = qAs[j], muAs[j], quadAs[j], hfvrAs[j], vwAs[j], hlistAs[j]
-                    qB, muB, quadB, hfvrB, vwB, hlistB = qBs[j], muBs[j], quadBs[j], hfvrBs[j], vwBs[j], hlistBs[j]
+                    qA, muA, quadA, hfvrA, vwA, hlistA = (
+                        qAs[j],
+                        muAs[j],
+                        quadAs[j],
+                        hfvrAs[j],
+                        vwAs[j],
+                        hlistAs[j],
+                    )
+                    qB, muB, quadB, hfvrB, vwB, hlistB = (
+                        qBs[j],
+                        muBs[j],
+                        quadBs[j],
+                        hfvrBs[j],
+                        vwBs[j],
+                        hlistBs[j],
+                    )
                     if len(qA.size()) == 0:
                         qA = qA.unsqueeze(0).unsqueeze(0)
                         hfvrA = hfvrA.unsqueeze(0).unsqueeze(0)
@@ -956,10 +990,11 @@ class APNet3Model:
                     e_BB_source, e_BB_target = pairwise_edges(
                         data_B[j].R, r_cut)
                     e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                        pairwise_edges_im(
-                            data_A[j].R, data_B[j].R, r_cut_im)
+                        pairwise_edges_im(data_A[j].R, data_B[j].R, r_cut_im)
                     )
                     dimer_ind = torch.ones((1), dtype=torch.long) * 0
+                    alpha_0_A = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_A.x])
+                    alpha_0_B = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_B.x])
                     data = Data(
                         ZA=data_A[j].x,
                         RA=data_A[j].R,
@@ -988,6 +1023,7 @@ class APNet3Model:
                         quadA=quadA,
                         hfvrA=hfvrA,
                         vwA=vwA,
+                        alpha_0_A=alpha_0_A,
                         hlistA=hlistA,
                         # monomer B properties
                         qB=qB,
@@ -995,6 +1031,7 @@ class APNet3Model:
                         quadB=quadB,
                         hfvrB=hfvrB,
                         vwB=vwB,
+                        alpha_0_B=alpha_0_B,
                         hlistB=hlistB,
                     )
                     dimer_ls.append(data)
@@ -1036,11 +1073,11 @@ class APNet3Model:
                     total_charge=batch_B.total_charge,
                     natom_per_mol=batch_B.natom_per_mol,
                 )
-                qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = isolate_atomic_property_predictions(
-                    batch_A, am_out_A
+                qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = (
+                    isolate_atomic_property_predictions(batch_A, am_out_A)
                 )
-                qBs, muBs, quadBs, hfvrBs, vwBs, hlistBs = isolate_atomic_property_predictions(
-                    batch_B, am_out_B
+                qBs, muBs, quadBs, hfvrBs, vwBs, hlistBs = (
+                    isolate_atomic_property_predictions(batch_B, am_out_B)
                 )
                 if len(batch_A.total_charge.size()) == 0:
                     batch_A.total_charge = batch_A.total_charge.unsqueeze(0)
@@ -1048,8 +1085,22 @@ class APNet3Model:
                     batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
                 dimer_ls = []
                 for j in range(len(batch_mol_data)):
-                    qA, muA, quadA, hfvrA, vwA, hlistA = qAs[j], muAs[j], quadAs[j], hfvrAs[j], vwAs[j], hlistAs[j]
-                    qB, muB, quadB, hfvrB, vwB, hlistB = qBs[j], muBs[j], quadBs[j], hfvrBs[j], vwBs[j], hlistBs[j]
+                    qA, muA, quadA, hfvrA, vwA, hlistA = (
+                        qAs[j],
+                        muAs[j],
+                        quadAs[j],
+                        hfvrAs[j],
+                        vwAs[j],
+                        hlistAs[j],
+                    )
+                    qB, muB, quadB, hfvrB, vwB, hlistB = (
+                        qBs[j],
+                        muBs[j],
+                        quadBs[j],
+                        hfvrBs[j],
+                        vwBs[j],
+                        hlistBs[j],
+                    )
                     if len(qA.size()) == 0:
                         qA = qA.unsqueeze(0).unsqueeze(0)
                         hfvrA = hfvrA.unsqueeze(0).unsqueeze(0)
@@ -1071,10 +1122,11 @@ class APNet3Model:
                     e_BB_source, e_BB_target = pairwise_edges(
                         data_B[j].R, r_cut)
                     e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                        pairwise_edges_im(
-                            data_A[j].R, data_B[j].R, r_cut_im)
+                        pairwise_edges_im(data_A[j].R, data_B[j].R, r_cut_im)
                     )
                     dimer_ind = torch.ones((1), dtype=torch.long) * 0
+                    alpha_0_A = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_A.x])
+                    alpha_0_B = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_B.x])
                     data = Data(
                         ZA=data_A[j].x,
                         RA=data_A[j].R,
@@ -1103,6 +1155,7 @@ class APNet3Model:
                         quadA=quadA,
                         hfvrA=hfvrA,
                         vwA=vwA,
+                        alpha_0_A=alpha_0_A,
                         hlistA=hlistA,
                         # monomer B properties
                         qB=qB,
@@ -1110,6 +1163,7 @@ class APNet3Model:
                         quadB=quadB,
                         hfvrB=hfvrB,
                         vwB=vwB,
+                        alpha_0_B=alpha_0_B,
                         hlistB=hlistB,
                     )
                     dimer_ls.append(data)

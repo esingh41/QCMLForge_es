@@ -22,6 +22,22 @@ from time import time
 import re
 from pathlib import Path
 
+import pandas as pd
+
+current_file_path = str(Path(__file__).parent)
+
+libmbd_vwd_params = pd.read_csv(
+    osp.join(current_file_path, "data", "vdw-params.csv"),
+    header=0,
+    index_col=0,
+    sep=",",
+    nrows=102,
+)
+free_atom_polarizabilities = {
+    # el: v for el, v in zip(libmbd_vwd_params['Z'], libmbd_vwd_params['alpha_0(TS)'])
+    el: v for el, v in zip(libmbd_vwd_params['Z'], libmbd_vwd_params['alpha_0(BG)'])
+}
+
 
 def qcel_dimer_to_pyg_data(dimer, r_cut=5.0, custom=False):
     data_A = atomic_datasets.qcel_mon_to_pyg_data(
@@ -308,12 +324,14 @@ def apnet3_collate_update(batch):
         quadA=torch.cat([data.quadA for data in batch], dim=0),
         hfvrA=torch.cat([data.hfvrA for data in batch], dim=0),
         vwA=torch.cat([data.vwA for data in batch], dim=0),
+        alpha_0_A=torch.cat([data.alpha_0_A for data in batch], dim=0),
         hlistA=torch.cat([data.hlistA for data in batch], dim=0),
         qB=torch.cat([data.qB for data in batch], dim=0),
         muB=torch.cat([data.muB for data in batch], dim=0),
         quadB=torch.cat([data.quadB for data in batch], dim=0),
         hfvrB=torch.cat([data.hfvrB for data in batch], dim=0),
         vwB=torch.cat([data.vwB for data in batch], dim=0),
+        alpha_0_B=torch.cat([data.alpha_0_B for data in batch], dim=0),
         hlistB=torch.cat([data.hlistB for data in batch], dim=0),
     )
     return batched_data
@@ -386,12 +404,14 @@ def apnet3_collate_update_no_target(batch):
         quadA=torch.cat([data.quadA for data in batch], dim=0),
         hfvrA=torch.cat([data.hfvrA for data in batch], dim=0),
         vwA=torch.cat([data.vwA for data in batch], dim=0),
+        alpha_0_A=torch.cat([data.alpha_0_A for data in batch], dim=0),
         hlistA=torch.cat([data.hlistA for data in batch], dim=0),
         qB=torch.cat([data.qB for data in batch], dim=0),
         muB=torch.cat([data.muB for data in batch], dim=0),
         quadB=torch.cat([data.quadB for data in batch], dim=0),
         hfvrB=torch.cat([data.hfvrB for data in batch], dim=0),
         vwB=torch.cat([data.vwB for data in batch], dim=0),
+        alpha_0_B=torch.cat([data.alpha_0_B for data in batch], dim=0),
         hlistB=torch.cat([data.hlistB for data in batch], dim=0),
     )
     return batched_data
@@ -925,7 +945,7 @@ class apnet3_module_dataset(Dataset):
         # only need for processing
         atom_model_path="./models/am_hf_ensemble/am_0.pt",
         batch_size=16,
-        atomic_batch_size=200,
+        atomic_batch_size=16,
         prebatched=False,
         # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
         datapoint_storage_n_molecules=1000,
@@ -1163,6 +1183,8 @@ class apnet3_module_dataset(Dataset):
                 )
                 batch_B = atomic_datasets.atomic_collate_update_no_target(
                     molB_data)
+                alpha_0_A = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_A.x])
+                alpha_0_B = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_B.x])
                 # torch.save(batch_B, "batch_B.pt")
                 qBs, muBs, thBs, hfvrBs, vwBs, hlistBs = self.atom_model.predict_multipoles_batch(
                     batch_B
@@ -1232,6 +1254,7 @@ class apnet3_module_dataset(Dataset):
                         quadA=quadA,
                         hfvrA=hfvrA,
                         vwA=vwA,
+                        alpha_0_A=alpha_0_A,
                         hlistA=hlistA,
                         # monomer B properties
                         qB=qB,
@@ -1239,6 +1262,7 @@ class apnet3_module_dataset(Dataset):
                         quadB=quadB,
                         hfvrB=hfvrB,
                         vwB=vwB,
+                        alpha_0_B=alpha_0_B,
                         hlistB=hlistB,
                     )
                     if self.pre_filter is not None and not self.pre_filter(data):

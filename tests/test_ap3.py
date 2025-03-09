@@ -102,6 +102,30 @@ def test_ap3_exch():
     return
 
 
+def test_ap3_indu():
+    atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        ds_root=None,
+        ignore_database_null=True,
+        pre_trained_model_path="./models/am_hf_ensemble/am_4.pt",
+    )
+    pair_model = apnet_pt.AtomPairwiseModels.apnet3.APNet3Model(
+        atom_model=atom_model.model,
+        ignore_database_null=True,
+    )
+    output = pair_model.predict_qcel_mols([water], batch_size=1)
+    set_weights_to_value(pair_model.model, 0.01)
+    output = pair_model.predict_qcel_mols([water, water], batch_size=2)
+    ref_energies = np.array(
+        [
+            [5.14170970e-04],
+            [5.14170213e-04],
+        ]
+    )
+    assert np.allclose(output[:, 1], ref_energies, atol=1e-6)
+    return
+
+
 if __name__ == "__main__":
     # test_ap3_architecture()
-    test_ap3_exch()
+    # test_ap3_exch()
+    test_ap3_indu()
