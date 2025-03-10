@@ -27,6 +27,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
+from ..multipole import T_cart_torch
 
 hartree2kcal = qcel.constants.conversion_factor("hartree", "kcal/mol")
 
@@ -313,21 +314,27 @@ class APNet3_MPNN(nn.Module):
         S_ij,
         dR_sr,
         dR_lr,
-        e_AA_source,
-        e_AA_target,
-        e_BB_source,
-        e_BB_target,
-        e_ABsr_source,
-        e_ABsr_target,
-        e_ABlr_source,
-        e_ABlr_target,
+        e_AA_source_all,
+        e_AA_target_all,
+        e_BB_source_all,
+        e_BB_target_all,
+        e_AB_source_all,
+        e_AB_target_all,
         omega=0.7,
         smearing=0.39,
     ):
         # TODO: Implement induced dipole induction
         # https://github.com/jeffschriber/cliff/blob/660871c3949fcea5d907fe8cbe54352fd071e841/cliff/components/induction_calc.py#L122
-        print(f"{e_AA_source = }")
-        print(f"{e_AA_target = }")
+        print(f"{e_AA_source_all = }")
+        print(f"{e_AA_target_all = }")
+        print(f"{e_AB_source_all = }")
+        print(f"{e_AB_target_all = }")
+        T0, T1, T2, T3, T4 = T_cart_torch(dR_sr, dR_sr)
+        print(f"{T0 = }")
+        print(f"{T1 = }")
+        print(f"{T2 = }")
+        print(f"{T3 = }")
+        print(f"{T4 = }")
         # u = dR_ang / ((alpha_0_A * alpha_0_B) ** (1.0 / 6.0))
         # print(f"{u = }")
         # f_Thole = 3.0 * smearing / (4.0 * torch.pi) * torch.exp(-smearing * u**3)
@@ -418,6 +425,14 @@ class APNet3_MPNN(nn.Module):
         vwB,
         alpha_0_B,
         hlistB,
+        # intermolecular edges (full)
+        e_AB_source_all,
+        e_AB_target_all,
+        # intramonomer edges (full)
+        e_AA_source_all,
+        e_AA_target_all,
+        e_BB_source_all,
+        e_BB_target_all,
     ):
         # counts
         # natomA = ZA.size(0)
@@ -582,29 +597,29 @@ class APNet3_MPNN(nn.Module):
 
         # CLASSICAL INDUCTION - INDUCED DIPOLE
 
-        # E_indu = self.induced_dipole_indu(
-        #     qA,
-        #     muA,
-        #     quadA,
-        #     qB,
-        #     muB,
-        #     quadB,
-        #     hfvrA,
-        #     hfvrB,
-        #     alpha_0_A,
-        #     alpha_0_B,
-        #     S_ij,
-        #     dR_sr,
-        #     dR_lr,
-        #     e_AA_source,
-        #     e_AA_target,
-        #     e_BB_source,
-        #     e_BB_target,
-        #     e_ABsr_source,
-        #     e_ABsr_target,
-        #     e_ABlr_source,
-        #     e_ABlr_target,
-        # )
+        E_indu = self.induced_dipole_indu(
+            qA,
+            muA,
+            quadA,
+            qB,
+            muB,
+            quadB,
+            hfvrA,
+            hfvrB,
+            alpha_0_A,
+            alpha_0_B,
+            S_ij,
+            dR_sr,
+            dR_lr,
+            e_AA_source,
+            e_AA_target,
+            e_BB_source,
+            e_BB_target,
+            e_ABsr_source,
+            e_ABsr_target,
+            e_ABlr_source,
+            e_ABlr_target,
+        )
 
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
 
@@ -946,6 +961,12 @@ class APNet3Model:
             vwB=batch.vwB,
             alpha_0_B=batch.alpha_0_B,
             hlistB=batch.hlistB,
+            e_AB_source_all=batch.e_AB_source_all,
+            e_AB_target_all=batch.e_AB_target_all,
+            e_AA_source_all=batch.e_AA_source_all,
+            e_AA_target_all=batch.e_AA_target_all,
+            e_BB_source_all=batch.e_BB_source_all,
+            e_BB_target_all=batch.e_BB_target_all,
         )
 
     def _qcel_example_input(
@@ -1023,10 +1044,21 @@ class APNet3Model:
                         qB = qB.unsqueeze(-1)
                         hfvrB = hfvrB.unsqueeze(-1)
                         vwB = vwB.unsqueeze(-1)
-                    e_AA_source, e_AA_target = pairwise_edges(data_A[j].R, r_cut)
-                    e_BB_source, e_BB_target = pairwise_edges(data_B[j].R, r_cut)
-                    e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                        pairwise_edges_im(data_A[j].R, data_B[j].R, r_cut_im)
+                    e_AA_source, e_AA_target, e_AA_source_all, e_AA_target_all = (
+                        pairwise_edges(data_A[j].R, r_cut, full_indices=True)
+                    )
+                    e_BB_source, e_BB_target, e_BB_source_all, e_BB_target_all = (
+                        pairwise_edges(data_B[j].R, r_cut, full_indices=True)
+                    )
+                    (
+                        e_ABsr_source,
+                        e_ABsr_target,
+                        e_ABlr_source,
+                        e_ABlr_target,
+                        e_AB_source_all,
+                        e_AB_target_all,
+                    ) = pairwise_edges_im(
+                        data_A[j].R, data_B[j].R, r_cut_im, full_indices=True
                     )
                     dimer_ind = torch.ones((1), dtype=torch.long) * 0
                     alpha_0_A = torch.tensor(
@@ -1073,6 +1105,14 @@ class APNet3Model:
                         vwB=vwB,
                         alpha_0_B=alpha_0_B,
                         hlistB=hlistB,
+                        # intermolecular edges (full)
+                        e_AB_source_all=e_AB_source_all,
+                        e_AB_target_all=e_AB_target_all,
+                        # intramonomer edges (full)
+                        e_AA_source_all=e_AA_source_all,
+                        e_AA_target_all=e_AA_target_all,
+                        e_BB_source_all=e_BB_source_all,
+                        e_BB_target_all=e_BB_target_all,
                     )
                     dimer_ls.append(data)
                 dimer_batch = pairwise_datasets.apnet3_collate_update_no_target(
@@ -1157,10 +1197,21 @@ class APNet3Model:
                         qB = qB.unsqueeze(-1)
                         hfvrB = hfvrB.unsqueeze(-1)
                         vwB = vwB.unsqueeze(-1)
-                    e_AA_source, e_AA_target = pairwise_edges(data_A[j].R, r_cut)
-                    e_BB_source, e_BB_target = pairwise_edges(data_B[j].R, r_cut)
-                    e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                        pairwise_edges_im(data_A[j].R, data_B[j].R, r_cut_im)
+                    e_AA_source, e_AA_target, e_AA_source_all, e_AA_target_all = (
+                        pairwise_edges(data_A[j].R, r_cut, full_indices=True)
+                    )
+                    e_BB_source, e_BB_target, e_BB_source_all, e_BB_target_all = (
+                        pairwise_edges(data_B[j].R, r_cut, full_indices=True)
+                    )
+                    (
+                        e_ABsr_source,
+                        e_ABsr_target,
+                        e_ABlr_source,
+                        e_ABlr_target,
+                        e_AB_source_all,
+                        e_AB_target_all,
+                    ) = pairwise_edges_im(
+                        data_A[j].R, data_B[j].R, r_cut_im, full_indices=True
                     )
                     dimer_ind = torch.ones((1), dtype=torch.long) * 0
                     alpha_0_A = torch.tensor(
@@ -1207,6 +1258,14 @@ class APNet3Model:
                         vwB=vwB,
                         alpha_0_B=alpha_0_B,
                         hlistB=hlistB,
+                        # intermolecular edges (full)
+                        e_AB_source_all=e_AB_source_all,
+                        e_AB_target_all=e_AB_target_all,
+                        # intramonomer edges (full)
+                        e_AA_source_all=e_AA_source_all,
+                        e_AA_target_all=e_AA_target_all,
+                        e_BB_source_all=e_BB_source_all,
+                        e_BB_target_all=e_BB_target_all,
                     )
                     dimer_ls.append(data)
                 dimer_batch = pairwise_datasets.apnet3_collate_update_no_target(

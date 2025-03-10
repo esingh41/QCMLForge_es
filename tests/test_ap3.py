@@ -113,7 +113,9 @@ def test_ap3_indu():
         ignore_database_null=True,
     )
     au2ang = qcelemental.constants.conversion_factor("bohr", "angstrom")
+    print("water geometry in angstrom")
     print(water.geometry * au2ang)
+    print()
     output = pair_model.predict_qcel_mols([water], batch_size=1)
     set_weights_to_value(pair_model.model, 0.01)
     output = pair_model.predict_qcel_mols([water, water], batch_size=2)

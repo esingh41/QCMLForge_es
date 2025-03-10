@@ -162,6 +162,47 @@ def T_cart(RA, RB):
     return T0, T1, T2, T3, T4
 
 
+def T_cart_torch(RA, RB):
+    dR = RB - RA  # Displacement vector
+    R = torch.norm(dR)  # Euclidean distance
+
+    delta = torch.eye(3, device=RA.device)  # Identity matrix (3x3)
+
+    T0 = R**-1
+    T1 = (R**-3) * (-1.0 * dR)
+    T2 = (R**-5) * (3 * torch.outer(dR, dR) - R * R * delta)
+
+    Rdd = torch.einsum('i,jk->ijk', dR, delta)  # Outer product of dR with identity
+    T3 = (
+        (R**-7)
+        * -1.0
+        * (
+            15 * torch.einsum('i,j,k->ijk', dR, dR, dR)
+            - 3 * R * R * (Rdd + Rdd.permute(1, 0, 2) + Rdd.permute(2, 0, 1))
+        )
+    )
+
+    RRdd = torch.einsum('i,j,km->ijkm', dR, dR, delta)  # (3x3x3x3) tensor
+    dddd = torch.einsum('ij,kl->ijkl', delta, delta)  # (3x3x3x3) identity outer product
+    T4 = (R**-9) * (
+        105 * torch.einsum('i,j,k,l->ijkl', dR, dR, dR, dR)
+        - 15
+        * R
+        * R
+        * (
+            RRdd
+            + RRdd.permute(0, 2, 1, 3)
+            + RRdd.permute(0, 3, 2, 1)
+            + RRdd.permute(2, 1, 0, 3)
+            + RRdd.permute(3, 1, 2, 0)
+            + RRdd.permute(2, 3, 0, 1)
+        )
+        + 3 * (R**4) * (dddd + dddd.permute(0, 2, 1, 3) + dddd.permute(0, 3, 2, 1))
+    )
+
+    return T0, T1, T2, T3, T4
+
+
 def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB):
 
     T0, T1, T2, T3, T4 = T_cart(RA, RB)
