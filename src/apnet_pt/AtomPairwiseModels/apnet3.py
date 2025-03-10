@@ -301,6 +301,8 @@ class APNet3_MPNN(nn.Module):
 
     def induced_dipole_indu(
         self,
+        RA,
+        RB,
         qA,
         muA,
         quadA,
@@ -312,12 +314,6 @@ class APNet3_MPNN(nn.Module):
         alpha_0_A,
         alpha_0_B,
         S_ij,
-        dR_sr,
-        dR_lr,
-        e_AA_source_all,
-        e_AA_target_all,
-        e_BB_source_all,
-        e_BB_target_all,
         e_AB_source_all,
         e_AB_target_all,
         omega=0.7,
@@ -325,17 +321,29 @@ class APNet3_MPNN(nn.Module):
     ):
         # TODO: Implement induced dipole induction
         # https://github.com/jeffschriber/cliff/blob/660871c3949fcea5d907fe8cbe54352fd071e841/cliff/components/induction_calc.py#L122
-        print(f"{e_AA_source_all = }")
-        print(f"{e_AA_target_all = }")
+        print(f"{RA.size() = }, {RB.size() = }")
         print(f"{e_AB_source_all = }")
         print(f"{e_AB_target_all = }")
-        T0, T1, T2, T3, T4 = T_cart_torch(dR_sr, dR_sr)
-        print(f"{T0 = }")
-        print(f"{T1 = }")
-        print(f"{T2 = }")
-        print(f"{T3 = }")
-        print(f"{T4 = }")
-        # u = dR_ang / ((alpha_0_A * alpha_0_B) ** (1.0 / 6.0))
+        # # intra+intermolecular distances
+        dR, dR_xyz = self.get_distances(RA, RB, e_AB_source_all, e_AB_target_all)
+        # print(f"{dR.size() = }")
+        # print(f"{dR = }")
+        T0, T1, T2, T3, T4 = T_cart_torch(RA, RB)
+        # print(f"{T0 = }")
+        # print(f"{T1 = }")
+        # print(f"{T2 = }")
+        # print(f"{T3 = }")
+        # print(f"{T4 = }")
+        alpha_0s = torch.cat([alpha_0_A, alpha_0_B], dim=0)
+        print(f"{alpha_0_A = }")
+        print(f"{alpha_0_B = }")
+        alphas = torch.triu(torch.outer(alpha_0s, alpha_0s))
+        # Need to mask out i interacting with itself
+        # alphas = alphas.index_select(0, e_AB_source_all)
+        print(f"{alphas = }")
+        print(f"{alphas.size() = }")
+        print(f"{dR.size() = }")
+        # u = dR_xyz / ((alpha_0_A * alpha_0_B) ** (1.0 / 6.0))
         # print(f"{u = }")
         # f_Thole = 3.0 * smearing / (4.0 * torch.pi) * torch.exp(-smearing * u**3)
         # print(f"{f_Thole = }")
@@ -446,8 +454,10 @@ class APNet3_MPNN(nn.Module):
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
         dR_lr, dR_lr_xyz = self.get_distances(RA, RB, e_ABlr_source, e_ABlr_target)
 
+        # intramonomer distances
         dRA, dRA_xyz = self.get_distances(RA, RA, e_AA_source, e_AA_target)
         dRB, dRB_xyz = self.get_distances(RB, RB, e_BB_source, e_BB_target)
+
 
         # interatomic unit vectors
         dR_sr_unit = dR_sr_xyz / dR_sr.unsqueeze(1)
@@ -598,6 +608,8 @@ class APNet3_MPNN(nn.Module):
         # CLASSICAL INDUCTION - INDUCED DIPOLE
 
         E_indu = self.induced_dipole_indu(
+            RA,
+            RB,
             qA,
             muA,
             quadA,
@@ -609,17 +621,10 @@ class APNet3_MPNN(nn.Module):
             alpha_0_A,
             alpha_0_B,
             S_ij,
-            dR_sr,
-            dR_lr,
-            e_AA_source,
-            e_AA_target,
-            e_BB_source,
-            e_BB_target,
-            e_ABsr_source,
-            e_ABsr_target,
-            e_ABlr_source,
-            e_ABlr_target,
+            e_AB_source_all,
+            e_AB_target_all,
         )
+        print(f"{E_indu = }")
 
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
 

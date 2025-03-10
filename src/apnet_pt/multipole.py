@@ -163,43 +163,125 @@ def T_cart(RA, RB):
 
 
 def T_cart_torch(RA, RB):
-    dR = RB - RA  # Displacement vector
-    R = torch.norm(dR)  # Euclidean distance
-
-    delta = torch.eye(3, device=RA.device)  # Identity matrix (3x3)
-
-    T0 = R**-1
-    T1 = (R**-3) * (-1.0 * dR)
-    T2 = (R**-5) * (3 * torch.outer(dR, dR) - R * R * delta)
-
-    Rdd = torch.einsum('i,jk->ijk', dR, delta)  # Outer product of dR with identity
-    T3 = (
-        (R**-7)
-        * -1.0
-        * (
-            15 * torch.einsum('i,j,k->ijk', dR, dR, dR)
-            - 3 * R * R * (Rdd + Rdd.permute(1, 0, 2) + Rdd.permute(2, 0, 1))
-        )
+    """
+    Compute the multipole interaction tensors for N_A x N_B atom pairs.
+    Args:
+        RA: Tensor of shape (N_A, 3), positions of set A.
+        RB: Tensor of shape (N_B, 3), positions of set B.
+    Returns:
+        T0: (N_A, N_B)
+        T1: (N_A, N_B, 3)
+        T2: (N_A, N_B, 3, 3)
+        T3: (N_A, N_B, 3, 3, 3)
+        T4: (N_A, N_B, 3, 3, 3, 3)
+    """
+    import torch
+    
+    # Get dimensions
+    N_A = RA.shape[0]
+    N_B = RB.shape[0]
+    device = RA.device
+    
+    # Reshape for broadcasting: RA [N_A, 1, 3], RB [1, N_B, 3]
+    RA_expanded = RA.unsqueeze(1)  # [N_A, 1, 3]
+    RB_expanded = RB.unsqueeze(0)  # [1, N_B, 3]
+    
+    # Compute displacement vectors for all pairs
+    dR = RB_expanded - RA_expanded  # [N_A, N_B, 3]
+    
+    # Compute distance for all pairs
+    R_squared = torch.sum(dR**2, dim=2)  # [N_A, N_B]
+    R = torch.sqrt(R_squared)  # [N_A, N_B]
+    
+    # Avoid division by zero by adding small epsilon
+    eps = 1e-10
+    R_safe = torch.clamp(R, min=eps)
+    
+    # Identity tensor
+    delta = torch.eye(3, device=device)  # [3, 3]
+    
+    # T0: Charge-charge interaction tensor [N_A, N_B]
+    T0 = 1.0 / R_safe
+    
+    # T1: Charge-dipole interaction tensor [N_A, N_B, 3]
+    # R^-3 * (-dR)
+    R_inv_cubed = 1.0 / (R_safe**3)
+    T1 = -dR * R_inv_cubed.unsqueeze(-1)  # [N_A, N_B, 3]
+    
+    # T2: Dipole-dipole interaction tensor [N_A, N_B, 3, 3]
+    R_inv_fifth = 1.0 / (R_safe**5)
+    
+    # Compute outer product of dR with itself for all pairs
+    dR_outer = torch.einsum('...i,...j->...ij', dR, dR)  # [N_A, N_B, 3, 3]
+    
+    # 3 * (dR ⊗ dR) - R^2 * δ
+    T2_term1 = 3.0 * dR_outer  # [N_A, N_B, 3, 3]
+    T2_term2 = R_squared.unsqueeze(-1).unsqueeze(-1) * delta  # [N_A, N_B, 3, 3]
+    T2 = (T2_term1 - T2_term2) * R_inv_fifth.unsqueeze(-1).unsqueeze(-1)  # [N_A, N_B, 3, 3]
+    
+    # T3: Dipole-quadrupole interaction tensor [N_A, N_B, 3, 3, 3]
+    R_inv_seventh = 1.0 / (R_safe**7)
+    
+    # Create Rdd tensor: dR_i * δ_jk for all pairs
+    Rdd = torch.einsum('...i,jk->...ijk', dR, delta)  # [N_A, N_B, 3, 3, 3]
+    
+    # Create dR_i * dR_j * dR_k tensor
+    dR_outer_outer = torch.einsum('...i,...j,...k->...ijk', dR, dR, dR)  # [N_A, N_B, 3, 3, 3]
+    
+    # Calculate T3
+    T3_term1 = 15.0 * dR_outer_outer  # [N_A, N_B, 3, 3, 3]
+    
+    # Sum of permuted Rdd tensors
+    # Rdd has shape [N_A, N_B, 3, 3, 3] with indices [batch_A, batch_B, i, j, k]
+    # We want to permute the last 3 dimensions
+    Rdd_sum = Rdd + Rdd.permute(0, 1, 3, 2, 4) + Rdd.permute(0, 1, 4, 3, 2)
+    T3_term2 = 3.0 * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * Rdd_sum
+    
+    T3 = -1.0 * (T3_term1 - T3_term2) * R_inv_seventh.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    
+    # T4: Quadrupole-quadrupole interaction tensor [N_A, N_B, 3, 3, 3, 3]
+    R_inv_ninth = 1.0 / (R_safe**9)
+    
+    # Create RRdd tensor: dR_i * dR_j * δ_kl
+    # We need to expand delta to match batch dimensions
+    delta_expanded = delta.view(1, 1, 3, 3).expand(N_A, N_B, 3, 3)
+    RRdd = torch.einsum('...ij,...kl->...ijkl', dR_outer, delta_expanded)  # [N_A, N_B, 3, 3, 3, 3]
+    
+    # Create δδ tensor: δ_ij * δ_kl
+    dddd = torch.einsum('ij,kl->ijkl', delta, delta)
+    dddd_expanded = dddd.view(1, 1, 3, 3, 3, 3).expand(N_A, N_B, 3, 3, 3, 3)
+    
+    # Create dR_i * dR_j * dR_k * dR_l tensor
+    dR_outer_outer_outer = torch.einsum('...ij,...kl->...ijkl', dR_outer, dR_outer)
+    
+    # Calculate T4
+    T4_term1 = 105.0 * dR_outer_outer_outer
+    
+    # Sum of permuted RRdd tensors
+    # RRdd has shape [N_A, N_B, 3, 3, 3, 3] with indices [batch_A, batch_B, i, j, k, l]
+    # We need to permute the last 4 dimensions: i, j, k, l
+    RRdd_sum = (
+        RRdd +
+        RRdd.permute(0, 1, 2, 4, 3, 5) +  # i,k,j,l
+        RRdd.permute(0, 1, 2, 5, 4, 3) +  # i,l,k,j
+        RRdd.permute(0, 1, 4, 3, 2, 5) +  # k,j,i,l
+        RRdd.permute(0, 1, 5, 3, 4, 2) +  # l,j,k,i
+        RRdd.permute(0, 1, 4, 5, 2, 3)    # k,l,i,j
     )
-
-    RRdd = torch.einsum('i,j,km->ijkm', dR, dR, delta)  # (3x3x3x3) tensor
-    dddd = torch.einsum('ij,kl->ijkl', delta, delta)  # (3x3x3x3) identity outer product
-    T4 = (R**-9) * (
-        105 * torch.einsum('i,j,k,l->ijkl', dR, dR, dR, dR)
-        - 15
-        * R
-        * R
-        * (
-            RRdd
-            + RRdd.permute(0, 2, 1, 3)
-            + RRdd.permute(0, 3, 2, 1)
-            + RRdd.permute(2, 1, 0, 3)
-            + RRdd.permute(3, 1, 2, 0)
-            + RRdd.permute(2, 3, 0, 1)
-        )
-        + 3 * (R**4) * (dddd + dddd.permute(0, 2, 1, 3) + dddd.permute(0, 3, 2, 1))
+    
+    T4_term2 = 15.0 * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * RRdd_sum
+    
+    # Sum of permuted dddd tensors
+    dddd_sum = (
+        dddd_expanded +
+        dddd_expanded.permute(0, 1, 2, 4, 3, 5) +  # i,k,j,l
+        dddd_expanded.permute(0, 1, 2, 5, 4, 3)    # i,l,k,j
     )
-
+    
+    T4_term3 = 3.0 * (R_squared**2).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * dddd_sum
+    
+    T4 = (T4_term1 - T4_term2 + T4_term3) * R_inv_ninth.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    
     return T0, T1, T2, T3, T4
 
 
