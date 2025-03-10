@@ -274,6 +274,8 @@ class APNet3_MPNN(nn.Module):
         # vwA and vwB are the valence widths of monomer A and B,
         # respectively. r_ij is the interatomic distance between atoms i
         # and j. Use distance matrix to compute r_ij.
+        vwA = torch.where(vwA > 0.1, vwA, 0.1)
+        vwB = torch.where(vwB > 0.1, vwB, 0.1)
         sigma_A_source = vwA.index_select(0, e_source)
         sigma_B_target = vwB.index_select(0, e_target)
         # print(e_source)
