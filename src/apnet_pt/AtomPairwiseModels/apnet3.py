@@ -185,6 +185,9 @@ class APNet3_MPNN(nn.Module):
         self.readout_layer_exch = self._make_layers(
             layer_nodes_readout, layer_activations
         )
+        self.readout_layer_exch_quotient = self._make_layers(
+            layer_nodes_readout, layer_activations
+        )
         self.readout_layer_indu = self._make_layers(
             layer_nodes_readout, layer_activations
         )
@@ -580,7 +583,11 @@ class APNet3_MPNN(nn.Module):
 
         # CLASSICAL EXCHANGE
         S_ij = self.valence_width_exch(e_ABsr_source, e_ABsr_target, vwA, vwB, dR_sr)
-        E_sr[:, 1] = S_ij * E_sr[:, 1]
+        EAB_exch_quotient = self.readout_layer_exch_quotient(hAB)
+        EBA_exch_quotient = self.readout_layer_exch_quotient(hBA)
+        E_exch_quotient = ((EAB_exch_quotient + EBA_exch_quotient) / 2).squeeze(-1)
+        E_exch_classical = torch.mul(S_ij, E_exch_quotient)
+        E_sr[:, 1] = E_exch_classical + E_sr[:, 1]
 
         # CLASSICAL INDUCTION - INDUCED DIPOLE
 
