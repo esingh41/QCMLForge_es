@@ -2,10 +2,7 @@ from apnet_pt.atom_model import AtomModel
 import os
 import torch
 
-am_path = "./models/am_ensemble/am_0.pt"
 current_file_path = os.path.dirname(os.path.realpath(__file__))
-data_path = f"{current_file_path}/test_data_path"
-
 
 def test_am():
     # Test Values
@@ -20,8 +17,7 @@ def test_am():
 
     am = AtomModel(
         use_GPU=False,
-        pre_trained_model_path="./models/am_ensemble/am_0.pt",
-    )
+    ).set_pretrained_model(model_id=0)
     # Batch A: All full molecules
     batch_A = torch.load(f"{current_file_path}/dataset_data/batch_A.pt", weights_only=False)
     qA, muA, thetaA, hlistA = am.predict_multipoles_batch(batch_A)
