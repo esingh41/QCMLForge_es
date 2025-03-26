@@ -1,14 +1,11 @@
 import apnet_pt
-import os
 import numpy as np
 import qcelemental
 import torch
-
-current_file_path = os.path.dirname(os.path.realpath(__file__))
-data_path = f"{current_file_path}/test_data_path"
+import pytest
 
 mol3 = qcelemental.models.Molecule.from_data(
-        """
+    """
     1 1
     C       0.0545060001    -0.1631290019   -1.1141539812
     C       -0.9692260027   -1.0918780565   0.6940879822
@@ -37,6 +34,19 @@ mol3 = qcelemental.models.Molecule.from_data(
     units angstrom
                 """
 )
+water = qcelemental.models.Molecule.from_data("""
+
+0 1
+8   -0.702196054   -0.056060256   0.009942262
+1   -1.022193224   0.846775782   -0.011488714
+1   0.257521062   0.042121496   0.005218999
+--
+0 1
+8   2.268880784   0.026340101   0.000508029
+1   2.645502399   -0.412039965   0.766632411
+1   2.641145101   -0.449872874   -0.744894473
+units angstrom
+        """)
 
 
 def set_weights_to_value(model, value=0.9):
@@ -46,19 +56,20 @@ def set_weights_to_value(model, value=0.9):
             param.fill_(value)  # Set all elements to the given value
 
 
-def test_ap2_architecture():
+@pytest.mark.skip(reason="Models still being updated... run only for development reasons.")
+def test_ap3_architecture():
     target_energies = [
-        -3.402202606201171875e+01,  # ELST
+        -3.402202606201171875e01,  # ELST
         4.996978532290086150e-06,  # EXCH
         4.996978532290086150e-06,  # INDU
         4.996978532290086150e-06,  # DISP
     ]
-    atom_model = apnet_pt.AtomModel(
+    atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         ds_root=None,
         ignore_database_null=True,
     )
     set_weights_to_value(atom_model.model, 0.0001)
-    pair_model = apnet_pt.APNet2Model(
+    pair_model = apnet_pt.AtomPairwiseModels.apnet3.APNet3Model(
         atom_model=atom_model.model,
         ignore_database_null=True,
     )
@@ -70,5 +81,57 @@ def test_ap2_architecture():
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
 
+@pytest.mark.skip(reason="Models still being updated... run only for development reasons.")
+def test_ap3_exch():
+    atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        ds_root=None,
+        ignore_database_null=True,
+        pre_trained_model_path="./models/am_hf_ensemble/am_4.pt",
+    )
+    pair_model = apnet_pt.AtomPairwiseModels.apnet3.APNet3Model(
+        atom_model=atom_model.model,
+        ignore_database_null=True,
+    )
+    output = pair_model.predict_qcel_mols([water], batch_size=1)
+    set_weights_to_value(pair_model.model, 0.01)
+    output = pair_model.predict_qcel_mols([water, water], batch_size=2)
+    ref_energies = np.array(
+        [
+            [5.14170970e-04],
+            [5.14170213e-04],
+        ]
+    )
+    assert np.allclose(output[:, 1], ref_energies, atol=1e-6)
+    return
+
+
+@pytest.mark.skip(reason="Models still being updated... run only for development reasons.")
+def test_ap3_indu():
+    atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        ds_root=None,
+        ignore_database_null=True,
+        pre_trained_model_path="./models/am_hf_ensemble/am_4.pt",
+    )
+    pair_model = apnet_pt.AtomPairwiseModels.apnet3.APNet3Model(
+        atom_model=atom_model.model,
+        ignore_database_null=True,
+    )
+    au2ang = qcelemental.constants.conversion_factor("bohr", "angstrom")
+    print(water.geometry * au2ang)
+    output = pair_model.predict_qcel_mols([water], batch_size=1)
+    set_weights_to_value(pair_model.model, 0.01)
+    output = pair_model.predict_qcel_mols([water, water], batch_size=2)
+    ref_energies = np.array(
+        [
+            [5.14170970e-04],
+            [5.14170213e-04],
+        ]
+    )
+    assert np.allclose(output[:, 1], ref_energies, atol=1e-6)
+    return
+
+
 if __name__ == "__main__":
-    test_ap2_architecture()
+    # test_ap3_architecture()
+    # test_ap3_exch()
+    test_ap3_indu()

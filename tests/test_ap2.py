@@ -1,13 +1,7 @@
 import apnet_pt
-import os
 import numpy as np
 import qcelemental
 import torch
-
-spec_type = 5
-am_iteration = "13-1-1"
-current_file_path = os.path.dirname(os.path.realpath(__file__))
-data_path = f"{current_file_path}/test_data_path"
 
 mol3 = qcelemental.models.Molecule.from_data(
         """
@@ -55,12 +49,12 @@ def test_ap2_architecture():
         4.996978532290086150e-06,  # INDU
         4.996978532290086150e-06,  # DISP
     ]
-    atom_model = apnet_pt.AtomModel(
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
     )
     set_weights_to_value(atom_model.model, 0.0001)
-    pair_model = apnet_pt.APNet2Model(
+    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
         atom_model=atom_model.model,
         ignore_database_null=True,
     )

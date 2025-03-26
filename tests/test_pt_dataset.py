@@ -1,4 +1,8 @@
-from apnet_pt.apnet2_model import APNet2Model
+from apnet_pt.AtomPairwiseModels.apnet2 import APNet2Model
+from apnet_pt import AtomPairwiseModels
+from apnet_pt import atomic_datasets
+from apnet_pt import pairwise_datasets
+from apnet_pt import AtomModels
 from apnet_pt.pairwise_datasets import (
     apnet2_module_dataset,
     apnet2_collate_update,
@@ -14,19 +18,6 @@ current_file_path = os.path.dirname(os.path.realpath(__file__))
 data_path = f"{current_file_path}/test_data_path"
 am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
 
-ds = apnet2_module_dataset(
-    root=data_path,
-    r_cut=5.0,
-    r_cut_im=8.0,
-    spec_type=5,
-    max_size=None,
-    force_reprocess=False,
-    atom_model_path=am_path,
-    atomic_batch_size=1000,
-    num_devices=1,
-    skip_processed=False,
-    split="train",
-)
 
 
 def test_apnet_data_object():
@@ -35,6 +26,19 @@ def test_apnet_data_object():
         inp_batch0 = pickle.load(f)
     with open(f"{current_file_path}/dataset_data/ie_batch0.pkl", "rb") as f:
         ie_batch0 = pickle.load(f)
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        atomic_batch_size=1000,
+        num_devices=1,
+        skip_processed=False,
+        split="train",
+    )
     batch_size = 16
 
     train_loader = APNet2_DataLoader(
@@ -61,6 +65,19 @@ def test_apnet_data_object():
 
 @pytest.mark.skip(reason="Slow training test. Run only for development reasons.")
 def test_apnet2_model_train():
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        atomic_batch_size=1000,
+        num_devices=1,
+        skip_processed=False,
+        split="train",
+    )
     apnet2 = APNet2Model(
         dataset=ds,
         ds_root=data_path,
@@ -84,7 +101,77 @@ def test_apnet2_model_train():
     )
     return
 
+def test_atomhirshfeld_model_train():
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        optimize_for_speed=False,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+    return
+
+
+def test_ap3_model_train():
+    APNet = AtomPairwiseModels.apnet3.APNet3Model
+    batch_size = 1
+    world_size = 1
+    print("World Size", world_size)
+
+    batch_size = 16
+    omp_num_threads_per_process = 8
+    apnet2 = APNet(
+        atom_model_pre_trained_path="./models/am_hf_ensemble/am_4.pt",
+        pre_trained_model_path=None,
+        ds_spec_type=7,
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_atomic_batch_size=batch_size,
+        ds_num_devices=1,
+        ds_skip_process=False,
+        ds_datapoint_storage_n_molecules=batch_size,
+        ds_prebatched=True,
+    )
+    apnet2.train(
+        model_path="./ap3_test.pt",
+        batch_size=1,
+        n_epochs=5,
+        world_size=world_size,
+        omp_num_threads_per_process=omp_num_threads_per_process,
+        lr=5e-4,
+        # lr_decay=lr_decay,
+        dataloader_num_workers=4,
+        random_seed=4,
+    )
+
 
 if __name__ == "__main__":
     # test_apnet_data_object()
-    test_apnet2_model_train()
+    # test_apnet2_model_train()
+    # test_atomhirshfeld_model_train()
+    test_ap3_model_train()

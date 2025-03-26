@@ -82,3 +82,15 @@ python3 ./train_models.py \
     --am_model_path ./models/example/am_example.pt \
     --n_epochs 5 
 ```
+
+# Objectives
+
+- [X] Extend AtomMPNN to predict Hirshfeld ratios
+- [ ] Add classical induction model for AP3
+
+# Acknowledgements
+
+The free-atom polarizabilities come from
+[libmbd](https://github.com/libmbd/libmbd/blob/master/src/pymbd/vdw-params.csv).
+To cite Hirshfeld model, please cite libmbd and the original paper to give
+appropriate credit for their indirect contributions.

@@ -1,5 +1,5 @@
-from apnet_pt.atom_model import AtomModel
-from apnet_pt.apnet2_model import APNet2Model
+from apnet_pt import AtomModels
+from apnet_pt import AtomPairwiseModels
 import torch
 import argparse
 import numpy as np
@@ -9,14 +9,28 @@ from pprint import pprint
 
 
 def train_atom_model(
+    atom_model_type="AtomModel",
     model_path="./models/am_amw_1.pt",
     data_dir="data_atomic",
     spec_type=3,
     testing=False,
     n_epochs=500,
     random_seed=42,
+    ds_max_size=None,
 ):
-    atom_model = AtomModel(
+    if atom_model_type == "AtomModel":
+        AM = AtomModels.ap2_atom_model.AtomModel
+        batch_size = 16
+    elif atom_model_type == "AtomHirshfeldModel":
+        AM = AtomModels.ap3_atom_model.AtomHirshfeldModel
+        batch_size = 1
+    else:
+        raise ValueError("Invalid Atom Model Type")
+    pretrained_model = None
+    if os.path.exists(model_path):
+        pretrained_model = model_path
+    print("Training {}...".format(atom_model_type))
+    atom_model = AM(
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -24,13 +38,16 @@ def train_atom_model(
         r_cut=5.0,
         ds_root=data_dir,
         ds_spec_type=spec_type,
+        ds_max_size=ds_max_size,
         ignore_database_null=False,
-        ds_in_memory=False,
+        ds_in_memory=True,
         use_GPU=True,
+        pre_trained_model_path=pretrained_model,
     )
+    print(atom_model.dataset)
     atom_model.train(
         n_epochs=n_epochs,
-        batch_size=16,
+        batch_size=batch_size,
         lr=5e-4,
         split_percent=0.9,
         model_path=model_path,
@@ -45,6 +62,7 @@ def train_atom_model(
 
 
 def train_pairwise_model(
+    apnet_model_type="APNet2",
     model_out="./models/ap2_ensemble/ap2_1.pt",
     am_model_path="./models/ap2_ensemble/am_1.pt",
     data_dir="./data_pairwise",
@@ -52,7 +70,17 @@ def train_pairwise_model(
     lr=5e-4,
     lr_decay=None,
     random_seed=42,
+    spec_type=2,
 ):
+    if apnet_model_type == "APNet2":
+        APNet = AtomPairwiseModels.apnet2.APNet2Model
+        batch_size = 1
+    elif apnet_model_type == "APNet3":
+        APNet = AtomPairwiseModels.apnet3.APNet3Model
+        batch_size = 1
+    else:
+        raise ValueError("Invalid Atom Model Type")
+    print("Training {}...".format(apnet_model_type))
     if torch.cuda.is_available():
         world_size = torch.cuda.device_count()
     else:
@@ -67,10 +95,11 @@ def train_pairwise_model(
     else:
         pretrained_model = None
         print("\nTraining from scratch...\n")
-    apnet2 = APNet2Model(
+    apnet2 = APNet(
         atom_model_pre_trained_path=am_model_path,
         pre_trained_model_path=pretrained_model,
-        ds_spec_type=2,
+        # ds_spec_type=2,
+        ds_spec_type=spec_type,
         ds_root=data_dir,
         ignore_database_null=False,
         ds_atomic_batch_size=batch_size,
@@ -130,17 +159,15 @@ def main():
     )
     args.add_argument(
         "--train_am",
-        type=bool,
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Train AtomModel"
+        type=str,
+        default="",
+        help="Train AtomModel: (AtomModel, AtomHirshfeldModel)"
     )
     args.add_argument(
-        "--train_ap2",
-        type=bool,
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Train APNet2Model"
+        "--train_apnet",
+        type=str,
+        default="",
+        help="Train APNet Model: (APNet2, APNet3)"
     )
     args.add_argument(
         "--random_seed",
@@ -185,6 +212,12 @@ def main():
         help="Number of epochs for training"
     )
     args.add_argument(
+        "--ds_max_size",
+        type=int,
+        default=None,
+        help="Limit dataset to N dataset objects",
+    )
+    args.add_argument(
         "--lr",
         type=float,
         default=5e-4,
@@ -199,16 +232,19 @@ def main():
     args = args.parse_args()
     pprint(args)
     set_all_seeds(args.random_seed)
-    if args.train_am:
+    if args.train_am != "":
         train_atom_model(
+            atom_model_type=args.train_am,
             model_path=args.am_model_path,
             data_dir=args.data_dir_atom,
             spec_type=args.spec_type_am,
             n_epochs=args.n_epochs_atom,
             random_seed=args.random_seed,
+            ds_max_size=args.ds_max_size,
         )
-    if args.train_ap2:
+    if args.train_apnet != "":
         train_pairwise_model(
+            apnet_model_type=args.train_apnet,
             model_out=args.ap_model_path,
             am_model_path=args.am_model_path,
             data_dir=args.data_dir,
@@ -216,6 +252,7 @@ def main():
             lr=args.lr,
             lr_decay=args.lr_decay,
             random_seed=args.random_seed,
+            spec_type=args.spec_type_ap,
         )
     return
 
