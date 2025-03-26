@@ -5,6 +5,15 @@ re-implemented in PyTorch with newer versions to come.
 # PyTorch AP-Net2 
 Code re-implemented from TensorFlow version located [here](https://github.com/zachglick/apnet)
 
+## Installation
+
+To install the package, run the following command:
+```bash
+conda env create -f environment.yml
+conda activate qcml
+pip install -e .
+```
+
 ## Inference
 ### AtomModel multipole example
 To run the AtomModel inference, run the following command:
