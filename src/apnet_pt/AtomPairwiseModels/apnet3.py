@@ -337,7 +337,7 @@ class APNet3_MPNN(nn.Module):
         alpha_0s = torch.cat([alpha_0_A, alpha_0_B], dim=0)
         print(f"{alpha_0_A = }")
         print(f"{alpha_0_B = }")
-        alphas = torch.triu(torch.outer(alpha_0s, alpha_0s))
+        alphas = torch.outer(alpha_0s, alpha_0s)
         # Need to mask out i interacting with itself
         # alphas = alphas.index_select(0, e_AB_source_all)
         print(f"{alphas = }")
