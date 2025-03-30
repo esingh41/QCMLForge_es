@@ -326,6 +326,8 @@ class APNet3_MPNN(nn.Module):
         e_ABsr_target,
         e_ABlr_source,
         e_ABlr_target,
+        dR,
+        dR_xyz,
         omega=0.7,
         smearing=0.39,
     ):
@@ -333,6 +335,7 @@ class APNet3_MPNN(nn.Module):
         # https://github.com/jeffschriber/cliff/blob/660871c3949fcea5d907fe8cbe54352fd071e841/cliff/components/induction_calc.py#L122
         # print(f"{e_AA_source = }")
         # print(f"{e_AA_target = }")
+        print(f"{alpha_0_A.size() = }, {alpha_0_B.size() = }")
         # u = dR_ang / ((alpha_0_A * alpha_0_B) ** (1.0 / 6.0))
         # print(f"{u = }")
         # f_Thole = 3.0 * smearing / (4.0 * torch.pi) * torch.exp(-smearing * u**3)
@@ -438,6 +441,15 @@ class APNet3_MPNN(nn.Module):
 
         dRA, dRA_xyz = self.get_distances(RA, RA, e_AA_source, e_AA_target)
         dRB, dRB_xyz = self.get_distances(RB, RB, e_BB_source, e_BB_target)
+
+        e_source = torch.cat([e_ABsr_source, e_ABlr_source, e_AA_source, e_BB_source])
+        e_target = torch.cat([e_ABsr_target, e_ABlr_target, e_AA_target, e_BB_target])
+        print(f"{RA.size() = }, {RB.size() = }, {e_source.size() = }, {e_target.size() = }")
+        print(f"{e_ABsr_target.size() = }, {e_ABlr_target.size() = }, {e_AA_target.size() = }, {e_BB_target.size() = }")
+        dR, dR_xyz = self.get_distances(RA, RB, e_source, e_target)
+        print(f"{dR.size() = }, {dR_xyz.size() = }")
+        print(dR)
+
 
         # interatomic unit vectors
         dR_sr_unit = dR_sr_xyz / dR_sr.unsqueeze(1)
@@ -591,29 +603,31 @@ class APNet3_MPNN(nn.Module):
 
         # CLASSICAL INDUCTION - INDUCED DIPOLE
 
-        # E_indu = self.induced_dipole_indu(
-        #     qA,
-        #     muA,
-        #     quadA,
-        #     qB,
-        #     muB,
-        #     quadB,
-        #     hfvrA,
-        #     hfvrB,
-        #     alpha_0_A,
-        #     alpha_0_B,
-        #     S_ij,
-        #     dR_sr,
-        #     dR_lr,
-        #     e_AA_source,
-        #     e_AA_target,
-        #     e_BB_source,
-        #     e_BB_target,
-        #     e_ABsr_source,
-        #     e_ABsr_target,
-        #     e_ABlr_source,
-        #     e_ABlr_target,
-        # )
+        E_indu = self.induced_dipole_indu(
+            qA,
+            muA,
+            quadA,
+            qB,
+            muB,
+            quadB,
+            hfvrA,
+            hfvrB,
+            alpha_0_A,
+            alpha_0_B,
+            S_ij,
+            dR_sr,
+            dR_lr,
+            e_AA_source,
+            e_AA_target,
+            e_BB_source,
+            e_BB_target,
+            e_ABsr_source,
+            e_ABsr_target,
+            e_ABlr_source,
+            e_ABlr_target,
+            dR,
+            dRB_xyz,
+        )
 
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
 
