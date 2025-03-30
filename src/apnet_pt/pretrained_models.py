@@ -6,7 +6,7 @@ import os
 import numpy as np
 import copy
 
-model_dir = os.path.dirname(os.path.realpath(__file__)) + "/../../models/"
+model_dir = os.path.dirname(os.path.realpath(__file__)) + "/models/"
 
 
 def atom_model_predict(

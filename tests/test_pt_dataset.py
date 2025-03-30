@@ -1,4 +1,5 @@
 from apnet_pt.AtomPairwiseModels.apnet2 import APNet2Model
+from apnet_pt import AtomPairwiseModels
 from apnet_pt import atomic_datasets
 from apnet_pt import pairwise_datasets
 from apnet_pt import AtomModels
@@ -15,8 +16,7 @@ import pytest
 spec_type = 5
 current_file_path = os.path.dirname(os.path.realpath(__file__))
 data_path = f"{current_file_path}/test_data_path"
-am_path = f"{current_file_path}/../models/am_ensemble/am_0.pt"
-ap_path = f"{current_file_path}/../models/ap2_ensemble/ap2_0.pt"
+am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
 
 
 
@@ -79,8 +79,6 @@ def test_apnet2_model_train():
         split="train",
     )
     apnet2 = APNet2Model(
-        atom_model_pre_trained_path=am_path,
-        pre_trained_model_path=ap_path,
         dataset=ds,
         ds_root=data_path,
         ds_spec_type=spec_type,
@@ -90,7 +88,7 @@ def test_apnet2_model_train():
         ds_num_devices=1,
         ds_skip_process=False,
         # ds_max_size=10,
-    )
+    ).set_pretrained_model(model_id=0)
     apnet2.train(
         model_path="./models/ap2_test.pt",
         batch_size=16,
@@ -140,30 +138,36 @@ def test_atomhirshfeld_model_train():
 
 
 def test_ap3_model_train():
-    ds = pairwise_datasets.apnet3_module_dataset(
-        root=data_path,
-        transform=None,
-        pre_transform=None,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=7,
-        max_size=None,
-        force_reprocess=True,
-        skip_processed=False,
-        # only need for processing
-        atom_model_path="./models/am_hf_ensemble/am_0.pt",
-        batch_size=16,
-        atomic_batch_size=16,
-        prebatched=False,
-        # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
-        datapoint_storage_n_molecules=1000,
-        in_memory=False,
-        num_devices=1,
-        split="test",  # train, test
-        print_level=1,
+    APNet = AtomPairwiseModels.apnet3.APNet3Model
+    batch_size = 1
+    world_size = 1
+    print("World Size", world_size)
 
+    batch_size = 16
+    omp_num_threads_per_process = 8
+    apnet2 = APNet(
+        atom_model_pre_trained_path="./models/am_hf_ensemble/am_4.pt",
+        pre_trained_model_path=None,
+        ds_spec_type=7,
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_atomic_batch_size=batch_size,
+        ds_num_devices=1,
+        ds_skip_process=False,
+        ds_datapoint_storage_n_molecules=batch_size,
+        ds_prebatched=True,
     )
-    print(ds)
+    apnet2.train(
+        model_path="./ap3_test.pt",
+        batch_size=1,
+        n_epochs=5,
+        world_size=world_size,
+        omp_num_threads_per_process=omp_num_threads_per_process,
+        lr=5e-4,
+        # lr_decay=lr_decay,
+        dataloader_num_workers=4,
+        random_seed=4,
+    )
 
 
 if __name__ == "__main__":

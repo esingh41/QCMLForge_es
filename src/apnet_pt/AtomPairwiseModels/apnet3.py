@@ -186,6 +186,9 @@ class APNet3_MPNN(nn.Module):
         self.readout_layer_exch = self._make_layers(
             layer_nodes_readout, layer_activations
         )
+        self.readout_layer_exch_quotient = self._make_layers(
+            layer_nodes_readout, layer_activations
+        )
         self.readout_layer_indu = self._make_layers(
             layer_nodes_readout, layer_activations
         )
@@ -275,6 +278,8 @@ class APNet3_MPNN(nn.Module):
         # vwA and vwB are the valence widths of monomer A and B,
         # respectively. r_ij is the interatomic distance between atoms i
         # and j. Use distance matrix to compute r_ij.
+        vwA = torch.where(vwA > 0.1, vwA, 0.1)
+        vwB = torch.where(vwB > 0.1, vwB, 0.1)
         sigma_A_source = vwA.index_select(0, e_source)
         sigma_B_target = vwB.index_select(0, e_target)
         # print(e_source)
@@ -344,6 +349,9 @@ class APNet3_MPNN(nn.Module):
         print(f"{alphas.size() = }")
         print(f"{dR.size() = }")
         # u = dR_xyz / ((alpha_0_A * alpha_0_B) ** (1.0 / 6.0))
+        # print(f"{e_AA_source = }")
+        # print(f"{e_AA_target = }")
+        # u = dR_ang / ((alpha_0_A * alpha_0_B) ** (1.0 / 6.0))
         # print(f"{u = }")
         # f_Thole = 3.0 * smearing / (4.0 * torch.pi) * torch.exp(-smearing * u**3)
         # print(f"{f_Thole = }")
@@ -603,7 +611,11 @@ class APNet3_MPNN(nn.Module):
 
         # CLASSICAL EXCHANGE
         S_ij = self.valence_width_exch(e_ABsr_source, e_ABsr_target, vwA, vwB, dR_sr)
-        E_sr[:, 1] = S_ij * E_sr[:, 1]
+        EAB_exch_quotient = self.readout_layer_exch_quotient(hAB)
+        EBA_exch_quotient = self.readout_layer_exch_quotient(hBA)
+        E_exch_quotient = ((EAB_exch_quotient + EBA_exch_quotient) / 2).squeeze(-1)
+        E_exch_classical = torch.mul(S_ij, E_exch_quotient)
+        E_sr[:, 1] = E_exch_classical + E_sr[:, 1]
 
         # CLASSICAL INDUCTION - INDUCED DIPOLE
 
@@ -628,8 +640,8 @@ class APNet3_MPNN(nn.Module):
 
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
 
-        print(f"{E_sr_dimer.size() = }")
-        print(f"{E_sr.size() = }")
+        # print(f"{E_sr_dimer.size() = }")
+        # print(f"{E_sr.size() = }")
         ####################################################
         ### predict multipole electrostatic interactions ###
         ####################################################
@@ -646,24 +658,24 @@ class APNet3_MPNN(nn.Module):
             dR_sr,
             dR_sr_xyz,
         )
-        print(vwA.size(), vwB.size(), dR_sr.size())
-        print(f"{vwA = }")
-        print(f"{vwB = }")
-
-        print()
-        print(f"{S_ij.size() = }")
-        print(S_ij)
-
-        print()
-        print(f"{E_elst_sr.size() = }")
-        print(E_elst_sr)
+        # print(vwA.size(), vwB.size(), dR_sr.size())
+        # print(f"{vwA = }")
+        # print(f"{vwB = }")
+        #
+        # print()
+        # print(f"{S_ij.size() = }")
+        # print(S_ij)
+        #
+        # print()
+        # print(f"{E_elst_sr.size() = }")
+        # print(E_elst_sr)
 
         E_elst_sr_dimer = scatter(
             E_elst_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer
         )
-        print()
-        print(f"{E_elst_sr_dimer.size() = }")
-        print(E_elst_sr_dimer)
+        # print()
+        # print(f"{E_elst_sr_dimer.size() = }")
+        # print(E_elst_sr_dimer)
         E_elst_sr_dimer = E_elst_sr_dimer.unsqueeze(-1)
 
         E_elst_lr = self.mtp_elst(
@@ -1680,7 +1692,7 @@ units angstrom
         self.model(**batch)
         # TODO: remove this after exch and induction
         # debugging
-        return
+        # return
         # if False:
         print("Compiling model")
         torch._dynamo.config.dynamic_shapes = True

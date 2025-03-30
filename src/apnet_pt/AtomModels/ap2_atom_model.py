@@ -24,6 +24,8 @@ warnings.filterwarnings("ignore")
 
 max_Z = 118  # largest atomic number
 
+file_dir = os.path.dirname(os.path.realpath(__file__))
+
 
 def unsorted_segment_sum_2d(data, segment_ids, num_segments):
     """
@@ -510,7 +512,12 @@ class AtomModel:
         # torch.jit.enable_onednn_fusion(True)
         return
 
-    def set_pretrained_model(self, model_path):
+    def set_pretrained_model(self, model_path=None, model_id=None):
+        if model_id is not None:
+            model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
+        elif model_path is None and model_id is None:
+            raise ValueError("Either model_path or model_id must be provided.")
+
         checkpoint = torch.load(model_path)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
@@ -520,7 +527,7 @@ class AtomModel:
             self.model.load_state_dict(model_state_dict)
         else:
             self.model.load_state_dict(checkpoint['model_state_dict'])
-        return
+        return self
 
     def compile_model(self):
         torch._dynamo.config.dynamic_shapes = True

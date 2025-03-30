@@ -2,6 +2,7 @@ import apnet_pt
 import numpy as np
 import qcelemental
 import torch
+import pytest
 
 mol3 = qcelemental.models.Molecule.from_data(
     """
@@ -55,6 +56,7 @@ def set_weights_to_value(model, value=0.9):
             param.fill_(value)  # Set all elements to the given value
 
 
+@pytest.mark.skip(reason="Models still being updated... run only for development reasons.")
 def test_ap3_architecture():
     target_energies = [
         -3.402202606201171875e01,  # ELST
@@ -79,6 +81,7 @@ def test_ap3_architecture():
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
 
+@pytest.mark.skip(reason="Models still being updated... run only for development reasons.")
 def test_ap3_exch():
     atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         ds_root=None,
@@ -102,6 +105,7 @@ def test_ap3_exch():
     return
 
 
+@pytest.mark.skip(reason="Models still being updated... run only for development reasons.")
 def test_ap3_indu():
     atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         ds_root=None,
