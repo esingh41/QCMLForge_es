@@ -6,6 +6,7 @@ from apnet_pt import AtomModels
 from apnet_pt.pairwise_datasets import (
     apnet2_module_dataset,
     apnet2_collate_update,
+    apnet2_collate_update_prebatched,
     APNet2_DataLoader,
 )
 import pickle
@@ -34,7 +35,7 @@ def test_apnet_data_object():
         max_size=None,
         force_reprocess=False,
         atom_model_path=am_path,
-        atomic_batch_size=1000,
+        atomic_batch_size=5,
         num_devices=1,
         skip_processed=False,
         split="train",
@@ -61,6 +62,59 @@ def test_apnet_data_object():
             continue
         print(k, v.shape)
         assert np.allclose(v, getattr(batch1, k).numpy())
+
+
+def test_apnet_dataset_size():
+    batch_size = 16
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=6,
+        max_size=None,
+        force_reprocess=True,
+        atom_model_path=am_path,
+        atomic_batch_size=256 * 3,
+        datapoint_storage_n_molecules=256 * 5,
+        batch_size=batch_size,
+        prebatched=True,
+        num_devices=1,
+        skip_processed=False,
+        split="test",
+        print_level=2,
+    )
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=6,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        atomic_batch_size=256 * 3,
+        datapoint_storage_n_molecules=256 * 5,
+        batch_size=batch_size,
+        prebatched=True,
+        num_devices=1,
+        skip_processed=False,
+        split="test",
+        print_level=2,
+    )
+    print(ds)
+
+    train_loader = APNet2_DataLoader(
+        dataset=ds,
+        batch_size=1,
+        shuffle=False,
+        num_workers=1,
+        collate_fn=apnet2_collate_update_prebatched,
+    )
+    cnt = 0
+    for i in train_loader:
+        cnt += 1
+    print(cnt)
+    assert cnt == len(ds), f"Expected {len(ds)} batches, but got {cnt}."
+    return
 
 
 @pytest.mark.skip(reason="Slow training test. Run only for development reasons.")
@@ -172,6 +226,7 @@ def test_ap3_model_train():
 
 if __name__ == "__main__":
     # test_apnet_data_object()
+    test_apnet_dataset_size()
     # test_apnet2_model_train()
     # test_atomhirshfeld_model_train()
-    test_ap3_model_train()
+    # test_ap3_model_train()
