@@ -1739,7 +1739,6 @@ units angstrom
         self,
         dataset=None,
         n_epochs=50,
-        batch_size=16,
         lr=5e-4,
         split_percent=0.9,
         model_path=None,
@@ -1762,7 +1761,6 @@ units angstrom
             self.dataset = dataset
         if self.dataset is None:
             raise ValueError("No dataset provided")
-        self.batch_size = batch_size
         np.random.seed(random_seed)
         self.model_save_path = model_path
         print(f"Saving training results to...\n{model_path}")
@@ -1780,6 +1778,7 @@ units angstrom
             else:
                 order_indices = [i for i in range(len(test_dataset))]
             test_dataset = test_dataset[order_indices]
+            batch_size = train_dataset.train_batch_size
         else:
             if shuffle:
                 order_indices = np.random.permutation(len(self.dataset))
@@ -1789,6 +1788,9 @@ units angstrom
             test_indices = order_indices[int(len(self.dataset) * split_percent) :]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
+            batch_size = train_dataset.train_batch_size
+
+        self.batch_size = batch_size
 
         print("~~ Training APNet2Model ~~", flush=True)
         print(
