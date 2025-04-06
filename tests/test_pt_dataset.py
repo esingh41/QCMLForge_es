@@ -13,6 +13,7 @@ import pickle
 import os
 import numpy as np
 import pytest
+from glob import glob
 
 spec_type = 5
 current_file_path = os.path.dirname(os.path.realpath(__file__))
@@ -63,11 +64,10 @@ def test_apnet_data_object():
         print(k, v.shape)
         assert np.allclose(v, getattr(batch1, k).numpy())
 
-
-def test_apnet_dataset_size():
+def test_apnet_dataset_size_no_prebatched():
     batch_size = 2
     atomic_batch_size=4
-    datapoint_storage_n_molecules=8
+    datapoint_storage_n_objects=8
     prebatched = False
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = apnet2_module_dataset(
@@ -79,7 +79,7 @@ def test_apnet_dataset_size():
         force_reprocess=True,
         atom_model_path=am_path,
         atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_molecules=datapoint_storage_n_molecules,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
         batch_size=batch_size,
         prebatched=prebatched,
         num_devices=1,
@@ -96,7 +96,7 @@ def test_apnet_dataset_size():
         force_reprocess=False,
         atom_model_path=am_path,
         atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_molecules=datapoint_storage_n_molecules,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
         batch_size=batch_size,
         prebatched=prebatched,
         num_devices=1,
@@ -110,7 +110,7 @@ def test_apnet_dataset_size():
     train_loader = APNet2_DataLoader(
         dataset=ds,
         # batch_size=1,
-        batch_size=batch_size,
+        batch_size=ds.training_batch_size,
         shuffle=False,
         num_workers=1,
         # collate_fn=apnet2_collate_update_prebatched,
@@ -122,8 +122,71 @@ def test_apnet_dataset_size():
         print(i)
         cnt += i.y.shape[0]
     print("Number of labels in dataset:", cnt)
-    assert cnt == len(ds), f"Expected {len(ds)} points, but got {cnt} points"
-    return
+    for i in glob(f"{data_path}/processed/dimer_ap2_spec_8*.pkl"):
+        print(f"Removing {i}")
+        os.remove(i)
+    assert len(ds) == cnt, f"Expected {len(ds)} points, but got {cnt} points"
+
+def test_apnet_dataset_size_prebatched():
+    batch_size = 2
+    atomic_batch_size=4
+    datapoint_storage_n_objects=8
+    prebatched = True
+    collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=8,
+        max_size=None,
+        force_reprocess=True,
+        atom_model_path=am_path,
+        atomic_batch_size=atomic_batch_size,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
+        batch_size=batch_size,
+        prebatched=prebatched,
+        num_devices=1,
+        skip_processed=False,
+        # split="test",
+        print_level=2,
+    )
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=8,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        atomic_batch_size=atomic_batch_size,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
+        batch_size=batch_size,
+        prebatched=prebatched,
+        num_devices=1,
+        skip_processed=False,
+        # split="test",
+        print_level=2,
+    )
+    print()
+    print(ds)
+    print(ds.training_batch_size)
+
+    train_loader = APNet2_DataLoader(
+        dataset=ds,
+        # batch_size=1,
+        batch_size=ds.training_batch_size,
+        shuffle=False,
+        num_workers=1,
+        # collate_fn=apnet2_collate_update_prebatched,
+        collate_fn=collate,
+    )
+    print("\n\nDATALOADER")
+    cnt = 0
+    for i in train_loader:
+        print(f"i: {i}")
+        cnt += i.y.shape[0]
+    print("Number of labels in dataset:", cnt)
+    assert len(ds) * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
 
 
 @pytest.mark.skip(reason="Slow training test. Run only for development reasons.")
@@ -235,7 +298,8 @@ def test_ap3_model_train():
 
 if __name__ == "__main__":
     # test_apnet_data_object()
-    test_apnet_dataset_size()
+    # test_apnet_dataset_size_no_prebatched()
+    test_apnet_dataset_size_prebatched()
     # test_apnet2_model_train()
     # test_atomhirshfeld_model_train()
     # test_ap3_model_train()

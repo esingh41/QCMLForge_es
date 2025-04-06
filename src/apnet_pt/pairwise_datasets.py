@@ -21,6 +21,7 @@ import tarfile
 from time import time
 import re
 from pathlib import Path
+from math import ceil
 
 import pandas as pd
 
@@ -562,7 +563,7 @@ class apnet2_module_dataset(Dataset):
         atomic_batch_size=200,
         prebatched=False,
         # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
-        datapoint_storage_n_molecules=1000,
+        datapoint_storage_n_objects=1000,
         in_memory=False,
         num_devices=1,
         split="all",  # train, test
@@ -593,9 +594,16 @@ class apnet2_module_dataset(Dataset):
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
         self.atomic_batch_size = atomic_batch_size
+        self.batch_size = batch_size
+        self.training_batch_size = batch_size if not prebatched else 1
+        self.datapoint_storage_n_objects = datapoint_storage_n_objects
+        self.points_per_file = self.datapoint_storage_n_objects
+        if self.prebatched:
+            self.points_per_file *= self.batch_size
+        if self.prebatched:
+            print("WARNING: prebatched=True, setting training_batch_size=1 because data is already batched")
         self.in_memory = in_memory
         self.skip_processed = skip_processed
-        self.datapoint_storage_n_molecules = datapoint_storage_n_molecules
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
         if atom_model_path is not None and not self.skip_processed:
@@ -685,10 +693,10 @@ class apnet2_module_dataset(Dataset):
                 spec_files.sort(key=natural_key)
                 if self.MAX_SIZE is not None:
                     max_size = int(self.MAX_SIZE /
-                                   self.datapoint_storage_n_molecules)
+                                   self.datapoint_storage_n_objects)
                     # if max_size == 0:
                     #     raise ValueError(
-                    #         "MAX_SIZE must be greater than datapoint_storage_n_molecules"
+                    #         "MAX_SIZE must be greater than datapoint_storage_n_objects"
                     #     )
                 if self.MAX_SIZE is not None:
                     if len(spec_files) > max_size and max_size > 0:
@@ -744,9 +752,6 @@ class apnet2_module_dataset(Dataset):
 
     def process(self):
         idx = 0
-        batch_size = self.atomic_batch_size
-        if self.spec_type in [1, 2, 7]:
-            print(f"ENSURE THAT {batch_size=} is the same as the batch size used in the AP-Net2 model training! This mode avoids collating completely.")
         data_objects = []
         for raw_path in self.raw_paths:
             # Alternatively, could perform a while loop on dimers and manually
@@ -769,21 +774,21 @@ class apnet2_module_dataset(Dataset):
             print("Creating data objects...")
             t1 = time()
             t2 = time()
-            print(f"{len(RAs)=}, {batch_size=}")
+            print(f"{len(RAs)=}, {self.atomic_batch_size=}")
             molA_data = []
             molB_data = []
             energies = []
-            for i in range(0, len(RAs) + len(RAs) % batch_size + 1, batch_size):
+            for i in range(0, len(RAs) + len(RAs) % self.atomic_batch_size + 1, self.atomic_batch_size):
                 if self.skip_processed:
                     datapath = osp.join(
                         self.processed_dir,
                         f"dimer{split_name}_spec_{self.spec_type}_{
-                            idx // self.datapoint_storage_n_molecules}.pt",
+                            idx // self.datapoint_storage_n_objects}.pt",
                     )
                     if osp.exists(datapath):
                         idx += 1
                         continue
-                upper_bound = min(i + batch_size, len(RAs))
+                upper_bound = min(i + self.atomic_batch_size, len(RAs))
                 for j in range(i, upper_bound):
                     monA_data = atomic_datasets.create_atomic_data(
                         ZAs[j], RAs[j], TQAs[j], r_cut=self.r_cut
@@ -880,21 +885,24 @@ class apnet2_module_dataset(Dataset):
 
                     # Normally would store the data object to individual files,
                     # but at 1.67M dimers, this is too many files. Need to
-                    # store self.datapoint_storage_n_molecules (like 1000) dimers per file
+                    # store self.datapoint_storage_n_objects (like 1000) dimers per file
                     if (
-                        len(data_objects) == self.datapoint_storage_n_molecules
+                        len(data_objects) == self.points_per_file
                     ):
                         datapath = osp.join(
                             self.processed_dir,
-                            f"dimer_ap2{split_name}_spec_{self.spec_type}_{
-                                idx // self.datapoint_storage_n_molecules}.pt",
+                            f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
                         )
                         if self.print_level >= 2:
                             print(f"Saving to {datapath}")
                             print(len(data_objects))
                         # if we are pre-batching, we need to collate and save here.
                         if self.prebatched:
-                            data_objects = apnet2_collate_update(data_objects)
+                            # collate based on batch_size
+                            local_data_objects = []
+                            for k in range(self.datapoint_storage_n_objects):
+                                local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
+                            data_objects = local_data_objects
                         torch.save(data_objects, datapath)
                         data_objects = []
                         if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
@@ -909,14 +917,17 @@ class apnet2_module_dataset(Dataset):
                 molA_data = []
                 molB_data = []
                 energies = []
-        print(f"Finished processing {idx} dimers, {data_objects=}")
         if len(data_objects) > 0:
             if self.prebatched:
-                data_objects = apnet2_collate_update(data_objects)
+                # collate based on batch_size
+                local_data_objects = []
+                for k in range(len(data_objects) // self.batch_size):
+                    local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
+                data_objects = local_data_objects
+            print(f"{data_objects = }")
             datapath = osp.join(
                 self.processed_dir,
-                f"dimer_ap2{split_name}_spec_{self.spec_type}_{
-                    idx // self.datapoint_storage_n_molecules}.pt",
+                    f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
             )
             if self.print_level >= 2:
                 print(f"Final Saving to {datapath}")
@@ -925,18 +936,25 @@ class apnet2_module_dataset(Dataset):
         return
 
     def len(self):
-        if self.prebatched:
-            return len(self.processed_file_names)
+        # if self.prebatched:
+        #     return len(self.processed_file_names) * self.datapoint_storage_n_objects
         d = torch.load(
             osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
         )
-        return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_molecules + len(d)
+        print(f"len_d: {len(d)}")
+        print(f"d: {d}")
+        print((len(self.processed_file_names) - 1), self.datapoint_storage_n_objects, len(d))
+        if self.prebatched:
+            return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d) # * self.batch_size
+        return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
 
     def get(self, idx):
-        idx_datapath = idx // self.datapoint_storage_n_molecules
-        dimer_ind = idx % self.datapoint_storage_n_molecules
+        idx_datapath = idx // self.datapoint_storage_n_objects
+        obj_ind = idx % self.datapoint_storage_n_objects
+        print(f"{idx=}, {idx_datapath=}, {obj_ind=}")
+        print(f"{self.active_idx_data=}, {self.active_data=}")
         if self.active_idx_data == idx_datapath:
-            return self.active_data[dimer_ind]
+            return self.active_data[obj_ind]
         split_name = ""
         if self.spec_type in [2, 5, 6, 7]:
             split_name = f"_{self.split}"
@@ -944,10 +962,14 @@ class apnet2_module_dataset(Dataset):
             self.processed_dir, f"dimer_ap2{split_name}_spec_{
                 self.spec_type}_{idx_datapath}.pt"
         )
+        print(f"Loading {datapath}")
         if self.spec_type in [1, 2, 7]:
             return torch.load(datapath, weights_only=False)
         self.active_data = torch.load(datapath, weights_only=False)
-        return self.active_data[dimer_ind]
+        # print("\nACTIVEDATA")
+        # print(len(self.active_data), obj_ind, self.active_data)
+        print(f"{self.active_data = }")
+        return self.active_data[obj_ind]
 
 
 class apnet3_module_dataset(Dataset):
@@ -969,7 +991,7 @@ class apnet3_module_dataset(Dataset):
         atomic_batch_size=16,
         prebatched=False,
         # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
-        datapoint_storage_n_molecules=1000,
+        datapoint_storage_n_objects=1000,
         in_memory=False,
         num_devices=1,
         split="all",  # train, test
@@ -1002,7 +1024,7 @@ class apnet3_module_dataset(Dataset):
         self.atomic_batch_size = atomic_batch_size
         self.in_memory = in_memory
         self.skip_processed = skip_processed
-        self.datapoint_storage_n_molecules = datapoint_storage_n_molecules
+        self.datapoint_storage_n_objects = datapoint_storage_n_objects
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
         if atom_model_path is not None and not self.skip_processed:
@@ -1086,10 +1108,10 @@ class apnet3_module_dataset(Dataset):
                 spec_files.sort(key=natural_key)
                 if self.MAX_SIZE is not None:
                     max_size = int(self.MAX_SIZE /
-                                   self.datapoint_storage_n_molecules)
+                                   self.datapoint_storage_n_objects)
                     # if max_size == 0:
                     #     raise ValueError(
-                    #         "MAX_SIZE must be greater than datapoint_storage_n_molecules"
+                    #         "MAX_SIZE must be greater than datapoint_storage_n_objects"
                     #     )
                 if self.MAX_SIZE is not None:
                     if len(spec_files) > max_size and max_size > 0:
@@ -1179,7 +1201,7 @@ class apnet3_module_dataset(Dataset):
                     datapath = osp.join(
                         self.processed_dir,
                         f"dimer{split_name}_spec_{self.spec_type}_{
-                            idx // self.datapoint_storage_n_molecules}.pt",
+                            idx // self.datapoint_storage_n_objects}.pt",
                     )
                     if osp.exists(datapath):
                         idx += 1
@@ -1296,15 +1318,15 @@ class apnet3_module_dataset(Dataset):
 
                     # Normally would store the data object to individual files,
                     # but at 1.67M dimers, this is too many files. Need to
-                    # store self.datapoint_storage_n_molecules (like 1000) dimers per file
+                    # store self.datapoint_storage_n_objects (like 1000) dimers per file
                     if (
-                        len(data_objects) == self.datapoint_storage_n_molecules
+                        len(data_objects) == self.datapoint_storage_n_objects
                         or (len(molA_data) + i * batch_size == len(RAs) and j == len(molA_data) - 1)
                     ):
                         datapath = osp.join(
                             self.processed_dir,
                             f"dimer_ap3{split_name}_spec_{self.spec_type}_{
-                                idx // self.datapoint_storage_n_molecules}.pt",
+                                idx // self.datapoint_storage_n_objects}.pt",
                         )
                         if self.print_level >= 2:
                             print(f"Saving to {datapath}")
@@ -1328,16 +1350,17 @@ class apnet3_module_dataset(Dataset):
         return
 
     def len(self):
-        if self.prebatched:
-            return len(self.processed_file_names)
+        # if self.prebatched:
+        #     return len(self.processed_file_names)
         d = torch.load(
             osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
         )
-        return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_molecules + len(d)
+        return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
 
     def get(self, idx):
-        idx_datapath = idx // self.datapoint_storage_n_molecules
-        dimer_ind = idx % self.datapoint_storage_n_molecules
+        idx_datapath = idx // self.datapoint_storage_n_objects
+        dimer_ind = idx % self.datapoint_storage_n_objects
+        print(f"{idx=}, {idx_datapath=}, {dimer_ind=}")
         if self.active_idx_data == idx_datapath:
             return self.active_data[dimer_ind]
         split_name = ""
