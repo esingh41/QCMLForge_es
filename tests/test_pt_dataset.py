@@ -65,55 +65,64 @@ def test_apnet_data_object():
 
 
 def test_apnet_dataset_size():
-    batch_size = 16
+    batch_size = 2
+    atomic_batch_size=4
+    datapoint_storage_n_molecules=8
+    prebatched = False
+    collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = apnet2_module_dataset(
         root=data_path,
         r_cut=5.0,
         r_cut_im=8.0,
-        spec_type=6,
+        spec_type=8,
         max_size=None,
         force_reprocess=True,
         atom_model_path=am_path,
-        atomic_batch_size=256 * 3,
-        datapoint_storage_n_molecules=256 * 5,
+        atomic_batch_size=atomic_batch_size,
+        datapoint_storage_n_molecules=datapoint_storage_n_molecules,
         batch_size=batch_size,
-        prebatched=True,
+        prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        split="test",
+        # split="test",
         print_level=2,
     )
     ds = apnet2_module_dataset(
         root=data_path,
         r_cut=5.0,
         r_cut_im=8.0,
-        spec_type=6,
+        spec_type=8,
         max_size=None,
         force_reprocess=False,
         atom_model_path=am_path,
-        atomic_batch_size=256 * 3,
-        datapoint_storage_n_molecules=256 * 5,
+        atomic_batch_size=atomic_batch_size,
+        datapoint_storage_n_molecules=datapoint_storage_n_molecules,
         batch_size=batch_size,
-        prebatched=True,
+        prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        split="test",
+        # split="test",
         print_level=2,
     )
+    print()
     print(ds)
 
     train_loader = APNet2_DataLoader(
         dataset=ds,
-        batch_size=1,
+        # batch_size=1,
+        batch_size=batch_size,
         shuffle=False,
         num_workers=1,
-        collate_fn=apnet2_collate_update_prebatched,
+        # collate_fn=apnet2_collate_update_prebatched,
+        collate_fn=collate,
     )
+    print("\n\nDATALOADER")
     cnt = 0
     for i in train_loader:
-        cnt += 1
-    print(cnt)
-    assert cnt == len(ds), f"Expected {len(ds)} batches, but got {cnt}."
+        print(i)
+        cnt += i.y.shape[0]
+    print("Number of labels in dataset:", cnt)
+    assert cnt == len(ds), f"Expected {len(ds)} points, but got {cnt} points"
     return
 
 
