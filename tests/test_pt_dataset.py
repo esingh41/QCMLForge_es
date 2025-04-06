@@ -116,16 +116,14 @@ def test_apnet_dataset_size_no_prebatched():
         # collate_fn=apnet2_collate_update_prebatched,
         collate_fn=collate,
     )
-    print("\n\nDATALOADER")
     cnt = 0
     for i in train_loader:
-        print(i)
         cnt += i.y.shape[0]
     print("Number of labels in dataset:", cnt)
-    for i in glob(f"{data_path}/processed/dimer_ap2_spec_8*.pkl"):
-        print(f"Removing {i}")
+    ds_labels = len(ds)
+    for i in glob(f"{data_path}/processed/dimer_ap2_spec_8*.pt"):
         os.remove(i)
-    assert len(ds) == cnt, f"Expected {len(ds)} points, but got {cnt} points"
+    assert ds_labels == cnt, f"Expected {len(ds)} points, but got {cnt} points"
 
 def test_apnet_dataset_size_prebatched():
     batch_size = 2
@@ -180,13 +178,14 @@ def test_apnet_dataset_size_prebatched():
         # collate_fn=apnet2_collate_update_prebatched,
         collate_fn=collate,
     )
-    print("\n\nDATALOADER")
     cnt = 0
     for i in train_loader:
-        print(f"i: {i}")
         cnt += i.y.shape[0]
     print("Number of labels in dataset:", cnt)
-    assert len(ds) * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    ds_labels = len(ds)
+    for i in glob(f"{data_path}/processed/dimer_ap2_spec_8*.pt"):
+        os.remove(i)
+    assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
 
 
 @pytest.mark.skip(reason="Slow training test. Run only for development reasons.")
@@ -298,7 +297,7 @@ def test_ap3_model_train():
 
 if __name__ == "__main__":
     # test_apnet_data_object()
-    # test_apnet_dataset_size_no_prebatched()
+    test_apnet_dataset_size_no_prebatched()
     test_apnet_dataset_size_prebatched()
     # test_apnet2_model_train()
     # test_atomhirshfeld_model_train()

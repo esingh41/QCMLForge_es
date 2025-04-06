@@ -666,7 +666,7 @@ class apnet2_module_dataset(Dataset):
             ]
         elif self.spec_type == 8:
             return [
-                "t_val_18.pkl",
+                "t_val_19.pkl",
             ]
         else:
             return [
@@ -840,7 +840,6 @@ class apnet2_module_dataset(Dataset):
                     )
                     # NOTE: was wrong iterator before... should be j, not i
                     y = torch.tensor(local_energies, dtype=torch.float32)
-                    print(f"{y=}")
                     dimer_ind = torch.ones((1), dtype=torch.long) * i
                     data = Data(
                         y=y,
@@ -908,7 +907,6 @@ class apnet2_module_dataset(Dataset):
                         if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
                             break
                     idx += 1
-                    print(idx, len(data_objects))
                 if self.print_level >= 2:
                     print(f"{i}/{len(RAs)}, {time()-t2:.2f}s, {time()-t1:.2f}s")
                 elif self.print_level >= 1 and idx % 1000:
@@ -924,7 +922,6 @@ class apnet2_module_dataset(Dataset):
                 for k in range(len(data_objects) // self.batch_size):
                     local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
                 data_objects = local_data_objects
-            print(f"{data_objects = }")
             datapath = osp.join(
                 self.processed_dir,
                     f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
@@ -936,23 +933,16 @@ class apnet2_module_dataset(Dataset):
         return
 
     def len(self):
-        # if self.prebatched:
-        #     return len(self.processed_file_names) * self.datapoint_storage_n_objects
         d = torch.load(
             osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
         )
-        print(f"len_d: {len(d)}")
-        print(f"d: {d}")
-        print((len(self.processed_file_names) - 1), self.datapoint_storage_n_objects, len(d))
         if self.prebatched:
-            return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d) # * self.batch_size
+            return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
         return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
 
     def get(self, idx):
         idx_datapath = idx // self.datapoint_storage_n_objects
         obj_ind = idx % self.datapoint_storage_n_objects
-        print(f"{idx=}, {idx_datapath=}, {obj_ind=}")
-        print(f"{self.active_idx_data=}, {self.active_data=}")
         if self.active_idx_data == idx_datapath:
             return self.active_data[obj_ind]
         split_name = ""
@@ -962,13 +952,9 @@ class apnet2_module_dataset(Dataset):
             self.processed_dir, f"dimer_ap2{split_name}_spec_{
                 self.spec_type}_{idx_datapath}.pt"
         )
-        print(f"Loading {datapath}")
         if self.spec_type in [1, 2, 7]:
             return torch.load(datapath, weights_only=False)
         self.active_data = torch.load(datapath, weights_only=False)
-        # print("\nACTIVEDATA")
-        # print(len(self.active_data), obj_ind, self.active_data)
-        print(f"{self.active_data = }")
         return self.active_data[obj_ind]
 
 
