@@ -20,6 +20,17 @@ import os.path as osp
 prefix = os.path.dirname(os.path.abspath(__file__))
 pretrained_atom_model_path = prefix + "/../models/am_ensemble/"
 
+def clean_str_for_filename(string):
+    """
+    Remove all non-alphanumeric characters from a string and replace spaces with underscores.
+    """
+    # Remove all non-alphanumeric characters
+    string = string.replace("(", "_LP_").replace(")", "_RP_")
+    string = ''.join(e for e in string if e.isalnum() or e.isspace())
+    # Replace spaces with underscores
+    string = string.replace(' ', '_')
+    return string
+
 class dapnet2_module_dataset(Dataset):
     def __init__(
         self,
@@ -38,7 +49,7 @@ class dapnet2_module_dataset(Dataset):
         atomic_batch_size=256,
         prebatched=False,
         # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
-        datapoint_storage_n_molecules=1000,
+        datapoint_storage_n_objects=1000,
         in_memory=False,
         num_devices=1,
         split="all",  # train, test
@@ -52,7 +63,7 @@ class dapnet2_module_dataset(Dataset):
         """
         self.print_level = print_level
         try:
-            assert spec_type in [1]
+            assert spec_type in [1, 8]
         except Exception:
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
@@ -68,11 +79,19 @@ class dapnet2_module_dataset(Dataset):
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
+        self.filename_methods = clean_str_for_filename(m1) + "_to_" + clean_str_for_filename(m2)
+        self.datapoint_storage_n_molecules = datapoint_storage_n_objects
         self.atomic_batch_size = atomic_batch_size
         self.batch_size = batch_size
+        self.training_batch_size = batch_size if not prebatched else 1
+        self.datapoint_storage_n_objects = datapoint_storage_n_objects
+        self.points_per_file = self.datapoint_storage_n_objects
+        if self.prebatched:
+            self.points_per_file *= self.batch_size
+        if self.prebatched:
+            print("WARNING: prebatched=True, setting training_batch_size=1 because data is already batched")
         self.in_memory = in_memory
         self.skip_processed = skip_processed
-        self.datapoint_storage_n_molecules = datapoint_storage_n_molecules
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
         if atom_model_path is not None and not self.skip_processed:
@@ -120,6 +139,10 @@ class dapnet2_module_dataset(Dataset):
                 "3324_BFDBext_train_dimers.pkl",
                 "3324_BFDBext_test_dimers.pkl",
             ]
+        elif self.spec_type == 8:
+            return [
+                "t_val_19.pkl",
+            ]
         else:
             return [
                 "splinter_spec1.pkl",
@@ -130,11 +153,11 @@ class dapnet2_module_dataset(Dataset):
             return ["file"]
         else:
             if self.split == "train":
-                file_cmd = f"{self.processed_dir}/dimer_dap2_train_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.processed_dir}/dimer_dap2_train_spec_{self.spec_type}_{self.filename_methods}*.pt"
             elif self.split == "test":
-                file_cmd = f"{self.processed_dir}/dimer_dap2_test_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.processed_dir}/dimer_dap2_test_spec_{self.spec_type}_{self.filename_methods}*.pt"
             else:
-                file_cmd = f"{self.processed_dir}/dimer_dap2_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.processed_dir}/dimer_dap2_spec_{self.spec_type}_{self.filename_methods}*.pt"
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]
             if len(spec_files) > 0:
@@ -169,6 +192,7 @@ class dapnet2_module_dataset(Dataset):
             assert atomic_batch_size % batch_size == 0, f"atomic_batch_size {atomic_batch_size} must be divisible by batch_size {batch_size}"
         if self.spec_type in [1, 2, 7]:
             print(f"ENSURE THAT {atomic_batch_size=} is the same as the batch size used in the AP-Net2 model training! This mode avoids collating completely.")
+        data_objects = []
         for raw_path in self.raw_paths:
             split_name = ""
             if self.spec_type in [1]:
@@ -185,19 +209,17 @@ class dapnet2_module_dataset(Dataset):
                 columns=[self.m1, self.m2],
             )
             print("Creating data objects...")
-            data_objects = []
             t1 = time()
             t2 = time()
             print(f"{len(RAs)=}, {atomic_batch_size=}")
             molA_data = []
             molB_data = []
             energies = []
-            for i in range(0, len(RAs), atomic_batch_size):
+            for i in range(0, len(RAs) + len(RAs) % self.atomic_batch_size + 1, self.atomic_batch_size):
                 if self.skip_processed:
                     datapath = osp.join(
                         self.processed_dir,
-                        f"dimer{split_name}_spec_{self.spec_type}_{
-                            idx // self.datapoint_storage_n_molecules}.pt",
+                        f"dimer_dap2{split_name}_spec_{self.spec_type}_{self.filename_methods}_{idx // self.points_per_file}.pt",
                     )
                     if osp.exists(datapath):
                         idx += atomic_batch_size
@@ -213,14 +235,12 @@ class dapnet2_module_dataset(Dataset):
                     molA_data.append(monA_data)
                     molB_data.append(monB_data)
                     energies.append(targets[j])
-                if len(molA_data) != atomic_batch_size and i + atomic_batch_size < len(RAs):
+                if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
                     continue
                 batch_A = atomic_datasets.atomic_collate_update_no_target(molA_data)
                 qAs, muAs, thAs, hlistAs = self.atom_model.predict_multipoles_batch(batch_A)
                 batch_B = atomic_datasets.atomic_collate_update_no_target(molB_data)
                 qBs, muBs, thBs, hlistBs = self.atom_model.predict_multipoles_batch(batch_B)
-                
-                batch_data = []
                 for j in range(len(molA_data)):
                     atomic_props_A = molA_data[j]
                     atomic_props_B = molB_data[j]
@@ -271,69 +291,76 @@ class dapnet2_module_dataset(Dataset):
                     )
                     if self.pre_filter is not None and not self.pre_filter(data):
                         continue
-                    batch_data.append(data)
-                
-                if self.prebatched:
-                    batch_data = apnet2_collate_update(batch_data)
-                data_objects.extend(batch_data)
-                
-                if (len(data_objects) >= self.datapoint_storage_n_molecules or 
-                    i + atomic_batch_size >= len(RAs)):
-                    datapath = osp.join(
-                        self.processed_dir,
-                        f"dimer_ap3{split_name}_spec_{self.spec_type}_{
-                            idx // self.datapoint_storage_n_molecules}.pt",
-                    )
-                    if self.print_level >= 2:
-                        print(f"Saving to {datapath}")
-                        print(len(data_objects))
-                    torch.save(data_objects[:self.datapoint_storage_n_molecules], datapath)
-                    data_objects = data_objects[self.datapoint_storage_n_molecules:]
-                    if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
-                        break
-                idx += atomic_batch_size
-                
+                    data_objects.append(data)
+
+                    if (
+                        len(data_objects) == self.points_per_file
+                    ):
+                        datapath = osp.join(
+                            self.processed_dir,
+                            f"dimer_dap2{split_name}_spec_{self.spec_type}_{self.filename_methods}_{idx // self.points_per_file}.pt",
+                        )
+                        if self.print_level >= 2:
+                            print(f"Saving to {datapath}")
+                            print(len(data_objects))
+                        # if we are pre-batching, we need to collate and save here.
+                        if self.prebatched:
+                            # collate based on batch_size
+                            local_data_objects = []
+                            for k in range(self.datapoint_storage_n_objects):
+                                local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
+                            data_objects = local_data_objects
+                        torch.save(data_objects, datapath)
+                        data_objects = []
+                        if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
+                            break
+                    idx += 1
                 if self.print_level >= 2:
                     print(f"{i}/{len(RAs)}, {time()-t2:.2f}s, {time()-t1:.2f}s")
-                elif self.print_level >= 1 and idx % 1000 == 0:
+                elif self.print_level >= 1 and idx % 1000:
                     print(f"{i}/{len(RAs)}, {time()-t2:.2f}s, {time()-t1:.2f}s")
                 t2 = time()
                 molA_data = []
                 molB_data = []
                 energies = []
-                
         if len(data_objects) > 0:
+            if self.prebatched:
+                # collate based on batch_size
+                local_data_objects = []
+                for k in range(len(data_objects) // self.batch_size):
+                    local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
+                data_objects = local_data_objects
             datapath = osp.join(
                 self.processed_dir,
-                f"dimer_ap3{split_name}_spec_{self.spec_type}_{
-                    idx // self.datapoint_storage_n_molecules}.pt",
+                    f"dimer_dap2{split_name}_spec_{self.spec_type}_{self.filename_methods}_{idx // self.points_per_file}.pt",
             )
-            print(f"Saving to {datapath}")
-            print(len(data_objects))
+            if self.print_level >= 2:
+                print(f"Final Saving to {datapath}")
+                print(len(data_objects))
             torch.save(data_objects, datapath)
         return
 
     def len(self):
-        if self.prebatched:
-            return len(self.processed_file_names)
         d = torch.load(
-            os.path.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
+            osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
         )
-        return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_molecules + len(d)
+        if self.prebatched:
+            return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
+        return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
 
     def get(self, idx):
         idx_datapath = idx // self.datapoint_storage_n_molecules
-        dimer_ind = idx % self.datapoint_storage_n_molecules
+        obj_ind = idx % self.datapoint_storage_n_molecules
         if self.active_idx_data == idx_datapath:
-            return self.active_data[dimer_ind]
+            return self.active_data[obj_ind]
         split_name = ""
         if self.spec_type in [2]:
             split_name = f"_{self.split}"
         datapath = os.path.join(
             self.processed_dir, f"dimer_dap2{split_name}_spec_{
-                self.spec_type}_{idx_datapath}.pt"
+                self.spec_type}_{self.filename_methods}_{idx_datapath}.pt"
         )
         if self.spec_type in [1]:
             return torch.load(datapath, weights_only=False)
         self.active_data = torch.load(datapath, weights_only=False)
-        return self.active_data[dimer_ind]
+        return self.active_data[obj_ind]
