@@ -1460,15 +1460,13 @@ units angstrom
         torch._dynamo.config.capture_scalar_outputs = False
         self.model = torch.compile(self.model)
 
-        # (2) Dataloaders
-        if self.ds_spec_type in [1, 5, 6]:
-            from .pairwise_datasets import apnet2_collate_update
 
-            collate_fn = apnet2_collate_update
-        else:
+        # (2) Dataloaders
+        # if self.ds_spec_type in [1, 5, 6]:
+        if train_dataset.prebatched:
             collate_fn = apnet2_collate_update_prebatched
-            print("Using default collate_fn")
-            print(f"{batch_size = }")
+        else:
+            collate_fn = apnet2_collate_update
         train_loader = APNet2_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1608,7 +1606,7 @@ units angstrom
             else:
                 order_indices = [i for i in range(len(test_dataset))]
             test_dataset = test_dataset[order_indices]
-            batch_size = train_dataset.train_batch_size
+            batch_size = train_dataset.training_batch_size
         else:
             if shuffle:
                 order_indices = np.random.permutation(len(self.dataset))
@@ -1620,7 +1618,7 @@ units angstrom
                 len(self.dataset) * split_percent):]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
-            batch_size = train_dataset.train_batch_size
+            batch_size = train_dataset.training_batch_size
 
         self.batch_size = batch_size
         print("~~ Training APNet2Model ~~", flush=True)
