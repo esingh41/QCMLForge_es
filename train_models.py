@@ -78,12 +78,10 @@ def train_pairwise_model(
     ds_datapoint_storage_n_objects=16*256
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
-        batch_size = 16
     elif apnet_model_type == "APNet3":
         APNet = AtomPairwiseModels.apnet3.APNet3Model
-        batch_size = 16
     elif apnet_model_type == "dAPNet2":
-        batch_size = 1
+        APNet = AtomPairwiseModels.dapnet2.dAPNet2Model
     else:
         raise ValueError("Invalid Atom Model Type")
     print("Training {}...".format(apnet_model_type))
@@ -93,7 +91,6 @@ def train_pairwise_model(
         world_size = 1
     print("World Size", world_size)
 
-    batch_size = 16
     omp_num_threads_per_process = 8
     if os.path.exists(model_out):
         pretrained_model = model_out
@@ -109,7 +106,6 @@ def train_pairwise_model(
         ds_root=data_dir,
         ignore_database_null=False,
         ds_atomic_batch_size=ds_atomic_batch_size,
-        batch_size=batch_size,
         ds_num_devices=1,
         ds_skip_process=False,
         ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
