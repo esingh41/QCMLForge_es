@@ -379,7 +379,6 @@ def test_dapnet2_dataset_size_prebatched_train():
     atomic_batch_size=4
     datapoint_storage_n_objects=8
     prebatched = True
-    collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = dapnet2_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -629,7 +628,6 @@ def test_atomhirshfeld_model_train():
 
 def test_ap3_model_train():
     APNet = AtomPairwiseModels.apnet3.APNet3Model
-    batch_size = 1
     world_size = 1
     print("World Size", world_size)
 
@@ -641,15 +639,15 @@ def test_ap3_model_train():
         ds_spec_type=7,
         ds_root=data_path,
         ignore_database_null=False,
-        ds_atomic_batch_size=batch_size,
+        batch_size=batch_size,
+        ds_atomic_batch_size=200,
         ds_num_devices=1,
         ds_skip_process=False,
-        ds_datapoint_storage_n_molecules=batch_size,
+        ds_datapoint_storage_n_objects=batch_size,
         ds_prebatched=True,
     )
     apnet2.train(
         model_path="./ap3_test.pt",
-        batch_size=1,
         n_epochs=5,
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads_per_process,
@@ -661,8 +659,8 @@ def test_ap3_model_train():
 
 
 if __name__ == "__main__":
-    # test_dapnet2_dataset_size_prebatched_train()
-    test_apnet2_dataset_size_prebatched_train()
+    test_dapnet2_dataset_size_prebatched_train()
+    # test_apnet2_dataset_size_prebatched_train()
 
     # test_apnet_data_object()
     # test_apnet2_dataset_size_no_prebatched()

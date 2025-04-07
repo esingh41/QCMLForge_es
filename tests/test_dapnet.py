@@ -5,7 +5,7 @@ import torch
 
 
 mol3 = qcelemental.models.Molecule.from_data(
-        """
+    """
     1 1
     C       0.0545060001    -0.1631290019   -1.1141539812
     C       -0.9692260027   -1.0918780565   0.6940879822
@@ -35,15 +35,16 @@ mol3 = qcelemental.models.Molecule.from_data(
                 """
 )
 
+
 def test_dapnet_ds():
     ds_train = apnet_pt.pt_datasets.dapnet_ds.dapnet2_module_dataset(
-        root='data_dir',
-        split='train',
+        root="data_dir",
+        split="train",
         skip_processed=False,
     )
     ds_test = apnet_pt.pt_datasets.dapnet_ds.dapnet2_module_dataset(
-        root='data_dir',
-        split='test',
+        root="data_dir",
+        split="test",
         skip_processed=False,
     )
     return
@@ -58,28 +59,35 @@ def set_weights_to_value(model, value=0.9):
 
 def test_dapnet_architecture():
     target_energies = [
-        -3.402202606201171875e+01,
+        # must agree with test_ap2.py:test_ap2_architecture() EXCH, INDU, or
+        # DISP energy
+        4.996978532290086150e-06,
     ]
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
     )
     set_weights_to_value(atom_model.model, 0.0001)
-    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
-        atom_model=atom_model.model,
-        ignore_database_null=True,
+    apnet2_model = (
+        apnet_pt.AtomPairwiseModels.apnet2.APNet2Model()
+        .set_pretrained_model(model_id=0)
+        .model
     )
-    output = pair_model.predict_qcel_mols([mol3], batch_size=1)
-    set_weights_to_value(pair_model.model, 0.0001)
-    output = pair_model.predict_qcel_mols([mol3], batch_size=1)
+    apnet2_model.return_hidden_states = True
+    dapnet2 = apnet_pt.AtomPairwiseModels.dapnet2.dAPNet2Model(
+        apnet2_model,
+    )
+    output = dapnet2.predict_qcel_mols([mol3], batch_size=1)
+    set_weights_to_value(dapnet2.model, 0.0001)
+    output = dapnet2.predict_qcel_mols([mol3, mol3], batch_size=1)
     print(target_energies)
-    print(output[0])
+    print(output)
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
 
-
 def main():
-    test_dapnet_ds()
+    # test_dapnet_ds()
+    test_dapnet_architecture()
     return
 
 

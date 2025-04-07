@@ -1634,14 +1634,10 @@ units angstrom
         self.model = torch.compile(self.model)
 
         # (2) Dataloaders
-        if self.ds_spec_type in [1, 5, 6]:
-            from .pairwise_datasets import apnet3_collate_update
-
-            collate_fn = apnet3_collate_update
-        else:
+        if train_dataset.prebatched:
             collate_fn = apnet3_collate_update_prebatched
-            print("Using default collate_fn")
-            print(f"{batch_size = }")
+        else:
+            collate_fn = apnet3_collate_update
         train_loader = APNet2_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
