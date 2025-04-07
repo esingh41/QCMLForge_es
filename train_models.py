@@ -74,8 +74,8 @@ def train_pairwise_model(
     m1="",
     m2="",
 ):
-    ds_atomic_batch_size =256
-    ds_datapoint_storage_n_objects=16*256
+    ds_atomic_batch_size = 256
+    ds_datapoint_storage_n_objects=8*256
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
     elif apnet_model_type == "APNet3":
