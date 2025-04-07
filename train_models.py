@@ -82,6 +82,8 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":
         APNet = AtomPairwiseModels.dapnet2.dAPNet2Model
+        apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0).model
+        apnet2_model.return_hidden_states = True
     else:
         raise ValueError("Invalid Atom Model Type")
     print("Training {}...".format(apnet_model_type))
@@ -98,30 +100,43 @@ def train_pairwise_model(
     else:
         pretrained_model = None
         print("\nTraining from scratch...\n")
-    apnet2 = APNet(
-        atom_model_pre_trained_path=am_model_path,
-        pre_trained_model_path=pretrained_model,
-        # ds_spec_type=2,
-        ds_spec_type=spec_type,
-        ds_root=data_dir,
-        ignore_database_null=False,
-        ds_atomic_batch_size=ds_atomic_batch_size,
-        ds_num_devices=1,
-        ds_skip_process=False,
-        ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-        ds_prebatched=True,
-    )
+    if apnet_model_type.startswith("dAPNet"):
+        apnet2 = APNet(
+            apnet2_model=apnet2_model,
+            atom_model_pre_trained_path=am_model_path,
+            pre_trained_model_path=pretrained_model,
+            ds_spec_type=spec_type,
+            ds_root=data_dir,
+            ignore_database_null=False,
+            ds_atomic_batch_size=ds_atomic_batch_size,
+            ds_num_devices=1,
+            ds_skip_process=False,
+            ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+            ds_prebatched=True,
+            ds_m1=m1,
+            ds_m2=m2,
+        )
+    else:
+        apnet2 = APNet(
+            atom_model_pre_trained_path=am_model_path,
+            pre_trained_model_path=pretrained_model,
+            ds_spec_type=spec_type,
+            ds_root=data_dir,
+            ignore_database_null=False,
+            ds_atomic_batch_size=ds_atomic_batch_size,
+            ds_num_devices=1,
+            ds_skip_process=False,
+            ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+            ds_prebatched=True,
+        )
     apnet2.train(
         model_path=model_out,
         n_epochs=n_epochs,
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads_per_process,
-        # lr=5e-4,
-        # lr=2e-3,
-        # lr_decay=0.10,
         lr=lr,
         lr_decay=lr_decay,
-        dataloader_num_workers=4,
+        dataloader_num_workers=1,
         random_seed=random_seed,
     )
     return

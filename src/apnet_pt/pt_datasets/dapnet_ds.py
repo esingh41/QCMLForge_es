@@ -26,7 +26,7 @@ def clean_str_for_filename(string):
     """
     # Remove all non-alphanumeric characters
     string = string.replace("(", "_LP_").replace(")", "_RP_")
-    string = ''.join(e for e in string if e.isalnum() or e.isspace())
+    string = ''.join(e for e in string if e.isalnum() or e.isspace() or e in ['-', '_'])
     # Replace spaces with underscores
     string = string.replace(' ', '_')
     return string
@@ -77,7 +77,7 @@ class dapnet2_module_dataset(Dataset):
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
         self.filename_methods = clean_str_for_filename(m1) + "_to_" + clean_str_for_filename(m2)
-        self.datapoint_storage_n_molecules = datapoint_storage_n_objects
+        self.datapoint_storage_n_objects = datapoint_storage_n_objects
         self.atomic_batch_size = atomic_batch_size
         self.batch_size = batch_size
         self.training_batch_size = batch_size if not prebatched else 1
@@ -159,7 +159,7 @@ class dapnet2_module_dataset(Dataset):
                 spec_files.sort(key=natural_key)
                 if self.MAX_SIZE is not None:
                     max_size = int(self.MAX_SIZE /
-                                   self.datapoint_storage_n_molecules)
+                                   self.datapoint_storage_n_objects)
                 if self.MAX_SIZE is not None:
                     if len(spec_files) > max_size and max_size > 0:
                         spec_files = spec_files[:max_size]
@@ -181,12 +181,7 @@ class dapnet2_module_dataset(Dataset):
 
     def process(self):
         idx = 0
-        batch_size = self.batch_size
         atomic_batch_size = self.atomic_batch_size
-        if self.prebatched:
-            assert atomic_batch_size % batch_size == 0, f"atomic_batch_size {atomic_batch_size} must be divisible by batch_size {batch_size}"
-        if self.spec_type in [1, 2, 7]:
-            print(f"ENSURE THAT {atomic_batch_size=} is the same as the batch size used in the AP-Net2 model training! This mode avoids collating completely.")
         data_objects = []
         for raw_path in self.raw_paths:
             split_name = ""
@@ -344,18 +339,23 @@ class dapnet2_module_dataset(Dataset):
         return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
 
     def get(self, idx):
-        idx_datapath = idx // self.datapoint_storage_n_molecules
-        obj_ind = idx % self.datapoint_storage_n_molecules
-        if self.active_idx_data == idx_datapath:
-            return self.active_data[obj_ind]
+        idx_datapath = idx // self.datapoint_storage_n_objects
+        obj_ind = idx % self.datapoint_storage_n_objects
+        print(f"{idx=}, {idx_datapath=}, {obj_ind=}, {self.datapoint_storage_n_objects=}, {self.points_per_file=}")
+        # if self.active_idx_data == idx_datapath:
+        #     return self.active_data[obj_ind]
         split_name = ""
-        if self.spec_type in [2]:
+        if self.spec_type in [1]:
             split_name = f"_{self.split}"
         datapath = os.path.join(
             self.processed_dir, f"dimer_dap2{split_name}_spec_{
                 self.spec_type}_{self.filename_methods}_{idx_datapath}.pt"
         )
-        if self.spec_type in [1]:
-            return torch.load(datapath, weights_only=False)
         self.active_data = torch.load(datapath, weights_only=False)
+        print(f"{idx=}, {idx_datapath=}, {obj_ind=}")
+        try:
+            self.active_data[obj_ind]
+        except Exception:
+            print(f"Error loading {idx=}, {idx_datapath=}, {obj_ind=}, {len(self.active_data)=}")
+        # self.active_idx_data = idx_datapath
         return self.active_data[obj_ind]

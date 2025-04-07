@@ -9,13 +9,15 @@ from ..AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predic
 from .. import atomic_datasets
 from .. import pairwise_datasets
 from ..pairwise_datasets import (
-    apnet2_module_dataset,
     APNet2_DataLoader,
     apnet2_collate_update,
     apnet2_collate_update_prebatched,
     pairwise_edges,
     pairwise_edges_im,
     qcel_dimer_to_pyg_data,
+)
+from ..pt_datasets.dapnet_ds import (
+    dapnet2_module_dataset,
 )
 from ..AtomPairwiseModels.apnet2 import (
     APNet2_MPNN,
@@ -52,7 +54,6 @@ class dAPNet2_MPNN(nn.Module):
         self.r_cut_im = r_cut_im
         self.r_cut = r_cut
         self.apnet2_model = apnet2_model
-        print(apnet2_model)
         for param in self.apnet2_model.parameters():
             # Freeze the APNet2 model parameters to only train the readout
             # layer
@@ -180,13 +181,15 @@ class dAPNet2Model:
         use_GPU=None,
         ignore_database_null=True,
         ds_spec_type=1,
+        ds_m1="",
+        ds_m2="",
         ds_root="data",
         ds_max_size=None,
         ds_atomic_batch_size=200,
         ds_force_reprocess=False,
         ds_skip_process=False,
         ds_num_devices=1,
-        ds_datapoint_storage_n_molecules=1000,
+        ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
         print_lvl=0,
     ):
@@ -265,7 +268,7 @@ class dAPNet2Model:
                 r_cut_im=r_cut_im,
                 r_cut=r_cut,
             )
-        split_dbs = [2, 5, 6, 7]
+        split_dbs = [1]
         self.dataset = dataset
         if (
             not ignore_database_null
@@ -274,7 +277,7 @@ class dAPNet2Model:
         ):
 
             def setup_ds(fp=ds_force_reprocess):
-                return apnet2_module_dataset(
+                return dapnet2_module_dataset(
                     root=ds_root,
                     r_cut=r_cut,
                     r_cut_im=r_cut_im,
@@ -285,9 +288,11 @@ class dAPNet2Model:
                     atomic_batch_size=ds_atomic_batch_size,
                     num_devices=ds_num_devices,
                     skip_processed=ds_skip_process,
-                    datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                    datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                     prebatched=ds_prebatched,
                     print_level=print_lvl,
+                    m1=ds_m1,
+                    m2=ds_m2,
                 )
 
             self.dataset = setup_ds()
@@ -303,7 +308,7 @@ class dAPNet2Model:
 
             def setup_ds(fp=ds_force_reprocess):
                 return [
-                    apnet2_module_dataset(
+                    dapnet2_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -315,11 +320,13 @@ class dAPNet2Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         split="train",
-                        datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
+                        m1=ds_m1,
+                        m2=ds_m2,
                     ),
-                    apnet2_module_dataset(
+                    dapnet2_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -331,9 +338,11 @@ class dAPNet2Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         split="test",
-                        datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
+                        m1=ds_m1,
+                        m2=ds_m2,
                     ),
                 ]
 
@@ -342,7 +351,7 @@ class dAPNet2Model:
             if ds_max_size:
                 self.dataset[0] = self.dataset[0][:ds_max_size]
                 self.dataset[1] = self.dataset[1][:ds_max_size]
-        print(f"{self.dataset=}")
+        print(self.dataset)
         self.model.to(device)
         self.device = device
         self.batch_size = None
@@ -1161,7 +1170,7 @@ units angstrom
         np.random.seed(random_seed)
         self.model_save_path = model_path
         print(f"Saving training results to...\n{model_path}")
-        if self.ds_spec_type in [2, 6, 7]:
+        if self.ds_spec_type in [1]:
             train_dataset = self.dataset[0]
             if shuffle:
                 order_indices = np.random.permutation(len(train_dataset))
@@ -1183,6 +1192,7 @@ units angstrom
                 order_indices = np.arange(len(self.dataset))
             train_indices = order_indices[: int(
                 len(self.dataset) * split_percent)]
+            print(f"train_indices: {train_indices}")
             test_indices = order_indices[int(
                 len(self.dataset) * split_percent):]
             train_dataset = self.dataset[train_indices]
