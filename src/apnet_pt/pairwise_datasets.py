@@ -616,9 +616,8 @@ class apnet2_module_dataset(Dataset):
             torch._dynamo.config.dynamic_shapes = True
             torch._dynamo.config.capture_dynamic_output_shape_ops = True
             torch._dynamo.config.capture_scalar_outputs = True
-            if False:
-                self.atom_model.model = torch.compile(
-                    self.atom_model.model, dynamic=True)
+            self.atom_model.model = torch.compile(
+                self.atom_model.model, dynamic=True)
         super(apnet2_module_dataset, self).__init__(
             root, transform, pre_transform)
         print(
@@ -1027,11 +1026,11 @@ class apnet3_module_dataset(Dataset):
                 ignore_database_null=True,
             )
             self.atom_model.model.to(self.atom_model.device)
-            # torch._dynamo.config.dynamic_shapes = True
-            # torch._dynamo.config.capture_dynamic_output_shape_ops = True
-            # torch._dynamo.config.capture_scalar_outputs = True
-            # self.atom_model.model = torch.compile(
-            #     self.atom_model.model, dynamic=True)
+            torch._dynamo.config.dynamic_shapes = True
+            torch._dynamo.config.capture_dynamic_output_shape_ops = True
+            torch._dynamo.config.capture_scalar_outputs = True
+            self.atom_model.model = torch.compile(
+                self.atom_model.model, dynamic=True)
         print(f"{spec_type = }")
         super(apnet3_module_dataset, self).__init__(
             root, transform, pre_transform)
