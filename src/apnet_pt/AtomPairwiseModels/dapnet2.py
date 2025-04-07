@@ -160,7 +160,7 @@ class dAPNet2_MPNN(nn.Module):
         delta_E = EAB_sr + EBA_sr
         delta_E *= cutoff
         E_output = scatter(delta_E, dimer_ind, dim=0, reduce="sum")
-        return E_output, E_sr, E_elst_sr, E_elst_lr
+        return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
 
 
 class dAPNet2Model:
@@ -1033,17 +1033,13 @@ units angstrom
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
-        self.model = torch.compile(self.model)
+        # self.model = torch.compile(self.model)
 
         # (2) Dataloaders
-        if self.ds_spec_type in [1, 5, 6]:
-            from ..pairwise_datasets import apnet2_collate_update
-
-            collate_fn = apnet2_collate_update
-        else:
+        if train_dataset.prebatched:
             collate_fn = apnet2_collate_update_prebatched
-            print("Using default collate_fn")
-            print(f"{batch_size = }")
+        else:
+            collate_fn = apnet2_collate_update
         train_loader = APNet2_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1079,11 +1075,11 @@ units angstrom
 
         # (5) Evaluate once pre-training
         t0 = time.time()
-        train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
+        train_loss, total_MAE_t = (
             self.__evaluate_batches_single_proc(
                 train_loader, criterion, rank_device)
         )
-        test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
+        test_loss, total_MAE_v = (
             self.__evaluate_batches_single_proc(
                 test_loader, criterion, rank_device)
         )
@@ -1097,12 +1093,12 @@ units angstrom
         lowest_test_loss = test_loss
         for epoch in range(n_epochs):
             t1 = time.time()
-            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
+            train_loss, total_MAE_t= (
                 self.__train_batches_single_proc(
                     train_loader, criterion, optimizer, rank_device, scheduler
                 )
             )
-            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
+            test_loss, total_MAE_v= (
                 self.__evaluate_batches_single_proc(
                     test_loader, criterion, rank_device)
             )
@@ -1132,7 +1128,7 @@ units angstrom
 
             print(
                 f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
-                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f}",
+                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
                 flush=True,
             )
 

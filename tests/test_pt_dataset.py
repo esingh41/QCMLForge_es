@@ -379,7 +379,6 @@ def test_dapnet2_dataset_size_prebatched_train():
     atomic_batch_size=4
     datapoint_storage_n_objects=8
     prebatched = True
-    collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = dapnet2_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -661,8 +660,8 @@ def test_ap3_model_train():
 
 
 if __name__ == "__main__":
-    # test_dapnet2_dataset_size_prebatched_train()
-    test_apnet2_dataset_size_prebatched_train()
+    test_dapnet2_dataset_size_prebatched_train()
+    # test_apnet2_dataset_size_prebatched_train()
 
     # test_apnet_data_object()
     # test_apnet2_dataset_size_no_prebatched()

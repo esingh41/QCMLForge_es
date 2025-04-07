@@ -69,9 +69,6 @@ class dapnet2_module_dataset(Dataset):
             raise ValueError
         self.spec_type = spec_type
         self.prebatched = prebatched
-        if spec_type in [1] and self.prebatched is False:
-            print("WARNING: spec_type [1] requires prebatched=True\n  Setting prebatched=True")
-            self.prebatched = True
         self.MAX_SIZE = max_size
         self.m1 = m1
         self.m2 = m2
@@ -88,8 +85,6 @@ class dapnet2_module_dataset(Dataset):
         self.points_per_file = self.datapoint_storage_n_objects
         if self.prebatched:
             self.points_per_file *= self.batch_size
-        if self.prebatched:
-            print("WARNING: prebatched=True, setting training_batch_size=1 because data is already batched")
         self.in_memory = in_memory
         self.skip_processed = skip_processed
         if os.path.exists(root) is False:
