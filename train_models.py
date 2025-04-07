@@ -105,12 +105,11 @@ def train_pairwise_model(
         ds_atomic_batch_size=batch_size,
         ds_num_devices=1,
         ds_skip_process=False,
-        ds_datapoint_storage_n_molecules=batch_size,
+        ds_datapoint_storage_n_objects=batch_size,
         ds_prebatched=True,
     )
     apnet2.train(
         model_path=model_out,
-        batch_size=1,
         n_epochs=n_epochs,
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads_per_process,
