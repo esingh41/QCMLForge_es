@@ -536,7 +536,7 @@ class dAPNet2Model:
         r_cut_im=8.0,
     ):
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
-        predictions = np.zeros((len(mol_data), 4))
+        predictions = np.zeros((len(mol_data), 1))
         for i in range(0, len(mol_data), batch_size):
             batch_mol_data = mol_data[i: i + batch_size]
             data_A = [d[0] for d in batch_mol_data]

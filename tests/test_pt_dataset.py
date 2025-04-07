@@ -628,7 +628,6 @@ def test_atomhirshfeld_model_train():
 
 def test_ap3_model_train():
     APNet = AtomPairwiseModels.apnet3.APNet3Model
-    batch_size = 1
     world_size = 1
     print("World Size", world_size)
 
@@ -640,15 +639,15 @@ def test_ap3_model_train():
         ds_spec_type=7,
         ds_root=data_path,
         ignore_database_null=False,
-        ds_atomic_batch_size=batch_size,
+        batch_size=batch_size,
+        ds_atomic_batch_size=200,
         ds_num_devices=1,
         ds_skip_process=False,
-        ds_datapoint_storage_n_molecules=batch_size,
+        ds_datapoint_storage_n_objects=batch_size,
         ds_prebatched=True,
     )
     apnet2.train(
         model_path="./ap3_test.pt",
-        batch_size=1,
         n_epochs=5,
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads_per_process,
