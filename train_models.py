@@ -71,12 +71,18 @@ def train_pairwise_model(
     lr_decay=None,
     random_seed=42,
     spec_type=2,
+    m1="",
+    m2="",
 ):
+    ds_atomic_batch_size =256
+    ds_datapoint_storage_n_objects=16*256
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
-        batch_size = 1
+        batch_size = 16
     elif apnet_model_type == "APNet3":
         APNet = AtomPairwiseModels.apnet3.APNet3Model
+        batch_size = 16
+    elif apnet_model_type == "dAPNet2":
         batch_size = 1
     else:
         raise ValueError("Invalid Atom Model Type")
@@ -102,10 +108,11 @@ def train_pairwise_model(
         ds_spec_type=spec_type,
         ds_root=data_dir,
         ignore_database_null=False,
-        ds_atomic_batch_size=batch_size,
+        ds_atomic_batch_size=ds_atomic_batch_size,
+        batch_size=batch_size,
         ds_num_devices=1,
         ds_skip_process=False,
-        ds_datapoint_storage_n_objects=batch_size,
+        ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
         ds_prebatched=True,
     )
     apnet2.train(
@@ -166,7 +173,7 @@ def main():
         "--train_apnet",
         type=str,
         default="",
-        help="Train APNet Model: (APNet2, APNet3)"
+        help="Train APNet Model: (APNet2, APNet3, dAPNet2)"
     )
     args.add_argument(
         "--random_seed",
@@ -228,6 +235,18 @@ def main():
         default=None,
         help="Learning Rate Decay: (None is default, takes in float)"
     )
+    args.add_argument(
+        "--m1",
+        type=str,
+        default="",
+        help="specify dAP-Net level of theory 1 (default: '')"
+    )
+    args.add_argument(
+        "--m2",
+        type=str,
+        default="",
+        help="specify dAP-Net level of theory 2 (default: '')"
+    )
     args = args.parse_args()
     pprint(args)
     set_all_seeds(args.random_seed)
@@ -252,6 +271,8 @@ def main():
             lr_decay=args.lr_decay,
             random_seed=args.random_seed,
             spec_type=args.spec_type_ap,
+            m1=args.m1,
+            m2=args.m2,
         )
     return
 

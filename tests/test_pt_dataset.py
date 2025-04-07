@@ -1,4 +1,5 @@
 from apnet_pt.AtomPairwiseModels.apnet2 import APNet2Model
+from apnet_pt.AtomPairwiseModels.dapnet2 import dAPNet2Model
 from apnet_pt import AtomPairwiseModels
 from apnet_pt import atomic_datasets
 from apnet_pt import pairwise_datasets
@@ -321,6 +322,61 @@ def test_dapnet2_dataset_size_prebatched():
     for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elstaug_to_Exchaug_*.pt"):
         os.remove(i)
     assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    
+
+def test_dapnet2_dataset_size_prebatched_train():
+    batch_size = 2
+    atomic_batch_size=4
+    datapoint_storage_n_objects=8
+    prebatched = True
+    collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
+    ds = dapnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=8,
+        max_size=None,
+        force_reprocess=True,
+        atom_model_path=am_path,
+        atomic_batch_size=atomic_batch_size,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
+        batch_size=batch_size,
+        prebatched=prebatched,
+        num_devices=1,
+        skip_processed=False,
+        print_level=2,
+        m1="Elst_aug", 
+        m2="Exch_aug",
+    )
+    ds = dapnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=8,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        atomic_batch_size=atomic_batch_size,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
+        batch_size=batch_size,
+        prebatched=prebatched,
+        num_devices=1,
+        skip_processed=False,
+        print_level=2,
+        m1="Elst_aug", 
+        m2="Exch_aug",
+    )
+    apnet2_model = APNet2Model().set_pretrained_model(model_id=0).model
+    apnet2_model.return_hidden_states = True
+    dapnet2 = dAPNet2Model(
+        apnet2_model,
+        ds
+    )
+    dapnet2.train(
+        n_epochs=2
+    )
+    return
+
 
 def test_apnet3_dataset_size_no_prebatched():
     batch_size = 2
@@ -364,6 +420,7 @@ def test_apnet3_dataset_size_no_prebatched():
     )
     print()
     print(ds)
+    
 
     train_loader = APNet2_DataLoader(
         dataset=ds,
@@ -558,8 +615,9 @@ if __name__ == "__main__":
     # test_apnet2_dataset_size_no_prebatched()
     # test_apnet3_dataset_size_no_prebatched()
     # test_apnet3_dataset_size_prebatched()
-    test_dapnet2_dataset_size_no_prebatched()
-    test_dapnet2_dataset_size_prebatched()
+    # test_dapnet2_dataset_size_no_prebatched()
+    test_dapnet2_dataset_size_prebatched_train()
+    # test_dapnet2_dataset_size_prebatched()
     # test_apnet2_model_train()
     # test_atomhirshfeld_model_train()
     # test_ap3_model_train()

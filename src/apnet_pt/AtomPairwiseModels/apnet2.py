@@ -133,6 +133,7 @@ class APNet2_MPNN(nn.Module):
         n_embed=8,
         r_cut_im=8.0,
         r_cut=5.0,
+        return_hidden_states=False,
     ):
         # super().__init__(aggr="add")
         super().__init__()
@@ -144,6 +145,7 @@ class APNet2_MPNN(nn.Module):
         self.n_embed = n_embed
         self.r_cut_im = r_cut_im
         self.r_cut = r_cut
+        self.return_hidden_states = return_hidden_states
 
         layer_nodes_hidden = [
             # input_layer_size,
@@ -572,6 +574,8 @@ class APNet2_MPNN(nn.Module):
         padded[:, :cols] = E_elst_dimer
         E_elst_dimer = padded
         E_output = E_sr_dimer + E_elst_dimer
+        if self.return_hidden_states:
+            return E_output, E_sr_dimer, E_elst_sr_dimer, E_elst_lr_dimer, hAB, hBA, cutoff
         return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
 
 
