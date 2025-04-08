@@ -1760,7 +1760,7 @@ units angstrom
         np.random.seed(random_seed)
         self.model_save_path = model_path
         print(f"Saving training results to...\n{model_path}")
-        if self.ds_spec_type in [2, 6, 7]:
+        if isinstance(self.dataset, list):
             train_dataset = self.dataset[0]
             if shuffle:
                 order_indices = np.random.permutation(len(train_dataset))

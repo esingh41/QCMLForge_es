@@ -579,7 +579,7 @@ class apnet2_module_dataset(Dataset):
         """
         self.print_level = print_level
         try:
-            assert spec_type in [1, 2, 5, 6, 7, 8]
+            assert spec_type in [1, 2, 5, 6, 7, 8, 9]
         except Exception:
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
@@ -636,7 +636,7 @@ class apnet2_module_dataset(Dataset):
         # self.active_data = [None for i in self.processed_file_names]
         self.active_idx_data = None
         self.active_data = None
-        if spec_type in [1, 2, 7] and self.prebatched is False:
+        if spec_type in [1, 2, 7, 9] and self.prebatched is False:
             self.prebatched = True
 
     @property
@@ -666,6 +666,11 @@ class apnet2_module_dataset(Dataset):
         elif self.spec_type == 8:
             return [
                 "t_val_19.pkl",
+            ]
+        elif self.spec_type == 9:
+            return [
+                "t_train_19.pkl",
+                "t_test_19.pkl",
             ]
         else:
             return [
@@ -757,7 +762,7 @@ class apnet2_module_dataset(Dataset):
             # create batches to be evaluated instead of doing all monomer
             # predictions up front to avoid a large memory footprint
             split_name = ""
-            if self.spec_type in [2, 5, 6, 7]:
+            if self.spec_type in [2, 5, 6, 7, 9]:
                 split_name = f"_{self.split}"
                 print(f"{split_name=}")
                 if self.split not in Path(raw_path).stem:
@@ -943,15 +948,17 @@ class apnet2_module_dataset(Dataset):
         if self.active_idx_data == idx_datapath:
             return self.active_data[obj_ind]
         split_name = ""
-        if self.spec_type in [2, 5, 6, 7]:
+        if self.spec_type in [2, 5, 6, 7, 9]:
             split_name = f"_{self.split}"
         datapath = osp.join(
             self.processed_dir, f"dimer_ap2{split_name}_spec_{
                 self.spec_type}_{idx_datapath}.pt"
         )
-        # if self.spec_type in [1, 2, 7]:
-        #     return torch.load(datapath, weights_only=False)
         self.active_data = torch.load(datapath, weights_only=False)
+        try:
+            self.active_data[obj_ind]
+        except Exception:
+            print(f"Error loading {datapath}\n    at {idx=}, {idx_datapath=}, {obj_ind=}")
         return self.active_data[obj_ind]
 
 
@@ -1380,7 +1387,9 @@ class apnet3_module_dataset(Dataset):
             self.processed_dir, f"dimer_ap3{split_name}_spec_{
                 self.spec_type}_{idx_datapath}.pt"
         )
-        # if self.spec_type in [1, 2, 7]:
-        #     return torch.load(datapath, weights_only=False)
         self.active_data = torch.load(datapath, weights_only=False)
+        try:
+            self.active_data[obj_ind]
+        except Exception:
+            print(f"Error loading {datapath}\n    at {idx=}, {idx_datapath=}, {obj_ind=}")
         return self.active_data[obj_ind]

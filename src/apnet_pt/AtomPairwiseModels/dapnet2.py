@@ -1042,7 +1042,7 @@ units angstrom
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
-        self.model = torch.compile(self.model)
+        # self.model = torch.compile(self.model)
 
         # (2) Dataloaders
         if train_dataset.prebatched:
@@ -1172,7 +1172,7 @@ units angstrom
         np.random.seed(random_seed)
         self.model_save_path = model_path
         print(f"Saving training results to...\n{model_path}")
-        if self.ds_spec_type in [1]:
+        if isinstance(self.dataset, list):
             train_dataset = self.dataset[0]
             if shuffle:
                 order_indices = np.random.permutation(len(train_dataset))
@@ -1194,7 +1194,6 @@ units angstrom
                 order_indices = np.arange(len(self.dataset))
             train_indices = order_indices[: int(
                 len(self.dataset) * split_percent)]
-            print(f"train_indices: {train_indices}")
             test_indices = order_indices[int(
                 len(self.dataset) * split_percent):]
             train_dataset = self.dataset[train_indices]
