@@ -63,7 +63,7 @@ class dapnet2_module_dataset(Dataset):
         """
         self.print_level = print_level
         try:
-            assert spec_type in [1, 8]
+            assert spec_type in [1, 2, 8]
         except Exception:
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
@@ -133,6 +133,10 @@ class dapnet2_module_dataset(Dataset):
                 # 0.4 Train / 0.6 Test
                 "3324_BFDBext_train_dimers.pkl",
                 "3324_BFDBext_test_dimers.pkl",
+            ]
+        elif self.spec_type == 2:
+            return [
+                "DES370K_b3lyp_255586.pkl",
             ]
         elif self.spec_type == 8:
             return [
