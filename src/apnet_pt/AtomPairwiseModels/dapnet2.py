@@ -3,7 +3,6 @@ import torch.nn as nn
 from torch_scatter import scatter
 from torch_geometric.data import Data
 import numpy as np
-import warnings
 import time
 from ..AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
 from .. import atomic_datasets
@@ -24,7 +23,6 @@ from ..AtomPairwiseModels.apnet2 import (
     InverseTimeDecayLR,
     unwrap_model,
 )
-from .. import constants
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -687,8 +685,11 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
                 batch)
-            preds = E_sr_dimer
+            preds = E_sr_dimer.flatten()
+            # print(f"{preds=}")
+            # print(f"{batch.y=}")
             comp_errors = preds - batch.y
+            # print(f"{comp_errors=}")
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
@@ -714,7 +715,7 @@ units angstrom
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
                 E_sr_dimer, _, _, _, _, _ = self.eval_fn(batch)
-                preds = E_sr_dimer
+                preds = E_sr_dimer.flatten()
                 comp_errors = preds - batch.y
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
