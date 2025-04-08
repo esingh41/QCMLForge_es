@@ -13,14 +13,14 @@ m1_str="B3LYP-D3_aug-cc-pVTZ_CP"
 m2_str="CCSD_LP_T_RP_CBS_CP"
 output_name="${m1_str}_to_${m2_str}_${iter}.pt"
 
+# --ds_max_size 100 \
 python3 -u ./train_models.py \
     --train_apnet dAPNet2 \
     --am_model_path ./models/am_ensemble/am_$iter.pt \
     --random_seed $iter \
-    --lr 5e-5 \
+    --lr 5e-4 \
     --ap_model_path ./models/dapnet2/$output_name \
-    --n_epochs 5 \
-    --ds_max_size 100 \
+    --n_epochs 150 \
     --spec_type_ap 1 \
     --m1 $m1 \
     --m2 $m2 \

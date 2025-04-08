@@ -1042,13 +1042,15 @@ units angstrom
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
-        # self.model = torch.compile(self.model)
+        self.model = torch.compile(self.model)
 
         # (2) Dataloaders
         if train_dataset.prebatched:
             collate_fn = apnet2_collate_update_prebatched
         else:
             collate_fn = apnet2_collate_update
+        print(f"Using collate_fn: {collate_fn}")
+        print(f"{num_workers = }")
         train_loader = APNet2_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,

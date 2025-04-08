@@ -186,7 +186,6 @@ class dapnet2_module_dataset(Dataset):
         for raw_path in self.raw_paths:
             split_name = ""
             if self.spec_type in [1]:
-                idx = 0
                 split_name = f"_{self.split}"
                 print(f"{split_name=}")
                 if self.split not in Path(raw_path).stem:
@@ -205,6 +204,7 @@ class dapnet2_module_dataset(Dataset):
             molA_data = []
             molB_data = []
             energies = []
+            targets = targets[:, 0] - targets[:, 1]
             for i in range(0, len(RAs) + len(RAs) % self.atomic_batch_size + 1, self.atomic_batch_size):
                 if self.skip_processed:
                     datapath = osp.join(
@@ -322,7 +322,7 @@ class dapnet2_module_dataset(Dataset):
                 data_objects = local_data_objects
             datapath = osp.join(
                 self.processed_dir,
-                    f"dimer_dap2{split_name}_spec_{self.spec_type}_{self.filename_methods}_{idx // self.points_per_file}.pt",
+                f"dimer_dap2{split_name}_spec_{self.spec_type}_{self.filename_methods}_{idx // self.points_per_file}.pt",
             )
             if self.print_level >= 2:
                 print(f"Final Saving to {datapath}")
@@ -341,7 +341,8 @@ class dapnet2_module_dataset(Dataset):
     def get(self, idx):
         idx_datapath = idx // self.datapoint_storage_n_objects
         obj_ind = idx % self.datapoint_storage_n_objects
-        print(f"{idx=}, {idx_datapath=}, {obj_ind=}, {self.datapoint_storage_n_objects=}, {self.points_per_file=}")
+        # issue is with 'train' split having only 3 data points each for some reason...
+        # issue is with 'tets' split has 16
         # if self.active_idx_data == idx_datapath:
         #     return self.active_data[obj_ind]
         split_name = ""
@@ -352,10 +353,6 @@ class dapnet2_module_dataset(Dataset):
                 self.spec_type}_{self.filename_methods}_{idx_datapath}.pt"
         )
         self.active_data = torch.load(datapath, weights_only=False)
-        print(f"{idx=}, {idx_datapath=}, {obj_ind=}")
-        try:
-            self.active_data[obj_ind]
-        except Exception:
-            print(f"Error loading {idx=}, {idx_datapath=}, {obj_ind=}, {len(self.active_data)=}")
+        self.active_data[obj_ind]
         # self.active_idx_data = idx_datapath
         return self.active_data[obj_ind]

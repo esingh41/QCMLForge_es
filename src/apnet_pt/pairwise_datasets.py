@@ -758,7 +758,6 @@ class apnet2_module_dataset(Dataset):
             # predictions up front to avoid a large memory footprint
             split_name = ""
             if self.spec_type in [2, 5, 6, 7]:
-                idx = 0
                 split_name = f"_{self.split}"
                 print(f"{split_name=}")
                 if self.split not in Path(raw_path).stem:
@@ -950,8 +949,8 @@ class apnet2_module_dataset(Dataset):
             self.processed_dir, f"dimer_ap2{split_name}_spec_{
                 self.spec_type}_{idx_datapath}.pt"
         )
-        if self.spec_type in [1, 2, 7]:
-            return torch.load(datapath, weights_only=False)
+        # if self.spec_type in [1, 2, 7]:
+        #     return torch.load(datapath, weights_only=False)
         self.active_data = torch.load(datapath, weights_only=False)
         return self.active_data[obj_ind]
 
@@ -1172,7 +1171,6 @@ class apnet3_module_dataset(Dataset):
             # predictions up front to avoid a large memory footprint
             split_name = ""
             if self.spec_type in [2, 5, 6, 7]:
-                idx = 0
                 split_name = f"_{self.split}"
                 print(f"{split_name=}")
                 if self.split not in Path(raw_path).stem:
@@ -1382,7 +1380,7 @@ class apnet3_module_dataset(Dataset):
             self.processed_dir, f"dimer_ap3{split_name}_spec_{
                 self.spec_type}_{idx_datapath}.pt"
         )
-        if self.spec_type in [1, 2, 7]:
-            return torch.load(datapath, weights_only=False)
+        # if self.spec_type in [1, 2, 7]:
+        #     return torch.load(datapath, weights_only=False)
         self.active_data = torch.load(datapath, weights_only=False)
         return self.active_data[obj_ind]
