@@ -944,11 +944,20 @@ class APNet2Model:
         self,
         mols,
         batch_size=1,
-        r_cut=5.0,
-        r_cut_im=8.0,
+        r_cut=None,
+        r_cut_im=None,
     ):
+        if r_cut is None:
+            r_cut = self.model.r_cut
+        if r_cut_im is None:
+            r_cut_im = self.model.r_cut_im
+
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
         predictions = np.zeros((len(mol_data), 4))
+        if self.model.return_hidden_states:
+            # need to capture output
+            h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
+
         for i in range(0, len(mol_data), batch_size):
             batch_mol_data = mol_data[i: i + batch_size]
             data_A = [d[0] for d in batch_mol_data]
@@ -1042,7 +1051,18 @@ class APNet2Model:
                 )
                 dimer_batch.to(self.device)
                 preds = self.eval_fn(dimer_batch)
-                predictions[i: i + batch_size] = preds[0].cpu().numpy()
+                if self.model.return_hidden_states:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA, cutoff = preds
+                    h_ABs.append(hAB)
+                    h_BAs.append(hBA)
+                    cutoffs.append(cutoff)
+                    dimer_inds.append(dimer_batch.dimer_ind)
+                    ndimers.append(torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long))
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                else:
+                    predictions[i: i + batch_size] = preds[0].cpu().numpy()
+        if self.model.return_hidden_states:
+            return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
         return predictions
 
     def example_input(self):

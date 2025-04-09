@@ -188,7 +188,9 @@ def load_dimer_dataset(
     """
 
     df = pd.read_pickle(file)
-    df.dropna(subset=columns, inplace=True)
+    if len(columns) > 0:
+        df.dropna(subset=columns, inplace=True)
+    print(df.columns.values.tolist())
     N = len(df.index)
 
     if max_size is not None and max_size < N:

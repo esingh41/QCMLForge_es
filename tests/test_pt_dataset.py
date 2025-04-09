@@ -15,6 +15,7 @@ from apnet_pt.pairwise_datasets import (
 )
 from apnet_pt.pt_datasets.dapnet_ds import (
     dapnet2_module_dataset,
+    dapnet2_module_dataset_apnetStored,
 )
 import pickle
 import os
@@ -420,6 +421,66 @@ def test_dapnet2_dataset_size_prebatched():
     for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elstaug_to_Exchaug_*.pt"):
         os.remove(i)
     assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+
+
+def test_dapnet2_dataset_ap2_stored_size_prebatched():
+    batch_size = 2
+    datapoint_storage_n_objects=8
+    prebatched = True
+    collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
+    ds = dapnet2_module_dataset_apnetStored(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=8,
+        max_size=None,
+        force_reprocess=True,
+        atom_model_path=am_path,
+        batch_size=batch_size,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
+        prebatched=prebatched,
+        num_devices=1,
+        skip_processed=False,
+        print_level=2,
+        m1="Elst_aug", 
+        m2="Exch_aug",
+    )
+    ds = dapnet2_module_dataset_apnetStored(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=8,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        batch_size=batch_size,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
+        prebatched=prebatched,
+        num_devices=1,
+        skip_processed=False,
+        print_level=2,
+        m1="Elst_aug", 
+        m2="Exch_aug",
+    )
+    print()
+    print(ds)
+    print(ds.training_batch_size)
+
+    train_loader = APNet2_DataLoader(
+        dataset=ds,
+        batch_size=ds.training_batch_size,
+        shuffle=False,
+        num_workers=1,
+        collate_fn=collate,
+    )
+    cnt = 0
+    for i in train_loader:
+        cnt += i.y.shape[0]
+    print("Number of labels in dataset:", cnt)
+    ds_labels = len(ds)
+    for i in glob(f"{data_path}/processed_delta/dimer_dap2_ap2_spec_8_Elstaug_to_Exchaug_*.pt"):
+        os.remove(i)
+    assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
     
 
 def test_dapnet2_dataset_size_prebatched_train():
@@ -710,8 +771,9 @@ def test_ap3_model_train():
 if __name__ == "__main__":
     # test_dapnet2_dataset_size_prebatched_train()
     # test_apnet2_dataset_size_prebatched_train_spec8()
-    test_apnet2_dataset_size_prebatched_train_spec9()
-    
+    # test_apnet2_dataset_size_prebatched_train_spec9()
+    test_dapnet2_dataset_size_prebatched()
+    test_dapnet2_dataset_ap2_stored_size_prebatched()
     # test_apnet2_dataset_size_prebatched_train()
     # test_apnet2_dataset_size_no_prebatched()
 
