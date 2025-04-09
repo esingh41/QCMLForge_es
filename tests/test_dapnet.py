@@ -57,7 +57,7 @@ def set_weights_to_value(model, value=0.9):
             param.fill_(value)  # Set all elements to the given value
 
 
-def test_dapnet_architecture():
+def test_apnet2_dapnet2_architecture():
     target_energies = [
         # must agree with test_ap2.py:test_ap2_architecture() EXCH, INDU, or
         # DISP energy
@@ -74,7 +74,7 @@ def test_dapnet_architecture():
         .model
     )
     apnet2_model.return_hidden_states = True
-    dapnet2 = apnet_pt.AtomPairwiseModels.dapnet2.dAPNet2Model(
+    dapnet2 = apnet_pt.AtomPairwiseModels.dapnet2.APNet2_dAPNet2Model(
         apnet2_model,
     )
     output = dapnet2.predict_qcel_mols([mol3], batch_size=1)
@@ -84,10 +84,35 @@ def test_dapnet_architecture():
     print(output)
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+def test_dapnet2_architecture():
+    target_energies = [
+        4.99712951e-06,
+    ]
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+    )
+    set_weights_to_value(atom_model.model, 0.0001)
+    apnet2 = (
+        apnet_pt.AtomPairwiseModels.apnet2.APNet2Model()
+        .set_pretrained_model(model_id=0)
+    )
+    apnet2.model.return_hidden_states = True
+    print(apnet2)
+    dapnet2 = apnet_pt.AtomPairwiseModels.dapnet2.dAPNet2Model(
+        apnet2,
+    )
+    output = dapnet2.predict_qcel_mols([mol3], batch_size=1)
+    set_weights_to_value(dapnet2.model, 0.0001)
+    output = dapnet2.predict_qcel_mols([mol3, mol3], batch_size=1)
+    print(target_energies)
+    print(output)
+    assert np.allclose(output[0], target_energies, atol=1e-6)
 
 def main():
     # test_dapnet_ds()
-    test_dapnet_architecture()
+    test_apnet2_dapnet2_architecture()
+    test_dapnet2_architecture()
     return
 
 

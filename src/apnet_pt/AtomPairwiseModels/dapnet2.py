@@ -32,7 +32,7 @@ import qcelemental as qcel
 file_dir = os.path.dirname(os.path.realpath(__file__))
 
 
-class dAPNet2_MPNN(nn.Module):
+class APNet2_dAPNet2_MPNN(nn.Module):
     def __init__(
         self,
         apnet2_model: APNet2_MPNN,
@@ -168,7 +168,76 @@ class dAPNet2_MPNN(nn.Module):
         return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
 
 
-class dAPNet2Model:
+class dAPNet2_MPNN(nn.Module):
+    def __init__(
+        self,
+        n_message=3,
+        n_rbf=8,
+        n_neuron=128,
+        n_embed=8,
+        r_cut_im=8.0,
+        r_cut=5.0,
+    ):
+        super().__init__()
+
+        self.n_message = n_message
+        self.n_rbf = n_rbf
+        self.n_neuron = n_neuron
+        self.n_embed = n_embed
+        self.r_cut_im = r_cut_im
+        self.r_cut = r_cut
+
+        layer_nodes_readout = [
+            # n_embed,
+            n_neuron * 2,
+            n_neuron,
+            n_neuron // 2,
+            1,
+        ]
+        layer_activations = [
+            nn.ReLU(),
+            nn.ReLU(),
+            nn.ReLU(),
+            None,
+        ]  
+        self.readout_layer_energy = self._make_layers(
+            layer_nodes_readout, layer_activations
+        )
+
+    def _make_layers(self, layer_nodes, activations):
+        layers = []
+        # Start with a LazyLinear so we don't have to fix input dim
+        layers.append(nn.LazyLinear(layer_nodes[0]))
+        layers.append(activations[0])
+        for i in range(len(layer_nodes) - 1):
+            layers.append(nn.Linear(layer_nodes[i], layer_nodes[i + 1]))
+            if activations[i + 1] is not None:
+                layers.append(activations[i + 1])
+        return nn.Sequential(*layers)
+
+    def forward(
+        self,
+        h_AB, 
+        h_BA,
+        cutoff,
+        dimer_ind,
+        ndimer,
+    ):
+        EAB_sr = self.readout_layer_energy(h_AB)
+        EBA_sr = self.readout_layer_energy(h_BA)
+
+        delta_E = EAB_sr + EBA_sr
+        delta_E *= cutoff
+        E = scatter(delta_E, dimer_ind, dim=0, reduce="sum")
+        # Need to ensure that the output is the same size as input dimers
+        N_sr, num_cols = E.shape
+        E_expanded = E.new_zeros((ndimer, num_cols))
+        E_expanded[:N_sr] = E
+        E_output = E_expanded
+        return E_output
+
+
+class APNet2_dAPNet2Model:
     def __init__(
         self,
         apnet2_model,
@@ -247,7 +316,7 @@ class dAPNet2Model:
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = dAPNet2_MPNN(
+            self.model = APNet2_dAPNet2_MPNN(
                 apnet2_model=apnet2_model,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
@@ -262,7 +331,7 @@ class dAPNet2Model:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = dAPNet2_MPNN(
+            self.model = APNet2_dAPNet2_MPNN(
                 # atom_model=self.atom_model,
                 apnet2_model=apnet2_model,
                 n_message=n_message,
@@ -644,6 +713,1019 @@ class dAPNet2Model:
                 dimer_batch.to(self.device)
                 preds = self.eval_fn(dimer_batch)
                 predictions[i: i + batch_size] = preds[0].cpu().numpy()
+        return predictions
+
+    def example_input(self):
+        mol = qcel.models.Molecule.from_data("""
+0 1
+8   -0.702196054   -0.056060256   0.009942262
+1   -1.022193224   0.846775782   -0.011488714
+1   0.257521062   0.042121496   0.005218999
+--
+0 1
+8   2.268880784   0.026340101   0.000508029
+1   2.645502399   -0.412039965   0.766632411
+1   2.641145101   -0.449872874   -0.744894473
+units angstrom
+        """)
+        return self._qcel_example_input([mol], batch_size=1)
+
+    ########################################################################
+    # TRAINING/VALIDATION HELPERS
+    ########################################################################
+
+    def __setup(self, rank, world_size):
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "12355"
+        if torch.cuda.is_available():
+            dist.init_process_group("nccl", rank=rank, world_size=world_size)
+        else:
+            dist.init_process_group("gloo", rank=rank, world_size=world_size)
+        torch.manual_seed(43)
+
+    def __cleanup(self):
+        dist.destroy_process_group()
+
+    def __train_batches_single_proc(
+        self, dataloader, loss_fn, optimizer, rank_device, scheduler
+    ):
+        """
+        Single-process training loop body.
+        """
+        self.model.train()
+        comp_errors_t = []
+        total_loss = 0.0
+        for n, batch in enumerate(dataloader):
+            optimizer.zero_grad(set_to_none=True)  # minor speed-up
+            batch = batch.to(rank_device, non_blocking=True)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                batch)
+            preds = E_sr_dimer.flatten()
+            # print(f"{preds=}")
+            # print(f"{batch.y=}")
+            comp_errors = preds - batch.y
+            # print(f"{comp_errors=}")
+            batch_loss = (
+                torch.mean(torch.square(comp_errors))
+                if (loss_fn is None)
+                else loss_fn(preds, batch.y)
+            )
+            batch_loss.backward()
+            optimizer.step()
+            total_loss += batch_loss.item()
+            comp_errors_t.append(comp_errors.detach().cpu())
+        if scheduler is not None:
+            scheduler.step()
+
+        comp_errors_t = torch.cat(comp_errors_t, dim=0)
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        return total_loss, total_MAE_t
+
+    # @torch.inference_mode()
+    def __evaluate_batches_single_proc(self, dataloader, loss_fn, rank_device):
+        self.model.eval()
+        comp_errors_t = []
+        total_loss = 0.0
+        with torch.no_grad():
+            for n, batch in enumerate(dataloader):
+                batch = batch.to(rank_device, non_blocking=True)
+                E_sr_dimer, _, _, _, _, _ = self.eval_fn(batch)
+                preds = E_sr_dimer.flatten()
+                try:
+                    comp_errors = preds - batch.y
+                except Exception as e:
+                    print(f"Error in batch {n}: {e}")
+                    print(batch)
+                    print(batch.y)
+                    print(batch.qA)
+                    print(batch.dimer_ind)
+                    raise e
+                batch_loss = (
+                    torch.mean(torch.square(comp_errors))
+                    if (loss_fn is None)
+                    else loss_fn(preds, batch.y)
+                )
+                total_loss += batch_loss.item()
+                comp_errors_t.append(comp_errors.detach().cpu())
+        comp_errors_t = torch.cat(comp_errors_t, dim=0)
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        return total_loss, total_MAE_t
+
+    ########################################################################
+    # SINGLE-PROCESS TRAINING
+    ########################################################################
+
+    def __train_batches(
+        self, rank, dataloader, loss_fn, optimizer, rank_device, scheduler
+    ):
+        self.model.train()
+        total_loss = 0.0
+        total_error = 0.0
+        elst_error = 0.0
+        exch_error = 0.0
+        indu_error = 0.0
+        disp_error = 0.0
+        count = 0
+        for n, batch in enumerate(dataloader):
+            batch_loss = 0.0
+            optimizer.zero_grad()
+            batch = batch.to(rank_device)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                batch)
+            preds = E_sr_dimer.reshape(-1, 4)
+            comp_errors = preds - batch.y
+            if loss_fn is None:
+                batch_loss = torch.mean(torch.square(comp_errors))
+            else:
+                batch_loss = loss_fn(preds, batch.y)
+
+            batch_loss.backward()
+            optimizer.step()
+
+            total_loss += batch_loss.item()
+            total_errors = preds.sum(dim=1) - batch.y.sum(dim=1)
+            total_error += torch.sum(torch.abs(total_errors)).item()
+            elst_error += torch.sum(torch.abs(comp_errors[:, 0])).item()
+            exch_error += torch.sum(torch.abs(comp_errors[:, 1])).item()
+            indu_error += torch.sum(torch.abs(comp_errors[:, 2])).item()
+            disp_error += torch.sum(torch.abs(comp_errors[:, 3])).item()
+            count += preds.numel()
+        if scheduler is not None:
+            scheduler.step()
+
+        total_loss = torch.tensor(
+            total_loss, dtype=torch.float32, device=rank_device)
+        total_error = torch.tensor(
+            total_error, dtype=torch.float32, device=rank_device)
+        elst_error = torch.tensor(
+            elst_error, dtype=torch.float32, device=rank_device)
+        exch_error = torch.tensor(
+            exch_error, dtype=torch.float32, device=rank_device)
+        indu_error = torch.tensor(
+            indu_error, dtype=torch.float32, device=rank_device)
+        count = torch.tensor(count, dtype=torch.int, device=rank_device)
+
+        dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(elst_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(exch_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(indu_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(count, op=dist.ReduceOp.SUM)
+
+        total_MAE_t = (total_error / count).cpu()
+        elst_MAE_t = (elst_error / count).cpu()
+        exch_MAE_t = (exch_error / count).cpu()
+        indu_MAE_t = (indu_error / count).cpu()
+        disp_MAE_t = (disp_error / count).cpu()
+        return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
+
+    # @torch.inference_mode()
+    def __evaluate_batches(self, rank, dataloader, loss_fn, rank_device):
+        self.model.eval()
+        total_loss = 0.0
+        total_error = 0.0
+        elst_error = 0.0
+        exch_error = 0.0
+        indu_error = 0.0
+        disp_error = 0.0
+        count = 0
+        with torch.no_grad():
+            for batch in dataloader:
+                batch_loss = 0.0
+                batch = batch.to(rank_device)
+                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                    batch)
+                preds = E_sr_dimer.reshape(-1, 4)
+                comp_errors = preds - batch.y
+                if loss_fn is None:
+                    batch_loss = torch.mean(torch.square(comp_errors))
+                else:
+                    batch_loss = loss_fn(preds, batch.y)
+
+                total_loss += batch_loss.item()
+                total_errors = preds.sum(dim=1) - batch.y.sum(dim=1)
+                total_error += torch.sum(torch.abs(total_errors)).item()
+                elst_error += torch.sum(torch.abs(comp_errors[:, 0])).item()
+                exch_error += torch.sum(torch.abs(comp_errors[:, 1])).item()
+                indu_error += torch.sum(torch.abs(comp_errors[:, 2])).item()
+                disp_error += torch.sum(torch.abs(comp_errors[:, 3])).item()
+                count += preds.numel()
+
+        total_loss = torch.tensor(total_loss, device=rank_device)
+        total_error = torch.tensor(total_error, device=rank_device)
+        elst_error = torch.tensor(elst_error, device=rank_device)
+        exch_error = torch.tensor(exch_error, device=rank_device)
+        indu_error = torch.tensor(indu_error, device=rank_device)
+        count = torch.tensor(count, dtype=torch.int, device=rank_device)
+
+        dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(elst_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(exch_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(indu_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(count, op=dist.ReduceOp.SUM)
+
+        total_MAE_t = (total_error / count).cpu()
+        elst_MAE_t = (elst_error / count).cpu()
+        exch_MAE_t = (exch_error / count).cpu()
+        indu_MAE_t = (indu_error / count).cpu()
+        disp_MAE_t = (disp_error / count).cpu()
+        return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
+
+    def ddp_train(
+        self,
+        rank,
+        world_size,
+        train_dataset,
+        test_dataset,
+        n_epochs,
+        batch_size,
+        lr,
+        pin_memory,
+        num_workers,
+        lr_decay=None,
+    ):
+        print(f"{self.device.type=}")
+        if self.device.type == "cpu":
+            rank_device = "cpu"
+        else:
+            rank_device = rank
+        if world_size > 1:
+            self.__setup(rank, world_size)
+        if rank == 0:
+            print("Setup complete")
+
+        self.model = self.model.to(rank_device)
+        print(f"{rank=}, {world_size=}, {rank_device=}")
+        if rank == 0:
+            print("Model Transferred to device")
+        if world_size > 1:
+            first_pass_data = APNet2_DataLoader(
+                dataset=test_dataset[:batch_size],
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
+                collate_fn=apnet2_collate_update,
+            )
+            for b in first_pass_data:
+                b.to(rank_device)
+                self.eval_fn(b)
+                break
+            self.model = DDP(
+                self.model,
+            )
+
+        if rank == 0:
+            print("Model DDP wrapped")
+
+        train_sampler = (
+            torch.utils.data.distributed.DistributedSampler(
+                train_dataset, num_replicas=world_size, rank=rank
+            )
+            if world_size > 1
+            else None
+        )
+        test_sampler = (
+            torch.utils.data.distributed.DistributedSampler(
+                test_dataset, num_replicas=world_size, rank=rank, shuffle=False
+            )
+            if world_size > 1
+            else None
+        )
+
+        train_loader = APNet2_DataLoader(
+            dataset=train_dataset,
+            batch_size=batch_size,
+            shuffle=(train_sampler is None),
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            sampler=train_sampler,
+            collate_fn=apnet2_collate_update,
+        )
+
+        test_loader = APNet2_DataLoader(
+            dataset=test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            sampler=test_sampler,
+            collate_fn=apnet2_collate_update,
+        )
+        if rank == 0:
+            print("Loaders setup\n")
+
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        if lr_decay:
+            scheduler = InverseTimeDecayLR(
+                optimizer, lr, len(train_loader) * 60, lr_decay
+            )
+        else:
+            scheduler = None
+        criterion = None
+        lowest_test_loss = torch.tensor(float("inf"))
+        self.model = self.model.to(rank_device)
+
+        if rank == 0:
+            print(
+                "                                       Total            Elst            Exch            Ind            Disp",
+                flush=True,
+            )
+        t1 = time.time()
+        with torch.no_grad():
+            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
+                self.__evaluate_batches(
+                    rank, train_loader, criterion, rank_device)
+            )
+            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
+                self.__evaluate_batches(
+                    rank, test_loader, criterion, rank_device)
+            )
+            dt = time.time() - t1
+            if rank == 0:
+                print(
+                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                    flush=True,
+                )
+        for epoch in range(n_epochs):
+            t1 = time.time()
+            test_lowered = False
+            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
+                self.__train_batches(
+                    rank,
+                    train_loader,
+                    criterion,
+                    optimizer,
+                    rank_device,
+                    scheduler,
+                )
+            )
+            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
+                self.__evaluate_batches(
+                    rank, test_loader, criterion, rank_device)
+            )
+
+            if rank == 0:
+                if test_loss < lowest_test_loss:
+                    lowest_test_loss = test_loss
+                    test_lowered = "*"
+                    if self.model_save_path:
+                        print("Saving model")
+                        cpu_model = unwrap_model(self.model).to("cpu")
+                        torch.save(
+                            {
+                                "model_state_dict": cpu_model.state_dict(),
+                                "config": {
+                                    "n_message": cpu_model.n_message,
+                                    "n_rbf": cpu_model.n_rbf,
+                                    "n_neuron": cpu_model.n_neuron,
+                                    "n_embed": cpu_model.n_embed,
+                                    "r_cut_im": cpu_model.r_cut_im,
+                                    "r_cut": cpu_model.r_cut,
+                                },
+                            },
+                            self.model_save_path,
+                        )
+                        self.model.to(rank_device)
+                else:
+                    test_lowered = " "
+                dt = time.time() - t1
+                test_loss = 0.0
+                print(
+                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {test_lowered}",
+                    flush=True,
+                )
+
+        if world_size > 1:
+            self.__cleanup()
+        return
+
+    ########################################################################
+    # SINGLE-PROCESS TRAINING
+    ########################################################################
+    def single_proc_train(
+        self,
+        train_dataset,
+        test_dataset,
+        n_epochs,
+        batch_size,
+        lr,
+        pin_memory,
+        num_workers,
+        lr_decay=None,
+    ):
+        # (1) Compile Model
+        rank_device = self.device
+        self.model.to(rank_device)
+        batch = self.example_input()
+        batch.to(rank_device)
+        self.model(**batch)
+        # if False:
+        print("Compiling model")
+        torch._dynamo.config.dynamic_shapes = True
+        torch._dynamo.config.capture_dynamic_output_shape_ops = False
+        torch._dynamo.config.capture_scalar_outputs = False
+        # self.model = torch.compile(self.model)
+
+        # (2) Dataloaders
+        if train_dataset.prebatched:
+            collate_fn = apnet2_collate_update_prebatched
+        else:
+            collate_fn = apnet2_collate_update
+        print(f"{num_workers = }")
+        train_loader = APNet2_DataLoader(
+            dataset=train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            collate_fn=collate_fn,
+        )
+        test_loader = APNet2_DataLoader(
+            dataset=test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            collate_fn=collate_fn,
+        )
+
+        # (3) Optim/Scheduler
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        # scheduler = ModLambdaDecayLR(optimizer, lr_decay, lr) if lr_decay else None
+        scheduler = (
+            InverseTimeDecayLR(optimizer, lr, len(train_loader) * 2, lr_decay)
+            if lr_decay
+            else None
+        )
+        criterion = None  # defaults to MSE
+
+        # (4) Print table header
+        print(
+            "                                       Energy",
+            flush=True,
+        )
+
+        # (5) Evaluate once pre-training
+        t0 = time.time()
+        train_loss, total_MAE_t = (
+            self.__evaluate_batches_single_proc(
+                train_loader, criterion, rank_device)
+        )
+        test_loss, total_MAE_v = (
+            self.__evaluate_batches_single_proc(
+                test_loader, criterion, rank_device)
+        )
+
+        print(
+            f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+            flush=True,
+        )
+
+        # (6) Main training loop
+        lowest_test_loss = test_loss
+        for epoch in range(n_epochs):
+            t1 = time.time()
+            train_loss, total_MAE_t= (
+                self.__train_batches_single_proc(
+                    train_loader, criterion, optimizer, rank_device, scheduler
+                )
+            )
+            test_loss, total_MAE_v= (
+                self.__evaluate_batches_single_proc(
+                    test_loader, criterion, rank_device)
+            )
+
+            # Track best model
+            star_marker = " "
+            if test_loss < lowest_test_loss:
+                lowest_test_loss = test_loss
+                star_marker = "*"
+                if self.model_save_path:
+                    cpu_model = unwrap_model(self.model).to("cpu")
+                    torch.save(
+                        {
+                            "model_state_dict": cpu_model.state_dict(),
+                            "config": {
+                                "n_message": cpu_model.n_message,
+                                "n_rbf": cpu_model.n_rbf,
+                                "n_neuron": cpu_model.n_neuron,
+                                "n_embed": cpu_model.n_embed,
+                                "r_cut_im": cpu_model.r_cut_im,
+                                "r_cut": cpu_model.r_cut,
+                            },
+                        },
+                        self.model_save_path,
+                    )
+                    self.model.to(rank_device)
+
+            print(
+                f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
+                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+                flush=True,
+            )
+
+    def train(
+        self,
+        dataset=None,
+        n_epochs=50,
+        lr=5e-4,
+        split_percent=0.9,
+        model_path=None,
+        shuffle=False,
+        dataloader_num_workers=4,
+        optimize_for_speed=True,
+        world_size=1,
+        omp_num_threads_per_process=6,
+        lr_decay=None,
+        random_seed=42,
+    ):
+        """
+        hyperparameters match the defaults in the original code:
+        https://chemrxiv.org/engage/chemrxiv/article-details/65ccd41866c1381729a2b885
+        """
+        if dataset is not None:
+            self.dataset = dataset
+        elif dataset is not None:
+            print("Overriding self.dataset with passed dataset!")
+            self.dataset = dataset
+        if self.dataset is None:
+            raise ValueError("No dataset provided")
+        np.random.seed(random_seed)
+        self.model_save_path = model_path
+        print(f"Saving training results to...\n{model_path}")
+        if isinstance(self.dataset, list):
+            train_dataset = self.dataset[0]
+            if shuffle:
+                order_indices = np.random.permutation(len(train_dataset))
+            else:
+                order_indices = [i for i in range(len(train_dataset))]
+            train_dataset = train_dataset[order_indices]
+
+            test_dataset = self.dataset[1]
+            if shuffle:
+                order_indices = np.random.permutation(len(test_dataset))
+            else:
+                order_indices = [i for i in range(len(test_dataset))]
+            test_dataset = test_dataset[order_indices]
+            batch_size = train_dataset.training_batch_size
+        else:
+            if shuffle:
+                order_indices = np.random.permutation(len(self.dataset))
+            else:
+                order_indices = np.arange(len(self.dataset))
+            train_indices = order_indices[: int(
+                len(self.dataset) * split_percent)]
+            test_indices = order_indices[int(
+                len(self.dataset) * split_percent):]
+            train_dataset = self.dataset[train_indices]
+            test_dataset = self.dataset[test_indices]
+            batch_size = train_dataset.training_batch_size
+        self.batch_size = batch_size
+
+        print("~~ Training APNet2Model ~~", flush=True)
+        print(
+            f"    Training on {len(train_dataset)} samples, Testing on {len(test_dataset)} samples"
+        )
+        print("\nNetwork Hyperparameters:", flush=True)
+        print(f"  {self.model.n_message=}", flush=True)
+        print(f"  {self.model.n_neuron=}", flush=True)
+        print(f"  {self.model.n_embed=}", flush=True)
+        print(f"  {self.model.n_rbf=}", flush=True)
+        print(f"  {self.model.r_cut=}", flush=True)
+        print("\nTraining Hyperparameters:", flush=True)
+        print(f"  {n_epochs=}", flush=True)
+        print(f"  {lr=}\n", flush=True)
+        print(f"  {lr_decay=}\n", flush=True)
+        print(f"  {batch_size=}", flush=True)
+
+        if self.device.type == "cuda":
+            pin_memory = True
+        else:
+            pin_memory = False
+
+        # if optimize_for_speed:
+        # torch.jit.enable_onednn_fusion(False)
+        # torch.autograd.set_detect_anomaly(True)
+
+        self.shuffle = shuffle
+
+        if world_size > 1:
+            print("Running multi-process training", flush=True)
+            os.environ["OMP_NUM_THREADS"] = str(omp_num_threads_per_process)
+            mp.spawn(
+                self.ddp_train,
+                args=(
+                    world_size,
+                    train_dataset,
+                    test_dataset,
+                    n_epochs,
+                    batch_size,
+                    lr,
+                    pin_memory,
+                    dataloader_num_workers,
+                    lr_decay,
+                ),
+                nprocs=world_size,
+                join=True,
+            )
+        else:
+            print("Running single-process training", flush=True)
+            os.environ["OMP_NUM_THREADS"] = str(omp_num_threads_per_process)
+            self.single_proc_train(
+                train_dataset=train_dataset,
+                test_dataset=test_dataset,
+                n_epochs=n_epochs,
+                batch_size=batch_size,
+                lr=lr,
+                pin_memory=pin_memory,
+                num_workers=dataloader_num_workers,
+                lr_decay=lr_decay,
+            )
+        return
+
+
+
+class dAPNet2Model:
+    def __init__(
+        self,
+        apnet2_model=None,
+        dataset=None,
+        atom_model=None,
+        pre_trained_model_path=None,
+        atom_model_pre_trained_path=None,
+        n_message=3,
+        n_rbf=8,
+        n_neuron=128,
+        n_embed=8,
+        r_cut_im=8.0,
+        r_cut=5.0,
+        use_GPU=None,
+        ignore_database_null=True,
+        ds_spec_type=1,
+        ds_m1="",
+        ds_m2="",
+        ds_root="data",
+        ds_max_size=None,
+        ds_atomic_batch_size=200,
+        ds_force_reprocess=False,
+        ds_skip_process=False,
+        ds_num_devices=1,
+        ds_datapoint_storage_n_objects=1000,
+        ds_prebatched=False,
+        print_lvl=0,
+    ):
+        """
+        If pre_trained_model_path is provided, the model will be loaded from
+        the path and all other parameters will be ignored except for dataset.
+
+        use_GPU will check for a GPU and use it if available unless set to false.
+        """
+        if torch.cuda.is_available():
+            device = torch.device("cuda:0")
+            print("running on the GPU")
+        else:
+            device = torch.device("cpu")
+            print("running on the CPU")
+        self.ds_spec_type = ds_spec_type
+        self.atom_model = AtomMPNN()
+        self.apnet2_model = apnet2_model
+
+        if atom_model_pre_trained_path:
+            print(
+                f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
+            )
+            checkpoint = torch.load(
+                atom_model_pre_trained_path, map_location=device, weights_only=False
+            )
+            self.atom_model = AtomMPNN(
+                n_message=checkpoint["config"]["n_message"],
+                n_rbf=checkpoint["config"]["n_rbf"],
+                n_neuron=checkpoint["config"]["n_neuron"],
+                n_embed=checkpoint["config"]["n_embed"],
+                r_cut=checkpoint["config"]["r_cut"],
+            )
+            # model_state_dict = checkpoint["model_state_dict"]
+            model_state_dict = {
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.atom_model.load_state_dict(model_state_dict)
+        elif atom_model:
+            self.atom_model = atom_model
+        else:
+            print(
+                """No atom model provided.
+    Assuming atomic multipoles and embeddings are
+    pre-computed and passes as input to the model.
+"""
+            )
+        if pre_trained_model_path:
+            print(
+                f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
+            )
+            checkpoint = torch.load(pre_trained_model_path, weights_only=False)
+            self.model = dAPNet2_MPNN(
+                n_message=checkpoint["config"]["n_message"],
+                n_rbf=checkpoint["config"]["n_rbf"],
+                n_neuron=checkpoint["config"]["n_neuron"],
+                n_embed=checkpoint["config"]["n_embed"],
+                r_cut_im=checkpoint["config"]["r_cut_im"],
+                r_cut=checkpoint["config"]["r_cut"],
+            )
+            model_state_dict = {
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.model.load_state_dict(model_state_dict)
+        else:
+            self.model = dAPNet2_MPNN(
+                n_message=n_message,
+                n_rbf=n_rbf,
+                n_neuron=n_neuron,
+                n_embed=n_embed,
+                r_cut_im=r_cut_im,
+                r_cut=r_cut,
+            )
+        split_dbs = [1]
+        self.dataset = dataset
+        if (
+            not ignore_database_null
+            and self.dataset is None
+            and self.ds_spec_type not in split_dbs
+        ):
+
+            def setup_ds(fp=ds_force_reprocess):
+                return dapnet2_module_dataset(
+                    root=ds_root,
+                    r_cut=r_cut,
+                    r_cut_im=r_cut_im,
+                    spec_type=ds_spec_type,
+                    max_size=ds_max_size,
+                    force_reprocess=fp,
+                    atom_model_path=atom_model_pre_trained_path,
+                    atomic_batch_size=ds_atomic_batch_size,
+                    num_devices=ds_num_devices,
+                    skip_processed=ds_skip_process,
+                    datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                    prebatched=ds_prebatched,
+                    print_level=print_lvl,
+                    m1=ds_m1,
+                    m2=ds_m2,
+                )
+
+            self.dataset = setup_ds()
+            self.dataset = setup_ds(False)
+            if ds_max_size:
+                self.dataset = self.dataset[:ds_max_size]
+        elif (
+            not ignore_database_null
+            and self.dataset is None
+            and self.ds_spec_type in split_dbs
+        ):
+            print("Processing Split dataset...")
+
+            def setup_ds(fp=ds_force_reprocess):
+                return [
+                    dapnet2_module_dataset(
+                        root=ds_root,
+                        r_cut=r_cut,
+                        r_cut_im=r_cut_im,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        atom_model_path=atom_model_pre_trained_path,
+                        atomic_batch_size=ds_atomic_batch_size,
+                        num_devices=ds_num_devices,
+                        skip_processed=ds_skip_process,
+                        split="train",
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                        prebatched=ds_prebatched,
+                        print_level=print_lvl,
+                        m1=ds_m1,
+                        m2=ds_m2,
+                    ),
+                    dapnet2_module_dataset(
+                        root=ds_root,
+                        r_cut=r_cut,
+                        r_cut_im=r_cut_im,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        atom_model_path=atom_model_pre_trained_path,
+                        atomic_batch_size=ds_atomic_batch_size,
+                        num_devices=ds_num_devices,
+                        skip_processed=ds_skip_process,
+                        split="test",
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                        prebatched=ds_prebatched,
+                        print_level=print_lvl,
+                        m1=ds_m1,
+                        m2=ds_m2,
+                    ),
+                ]
+
+            self.dataset = setup_ds()
+            self.dataset = setup_ds(False)
+            if ds_max_size:
+                self.dataset[0] = self.dataset[0][:ds_max_size]
+                self.dataset[1] = self.dataset[1][:ds_max_size]
+        print(self.dataset)
+        self.model.to(device)
+        self.device = device
+        self.batch_size = None
+        self.shuffle = False
+        self.model_save_path = None
+        self.prebatched = ds_prebatched
+        return
+
+    @torch.inference_mode()
+    def predict_from_dataset(self):
+        self.model.eval()
+        for batch in self.dataset:
+            batch = batch.to(self.device)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                batch)
+        return
+
+    def compile_model(self):
+        self.model.to(self.device)
+        torch._dynamo.config.dynamic_shapes = True
+        torch._dynamo.config.capture_dynamic_output_shape_ops = False
+        torch._dynamo.config.capture_scalar_outputs = False
+        self.model = torch.compile(self.model)
+        return
+
+    def set_pretrained_model(self, ap2_model_path=None, am_model_path=None, model_id=None):
+        if model_id is not None:
+            am_model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
+            ap2_model_path = f"{file_dir}/../models/ap2_ensemble/ap2_{model_id}.pt"
+        elif ap2_model_path is None and model_id is None:
+            raise ValueError("Either model_path or model_id must be provided.")
+
+        checkpoint = torch.load(ap2_model_path)
+        if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
+            model_state_dict = {
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.model.load_state_dict(model_state_dict)
+        else:
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+        checkpoint = torch.load(am_model_path)
+        if "_orig_mod" not in list(self.atom_model.state_dict().keys())[0]:
+            model_state_dict = {
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.atom_model.load_state_dict(model_state_dict)
+        else:
+            self.atom_model.load_state_dict(checkpoint['model_state_dict'])
+        return self
+
+    ############################################################################
+    # The main forward/eval function
+    ############################################################################
+    def eval_fn(self, batch):
+        return self.model(
+            h_AB=batch.h_AB,
+            h_BA=batch.h_BA,
+            cutoff=batch.cutoff,
+            dimer_ind=batch.dimer_ind,
+            ndimer=batch.ndimer,
+        )
+
+    def _qcel_example_input(
+        self,
+        mols,
+        batch_size=1,
+        r_cut=5.0,
+        r_cut_im=8.0,
+    ):
+        mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
+        for i in range(0, len(mol_data), batch_size):
+            batch_mol_data = mol_data[i: i + batch_size]
+            data_A = [d[0] for d in batch_mol_data]
+            data_B = [d[1] for d in batch_mol_data]
+            batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
+            batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
+            with torch.no_grad():
+                am_out_A = self.atom_model(
+                    batch_A.x,
+                    batch_A.edge_index,
+                    R=batch_A.R,
+                    molecule_ind=batch_A.molecule_ind,
+                    total_charge=batch_A.total_charge,
+                    natom_per_mol=batch_A.natom_per_mol,
+                )
+                am_out_B = self.atom_model(
+                    batch_B.x,
+                    batch_B.edge_index,
+                    R=batch_B.R,
+                    molecule_ind=batch_B.molecule_ind,
+                    total_charge=batch_B.total_charge,
+                    natom_per_mol=batch_B.natom_per_mol,
+                )
+                qAs, muAs, quadAs, hlistAs = isolate_atomic_property_predictions(
+                    batch_A, am_out_A
+                )
+                qBs, muBs, quadBs, hlistBs = isolate_atomic_property_predictions(
+                    batch_B, am_out_B
+                )
+                if len(batch_A.total_charge.size()) == 0:
+                    batch_A.total_charge = batch_A.total_charge.unsqueeze(0)
+                if len(batch_B.total_charge.size()) == 0:
+                    batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
+                dimer_ls = []
+                for j in range(len(batch_mol_data)):
+                    qA, muA, quadA, hlistA = qAs[j], muAs[j], quadAs[j], hlistAs[j]
+                    qB, muB, quadB, hlistB = qBs[j], muBs[j], quadBs[j], hlistBs[j]
+                    if len(qA.size()) == 0:
+                        qA = qA.unsqueeze(0).unsqueeze(0)
+                    elif len(qA.size()) == 1:
+                        qA = qA.unsqueeze(-1)
+                    if len(qB.size()) == 0:
+                        qB = qB.unsqueeze(0).unsqueeze(0)
+                    elif len(qB.size()) == 1:
+                        qB = qB.unsqueeze(-1)
+                    e_AA_source, e_AA_target = pairwise_edges(
+                        data_A[j].R, r_cut)
+                    e_BB_source, e_BB_target = pairwise_edges(
+                        data_B[j].R, r_cut)
+                    e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
+                        pairwise_edges_im(
+                            data_A[j].R, data_B[j].R, r_cut_im)
+                    )
+                    dimer_ind = torch.ones((1), dtype=torch.long) * 0
+                    data = Data(
+                        ZA=data_A[j].x,
+                        RA=data_A[j].R,
+                        ZB=data_B[j].x,
+                        RB=data_B[j].R,
+                        # short range, intermolecular edges
+                        e_ABsr_source=e_ABsr_source,
+                        e_ABsr_target=e_ABsr_target,
+                        dimer_ind=dimer_ind,
+                        # long range, intermolecular edges
+                        e_ABlr_source=e_ABlr_source,
+                        e_ABlr_target=e_ABlr_target,
+                        dimer_ind_lr=dimer_ind,
+                        # intramonomer edges (monomer A)
+                        e_AA_source=e_AA_source,
+                        e_AA_target=e_AA_target,
+                        # intramonomer edges (monomer B)
+                        e_BB_source=e_BB_source,
+                        e_BB_target=e_BB_target,
+                        # monomer charges
+                        total_charge_A=data_A[j].total_charge,
+                        total_charge_B=data_B[j].total_charge,
+                        # monomer A properties
+                        qA=qA,
+                        muA=muA,
+                        quadA=quadA,
+                        hlistA=hlistA,
+                        # monomer B properties
+                        qB=qB,
+                        muB=muB,
+                        quadB=quadB,
+                        hlistB=hlistB,
+                    )
+                    dimer_ls.append(data)
+                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
+                    dimer_ls
+                )
+        return dimer_batch
+
+    @torch.inference_mode()
+    def predict_qcel_mols(
+        self,
+        mols,
+        batch_size=1,
+        r_cut=5.0,
+        r_cut_im=8.0,
+    ):
+        predictions = np.zeros((len(mols)))
+        for i in range(0, len(mols) + len(mols) % batch_size + 1, batch_size):
+            upper_bound = min(i + batch_size, len(mols))
+            local_mols=mols[i: upper_bound]
+            if len(local_mols) == 0:
+                break
+            _, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = self.apnet2_model.predict_qcel_mols(
+                mols=local_mols,
+                batch_size=batch_size,
+                r_cut=self.apnet2_model.model.r_cut,
+                r_cut_im=self.apnet2_model.model.r_cut_im,
+            )
+            dimer_batch = Data(
+                h_AB=h_ABs[0],
+                h_BA=h_BAs[0],
+                cutoff=cutoffs[0],
+                dimer_ind=dimer_inds[0],
+                ndimer=ndimers[0],
+            )
+            preds = self.eval_fn(dimer_batch)
+            predictions[i: i + batch_size] = preds[0].cpu().numpy()
         return predictions
 
     def example_input(self):
