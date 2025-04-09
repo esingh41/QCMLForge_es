@@ -8,8 +8,10 @@ export iter=0
 #     --n_epochs 1 \
 #     --ds_max_size 100 \
 m1="B3LYP-D3/aug-cc-pVDZ/CP"
+m1="B3LYP-D3/aug-cc-pVTZ/CP"
 m2="CCSD(T)/CBS/CP"
 m1_str="B3LYP-D3_aug-cc-pVDZ_CP"
+m1_str="B3LYP-D3_aug-cc-pVTZ_CP"
 m2_str="CCSD_LP_T_RP_CBS_CP"
 output_name="${m1_str}_to_${m2_str}_${iter}.pt"
 
@@ -21,7 +23,7 @@ python3 -u ./train_models.py \
     --lr 5e-4 \
     --ap_model_path ./models/dapnet2/$output_name \
     --n_epochs 5 \
-    --spec_type_ap 2 \
+    --spec_type_ap 1 \
     --m1 $m1 \
     --m2 $m2 \
     --data_dir ./data_dir

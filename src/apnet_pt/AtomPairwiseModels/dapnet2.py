@@ -17,6 +17,7 @@ from ..pairwise_datasets import (
 )
 from ..pt_datasets.dapnet_ds import (
     dapnet2_module_dataset,
+    dapnet2_module_dataset_apnetStored,
     dapnet2_collate_update_no_target,
 )
 from ..AtomPairwiseModels.apnet2 import (
@@ -1124,10 +1125,7 @@ units angstrom
         self.model(**batch)
         # if False:
         print("Compiling model")
-        torch._dynamo.config.dynamic_shapes = True
-        torch._dynamo.config.capture_dynamic_output_shape_ops = False
-        torch._dynamo.config.capture_scalar_outputs = False
-        # self.model = torch.compile(self.model)
+        self.compile_model()
 
         # (2) Dataloaders
         if train_dataset.prebatched:
@@ -1458,7 +1456,7 @@ class dAPNet2Model:
         ):
 
             def setup_ds(fp=ds_force_reprocess):
-                return dapnet2_module_dataset(
+                return dapnet2_module_dataset_apnetStored(
                     root=ds_root,
                     r_cut=r_cut,
                     r_cut_im=r_cut_im,
@@ -1466,7 +1464,7 @@ class dAPNet2Model:
                     max_size=ds_max_size,
                     force_reprocess=fp,
                     atom_model_path=atom_model_pre_trained_path,
-                    atomic_batch_size=ds_atomic_batch_size,
+                    preprocessing_batch_size=ds_atomic_batch_size,
                     num_devices=ds_num_devices,
                     skip_processed=ds_skip_process,
                     datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
@@ -1489,7 +1487,7 @@ class dAPNet2Model:
 
             def setup_ds(fp=ds_force_reprocess):
                 return [
-                    dapnet2_module_dataset(
+                    dapnet2_module_dataset_apnetStored(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -1497,7 +1495,7 @@ class dAPNet2Model:
                         max_size=ds_max_size,
                         force_reprocess=fp,
                         atom_model_path=atom_model_pre_trained_path,
-                        atomic_batch_size=ds_atomic_batch_size,
+                        preprocessing_batch_size=ds_atomic_batch_size,
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         split="train",
@@ -1507,7 +1505,7 @@ class dAPNet2Model:
                         m1=ds_m1,
                         m2=ds_m2,
                     ),
-                    dapnet2_module_dataset(
+                    dapnet2_module_dataset_apnetStored(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -1515,7 +1513,7 @@ class dAPNet2Model:
                         max_size=ds_max_size,
                         force_reprocess=fp,
                         atom_model_path=atom_model_pre_trained_path,
-                        atomic_batch_size=ds_atomic_batch_size,
+                        preprocessing_batch_size=ds_atomic_batch_size,
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         split="test",
@@ -2063,10 +2061,7 @@ units angstrom
         self.model(**batch)
         # if False:
         print("Compiling model")
-        torch._dynamo.config.dynamic_shapes = True
-        torch._dynamo.config.capture_dynamic_output_shape_ops = False
-        torch._dynamo.config.capture_scalar_outputs = False
-        # self.model = torch.compile(self.model)
+        self.compile_model()
 
         # (2) Dataloaders
         if train_dataset.prebatched:

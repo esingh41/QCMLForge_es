@@ -82,8 +82,9 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":
         APNet = AtomPairwiseModels.dapnet2.dAPNet2Model
-        apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0).model
-        apnet2_model.return_hidden_states = True
+        # apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0).model
+        apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0)
+        apnet2_model.model.return_hidden_states = True
     else:
         raise ValueError("Invalid Atom Model Type")
     print("Training {}...".format(apnet_model_type))
