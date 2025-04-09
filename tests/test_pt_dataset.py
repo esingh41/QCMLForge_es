@@ -365,6 +365,8 @@ def test_dapnet2_dataset_size_prebatched():
     datapoint_storage_n_objects=8
     prebatched = True
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
+    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+        os.remove(i)
     ds = dapnet2_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -417,7 +419,7 @@ def test_dapnet2_dataset_size_prebatched():
         cnt += i.y.shape[0]
     print("Number of labels in dataset:", cnt)
     ds_labels = len(ds)
-    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elstaug_to_Exchaug_*.pt"):
+    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
         os.remove(i)
     assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
     
@@ -428,6 +430,8 @@ def test_dapnet2_dataset_size_prebatched_train():
     datapoint_storage_n_objects=8
     prebatched = True
     print(am_path)
+    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+        os.remove(i)
     ds = dapnet2_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -473,6 +477,8 @@ def test_dapnet2_dataset_size_prebatched_train():
     dapnet2.train(
         n_epochs=2
     )
+    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+        os.remove(i)
     return
 
 
@@ -708,9 +714,11 @@ def test_ap3_model_train():
 
 
 if __name__ == "__main__":
-    # test_dapnet2_dataset_size_prebatched_train()
+    test_dapnet2_dataset_size_prebatched_train()
+    test_dapnet2_dataset_size_prebatched()
+    test_dapnet2_dataset_size_no_prebatched()
     # test_apnet2_dataset_size_prebatched_train_spec8()
-    test_apnet2_dataset_size_prebatched_train_spec9()
+    # test_apnet2_dataset_size_prebatched_train_spec9()
     
     # test_apnet2_dataset_size_prebatched_train()
     # test_apnet2_dataset_size_no_prebatched()
@@ -718,8 +726,6 @@ if __name__ == "__main__":
     # test_apnet_data_object()
     # test_apnet3_dataset_size_no_prebatched()
     # test_apnet3_dataset_size_prebatched()
-    # test_dapnet2_dataset_size_no_prebatched()
-    # test_dapnet2_dataset_size_prebatched()
     # test_apnet2_model_train()
     # test_atomhirshfeld_model_train()
     # test_ap3_model_train()
