@@ -35,6 +35,19 @@ def clean_str_for_filename(string):
     string = string.replace(' ', '_')
     return string
 
+
+def dapnet2_collate_update_no_target(batch):
+    print(batch)
+    batched_data = Data(
+        # ZA=torch.cat([data.ZA for data in batch], dim=0),
+        h_AB=torch.cat([data.h_AB for data in batch], dim=0),
+        h_BA=torch.cat([data.h_BA for data in batch], dim=0),
+        cutoff=torch.cat([data.cutoff for data in batch], dim=0),
+        dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
+        ndimer=torch.tensor([data.ndimer for data in batch], dtype=torch.long),
+    )
+    return batched_data
+
 class dapnet2_module_dataset(Dataset):
     def __init__(
         self,
@@ -412,6 +425,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
+        self.prebatched = True
         self.filename_methods = clean_str_for_filename(m1) + "_to_" + clean_str_for_filename(m2)
         self.datapoint_storage_n_objects = datapoint_storage_n_objects
         self.batch_size = batch_size
@@ -549,14 +563,12 @@ class dapnet2_module_dataset_apnetStored(Dataset):
                 raw_path, self.MAX_SIZE, return_qcel_mols=True, return_qcel_mons=False,
                 columns=[self.m1, self.m2],
             )
-            values = targets[:, 0] - targets[:, 1]
-            print(values)
+            values = torch.tensor(targets[:, 0] - targets[:, 1], dtype=torch.float32)
             for i in range(0, len(qcel_mols) + len(qcel_mols) % self.batch_size + 1, self.batch_size):
                 upper_bound = min(i + self.batch_size, len(qcel_mols))
                 if len(qcel_mols[i: upper_bound]) == 0:
                     continue
                 target_data.append(values[i: upper_bound])
-                print(f"target_data: {target_data[-1]}")
         datapath = os.path.join(
             self.processed_dir, f"targets_{self.filename_methods}.pt"
         )

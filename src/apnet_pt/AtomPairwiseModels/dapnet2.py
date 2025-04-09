@@ -17,6 +17,7 @@ from ..pairwise_datasets import (
 )
 from ..pt_datasets.dapnet_ds import (
     dapnet2_module_dataset,
+    dapnet2_collate_update_no_target,
 )
 from ..AtomPairwiseModels.apnet2 import (
     APNet2_MPNN,
@@ -240,7 +241,7 @@ class dAPNet2_MPNN(nn.Module):
 class APNet2_dAPNet2Model:
     def __init__(
         self,
-        apnet2_model,
+        apnet2_mpnn,
         dataset=None,
         atom_model=None,
         pre_trained_model_path=None,
@@ -280,7 +281,7 @@ class APNet2_dAPNet2Model:
             print("running on the CPU")
         self.ds_spec_type = ds_spec_type
         self.atom_model = AtomMPNN()
-        self.apnet2_model = apnet2_model
+        self.apnet2_mpnn = apnet2_mpnn
 
         if atom_model_pre_trained_path:
             print(
@@ -317,7 +318,7 @@ class APNet2_dAPNet2Model:
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = APNet2_dAPNet2_MPNN(
-                apnet2_model=apnet2_model,
+                apnet2_model=apnet2_mpnn,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -333,7 +334,7 @@ class APNet2_dAPNet2Model:
         else:
             self.model = APNet2_dAPNet2_MPNN(
                 # atom_model=self.atom_model,
-                apnet2_model=apnet2_model,
+                apnet2_model=apnet2_mpnn,
                 n_message=n_message,
                 n_rbf=n_rbf,
                 n_neuron=n_neuron,
@@ -1545,7 +1546,7 @@ class dAPNet2Model:
         self.model.eval()
         for batch in self.dataset:
             batch = batch.to(self.device)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+            E_sr_dimer = self.eval_fn(
                 batch)
         return
 
@@ -1603,98 +1604,27 @@ class dAPNet2Model:
         r_cut=5.0,
         r_cut_im=8.0,
     ):
-        mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
-        for i in range(0, len(mol_data), batch_size):
-            batch_mol_data = mol_data[i: i + batch_size]
-            data_A = [d[0] for d in batch_mol_data]
-            data_B = [d[1] for d in batch_mol_data]
-            batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
-            batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
-            with torch.no_grad():
-                am_out_A = self.atom_model(
-                    batch_A.x,
-                    batch_A.edge_index,
-                    R=batch_A.R,
-                    molecule_ind=batch_A.molecule_ind,
-                    total_charge=batch_A.total_charge,
-                    natom_per_mol=batch_A.natom_per_mol,
-                )
-                am_out_B = self.atom_model(
-                    batch_B.x,
-                    batch_B.edge_index,
-                    R=batch_B.R,
-                    molecule_ind=batch_B.molecule_ind,
-                    total_charge=batch_B.total_charge,
-                    natom_per_mol=batch_B.natom_per_mol,
-                )
-                qAs, muAs, quadAs, hlistAs = isolate_atomic_property_predictions(
-                    batch_A, am_out_A
-                )
-                qBs, muBs, quadBs, hlistBs = isolate_atomic_property_predictions(
-                    batch_B, am_out_B
-                )
-                if len(batch_A.total_charge.size()) == 0:
-                    batch_A.total_charge = batch_A.total_charge.unsqueeze(0)
-                if len(batch_B.total_charge.size()) == 0:
-                    batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
-                dimer_ls = []
-                for j in range(len(batch_mol_data)):
-                    qA, muA, quadA, hlistA = qAs[j], muAs[j], quadAs[j], hlistAs[j]
-                    qB, muB, quadB, hlistB = qBs[j], muBs[j], quadBs[j], hlistBs[j]
-                    if len(qA.size()) == 0:
-                        qA = qA.unsqueeze(0).unsqueeze(0)
-                    elif len(qA.size()) == 1:
-                        qA = qA.unsqueeze(-1)
-                    if len(qB.size()) == 0:
-                        qB = qB.unsqueeze(0).unsqueeze(0)
-                    elif len(qB.size()) == 1:
-                        qB = qB.unsqueeze(-1)
-                    e_AA_source, e_AA_target = pairwise_edges(
-                        data_A[j].R, r_cut)
-                    e_BB_source, e_BB_target = pairwise_edges(
-                        data_B[j].R, r_cut)
-                    e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                        pairwise_edges_im(
-                            data_A[j].R, data_B[j].R, r_cut_im)
-                    )
-                    dimer_ind = torch.ones((1), dtype=torch.long) * 0
-                    data = Data(
-                        ZA=data_A[j].x,
-                        RA=data_A[j].R,
-                        ZB=data_B[j].x,
-                        RB=data_B[j].R,
-                        # short range, intermolecular edges
-                        e_ABsr_source=e_ABsr_source,
-                        e_ABsr_target=e_ABsr_target,
-                        dimer_ind=dimer_ind,
-                        # long range, intermolecular edges
-                        e_ABlr_source=e_ABlr_source,
-                        e_ABlr_target=e_ABlr_target,
-                        dimer_ind_lr=dimer_ind,
-                        # intramonomer edges (monomer A)
-                        e_AA_source=e_AA_source,
-                        e_AA_target=e_AA_target,
-                        # intramonomer edges (monomer B)
-                        e_BB_source=e_BB_source,
-                        e_BB_target=e_BB_target,
-                        # monomer charges
-                        total_charge_A=data_A[j].total_charge,
-                        total_charge_B=data_B[j].total_charge,
-                        # monomer A properties
-                        qA=qA,
-                        muA=muA,
-                        quadA=quadA,
-                        hlistA=hlistA,
-                        # monomer B properties
-                        qB=qB,
-                        muB=muB,
-                        quadB=quadB,
-                        hlistB=hlistB,
-                    )
-                    dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
-                    dimer_ls
-                )
+        dimers = []
+        for i in range(0, len(mols) + len(mols) % batch_size + 1, batch_size):
+            upper_bound = min(i + batch_size, len(mols))
+            local_mols=mols[i: upper_bound]
+            if len(local_mols) == 0:
+                break
+            _, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = self.apnet2_model.predict_qcel_mols(
+                mols=local_mols,
+                batch_size=batch_size,
+                r_cut=self.apnet2_model.model.r_cut,
+                r_cut_im=self.apnet2_model.model.r_cut_im,
+            )
+            dimer_data = Data(
+                h_AB=h_ABs[0],
+                h_BA=h_BAs[0],
+                cutoff=cutoffs[0],
+                dimer_ind=dimer_inds[0],
+                ndimer=ndimers[0],
+            )
+            dimers.append(dimer_data)
+        dimer_batch = dapnet2_collate_update_no_target(dimers)
         return dimer_batch
 
     @torch.inference_mode()
@@ -1771,13 +1701,10 @@ units angstrom
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+            E_sr_dimer = self.eval_fn(
                 batch)
             preds = E_sr_dimer.flatten()
-            # print(f"{preds=}")
-            # print(f"{batch.y=}")
             comp_errors = preds - batch.y
-            # print(f"{comp_errors=}")
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
@@ -1802,7 +1729,7 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                E_sr_dimer, _, _, _, _, _ = self.eval_fn(batch)
+                E_sr_dimer = self.eval_fn(batch)
                 preds = E_sr_dimer.flatten()
                 try:
                     comp_errors = preds - batch.y
