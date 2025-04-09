@@ -152,13 +152,19 @@ class dAPNet2_MPNN(nn.Module):
             quadB,
             hlistB,
         )
-        # run atom-pair features through a dense net to predict SAPT components
         EAB_sr = self.readout_layer_energy(hAB)
         EBA_sr = self.readout_layer_energy(hBA)
 
         delta_E = EAB_sr + EBA_sr
         delta_E *= cutoff
-        E_output = scatter(delta_E, dimer_ind, dim=0, reduce="sum")
+        E = scatter(delta_E, dimer_ind, dim=0, reduce="sum")
+
+        # Need to ensure that the output is the same size as input dimers
+        ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
+        N_sr, num_cols = E.shape
+        E_expanded = E.new_zeros((ndimer, num_cols))
+        E_expanded[:N_sr] = E
+        E_output = E_expanded
         return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
 
 
@@ -716,7 +722,15 @@ units angstrom
                 batch = batch.to(rank_device, non_blocking=True)
                 E_sr_dimer, _, _, _, _, _ = self.eval_fn(batch)
                 preds = E_sr_dimer.flatten()
-                comp_errors = preds - batch.y
+                try:
+                    comp_errors = preds - batch.y
+                except Exception as e:
+                    print(f"Error in batch {n}: {e}")
+                    print(batch)
+                    print(batch.y)
+                    print(batch.qA)
+                    print(batch.dimer_ind)
+                    raise e
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
@@ -1050,7 +1064,6 @@ units angstrom
             collate_fn = apnet2_collate_update_prebatched
         else:
             collate_fn = apnet2_collate_update
-        print(f"Using collate_fn: {collate_fn}")
         print(f"{num_workers = }")
         train_loader = APNet2_DataLoader(
             dataset=train_dataset,

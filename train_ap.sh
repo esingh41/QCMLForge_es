@@ -20,7 +20,8 @@ python3 -u ./train_models.py \
     --random_seed $iter \
     --lr 5e-4 \
     --ap_model_path ./models/dapnet2/$output_name \
-    --n_epochs 50 \
+    --n_epochs 5 \
     --spec_type_ap 2 \
     --m1 $m1 \
     --m2 $m2 \
+    --data_dir ./data_dir

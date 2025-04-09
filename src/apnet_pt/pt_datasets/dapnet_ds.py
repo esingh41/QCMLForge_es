@@ -358,5 +358,9 @@ class dapnet2_module_dataset(Dataset):
         )
         self.active_data = torch.load(datapath, weights_only=False)
         self.active_data[obj_ind]
+        try:
+            self.active_data[obj_ind]
+        except Exception:
+            print(f"Error loading {datapath}\n  {idx=}, {idx_datapath=}, {obj_ind=}")
         # self.active_idx_data = idx_datapath
         return self.active_data[obj_ind]
