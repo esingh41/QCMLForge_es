@@ -550,9 +550,13 @@ class dapnet2_module_dataset_apnetStored(Dataset):
                 columns=[self.m1, self.m2],
             )
             values = targets[:, 0] - targets[:, 1]
+            print(values)
             for i in range(0, len(qcel_mols) + len(qcel_mols) % self.batch_size + 1, self.batch_size):
                 upper_bound = min(i + self.batch_size, len(qcel_mols))
+                if len(qcel_mols[i: upper_bound]) == 0:
+                    continue
                 target_data.append(values[i: upper_bound])
+                print(f"target_data: {target_data[-1]}")
         datapath = os.path.join(
             self.processed_dir, f"targets_{self.filename_methods}.pt"
         )
@@ -646,6 +650,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         d = torch.load(
             osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
         )
+        # NOTE: final incomplete batch size is counted as full
         return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
 
     def get(self, idx):
@@ -669,5 +674,5 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         except Exception:
             print(f"Error loading targets\n  {idx=}, {idx_datapath=}, {obj_ind=}")
             raise ValueError
-        self.active_data[obj_ind].y = self.target_data[obj_ind]
+        self.active_data[obj_ind].y = self.target_data[idx]
         return self.active_data[obj_ind]
