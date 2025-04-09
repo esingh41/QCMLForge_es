@@ -68,6 +68,8 @@ def dimerdata_to_qcel(RA, RB, ZA, ZB, aQA, aQB):
 
     nA = RA.shape[0]
     nB = RB.shape[0]
+    ZA = [int(z) for z in ZA]
+    ZB = [int(z) for z in ZB]
 
     tQA = int(round(aQA * nA))
     tQB = int(round(aQB * nB))
