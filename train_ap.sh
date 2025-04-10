@@ -23,7 +23,7 @@ python3 -u ./train_models.py \
     --lr 5e-4 \
     --ap_model_path ./models/dapnet2/$output_name \
     --n_epochs 5 \
-    --spec_type_ap 1 \
+    --spec_type_ap 2 \
     --m1 $m1 \
     --m2 $m2 \
     --data_dir ./data_dir

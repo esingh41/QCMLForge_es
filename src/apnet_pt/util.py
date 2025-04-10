@@ -192,6 +192,17 @@ def load_dimer_dataset(
     df = pd.read_pickle(file)
     if len(columns) > 0:
         df.dropna(subset=columns, inplace=True)
+    allowed_elements = constants.z_to_elem.keys()
+    len_df_start = len(df)
+    df = df[
+        df["ZA"].apply(lambda x: all([z in allowed_elements for z in x]))
+    ].copy()
+    df = df[
+        df["ZB"].apply(lambda x: all([z in allowed_elements for z in x]))
+    ].copy()
+    len_df_end = len(df)
+    if len_df_start != len_df_end:
+        print(f"  Removed {len_df_start - len_df_end} rows with invalid elements")
     N = len(df.index)
 
     if max_size is not None and max_size < N:
