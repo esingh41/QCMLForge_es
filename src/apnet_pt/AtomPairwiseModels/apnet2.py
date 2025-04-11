@@ -642,6 +642,7 @@ class APNet2Model:
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
             self.atom_model = atom_model
+        self.atom_model.to(device)
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
@@ -670,6 +671,7 @@ class APNet2Model:
                 r_cut_im=r_cut_im,
                 r_cut=r_cut,
             )
+        self.model.to(device)
         split_dbs = [2, 5, 6, 7]
         self.dataset = dataset
         if (
@@ -956,7 +958,9 @@ class APNet2Model:
             data_A = [d[0] for d in batch_mol_data]
             data_B = [d[1] for d in batch_mol_data]
             batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
+            batch_A.to(self.device)
             batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
+            batch_B.to(self.device)
             with torch.no_grad():
                 am_out_A = self.atom_model(
                     batch_A.x,
