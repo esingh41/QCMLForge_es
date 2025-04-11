@@ -1579,6 +1579,8 @@ units angstrom
                 f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
                 flush=True,
             )
+            if not self.device == "CPU":
+                torch.cuda.empty_cache()
 
     def train(
         self,
@@ -1658,7 +1660,7 @@ units angstrom
         print(f"  {batch_size=}", flush=True)
 
         if self.device.type == "cuda":
-            pin_memory = True
+            pin_memory = False
         else:
             pin_memory = False
 
