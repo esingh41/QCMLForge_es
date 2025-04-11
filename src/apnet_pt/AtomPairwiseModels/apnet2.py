@@ -941,6 +941,7 @@ class APNet2Model:
         batch_size=1,
         r_cut=None,
         r_cut_im=None,
+        verbose=False,
     ):
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -1058,6 +1059,10 @@ class APNet2Model:
                     predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
                 else:
                     predictions[i: i + batch_size] = preds[0].cpu().numpy()
+            if verbose:
+                print(
+                    f"Predictions for {i} to {i + batch_size} out of {len(mol_data)}"
+                )
         if self.model.return_hidden_states:
             return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
         return predictions
