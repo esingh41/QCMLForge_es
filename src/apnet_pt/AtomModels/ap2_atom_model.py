@@ -288,7 +288,7 @@ class AtomMPNN(MessagePassing):
         dipole = torch.zeros(natom, 3, dtype=torch.float32, device=Z.device)
         qpole = torch.zeros(natom, 3, 3, dtype=torch.float32, device=Z.device)
 
-        if edge_index.size(0) == 0:
+        if edge_index.size(1) == 0:
             # need h_list to have the same number of dimensions as the number of message passing layers
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
             h_list = torch.stack(h_list, dim=1)

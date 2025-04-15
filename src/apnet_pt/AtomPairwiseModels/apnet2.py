@@ -847,6 +847,8 @@ class APNet2Model:
             data_B = [d[1] for d in batch_mol_data]
             batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
             batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
+            batch_A.to(self.device)
+            batch_B.to(self.device)
             with torch.no_grad():
                 am_out_A = self.atom_model(
                     batch_A.x,
@@ -953,7 +955,7 @@ class APNet2Model:
         if self.model.return_hidden_states:
             # need to capture output
             h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
-
+        self.model.to(self.device)
         for i in range(0, len(mol_data), batch_size):
             batch_mol_data = mol_data[i: i + batch_size]
             data_A = [d[0] for d in batch_mol_data]
@@ -971,14 +973,18 @@ class APNet2Model:
                     total_charge=batch_A.total_charge,
                     natom_per_mol=batch_A.natom_per_mol,
                 )
-                am_out_B = self.atom_model(
-                    batch_B.x,
-                    batch_B.edge_index,
-                    R=batch_B.R,
-                    molecule_ind=batch_B.molecule_ind,
-                    total_charge=batch_B.total_charge,
-                    natom_per_mol=batch_B.natom_per_mol,
-                )
+                try:
+                    am_out_B = self.atom_model(
+                        batch_B.x,
+                        batch_B.edge_index,
+                        R=batch_B.R,
+                        molecule_ind=batch_B.molecule_ind,
+                        total_charge=batch_B.total_charge,
+                        natom_per_mol=batch_B.natom_per_mol,
+                    )
+                except Exception as e:
+                    print(batch_B, batch_B.edge_index, batch_B.x)
+                    raise e
                 qAs, muAs, quadAs, hlistAs = isolate_atomic_property_predictions(
                     batch_A, am_out_A
                 )
