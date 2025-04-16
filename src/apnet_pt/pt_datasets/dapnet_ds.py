@@ -149,8 +149,8 @@ class dapnet2_module_dataset(Dataset):
             ]
         elif self.spec_type == 2:
             return [
-                "DES370K_b3lyp_255586.pkl",
-                # "DES370K_b3lyp_64.pkl",
+                # "DES370K_b3lyp_255586.pkl",
+                "DES370K_b3lyp_64.pkl",
             ]
         elif self.spec_type == 8:
             return [
@@ -500,9 +500,9 @@ class dapnet2_module_dataset_apnetStored(Dataset):
             ]
         elif self.spec_type == 2:
             return [
-                "DES370K_b3lyp_255586.pkl",
                 # "DES370K_b3lyp_255586.pkl",
-                # "DES370K_b3lyp_64.pkl",
+                # "DES370K_b3lyp_255586.pkl",
+                "DES370K_b3lyp_64.pkl",
             ]
         elif self.spec_type == 8:
             return [
