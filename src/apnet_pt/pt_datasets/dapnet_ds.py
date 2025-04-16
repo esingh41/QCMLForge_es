@@ -150,6 +150,7 @@ class dapnet2_module_dataset(Dataset):
         elif self.spec_type == 2:
             return [
                 "DES370K_b3lyp_255586.pkl",
+                # "DES370K_b3lyp_64.pkl",
             ]
         elif self.spec_type == 8:
             return [
@@ -366,10 +367,9 @@ class dapnet2_module_dataset(Dataset):
         if self.spec_type in [1]:
             split_name = f"_{self.split}"
         datapath = os.path.join(
-            self.processed_dir, f"dimer_dap2{split_name}_spec_{
-                self.spec_type}_{self.filename_methods}_{idx_datapath}.pt"
+            self.processed_dir, f"dimer_dap2{split_name}_spec_{self.spec_type}_{self.filename_methods}_{idx_datapath}.pt"
         )
-        self.active_data = torch.load(datapath, weights_only=False)
+        self.active_data = torch.load(datapath, weights_only=False, map_location='cpu')
         self.active_data[obj_ind]
         try:
             self.active_data[obj_ind]
@@ -481,7 +481,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
             self.process_m1_m2()
         else:
             self.target_data = torch.load(
-                targets_datapath, weights_only=False
+                targets_datapath, weights_only=False, map_location='cpu'
             )
 
     @property
@@ -501,6 +501,8 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         elif self.spec_type == 2:
             return [
                 "DES370K_b3lyp_255586.pkl",
+                # "DES370K_b3lyp_255586.pkl",
+                # "DES370K_b3lyp_64.pkl",
             ]
         elif self.spec_type == 8:
             return [
@@ -675,9 +677,9 @@ class dapnet2_module_dataset_apnetStored(Dataset):
             self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{
                 self.spec_type}_{idx_datapath}.pt"
         )
-        self.active_data = torch.load(datapath, weights_only=False)
+        local_data = torch.load(datapath, weights_only=False, map_location='cpu')
         try:
-            self.active_data[obj_ind]
+            local_data[obj_ind]
         except Exception:
             print(f"Error loading {datapath}\n  {idx=}, {idx_datapath=}, {obj_ind=}")
             raise ValueError
@@ -686,5 +688,6 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         except Exception:
             print(f"Error loading targets\n  {idx=}, {idx_datapath=}, {obj_ind=}")
             raise ValueError
+        self.active_data = local_data
         self.active_data[obj_ind].y = self.target_data[idx]
         return self.active_data[obj_ind]

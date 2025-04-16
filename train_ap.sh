@@ -14,6 +14,7 @@ m1_str="B3LYP-D3_aug-cc-pVDZ_CP"
 m1_str="B3LYP-D3_aug-cc-pVTZ_CP"
 m2_str="CCSD_LP_T_RP_CBS_CP"
 output_name="${m1_str}_to_${m2_str}_${iter}.pt"
+rm -r ./data_dir/processed_delta/
 
 # --ds_max_size 100 \
 python3 -u ./train_models.py \

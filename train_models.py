@@ -137,7 +137,7 @@ def train_pairwise_model(
         omp_num_threads_per_process=omp_num_threads_per_process,
         lr=lr,
         lr_decay=lr_decay,
-        dataloader_num_workers=1,
+        dataloader_num_workers=4,
         random_seed=random_seed,
     )
     return

@@ -445,7 +445,7 @@ class APNet2_dAPNet2Model:
         return
 
     def compile_model(self):
-        self.model.to(self.device)
+        # self.model.to(self.device)
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
