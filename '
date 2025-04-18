@@ -1,0 +1,173 @@
+import os
+
+def create_sbatch_ap2(submit=False):
+    for i in range(0, 5):
+        fn = f"train_ap{i}.sbatch"
+        # os.system(f"cp -r data_dir_ex data_{i}")
+        with open(fn, 'w') as f:
+            f.write(f"""#!/bin/bash
+#SBATCH -JAP2-{i}
+#SBATCH -oAP2-t1-{i}_training.out
+#SBATCH -Agts-cs207-chemx
+#SBATCH --open-mode=append
+#SBATCH -N1 --ntasks=1 --cpus-per-task=8 -G1
+#SBATCH --mem-per-cpu=12G
+#SBATCH -t72:00:00
+#SBATCH -pgpu-a100
+#SBATCH --mail-type=START,END,FAIL
+#SBATCH --mail-user=awallace43@gatech.edu
+
+
+cd /storage/home/hcoda1/3/awallace43/gits/qcmlforge/
+source /storage/home/hcoda1/3/awallace43/p-cs207-0/miniconda/etc/profile.d/conda.sh
+conda activate /storage/home/hcoda1/3/awallace43/p-cs207-0/miniconda/envs/qcml
+
+iter={i}
+echo "
+python3 -u ./train_models.py \\
+    --am_model_path ./src/apnet_pt/models/am_ensemble/am_$iter.pt \
+    --data_dir ./data_$iter \\
+    --data_dir_atom ./data_$iter \\
+    --random_seed $iter \\
+    --train_ap APNet2 \\
+    --ap_model_path ./models/ap2_ensemble/ap2_t1_$iter.pt \\
+    --n_epochs 50 \\
+    --spec_type_ap 2 \\
+    --lr_decay 0.1 \\
+    --lr 0.002
+"
+python3 -u ./train_models.py \\
+    --am_model_path ./src/apnet_pt/models/am_ensemble/am_$iter.pt \
+    --data_dir ./data_$iter \\
+    --data_dir_atom ./data_$iter \\
+    --random_seed $iter \\
+    --train_ap APNet2 \\
+    --ap_model_path ./models/ap2_ensemble/ap2_t1_$iter.pt \\
+    --n_epochs 50 \\
+    --spec_type_ap 2 \\
+    --lr 0.0005
+""")
+    # --lr_decay 0.1 \\
+        if submit:
+            os.system(f'sbatch {fn}')
+
+def create_sbatch_dap2_crystal(submit=False):
+    for i in range(0, 1):
+        fn = f"train_ap{i}.sbatch"
+        # os.system(f"cp -r data_dir_ex data_{i}")
+        with open(fn, 'w') as f:
+            f.write(f"""#!/bin/bash
+#SBATCH -JdAP2-{i}
+#SBATCH -odAP2-t1-{i}_training.out
+#SBATCH -Agts-cs207-chemx
+#SBATCH --open-mode=append
+#SBATCH -N1 --ntasks=1 --cpus-per-task=8 -G1
+#SBATCH --mem-per-cpu=12G
+#SBATCH -t72:00:00
+#SBATCH -pgpu-a100
+#SBATCH --mail-type=START,END,FAIL
+#SBATCH --mail-user=awallace43@gatech.edu
+
+
+cd /storage/home/hcoda1/3/awallace43/gits/qcmlforge/
+source /storage/home/hcoda1/3/awallace43/p-cs207-0/miniconda/etc/profile.d/conda.sh
+conda activate /storage/home/hcoda1/3/awallace43/p-cs207-0/miniconda/envs/qcml
+
+iter={i}
+echo "
+python3 -u ./train_models.py \
+    --train_apnet dAPNet2 \
+    --am_model_path ./models/am_ensemble/am_$iter.pt \
+    --random_seed $iter \
+    --lr 5e-4 \
+    --ap_model_path ./models/dapnet2/$output_name \
+    --n_epochs 50 \
+    --spec_type_ap 2 \
+    --m1 $m1 \
+    --m2 $m2 \
+"
+m1="B3LYP-D3/aug-cc-pVDZ/CP"
+m2="CCSD(T)/CBS/CP"
+m1_str="B3LYP-D3_aug-cc-pVDZ_CP"
+m2_str="CCSD_LP_T_RP_CBS_CP"
+output_name="${{m1_str}}_to_${{m2_str}}_${{iter}}.pt"
+
+python3 -u ./train_models.py \
+    --train_apnet dAPNet2 \
+    --am_model_path ./models/am_ensemble/am_$iter.pt \
+    --random_seed $iter \
+    --lr 5e-4 \
+    --ap_model_path ./models/dapnet2/$output_name \
+    --n_epochs 50 \
+    --spec_type_ap 2 \
+    --m1 $m1 \
+    --m2 $m2 \
+""")
+        if submit:
+            os.system(f'sbatch {fn}')
+
+# SBATCH --open-mode=append
+def create_sbatch(submit=False):
+    for i in range(4, 5):
+        fn = f"train_ap{i}.sbatch"
+        # os.system(f"cp -r data_dir_ex data_{i}")
+        with open(fn, 'w') as f:
+            f.write(f"""#!/bin/bash
+#SBATCH -JAP3-{i}
+#SBATCH -oAP3-t1-{i}_training.out
+#SBATCH -Agts-cs207-chemx
+#SBATCH --open-mode=append
+#SBATCH -N1 --ntasks=1 --cpus-per-task=8 -G1
+#SBATCH --mem-per-cpu=12G
+#SBATCH -t72:00:00
+#SBATCH -pgpu-a100
+#SBATCH --mail-type=START,END,FAIL
+#SBATCH --mail-user=awallace43@gatech.edu
+
+
+cd /storage/home/hcoda1/3/awallace43/gits/qcmlforge/
+source /storage/home/hcoda1/3/awallace43/p-cs207-0/miniconda/etc/profile.d/conda.sh
+conda activate /storage/home/hcoda1/3/awallace43/p-cs207-0/miniconda/envs/qcml
+
+iter={i}
+echo "
+python3 -u ./train_models.py \\
+    --am_model_path ./models/am_hf_ensemble/am_$iter.pt \\
+    --spec_type_am 1 \\
+    --data_dir ./data_$iter \\
+    --data_dir_atom ./data_$iter \\
+    --random_seed $iter \\
+    --lr 5e-5 \\
+    --train_ap APNet3 \\
+    --ap_model_path ./models/ap3_ensemble/ap3_$iter.pt \\
+    --n_epochs 50 \\
+    --spec_type_ap 2 \\
+    # --n_epochs_atom 350 \\
+    # --train_am AtomHirshfeldModel \\
+"
+python3 -u ./train_models.py \\
+    --am_model_path ./models/am_hf_ensemble/am_$iter.pt \\
+    --data_dir ./data_$iter \\
+    --data_dir_atom ./data_$iter \\
+    --random_seed $iter \\
+    --train_ap APNet3 \\
+    --ap_model_path ./models/ap3_ensemble/ap3_t1_$iter.pt \\
+    --n_epochs 50 \\
+    --spec_type_ap 2 \\
+    --lr 5e-5 \\
+    # --lr_decay 0.1 \\
+    # --lr 0.002
+    # --lr 5e-5 \\
+    # --spec_type_am 1 \\
+    # --n_epochs_atom 350 \\
+    # --train_am AtomHirshfeldModel \\
+""")
+    # --lr 2e-3 \\
+    # --lr_decay 0.10
+        if submit:
+            os.system(f'sbatch {fn}')
+
+
+# create_sbatch(True)
+create_sbatch_ap2(True)
+# create_sbatch_dap2_crystal(True)
