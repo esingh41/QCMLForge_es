@@ -1798,6 +1798,7 @@ units angstrom
         print(f"  {self.model.n_embed=}", flush=True)
         print(f"  {self.model.n_rbf=}", flush=True)
         print(f"  {self.model.r_cut=}", flush=True)
+        print(f"  {self.model.r_cut_im=}", flush=True)
         print("\nTraining Hyperparameters:", flush=True)
         print(f"  {n_epochs=}", flush=True)
         print(f"  {lr=}\n", flush=True)

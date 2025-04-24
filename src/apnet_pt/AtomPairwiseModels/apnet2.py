@@ -671,6 +671,24 @@ class APNet2Model:
                 r_cut_im=r_cut_im,
                 r_cut=r_cut,
             )
+        if n_rbf != self.model.n_rbf:
+            print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
+            self.model.n_rbf = n_rbf
+        if n_message != self.model.n_message:
+            print(f"Changing n_message from {self.model.n_message} to {n_message}")
+            self.model.n_message = n_message
+        if n_neuron != self.model.n_neuron:
+            print(f"Changing n_neuron from {self.model.n_neuron} to {n_neuron}")
+            self.model.n_neuron = n_neuron
+        if n_embed != self.model.n_embed:
+            print(f"Changing n_embed from {self.model.n_embed} to {n_embed}")
+            self.model.n_embed = n_embed
+        if r_cut_im != self.model.r_cut_im:
+            print(f"Changing r_cut_im from {self.model.r_cut_im} to {r_cut_im}")
+            self.model.r_cut_im = r_cut_im
+        if r_cut != self.model.r_cut:
+            print(f"Changing r_cut from {self.model.r_cut} to {r_cut}")
+            self.model.r_cut = r_cut
         self.model.to(device)
         split_dbs = [2, 5, 6, 7]
         self.dataset = dataset
@@ -1470,6 +1488,7 @@ units angstrom
         pin_memory,
         num_workers,
         lr_decay=None,
+        skip_compile=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -1478,12 +1497,9 @@ units angstrom
         batch.to(rank_device)
         self.model(**batch)
         # if False:
-        print("Compiling model")
-        torch._dynamo.config.dynamic_shapes = True
-        torch._dynamo.config.capture_dynamic_output_shape_ops = False
-        torch._dynamo.config.capture_scalar_outputs = False
-        self.model = torch.compile(self.model)
-
+        if not skip_compile:
+            print("Compiling model")
+            self.compile_model()
 
         # (2) Dataloaders
         # if self.ds_spec_type in [1, 5, 6]:
@@ -1603,6 +1619,7 @@ units angstrom
         omp_num_threads_per_process=6,
         lr_decay=None,
         random_seed=42,
+        skip_compile=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1657,6 +1674,7 @@ units angstrom
         print(f"  {self.model.n_embed=}", flush=True)
         print(f"  {self.model.n_rbf=}", flush=True)
         print(f"  {self.model.r_cut=}", flush=True)
+        print(f"  {self.model.r_cut_im=}", flush=True)
         print("\nTraining Hyperparameters:", flush=True)
         print(f"  {n_epochs=}", flush=True)
         print(f"  {lr=}\n", flush=True)
@@ -1708,5 +1726,6 @@ units angstrom
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
+                skip_compile=skip_compile,
             )
         return

@@ -71,6 +71,11 @@ def train_pairwise_model(
     lr_decay=None,
     random_seed=42,
     spec_type=2,
+    r_cut_im=8.0,
+    r_cut=5.0,
+    n_rfb=8,
+    n_neuron=128,
+    n_embed=8,
     m1="",
     m2="",
 ):
@@ -83,7 +88,15 @@ def train_pairwise_model(
     elif apnet_model_type == "dAPNet2":
         APNet = AtomPairwiseModels.dapnet2.dAPNet2Model
         # apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0).model
-        apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0)
+        apnet2_model = AtomPairwiseModels.apnet2.APNet2Model(
+            n_rfb=n_rfb,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            r_cut_im=r_cut_im,
+            am_model_path=am_model_path,
+            pre_trained_model_path="./models/dapnet2/ap2_0.pt",
+        )
         apnet2_model.model.return_hidden_states = True
     else:
         raise ValueError("Invalid Atom Model Type")
@@ -106,6 +119,11 @@ def train_pairwise_model(
             apnet2_model=apnet2_model,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
+            n_rfb=n_rfb,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            r_cut_im=r_cut_im,
             ds_spec_type=spec_type,
             ds_root=data_dir,
             ignore_database_null=False,
@@ -121,6 +139,11 @@ def train_pairwise_model(
         apnet2 = APNet(
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
+            n_rfb=n_rfb,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            r_cut_im=r_cut_im,
             ds_spec_type=spec_type,
             ds_root=data_dir,
             ignore_database_null=False,
@@ -259,6 +282,37 @@ def main():
         default="",
         help="specify dAP-Net level of theory 2 (default: '')"
     )
+    args.add_argument(
+        "--r_cut_im",
+        type=float,
+        default=8.0,
+        help="specify AP r_cut_im (default: 8.0)"
+    )
+    args.add_argument(
+        "--r_cut",
+        type=float,
+        default=5.0,
+        help="specify AP r_cut (default: 5.0)"
+    )
+    # create args for n_rfb, n_neuron, n_embed
+    args.add_argument(
+        "--n_rfb",
+        type=int,
+        default=8,
+        help="specify AP n_rfb (default: 8)"
+    )
+    args.add_argument(
+        "--n_neuron",
+        type=int,
+        default=128,
+        help="specify AP n_neuron (default: 128)"
+    )
+    args.add_argument(
+        "--n_embed",
+        type=int,
+        default=8,
+        help="specify AP n_embed (default: 8)"
+    )
     args = args.parse_args()
     pprint(args)
     set_all_seeds(args.random_seed)
@@ -283,6 +337,11 @@ def main():
             lr_decay=args.lr_decay,
             random_seed=args.random_seed,
             spec_type=args.spec_type_ap,
+            r_cut=args.r_cut,
+            r_cut_im=args.r_cut_im,
+            n_rfb=args.n_rfb,
+            n_neuron=args.n_neuron,
+            n_embed=args.n_embed,
             m1=args.m1,
             m2=args.m2,
         )

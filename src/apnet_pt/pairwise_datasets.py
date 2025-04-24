@@ -557,6 +557,7 @@ class apnet2_module_dataset(Dataset):
         max_size=None,
         force_reprocess=False,
         skip_processed=True,
+        skip_compile=False,
         # only need for processing
         atom_model_path="./models/am_apnet2-gpu.pt",
         batch_size=16,
@@ -598,6 +599,7 @@ class apnet2_module_dataset(Dataset):
         self.training_batch_size = batch_size if not prebatched else 1
         self.datapoint_storage_n_objects = datapoint_storage_n_objects
         self.points_per_file = self.datapoint_storage_n_objects
+        self.skip_compile = skip_compile
         if self.prebatched:
             self.points_per_file *= self.batch_size
         if self.prebatched:
@@ -616,10 +618,15 @@ class apnet2_module_dataset(Dataset):
             torch._dynamo.config.dynamic_shapes = True
             torch._dynamo.config.capture_dynamic_output_shape_ops = True
             torch._dynamo.config.capture_scalar_outputs = True
-            self.atom_model.model = torch.compile(
-                self.atom_model.model, dynamic=True)
+            if not skip_compile:
+                self.atom_model.model = torch.compile(
+                    self.atom_model.model, dynamic=True)
         super(apnet2_module_dataset, self).__init__(
             root, transform, pre_transform)
+        if self.force_reprocess:
+            self.force_reprocess = False
+            super(apnet2_module_dataset, self).__init__(
+                root, transform, pre_transform)
         print(
             f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
         )
@@ -975,6 +982,7 @@ class apnet3_module_dataset(Dataset):
         max_size=None,
         force_reprocess=False,
         skip_processed=True,
+        skip_compile=False,
         # only need for processing
         atom_model_path="./models/am_hf_ensemble/am_0.pt",
         batch_size=16,
@@ -1035,11 +1043,16 @@ class apnet3_module_dataset(Dataset):
             torch._dynamo.config.dynamic_shapes = True
             torch._dynamo.config.capture_dynamic_output_shape_ops = True
             torch._dynamo.config.capture_scalar_outputs = True
-            self.atom_model.model = torch.compile(
-                self.atom_model.model, dynamic=True)
+            if not skip_compile:
+                self.atom_model.model = torch.compile(
+                    self.atom_model.model, dynamic=True)
         print(f"{spec_type = }")
         super(apnet3_module_dataset, self).__init__(
             root, transform, pre_transform)
+        if self.force_reprocess:
+            self.force_reprocess = False
+            super(apnet3_module_dataset, self).__init__(
+                root, transform, pre_transform)
         print(
             f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
         )

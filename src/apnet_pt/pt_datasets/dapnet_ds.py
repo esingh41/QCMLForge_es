@@ -117,6 +117,10 @@ class dapnet2_module_dataset(Dataset):
                 self.atom_model.compile_model()
         super(dapnet2_module_dataset, self).__init__(
             root, transform, pre_transform)
+        if self.force_reprocess:
+            self.force_reprocess = False
+            super(dapnet2_module_dataset, self).__init__(
+                root, transform, pre_transform)
         print(
             f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
         )

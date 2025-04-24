@@ -757,7 +757,6 @@ def test_apnet2_model_train():
     ).set_pretrained_model(model_id=0)
     apnet2.train(
         model_path="./models/ap2_test.pt",
-        batch_size=16,
         n_epochs=1,
         world_size=1,
         omp_num_threads_per_process=8,
@@ -766,6 +765,125 @@ def test_apnet2_model_train():
         # lr_decay=None,
     )
     return
+
+def test_apnet2_model_train_small():
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        atom_model_path=am_path,
+        batch_size=2,
+        atomic_batch_size=4,
+        num_devices=1,
+        skip_processed=False,
+        skip_compile=True,
+        split="train",
+    )
+    apnet2 = APNet2Model(
+        dataset=ds,
+        ds_root=data_path,
+        ds_spec_type=spec_type,
+        ds_force_reprocess=False,
+        ignore_database_null=False,
+        ds_atomic_batch_size=4,
+        ds_num_devices=1,
+        ds_skip_process=False,
+        # ds_max_size=10,
+    ).set_pretrained_model(model_id=0)
+    apnet2.train(
+        model_path="./models/ap2_test.pt",
+        n_epochs=1,
+        world_size=1,
+        omp_num_threads_per_process=8,
+        lr=2e-3,
+        lr_decay=0.10,
+        skip_compile=True,
+        # lr_decay=None,
+    )
+    return
+
+
+def test_apnet2_model_train_small_r_cut_im():
+    r_cut_im = 16.0
+    n_rbf=12
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=r_cut_im,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=True,
+        atom_model_path=am_path,
+        batch_size=2,
+        atomic_batch_size=4,
+        num_devices=1,
+        skip_processed=False,
+        skip_compile=True,
+        split="train",
+    )
+    apnet2 = APNet2Model(
+        dataset=ds,
+        ds_root=data_path,
+        ds_spec_type=spec_type,
+        r_cut_im=r_cut_im,
+        n_rbf=n_rbf,
+        ds_force_reprocess=False,
+        ignore_database_null=False,
+        ds_atomic_batch_size=4,
+        ds_num_devices=1,
+        ds_skip_process=False,
+        # ds_max_size=10,
+    )
+    apnet2.train(
+        model_path="./models/ap2_test_r_cut_im.pt",
+        n_epochs=1,
+        world_size=1,
+        omp_num_threads_per_process=8,
+        lr=2e-3,
+        lr_decay=0.10,
+        skip_compile=True,
+        # lr_decay=None,
+    )
+    return
+
+def test_atomhirshfeld_model_train():
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        optimize_for_speed=False,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+    return
+
 
 def test_atomhirshfeld_model_train():
     ds = atomic_datasets.atomic_hirshfeld_module_dataset(
@@ -843,7 +961,7 @@ if __name__ == "__main__":
     # test_apnet2_dataset_size_prebatched_train_spec9()
     # test_dapnet2_dataset_size_prebatched()
     # test_dapnet2_dataset_ap2_stored_size_prebatched()
-    test_dapnet2_dataset_ap2_stored_size_prebatched_train()
+    # test_dapnet2_dataset_ap2_stored_size_prebatched_train()
     # test_apnet2_dataset_size_prebatched_train()
     # test_apnet2_dataset_size_no_prebatched()
 
@@ -853,3 +971,6 @@ if __name__ == "__main__":
     # test_apnet2_model_train()
     # test_atomhirshfeld_model_train()
     # test_ap3_model_train()
+    # test_dapnet2_dataset_size_prebatched_rcut()
+    test_apnet2_model_train_small_r_cut_im()
+    pass

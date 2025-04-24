@@ -80,11 +80,12 @@ def apnet2_model_predict(
     mols: [Molecule],
     compile: bool = True,
     batch_size: int = 16,
+    ensemble_model_dir: str = model_dir,
 ):
     num_models = 5
     ap2 = AtomPairwiseModels.apnet2.APNet2Model(
-        pre_trained_model_path=f"{model_dir}ap2_ensemble/ap2_0.pt",
-        atom_model_pre_trained_path=f"{model_dir}am_ensemble/am_0.pt",
+        pre_trained_model_path=f"{ensemble_model_dir}ap2_ensemble/ap2_0.pt",
+        atom_model_pre_trained_path=f"{ensemble_model_dir}am_ensemble/am_0.pt",
     )
     if compile:
         print("Compiling models...")
@@ -92,8 +93,8 @@ def apnet2_model_predict(
     models = [copy.deepcopy(ap2) for _ in range(num_models)]
     for i in range(1, num_models):
         models[i].set_pretrained_model(
-            ap2_model_path=f"{model_dir}ap2_ensemble/ap2_{i}.pt",
-            am_model_path=f"{model_dir}am_ensemble/am_{i}.pt",
+            ap2_model_path=f"{ensemble_model_dir}ap2_ensemble/ap2_{i}.pt",
+            am_model_path=f"{ensemble_model_dir}am_ensemble/am_{i}.pt",
         )
     pred_IEs = np.zeros((len(mols), 5))
     print("Processing mols...")

@@ -173,22 +173,11 @@ class APNet2_dAPNet2_MPNN(nn.Module):
 class dAPNet2_MPNN(nn.Module):
     def __init__(
         self,
-        n_message=3,
-        n_rbf=8,
         n_neuron=128,
-        n_embed=8,
-        r_cut_im=8.0,
-        r_cut=5.0,
     ):
         super().__init__()
 
-        self.n_message = n_message
-        self.n_rbf = n_rbf
         self.n_neuron = n_neuron
-        self.n_embed = n_embed
-        self.r_cut_im = r_cut_im
-        self.r_cut = r_cut
-
         layer_nodes_readout = [
             # n_embed,
             n_neuron * 2,
@@ -1221,7 +1210,7 @@ units angstrom
 
             print(
                 f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
-                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {star_marker}",
                 flush=True,
             )
 
@@ -1440,12 +1429,7 @@ class dAPNet2Model:
             self.model.load_state_dict(model_state_dict)
         else:
             self.model = dAPNet2_MPNN(
-                n_message=n_message,
-                n_rbf=n_rbf,
                 n_neuron=n_neuron,
-                n_embed=n_embed,
-                r_cut_im=r_cut_im,
-                r_cut=r_cut,
             )
         split_dbs = [1]
         self.dataset = dataset
@@ -2229,6 +2213,7 @@ units angstrom
         print(f"  {self.model.n_embed=}", flush=True)
         print(f"  {self.model.n_rbf=}", flush=True)
         print(f"  {self.model.r_cut=}", flush=True)
+        print(f"  {self.model.r_cut_im=}", flush=True)
         print("\nTraining Hyperparameters:", flush=True)
         print(f"  {n_epochs=}", flush=True)
         print(f"  {lr=}\n", flush=True)
