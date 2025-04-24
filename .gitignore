@@ -192,3 +192,5 @@ tests/test_data_path/processed/dimer_*
 outs/
 run.sh
 data_dir*
+models/ap2_test.pt
+models/ap2_test_r_cut_im.pt
