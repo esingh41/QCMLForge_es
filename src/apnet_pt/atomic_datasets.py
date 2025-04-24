@@ -181,11 +181,6 @@ def atomic_hirshfeld_collate_update(batch):
 
 
 def atomic_collate_update_no_target(batch):
-    """
-    Need to update the edge_index values so that each molecule has a unique
-    set of indices. Then, the data.molecule_ind can be used to group
-    atoms into molecules during a forward pass.
-    """
     current_count = 0
     edge_indices = []
     # print('\nCollating')
@@ -355,7 +350,7 @@ def create_atomic_data(
     edge_index_only=True,
     custom=False,
 ):
-    node_features = np.array(Z)
+    node_features = np.array(Z, dtype=np.int64)
     node_features = torch.tensor(node_features)
     if isinstance(R, np.ndarray):
         R = torch.tensor(R, dtype=torch.float32)

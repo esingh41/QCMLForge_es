@@ -133,6 +133,7 @@ class APNet2_MPNN(nn.Module):
         n_embed=8,
         r_cut_im=8.0,
         r_cut=5.0,
+        return_hidden_states=False,
     ):
         # super().__init__(aggr="add")
         super().__init__()
@@ -144,6 +145,7 @@ class APNet2_MPNN(nn.Module):
         self.n_embed = n_embed
         self.r_cut_im = r_cut_im
         self.r_cut = r_cut
+        self.return_hidden_states = return_hidden_states
 
         layer_nodes_hidden = [
             # input_layer_size,
@@ -572,6 +574,8 @@ class APNet2_MPNN(nn.Module):
         padded[:, :cols] = E_elst_dimer
         E_elst_dimer = padded
         E_output = E_sr_dimer + E_elst_dimer
+        if self.return_hidden_states:
+            return E_output, E_sr_dimer, E_elst_sr_dimer, E_elst_lr_dimer, hAB, hBA, cutoff
         return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
 
 
@@ -597,7 +601,7 @@ class APNet2Model:
         ds_force_reprocess=False,
         ds_skip_process=False,
         ds_num_devices=1,
-        ds_datapoint_storage_n_molecules=1000,
+        ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
         print_lvl=0,
     ):
@@ -638,13 +642,7 @@ class APNet2Model:
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
             self.atom_model = atom_model
-        else:
-            print(
-                """No atom model provided.
-    Assuming atomic multipoles and embeddings are
-    pre-computed and passes as input to the model.
-"""
-            )
+        self.atom_model.to(device)
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
@@ -673,6 +671,25 @@ class APNet2Model:
                 r_cut_im=r_cut_im,
                 r_cut=r_cut,
             )
+        if n_rbf != self.model.n_rbf:
+            print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
+            self.model.n_rbf = n_rbf
+        if n_message != self.model.n_message:
+            print(f"Changing n_message from {self.model.n_message} to {n_message}")
+            self.model.n_message = n_message
+        if n_neuron != self.model.n_neuron:
+            print(f"Changing n_neuron from {self.model.n_neuron} to {n_neuron}")
+            self.model.n_neuron = n_neuron
+        if n_embed != self.model.n_embed:
+            print(f"Changing n_embed from {self.model.n_embed} to {n_embed}")
+            self.model.n_embed = n_embed
+        if r_cut_im != self.model.r_cut_im:
+            print(f"Changing r_cut_im from {self.model.r_cut_im} to {r_cut_im}")
+            self.model.r_cut_im = r_cut_im
+        if r_cut != self.model.r_cut:
+            print(f"Changing r_cut from {self.model.r_cut} to {r_cut}")
+            self.model.r_cut = r_cut
+        self.model.to(device)
         split_dbs = [2, 5, 6, 7]
         self.dataset = dataset
         if (
@@ -693,7 +710,7 @@ class APNet2Model:
                     atomic_batch_size=ds_atomic_batch_size,
                     num_devices=ds_num_devices,
                     skip_processed=ds_skip_process,
-                    datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                    datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                     prebatched=ds_prebatched,
                     print_level=print_lvl,
                 )
@@ -723,7 +740,7 @@ class APNet2Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         split="train",
-                        datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
                     ),
@@ -739,7 +756,7 @@ class APNet2Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         split="test",
-                        datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
                     ),
@@ -848,6 +865,8 @@ class APNet2Model:
             data_B = [d[1] for d in batch_mol_data]
             batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
             batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
+            batch_A.to(self.device)
+            batch_B.to(self.device)
             with torch.no_grad():
                 am_out_A = self.atom_model(
                     batch_A.x,
@@ -940,11 +959,21 @@ class APNet2Model:
         self,
         mols,
         batch_size=1,
-        r_cut=5.0,
-        r_cut_im=8.0,
+        r_cut=None,
+        r_cut_im=None,
+        verbose=False,
     ):
+        if r_cut is None:
+            r_cut = self.model.r_cut
+        if r_cut_im is None:
+            r_cut_im = self.model.r_cut_im
+
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
         predictions = np.zeros((len(mol_data), 4))
+        if self.model.return_hidden_states:
+            # need to capture output
+            h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
+        # self.model.to(self.device)
         for i in range(0, len(mol_data), batch_size):
             batch_mol_data = mol_data[i: i + batch_size]
             data_A = [d[0] for d in batch_mol_data]
@@ -952,6 +981,7 @@ class APNet2Model:
             batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
             batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
             with torch.no_grad():
+                batch_A.to(self.device)
                 am_out_A = self.atom_model(
                     batch_A.x,
                     batch_A.edge_index,
@@ -960,6 +990,7 @@ class APNet2Model:
                     total_charge=batch_A.total_charge,
                     natom_per_mol=batch_A.natom_per_mol,
                 )
+                batch_B.to(self.device)
                 am_out_B = self.atom_model(
                     batch_B.x,
                     batch_B.edge_index,
@@ -1036,9 +1067,24 @@ class APNet2Model:
                 dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
                     dimer_ls
                 )
-                dimer_batch.to(self.device)
+                dimer_batch.to(device=self.device)
                 preds = self.eval_fn(dimer_batch)
-                predictions[i: i + batch_size] = preds[0].cpu().numpy()
+                if self.model.return_hidden_states:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA, cutoff = preds
+                    h_ABs.append(hAB)
+                    h_BAs.append(hBA)
+                    cutoffs.append(cutoff)
+                    dimer_inds.append(dimer_batch.dimer_ind)
+                    ndimers.append(torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long))
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                else:
+                    predictions[i: i + batch_size] = preds[0].cpu().numpy()
+            if verbose:
+                print(
+                    f"Predictions for {i} to {i + batch_size} out of {len(mol_data)}"
+                )
+        if self.model.return_hidden_states:
+            return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
         return predictions
 
     def example_input(self):
@@ -1442,6 +1488,7 @@ units angstrom
         pin_memory,
         num_workers,
         lr_decay=None,
+        skip_compile=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -1449,22 +1496,16 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
-        # if False:
-        print("Compiling model")
-        torch._dynamo.config.dynamic_shapes = True
-        torch._dynamo.config.capture_dynamic_output_shape_ops = False
-        torch._dynamo.config.capture_scalar_outputs = False
-        self.model = torch.compile(self.model)
+        if not skip_compile:
+            print("Compiling model")
+            self.compile_model()
 
         # (2) Dataloaders
-        if self.ds_spec_type in [1, 5, 6]:
-            from .pairwise_datasets import apnet2_collate_update
-
-            collate_fn = apnet2_collate_update
-        else:
+        # if self.ds_spec_type in [1, 5, 6]:
+        if train_dataset.prebatched:
             collate_fn = apnet2_collate_update_prebatched
-            print("Using default collate_fn")
-            print(f"{batch_size = }")
+        else:
+            collate_fn = apnet2_collate_update
         train_loader = APNet2_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1560,12 +1601,13 @@ units angstrom
                 f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
                 flush=True,
             )
+            if not self.device == "CPU":
+                torch.cuda.empty_cache()
 
     def train(
         self,
         dataset=None,
         n_epochs=50,
-        batch_size=16,
         lr=5e-4,
         split_percent=0.9,
         model_path=None,
@@ -1576,6 +1618,7 @@ units angstrom
         omp_num_threads_per_process=6,
         lr_decay=None,
         random_seed=42,
+        skip_compile=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1588,11 +1631,10 @@ units angstrom
             self.dataset = dataset
         if self.dataset is None:
             raise ValueError("No dataset provided")
-        self.batch_size = batch_size
         np.random.seed(random_seed)
         self.model_save_path = model_path
         print(f"Saving training results to...\n{model_path}")
-        if self.ds_spec_type in [2, 6, 7]:
+        if isinstance(self.dataset, list):
             train_dataset = self.dataset[0]
             if shuffle:
                 order_indices = np.random.permutation(len(train_dataset))
@@ -1606,6 +1648,7 @@ units angstrom
             else:
                 order_indices = [i for i in range(len(test_dataset))]
             test_dataset = test_dataset[order_indices]
+            batch_size = train_dataset.training_batch_size
         else:
             if shuffle:
                 order_indices = np.random.permutation(len(self.dataset))
@@ -1617,7 +1660,9 @@ units angstrom
                 len(self.dataset) * split_percent):]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
+            batch_size = train_dataset.training_batch_size
 
+        self.batch_size = batch_size
         print("~~ Training APNet2Model ~~", flush=True)
         print(
             f"    Training on {len(train_dataset)} samples, Testing on {len(test_dataset)} samples"
@@ -1628,6 +1673,7 @@ units angstrom
         print(f"  {self.model.n_embed=}", flush=True)
         print(f"  {self.model.n_rbf=}", flush=True)
         print(f"  {self.model.r_cut=}", flush=True)
+        print(f"  {self.model.r_cut_im=}", flush=True)
         print("\nTraining Hyperparameters:", flush=True)
         print(f"  {n_epochs=}", flush=True)
         print(f"  {lr=}\n", flush=True)
@@ -1638,7 +1684,7 @@ units angstrom
         print(f"  {batch_size=}", flush=True)
 
         if self.device.type == "cuda":
-            pin_memory = True
+            pin_memory = False
         else:
             pin_memory = False
 
@@ -1679,5 +1725,6 @@ units angstrom
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
+                skip_compile=skip_compile,
             )
         return

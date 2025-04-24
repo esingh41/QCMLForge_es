@@ -746,7 +746,7 @@ class APNet3Model:
         ds_force_reprocess=False,
         ds_skip_process=False,
         ds_num_devices=1,
-        ds_datapoint_storage_n_molecules=1000,
+        ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
         print_lvl=0,
     ):
@@ -840,7 +840,7 @@ class APNet3Model:
                     atomic_batch_size=ds_atomic_batch_size,
                     num_devices=ds_num_devices,
                     skip_processed=ds_skip_process,
-                    datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                    datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                     prebatched=ds_prebatched,
                     print_level=print_lvl,
                 )
@@ -870,7 +870,7 @@ class APNet3Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         split="train",
-                        datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
                     ),
@@ -886,7 +886,7 @@ class APNet3Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         split="test",
-                        datapoint_storage_n_molecules=ds_datapoint_storage_n_molecules,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
                     ),
@@ -1683,6 +1683,7 @@ units angstrom
         pin_memory,
         num_workers,
         lr_decay=None,
+        skip_compile=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -1690,25 +1691,15 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
-        # TODO: remove this after exch and induction
-        # debugging
-        # return
-        # if False:
-        print("Compiling model")
-        torch._dynamo.config.dynamic_shapes = True
-        torch._dynamo.config.capture_dynamic_output_shape_ops = False
-        torch._dynamo.config.capture_scalar_outputs = False
-        self.model = torch.compile(self.model)
+        if not skip_compile:
+            print("Compiling model")
+            self.compile_model()
 
         # (2) Dataloaders
-        if self.ds_spec_type in [1, 5, 6]:
-            from .pairwise_datasets import apnet3_collate_update
-
-            collate_fn = apnet3_collate_update
-        else:
+        if train_dataset.prebatched:
             collate_fn = apnet3_collate_update_prebatched
-            print("Using default collate_fn")
-            print(f"{batch_size = }")
+        else:
+            collate_fn = apnet3_collate_update
         train_loader = APNet2_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1806,7 +1797,6 @@ units angstrom
         self,
         dataset=None,
         n_epochs=50,
-        batch_size=16,
         lr=5e-4,
         split_percent=0.9,
         model_path=None,
@@ -1817,6 +1807,7 @@ units angstrom
         omp_num_threads_per_process=6,
         lr_decay=None,
         random_seed=42,
+        skip_compile=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1829,11 +1820,10 @@ units angstrom
             self.dataset = dataset
         if self.dataset is None:
             raise ValueError("No dataset provided")
-        self.batch_size = batch_size
         np.random.seed(random_seed)
         self.model_save_path = model_path
         print(f"Saving training results to...\n{model_path}")
-        if self.ds_spec_type in [2, 6, 7]:
+        if isinstance(self.dataset, list):
             train_dataset = self.dataset[0]
             if shuffle:
                 order_indices = np.random.permutation(len(train_dataset))
@@ -1847,6 +1837,7 @@ units angstrom
             else:
                 order_indices = [i for i in range(len(test_dataset))]
             test_dataset = test_dataset[order_indices]
+            batch_size = train_dataset.training_batch_size
         else:
             if shuffle:
                 order_indices = np.random.permutation(len(self.dataset))
@@ -1856,6 +1847,9 @@ units angstrom
             test_indices = order_indices[int(len(self.dataset) * split_percent) :]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
+            batch_size = train_dataset.training_batch_size
+
+        self.batch_size = batch_size
 
         print("~~ Training APNet2Model ~~", flush=True)
         print(
@@ -1867,6 +1861,7 @@ units angstrom
         print(f"  {self.model.n_embed=}", flush=True)
         print(f"  {self.model.n_rbf=}", flush=True)
         print(f"  {self.model.r_cut=}", flush=True)
+        print(f"  {self.model.r_cut_im=}", flush=True)
         print("\nTraining Hyperparameters:", flush=True)
         print(f"  {n_epochs=}", flush=True)
         print(f"  {lr=}\n", flush=True)
@@ -1918,5 +1913,6 @@ units angstrom
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
+                skip_compile=skip_compile,
             )
         return

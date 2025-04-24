@@ -14,3 +14,4 @@ from . import AtomPairwiseModels
 from . import AtomModels
 from .pretrained_models import atom_model_predict
 from . import classical_induction
+from . import pt_datasets
