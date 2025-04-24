@@ -1616,6 +1616,7 @@ units angstrom
         pin_memory,
         num_workers,
         lr_decay=None,
+        skip_compile=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -1623,15 +1624,9 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
-        # TODO: remove this after exch and induction
-        # debugging
-        # return
-        # if False:
-        print("Compiling model")
-        torch._dynamo.config.dynamic_shapes = True
-        torch._dynamo.config.capture_dynamic_output_shape_ops = False
-        torch._dynamo.config.capture_scalar_outputs = False
-        self.model = torch.compile(self.model)
+        if not skip_compile:
+            print("Compiling model")
+            self.compile_model()
 
         # (2) Dataloaders
         if train_dataset.prebatched:
@@ -1745,6 +1740,7 @@ units angstrom
         omp_num_threads_per_process=6,
         lr_decay=None,
         random_seed=42,
+        skip_compile=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1774,7 +1770,7 @@ units angstrom
             else:
                 order_indices = [i for i in range(len(test_dataset))]
             test_dataset = test_dataset[order_indices]
-            batch_size = train_dataset.train_batch_size
+            batch_size = train_dataset.training_batch_size
         else:
             if shuffle:
                 order_indices = np.random.permutation(len(self.dataset))
@@ -1784,7 +1780,7 @@ units angstrom
             test_indices = order_indices[int(len(self.dataset) * split_percent) :]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
-            batch_size = train_dataset.train_batch_size
+            batch_size = train_dataset.training_batch_size
 
         self.batch_size = batch_size
 
@@ -1850,5 +1846,6 @@ units angstrom
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
+                skip_compile=skip_compile,
             )
         return

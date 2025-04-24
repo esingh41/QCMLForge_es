@@ -1496,7 +1496,6 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
-        # if False:
         if not skip_compile:
             print("Compiling model")
             self.compile_model()

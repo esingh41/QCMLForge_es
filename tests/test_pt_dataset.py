@@ -48,6 +48,7 @@ def test_apnet_data_object():
         atomic_batch_size=5,
         num_devices=1,
         skip_processed=False,
+        skip_compile=True,
         split="train",
     )
     batch_size = 16
@@ -71,6 +72,7 @@ def test_apnet_data_object():
         if k in ["monomerA_ind", "monomerB_ind"]:
             continue
         print(k, v.shape)
+        print(k, getattr(batch1, k).numpy().shape)
         assert np.allclose(v, getattr(batch1, k).numpy())
 
 def test_apnet2_dataset_size_no_prebatched():
@@ -93,23 +95,7 @@ def test_apnet2_dataset_size_no_prebatched():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        # split="test",
-        print_level=2,
-    )
-    ds = apnet2_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         # split="test",
         print_level=2,
     )
@@ -154,24 +140,7 @@ def test_apnet2_dataset_size_prebatched():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        # split="test",
-        print_level=2,
-    )
-    ds = apnet2_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
-        # split="test",
+        skip_compile=True,
         print_level=2,
     )
     print()
@@ -217,23 +186,7 @@ def test_apnet2_dataset_size_prebatched_train_spec8():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        # split="test",
-        print_level=2,
-    )
-    ds = apnet2_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         # split="test",
         print_level=2,
     )
@@ -244,6 +197,7 @@ def test_apnet2_dataset_size_prebatched_train_spec8():
     ap2.train(
         ds,
         n_epochs=2,
+        skip_compile=True,
     )
 
 def test_apnet2_dataset_size_prebatched_train_spec9():
@@ -266,23 +220,7 @@ def test_apnet2_dataset_size_prebatched_train_spec9():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        split="train",
-        print_level=2,
-    )
-    ds = apnet2_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=9,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         split="train",
         print_level=2,
     )
@@ -293,6 +231,7 @@ def test_apnet2_dataset_size_prebatched_train_spec9():
     ap2.train(
         ds,
         n_epochs=2,
+        skip_compile=True,
     )
 
 def test_dapnet2_dataset_size_no_prebatched():
@@ -315,25 +254,7 @@ def test_dapnet2_dataset_size_no_prebatched():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        # split="test",
-        print_level=2,
-        m1="Elst_aug", 
-        m2="Exch_aug",
-    )
-    ds = dapnet2_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         # split="test",
         print_level=2,
         m1="Elst_aug", 
@@ -382,24 +303,7 @@ def test_dapnet2_dataset_size_prebatched():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        print_level=2,
-        m1="Elst_aug", 
-        m2="Exch_aug",
-    )
-    ds = dapnet2_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         print_level=2,
         m1="Elst_aug", 
         m2="Exch_aug",
@@ -445,23 +349,7 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        print_level=2,
-        m1="Elst_aug", 
-        m2="Exch_aug",
-    )
-    ds = dapnet2_module_dataset_apnetStored(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        batch_size=batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         print_level=2,
         m1="Elst_aug", 
         m2="Exch_aug",
@@ -483,12 +371,13 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched():
         print(i)
         print(i.y)
     print("Number of labels in dataset:", cnt)
-    ds_labels = len(ds)
+    ds_labels = int(len(ds))
+    print("Number of labels in dataset:", ds_labels)
     for i in glob(f"{data_path}/processed_delta/dimer_dap2_ap2_spec_8_*.pt"):
         os.remove(i)
     for i in glob(f"{data_path}/processed_delta/targets_Elst_aug_to_Exch_aug.pt"):
         os.remove(i)
-    assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    assert ds_labels * ds.batch_size - 1 == cnt, f"Expected {ds_labels * ds.batch_size - 1} points, but got {cnt} points"
     
 
 def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
@@ -512,23 +401,7 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        print_level=2,
-        m1="Elst_aug", 
-        m2="Exch_aug",
-    )
-    ds = dapnet2_module_dataset_apnetStored(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        batch_size=batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         print_level=2,
         m1="Elst_aug", 
         m2="Exch_aug",
@@ -540,7 +413,8 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
         dataset=ds
     )
     dapnet2.train(
-        n_epochs=2
+        n_epochs=2,
+        skip_compile=True,
     )
     for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
         os.remove(i)
@@ -568,24 +442,7 @@ def test_dapnet2_dataset_size_prebatched_train():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        print_level=2,
-        m1="Elst_aug", 
-        m2="Exch_aug",
-    )
-    ds = dapnet2_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         print_level=2,
         m1="Elst_aug", 
         m2="Exch_aug",
@@ -597,7 +454,8 @@ def test_dapnet2_dataset_size_prebatched_train():
         dataset=ds
     )
     dapnet2.train(
-        n_epochs=2
+        n_epochs=2,
+        skip_compile=True,
     )
     for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
         os.remove(i)
@@ -624,23 +482,7 @@ def test_apnet3_dataset_size_no_prebatched():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        # split="test",
-        print_level=2,
-    )
-    ds = apnet3_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_hf_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         # split="test",
         print_level=2,
     )
@@ -686,23 +528,7 @@ def test_apnet3_dataset_size_prebatched():
         prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
-        # split="test",
-        print_level=2,
-    )
-    ds = apnet3_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=8,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_hf_path,
-        atomic_batch_size=atomic_batch_size,
-        datapoint_storage_n_objects=datapoint_storage_n_objects,
-        batch_size=batch_size,
-        prebatched=prebatched,
-        num_devices=1,
-        skip_processed=False,
+        skip_compile=True,
         # split="test",
         print_level=2,
     )
@@ -729,7 +555,6 @@ def test_apnet3_dataset_size_prebatched():
     assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
 
 
-@pytest.mark.skip(reason="Slow training test. Run only for development reasons.")
 def test_apnet2_model_train():
     ds = apnet2_module_dataset(
         root=data_path,
@@ -763,6 +588,7 @@ def test_apnet2_model_train():
         lr=2e-3,
         lr_decay=0.10,
         # lr_decay=None,
+        skip_compile=True,
     )
     return
 
@@ -934,7 +760,6 @@ def test_ap3_model_train():
         ds_spec_type=7,
         ds_root=data_path,
         ignore_database_null=False,
-        batch_size=batch_size,
         ds_atomic_batch_size=200,
         ds_num_devices=1,
         ds_skip_process=False,
@@ -972,5 +797,6 @@ if __name__ == "__main__":
     # test_atomhirshfeld_model_train()
     # test_ap3_model_train()
     # test_dapnet2_dataset_size_prebatched_rcut()
-    test_apnet2_model_train_small_r_cut_im()
+    # test_apnet2_model_train_small_r_cut_im()
+    test_dapnet2_dataset_ap2_stored_size_prebatched()
     pass

@@ -1105,6 +1105,7 @@ units angstrom
         pin_memory,
         num_workers,
         lr_decay=None,
+        skip_compile=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -1112,9 +1113,9 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
-        # if False:
-        print("Compiling model")
-        self.compile_model()
+        if not skip_compile:
+            print("Compiling model")
+            self.compile_model()
 
         # (2) Dataloaders
         if train_dataset.prebatched:
@@ -1228,6 +1229,7 @@ units angstrom
         omp_num_threads_per_process=6,
         lr_decay=None,
         random_seed=42,
+        skip_compile=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1415,12 +1417,7 @@ class dAPNet2Model:
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = dAPNet2_MPNN(
-                n_message=checkpoint["config"]["n_message"],
-                n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
-                n_embed=checkpoint["config"]["n_embed"],
-                r_cut_im=checkpoint["config"]["r_cut_im"],
-                r_cut=checkpoint["config"]["r_cut"],
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -1999,12 +1996,7 @@ units angstrom
                             {
                                 "model_state_dict": cpu_model.state_dict(),
                                 "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
                                     "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut_im": cpu_model.r_cut_im,
-                                    "r_cut": cpu_model.r_cut,
                                 },
                             },
                             self.model_save_path,
@@ -2036,6 +2028,7 @@ units angstrom
         pin_memory,
         num_workers,
         lr_decay=None,
+        skip_compile=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -2044,8 +2037,9 @@ units angstrom
         batch.to(rank_device)
         self.model(**batch)
         # if False:
-        print("Compiling model")
-        self.compile_model()
+        if not skip_compile:
+            print("Compiling model")
+            self.compile_model()
 
         # (2) Dataloaders
         if train_dataset.prebatched:
@@ -2127,12 +2121,7 @@ units angstrom
                         {
                             "model_state_dict": cpu_model.state_dict(),
                             "config": {
-                                "n_message": cpu_model.n_message,
-                                "n_rbf": cpu_model.n_rbf,
                                 "n_neuron": cpu_model.n_neuron,
-                                "n_embed": cpu_model.n_embed,
-                                "r_cut_im": cpu_model.r_cut_im,
-                                "r_cut": cpu_model.r_cut,
                             },
                         },
                         self.model_save_path,
@@ -2159,6 +2148,7 @@ units angstrom
         omp_num_threads_per_process=6,
         lr_decay=None,
         random_seed=42,
+        skip_compile=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -2208,12 +2198,7 @@ units angstrom
             f"    Training on {len(train_dataset)} samples, Testing on {len(test_dataset)} samples"
         )
         print("\nNetwork Hyperparameters:", flush=True)
-        print(f"  {self.model.n_message=}", flush=True)
         print(f"  {self.model.n_neuron=}", flush=True)
-        print(f"  {self.model.n_embed=}", flush=True)
-        print(f"  {self.model.n_rbf=}", flush=True)
-        print(f"  {self.model.r_cut=}", flush=True)
-        print(f"  {self.model.r_cut_im=}", flush=True)
         print("\nTraining Hyperparameters:", flush=True)
         print(f"  {n_epochs=}", flush=True)
         print(f"  {lr=}\n", flush=True)
