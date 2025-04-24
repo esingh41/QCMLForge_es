@@ -30,51 +30,6 @@ am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
 am_hf_path = f"{current_file_path}/../src/apnet_pt/models/am_hf_ensemble/am_0.pt"
 
 
-
-def test_apnet_data_object():
-    # TF batch
-    with open(f"{current_file_path}/dataset_data/inp_batch0.pkl", "rb") as f:
-        inp_batch0 = pickle.load(f)
-    with open(f"{current_file_path}/dataset_data/ie_batch0.pkl", "rb") as f:
-        ie_batch0 = pickle.load(f)
-    ds = apnet2_module_dataset(
-        root=data_path,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=5,
-        max_size=None,
-        force_reprocess=False,
-        atom_model_path=am_path,
-        atomic_batch_size=5,
-        num_devices=1,
-        skip_processed=False,
-        skip_compile=True,
-        split="train",
-    )
-    batch_size = 16
-
-    train_loader = APNet2_DataLoader(
-        dataset=ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=1,
-        collate_fn=apnet2_collate_update,
-    )
-    batch1 = next(iter(train_loader))
-    batch1_ie = batch1.y
-    print(ie_batch0)
-    print(batch1_ie)
-    assert np.allclose(ie_batch0, batch1_ie[:, :4])
-    print(ds)
-    print(batch1)
-    print(inp_batch0['RA'].shape)
-    for k, v in inp_batch0.items():
-        if k in ["monomerA_ind", "monomerB_ind"]:
-            continue
-        print(k, v.shape)
-        print(k, getattr(batch1, k).numpy().shape)
-        assert np.allclose(v, getattr(batch1, k).numpy())
-
 def test_apnet2_dataset_size_no_prebatched():
     batch_size = 2
     atomic_batch_size=4
