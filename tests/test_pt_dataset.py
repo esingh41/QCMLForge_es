@@ -747,14 +747,14 @@ def test_atomhirshfeld_model_train():
     return
 
 
+@pytest.mark.skip(reason="Skip this test for large ap3 dataset")
 def test_ap3_model_train():
-    APNet = AtomPairwiseModels.apnet3.APNet3Model
     world_size = 1
     print("World Size", world_size)
 
     batch_size = 16
     omp_num_threads_per_process = 8
-    apnet2 = APNet(
+    apnet3 = AtomPairwiseModels.apnet3.APNet3Model(
         atom_model_pre_trained_path="./models/am_hf_ensemble/am_4.pt",
         pre_trained_model_path=None,
         ds_spec_type=7,
@@ -766,30 +766,19 @@ def test_ap3_model_train():
         ds_datapoint_storage_n_objects=batch_size,
         ds_prebatched=True,
     )
-    apnet2.train(
+    apnet3.train(
         model_path="./ap3_test.pt",
         n_epochs=5,
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads_per_process,
         lr=5e-4,
-        # lr_decay=lr_decay,
         dataloader_num_workers=4,
         random_seed=4,
+        skip_compile=True,
     )
 
 
 if __name__ == "__main__":
-    # test_dapnet2_dataset_size_prebatched_train()
-    # test_dapnet2_dataset_size_prebatched()
-    # test_dapnet2_dataset_size_no_prebatched()
-    # test_apnet2_dataset_size_prebatched_train_spec8()
-    # test_apnet2_dataset_size_prebatched_train_spec9()
-    # test_dapnet2_dataset_size_prebatched()
-    # test_dapnet2_dataset_ap2_stored_size_prebatched()
-    # test_dapnet2_dataset_ap2_stored_size_prebatched_train()
-    # test_apnet2_dataset_size_prebatched_train()
-    # test_apnet2_dataset_size_no_prebatched()
-
     # test_apnet_data_object()
     # test_apnet3_dataset_size_no_prebatched()
     # test_apnet3_dataset_size_prebatched()
