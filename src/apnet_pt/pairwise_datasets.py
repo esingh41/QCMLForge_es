@@ -689,14 +689,11 @@ class apnet2_module_dataset(Dataset):
             return ["file"]
         else:
             if self.split == "train":
-                file_cmd = f"{
-                    self.root}/processed/dimer_ap2_train_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.root}/processed/dimer_ap2_train_spec_{self.spec_type}_*.pt"
             elif self.split == "test":
-                file_cmd = f"{
-                    self.root}/processed/dimer_ap2_test_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.root}/processed/dimer_ap2_test_spec_{self.spec_type}_*.pt"
             else:
-                file_cmd = f"{
-                    self.root}/processed/dimer_ap2_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.root}/processed/dimer_ap2_spec_{self.spec_type}_*.pt"
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]
             if len(spec_files) > 0:
@@ -958,8 +955,7 @@ class apnet2_module_dataset(Dataset):
         if self.spec_type in [2, 5, 6, 7, 9]:
             split_name = f"_{self.split}"
         datapath = osp.join(
-            self.processed_dir, f"dimer_ap2{split_name}_spec_{
-                self.spec_type}_{idx_datapath}.pt"
+            self.processed_dir, f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
         )
         self.active_data = torch.load(datapath, weights_only=False)
         try:
@@ -1108,14 +1104,11 @@ class apnet3_module_dataset(Dataset):
             return ["file"]
         else:
             if self.split == "train":
-                file_cmd = f"{
-                    self.root}/processed/dimer_ap3_train_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.root}/processed/dimer_ap3_train_spec_{self.spec_type}_*.pt"
             elif self.split == "test":
-                file_cmd = f"{
-                    self.root}/processed/dimer_ap3_test_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.root}/processed/dimer_ap3_test_spec_{self.spec_type}_*.pt"
             else:
-                file_cmd = f"{
-                    self.root}/processed/dimer_ap3_spec_{self.spec_type}_*.pt"
+                file_cmd = f"{self.root}/processed/dimer_ap3_spec_{self.spec_type}_*.pt"
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]
             if len(spec_files) > 0:
@@ -1214,8 +1207,7 @@ class apnet3_module_dataset(Dataset):
                 if self.skip_processed:
                     datapath = osp.join(
                         self.processed_dir,
-                        f"dimer{split_name}_spec_{self.spec_type}_{
-                            idx // self.datapoint_storage_n_objects}.pt",
+                        f"dimer{split_name}_spec_{self.spec_type}_{idx // self.datapoint_storage_n_objects}.pt",
                     )
                     if osp.exists(datapath):
                         idx += 1
@@ -1397,8 +1389,7 @@ class apnet3_module_dataset(Dataset):
         if self.spec_type in [2, 5, 6, 7]:
             split_name = f"_{self.split}"
         datapath = osp.join(
-            self.processed_dir, f"dimer_ap3{split_name}_spec_{
-                self.spec_type}_{idx_datapath}.pt"
+            self.processed_dir, f"dimer_ap3{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
         )
         self.active_data = torch.load(datapath, weights_only=False)
         try:
