@@ -642,8 +642,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
                     if self.spec_type in [1]:
                         split_name = f"_{self.split}"
                     datapath = os.path.join(
-                        self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{
-                            self.spec_type}_{idx_datapath}.pt"
+                        self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
                     )
                     if self.print_level >= 2:
                         print(f"Saving to {datapath}")
@@ -660,8 +659,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
             if self.spec_type in [1]:
                 split_name = f"_{self.split}"
             datapath = os.path.join(
-                self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{
-                    self.spec_type}_{idx_datapath}.pt"
+                self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
             )
             if self.print_level >= 2:
                 print(f"Saving to {datapath}")
@@ -683,8 +681,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         if self.spec_type in [1]:
             split_name = f"_{self.split}"
         datapath = os.path.join(
-            self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{
-                self.spec_type}_{idx_datapath}.pt"
+            self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
         )
         local_data = torch.load(datapath, weights_only=False, map_location='cpu')
         try:
