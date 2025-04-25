@@ -23,6 +23,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
+from importlib import resources
 
 file_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -795,8 +796,10 @@ class APNet2Model:
 
     def set_pretrained_model(self, ap2_model_path=None, am_model_path=None, model_id=None):
         if model_id is not None:
-            am_model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
-            ap2_model_path = f"{file_dir}/../models/ap2_ensemble/ap2_{model_id}.pt"
+            # am_model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
+            # ap2_model_path = f"{file_dir}/../models/ap2_ensemble/ap2_{model_id}.pt"
+            am_model_path = resources.files('apnet_pt').joinpath("models", "am_ensemble", f"am_{model_id}.pt")
+            ap2_model_path = resources.files('apnet_pt').joinpath("models", "ap2_ensemble", f"ap2_{model_id}.pt")
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 

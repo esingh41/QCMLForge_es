@@ -19,12 +19,13 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import os
+from importlib import resources
 
 warnings.filterwarnings("ignore")
 
 max_Z = 118  # largest atomic number
 
-file_dir = os.path.dirname(os.path.realpath(__file__))
+# file_dir = os.path.dirname(os.path.realpath(__file__))
 
 
 def unsorted_segment_sum_2d(data, segment_ids, num_segments):
@@ -514,7 +515,8 @@ class AtomModel:
 
     def set_pretrained_model(self, model_path=None, model_id=None):
         if model_id is not None:
-            model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
+            # model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
+            model_path = resources.files("apnet_pt").joinpath("models", "am_ensemble", f"am_{model_id}.pt")
         elif model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 

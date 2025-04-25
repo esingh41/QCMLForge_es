@@ -24,11 +24,13 @@ from pathlib import Path
 from math import ceil
 
 import pandas as pd
+from importlib import resources
 
 current_file_path = str(Path(__file__).parent)
 
 libmbd_vwd_params = pd.read_csv(
-    osp.join(current_file_path, "data", "vdw-params.csv"),
+    # osp.join(current_file_path, "data", "vdw-params.csv"),
+    resources.files("apnet_pt",).joinpath("data", "vdw-params.csv"),
     header=0,
     index_col=0,
     sep=",",

@@ -1,0 +1,2 @@
+recursive-include src/apnet_pt/data *
+recursive-include src/apnet_pt/models *
