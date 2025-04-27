@@ -16,9 +16,9 @@ python3 -u ./train_models.py \
     --lr 5e-5 \
     --ap_model_path ./models/dapnet2/ap2_$iter.pt \
     --n_epochs 1 \
-    --ds_max_size 100 \
     --r_cut_im 16.0 \
     --data_dir ./data_dir_dapnet
+    # --ds_max_size 100 \
 
 m1="B3LYP-D3/aug-cc-pVDZ/CP"
 m1="B3LYP-D3/aug-cc-pVTZ/CP"
