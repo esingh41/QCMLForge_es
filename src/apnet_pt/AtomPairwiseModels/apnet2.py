@@ -1188,6 +1188,62 @@ units angstrom
         disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
+    def __train_batches_single_proc_transfer(
+        self, dataloader, loss_fn, optimizer, rank_device, scheduler
+    ):
+        """
+        Single-process training loop body.
+        """
+        self.model.train()
+        comp_errors_t = []
+        total_loss = 0.0
+        for n, batch in enumerate(dataloader):
+            optimizer.zero_grad(set_to_none=True)  # minor speed-up
+            batch = batch.to(rank_device, non_blocking=True)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                batch)
+            preds = E_sr_dimer.reshape(-1, 4)
+            preds = torch.sum(preds, dim=1)
+            comp_errors = preds - batch.y.squeeze(-1)
+            batch_loss = (
+                torch.mean(torch.square(comp_errors))
+                if (loss_fn is None)
+                else loss_fn(preds, batch.y)
+            )
+            batch_loss.backward()
+            optimizer.step()
+            total_loss += batch_loss.item()
+            comp_errors_t.append(comp_errors.detach().cpu())
+        if scheduler is not None:
+            scheduler.step()
+
+        comp_errors_t = torch.cat(comp_errors_t, dim=0)
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        return total_loss, total_MAE_t
+
+    # @torch.inference_mode()
+    def __evaluate_batches_single_proc_transfer(self, dataloader, loss_fn, rank_device):
+        self.model.eval()
+        comp_errors_t = []
+        total_loss = 0.0
+        with torch.no_grad():
+            for n, batch in enumerate(dataloader):
+                batch = batch.to(rank_device, non_blocking=True)
+                E_sr_dimer, _, _, _, _, _ = self.eval_fn(batch)
+                preds = E_sr_dimer.reshape(-1, 4)
+                preds = torch.sum(preds, dim=1)
+                comp_errors = preds - batch.y.squeeze(-1)
+                batch_loss = (
+                    torch.mean(torch.square(comp_errors))
+                    if (loss_fn is None)
+                    else loss_fn(preds, batch.y)
+                )
+                total_loss += batch_loss.item()
+                comp_errors_t.append(comp_errors.detach().cpu())
+        comp_errors_t = torch.cat(comp_errors_t, dim=0)
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        return total_loss, total_MAE_t
+
     ########################################################################
     # SINGLE-PROCESS TRAINING
     ########################################################################
@@ -1492,6 +1548,7 @@ units angstrom
         num_workers,
         lr_decay=None,
         skip_compile=False,
+        transfer_learning=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -1536,43 +1593,70 @@ units angstrom
         )
         criterion = None  # defaults to MSE
 
-        # (4) Print table header
-        print(
-            "                                       Total            Elst            Exch            Ind            Disp",
-            flush=True,
-        )
+        # (4) Set eval functions
+        if not transfer_learning:
+            __evaluate_batch = self.__evaluate_batches_single_proc
+            __train_batch = self.__train_batches_single_proc
+            print(
+                "                                       Total            Elst            Exch            Ind            Disp",
+                flush=True,
+            )
+        else:
+            __evaluate_batch = self.__evaluate_batches_single_proc_transfer
+            __train_batch = self.__train_batches_single_proc_transfer
+            print(
+                "                                       Total",
+                flush=True,
+            )
+
 
         # (5) Evaluate once pre-training
         t0 = time.time()
-        train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-            self.__evaluate_batches_single_proc(
+        t_out = (
+            __evaluate_batch(
                 train_loader, criterion, rank_device)
         )
-        test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-            self.__evaluate_batches_single_proc(
+        v_out = (
+            __evaluate_batch(
                 test_loader, criterion, rank_device)
         )
+        if not transfer_learning:
+            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = t_out
+            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = v_out
+            print(
+                f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} "
+                f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
+                f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                flush=True,
+            )
+        else:
+            train_loss, total_MAE_t = t_out
+            test_loss, total_MAE_v = v_out
+            print(
+                f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+                flush=True,
+            )
 
-        print(
-            f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} "
-            f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
-            f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
-            flush=True,
-        )
 
         # (6) Main training loop
         lowest_test_loss = test_loss
         for epoch in range(n_epochs):
             t1 = time.time()
-            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-                self.__train_batches_single_proc(
+            t_out = (
+                __train_batch(
                     train_loader, criterion, optimizer, rank_device, scheduler
                 )
             )
-            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches_single_proc(
+            v_out = (
+                __evaluate_batch(
                     test_loader, criterion, rank_device)
             )
+            if not transfer_learning:
+                train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = t_out
+                test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = v_out
+            else:
+                train_loss, total_MAE_t = t_out
+                test_loss, total_MAE_v = v_out
 
             # Track best model
             star_marker = " "
@@ -1597,13 +1681,20 @@ units angstrom
                     )
                     self.model.to(rank_device)
 
-            print(
-                f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
-                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
-                f"{exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} "
-                f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
-                flush=True,
-            )
+            if not transfer_learning:
+                print(
+                    f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
+                    f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
+                    f"{exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} "
+                    f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
+                    f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {star_marker}",
+                    flush=True,
+                )
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
 
@@ -1622,6 +1713,7 @@ units angstrom
         lr_decay=None,
         random_seed=42,
         skip_compile=False,
+        transfer_learning=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1729,5 +1821,6 @@ units angstrom
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
                 skip_compile=skip_compile,
+                transfer_learning=transfer_learning,
             )
         return
