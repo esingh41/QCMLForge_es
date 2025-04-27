@@ -560,7 +560,8 @@ class apnet2_module_dataset(Dataset):
         skip_processed=True,
         skip_compile=False,
         # only need for processing
-        atom_model_path="./models/am_apnet2-gpu.pt",
+        atom_model_path=resources.files("apnet_pt").joinpath("models", "am_ensemble", "am_0.pt"),
+        atom_model=None,
         batch_size=16,
         atomic_batch_size=200,
         prebatched=False,
@@ -624,7 +625,12 @@ class apnet2_module_dataset(Dataset):
         self.skip_processed = skip_processed
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
-        if atom_model_path is not None and not self.skip_processed:
+        if atom_model is not None:
+            self.atom_model = atom_model
+            if not skip_compile:
+                self.atom_model.model = torch.compile(
+                    self.atom_model.model, dynamic=True)
+        elif atom_model_path is not None and not self.skip_processed:
             self.atom_model = AtomModel(
                 pre_trained_model_path=atom_model_path,
                 ds_root=None,
