@@ -643,7 +643,7 @@ class APNet2Model:
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
             self.atom_model = atom_model
-        self.atom_model.to(device)
+        # self.atom_model.to(device)
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
@@ -1162,8 +1162,6 @@ units angstrom
         self.model.eval()
         comp_errors_t = []
         total_loss = 0.0
-        # print time every 1% of data
-        t = time.time()
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
@@ -1177,9 +1175,6 @@ units angstrom
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
-                # if n % 50 == 0:
-                #     print(f"    Time for {n/len(dataloader)*100:.2f}%", time.time() - t)
-
         comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
         total_MAE_t = torch.mean(torch.abs(comp_errors_t))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))

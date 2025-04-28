@@ -25,6 +25,7 @@ from math import ceil
 
 import pandas as pd
 from importlib import resources
+from apnet_pt import constants
 
 current_file_path = str(Path(__file__).parent)
 
@@ -805,8 +806,8 @@ class apnet2_module_dataset(Dataset):
                 monA, monB = mol.get_fragment(0), mol.get_fragment(1)
                 
                 # Get coordinates and atomic numbers for each monomer
-                RA = torch.tensor(monA.geometry, dtype=torch.float32)
-                RB = torch.tensor(monB.geometry, dtype=torch.float32)
+                RA = torch.tensor(monA.geometry, dtype=torch.float32) * constants.au2ang
+                RB = torch.tensor(monB.geometry, dtype=torch.float32) * constants.au2ang
                 ZA = torch.tensor(monA.atomic_numbers, dtype=torch.int64)
                 ZB = torch.tensor(monB.atomic_numbers, dtype=torch.int64)
                 
@@ -823,6 +824,9 @@ class apnet2_module_dataset(Dataset):
             
             # Use provided energy labels
             targets = self.energy_labels
+            # if targets[0] is not iterable, need to convert to list
+            # if not isinstance(targets[0], (list, tuple)):
+            #     targets = [[t] for t in targets]
             
             if self.MAX_SIZE is not None and len(RAs) > self.MAX_SIZE:
                 RAs = RAs[:self.MAX_SIZE]
@@ -986,6 +990,7 @@ class apnet2_module_dataset(Dataset):
                     elif self.in_memory:
                         data_objects = data_objects[0]
                     if self.in_memory:
+                        # print(f"{idx = }, {len(data_objects) = }")
                         self.data.append(data_objects)
                     else:
                         datapath = osp.join(
@@ -1009,14 +1014,17 @@ class apnet2_module_dataset(Dataset):
             molB_data = []
             energies = []
         if len(data_objects) > 0:
-            print(f"Extra data:", len(data_objects))
+            # print(f"Extra data:", len(data_objects))
             if self.prebatched:
                 # collate based on batch_size
                 local_data_objects = []
                 for k in range(len(data_objects) // self.batch_size):
                     local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
                 data_objects = local_data_objects
+            elif self.in_memory:
+                data_objects = data_objects[0]
             if self.in_memory:
+                # print(f"{idx = }, {len(data_objects) = }")
                 self.data.append(data_objects)
             else:
                 datapath = osp.join(
