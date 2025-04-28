@@ -606,21 +606,23 @@ class apnet2_module_dataset(Dataset):
             print("WARNING: spec_type [1, 2, 7] requires prebatched=True\n  Setting prebatched=True")
             self.prebatched = True
         self.MAX_SIZE = max_size
+        self.in_memory = in_memory
         self.split = split
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
         self.atomic_batch_size = atomic_batch_size
         self.batch_size = batch_size
-        self.training_batch_size = batch_size if not prebatched else 1
+        self.training_batch_size = batch_size if not prebatched else 1;
         self.datapoint_storage_n_objects = datapoint_storage_n_objects
         self.points_per_file = self.datapoint_storage_n_objects
         self.skip_compile = skip_compile
         if self.prebatched:
             self.points_per_file *= self.batch_size
+        elif self.in_memory:
+            self.points_per_file = 1
         if self.prebatched:
             print("WARNING: prebatched=True, setting training_batch_size=1 because data is already batched")
-        self.in_memory = in_memory
         self.data = []
         self.skip_processed = skip_processed
         if os.path.exists(root) is False:
@@ -653,13 +655,14 @@ class apnet2_module_dataset(Dataset):
             f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
         )
         if self.in_memory:
-            print("Loading data into memory")
-            t = time()
-            self.data = []
-            for i in self.processed_file_names:
-                self.data.append(torch.load(osp.join(self.processed_dir, i), weights_only=False))
-            total_time_seconds = int(time() - t)
-            print(f"Loaded in {total_time_seconds:4d} seconds")
+            # print("Loading data into memory")
+            # t = time()
+            # self.data = []
+            # for i in self.processed_file_names:
+            #     self.data.append(torch.load(osp.join(self.processed_dir, i), weights_only=False))
+            # total_time_seconds = int(time() - t)
+            # print(f"Loaded in {total_time_seconds:4d} seconds")
+            # print(self.data)
             self.get = self.get_in_memory
         self.batch_size = batch_size
         # self.active_data = [None for i in self.processed_file_names]
@@ -784,10 +787,11 @@ class apnet2_module_dataset(Dataset):
         #                 energies = f.readlines()[1]
         return
 
-
     def process(self):
+        self.data = []
         idx = 0
         data_objects = []
+        print(f"{self.points_per_file = }")
         
         # Handle direct qcel_mols input
         RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
@@ -859,7 +863,7 @@ class apnet2_module_dataset(Dataset):
         print("Creating data objects...")
         t1 = time()
         t2 = time()
-        print(f"{len(RAs)=}, {self.atomic_batch_size=}")
+        print(f"{len(RAs)=}, {self.atomic_batch_size=}, {self.batch_size=}")
         molA_data = []
         molB_data = []
         energies = []
@@ -979,6 +983,8 @@ class apnet2_module_dataset(Dataset):
                         for k in range(self.datapoint_storage_n_objects):
                             local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
                         data_objects = local_data_objects
+                    elif self.in_memory:
+                        data_objects = data_objects[0]
                     if self.in_memory:
                         self.data.append(data_objects)
                     else:
@@ -1003,27 +1009,33 @@ class apnet2_module_dataset(Dataset):
             molB_data = []
             energies = []
         if len(data_objects) > 0:
+            print(f"Extra data:", len(data_objects))
             if self.prebatched:
                 # collate based on batch_size
                 local_data_objects = []
                 for k in range(len(data_objects) // self.batch_size):
                     local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
                 data_objects = local_data_objects
-            datapath = osp.join(
-                self.processed_dir,
-                    f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
-            )
-            if self.print_level >= 2:
-                print(f"Final Saving to {datapath}")
-                print(len(data_objects))
-            torch.save(data_objects, datapath)
+            if self.in_memory:
+                self.data.append(data_objects)
+            else:
+                datapath = osp.join(
+                    self.processed_dir,
+                        f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
+                )
+                if self.print_level >= 2:
+                    print(f"Final Saving to {datapath}")
+                    print(len(data_objects))
+                torch.save(data_objects, datapath)
         return
 
     def len(self):
         if self.in_memory and self.prebatched:
-            return (len(self.data) - 1) * self.datapoint_storage_n_objects + len(self.data[-1])
+            # print(len(self.data), len(self.data[0]), len(self.data[-1]))
+            # return (len(self.data) - 1) * len(self.data[0]) + len(self.data[-1])
+            return len(self.data) 
         elif self.in_memory:
-            return len(self.data) * self.datapoint_storage_n_objects
+            return len(self.data)
 
         d = torch.load(
             osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
@@ -1053,9 +1065,12 @@ class apnet2_module_dataset(Dataset):
         
     def get_in_memory(self, idx):
         """Method for retrieving data when in_memory=True"""
-        idx_datapath = idx // self.datapoint_storage_n_objects
-        obj_ind = idx % self.datapoint_storage_n_objects
-        return self.data[idx_datapath][obj_ind]
+        if self.prebatched:
+            idx_datapath = idx // self.datapoint_storage_n_objects
+            obj_ind = idx % self.datapoint_storage_n_objects
+            return self.data[idx_datapath][obj_ind]
+        else:
+            return self.data[idx]
 
 class apnet3_module_dataset(Dataset):
     # class apnet2_module_dataset(torch.utils.data.IterableDataset):

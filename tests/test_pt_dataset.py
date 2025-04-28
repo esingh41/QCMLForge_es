@@ -194,14 +194,14 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules():
         os.remove(i)
     assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
 
-
-def test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory():
+def test_apnet2_dataset_size_qcel_molecules_in_memory():
     batch_size = 2
     atomic_batch_size=4
-    datapoint_storage_n_objects=6
-    prebatched = True
+    datapoint_storage_n_objects=4
+    prebatched = False
+    number_dimers = 31
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
-    qcel_molecules = [mol_dimer] * 32
+    qcel_molecules = [mol_dimer] * number_dimers
     energy_labels = [np.array([1.0, 1.0, 1.0, 1.0]) for _ in range(len(qcel_molecules))]
     ds = apnet2_module_dataset(
         root=data_path,
@@ -223,9 +223,10 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory():
         energy_labels=energy_labels,
         in_memory=True,
     )
+    print(ds.training_batch_size)
+    print(ds)
     train_loader = APNet2_DataLoader(
         dataset=ds,
-        # batch_size=1,
         batch_size=ds.training_batch_size,
         shuffle=False,
         num_workers=1,
@@ -235,21 +236,77 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory():
     cnt = 0
     for i in train_loader:
         cnt += i.y.shape[0]
+        print(i)
+        print(i.y.shape)
     print("Number of labels in dataset:", cnt)
     ds_labels = len(ds)
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_None*.pt"):
         os.remove(i)
-    assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    assert number_dimers == cnt, f"Expected {number_dimers} points, but got {cnt} points"
+
+def test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory():
+    batch_size = 2
+    atomic_batch_size=4
+    datapoint_storage_n_objects=4
+    prebatched = True
+    number_dimers = 31
+    collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
+    qcel_molecules = [mol_dimer] * number_dimers
+    energy_labels = [np.array([1.0, 1.0, 1.0, 1.0]) for _ in range(len(qcel_molecules))]
+    ds = apnet2_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=None,
+        max_size=None,
+        force_reprocess=True,
+        atom_model_path=am_path,
+        atomic_batch_size=atomic_batch_size,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
+        batch_size=batch_size,
+        prebatched=prebatched,
+        num_devices=1,
+        skip_processed=False,
+        skip_compile=True,
+        print_level=2,
+        qcel_molecules=qcel_molecules,
+        energy_labels=energy_labels,
+        in_memory=True,
+    )
+    print(ds.training_batch_size)
+    print(ds)
+    train_loader = APNet2_DataLoader(
+        dataset=ds,
+        batch_size=ds.training_batch_size,
+        shuffle=False,
+        num_workers=1,
+        # collate_fn=apnet2_collate_update_prebatched,
+        collate_fn=collate,
+    )
+    cnt = 0
+    for i in train_loader:
+        cnt += i.y.shape[0]
+        print(i)
+        print(i.y.shape)
+    print("Number of labels in dataset:", cnt)
+    ds_labels = len(ds)
+    for i in glob(f"{data_path}/processed/dimer_ap2_spec_None*.pt"):
+        os.remove(i)
+    assert number_dimers == cnt, f"Expected {number_dimers} points, but got {cnt} points"
 
 
 def test_apnet2_train_qcel_molecules_in_memory_transfer():
     batch_size = 2
     atomic_batch_size=4
     datapoint_storage_n_objects=6
-    prebatched = True
+    prebatched = False
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
-    qcel_molecules = [mol_dimer] * 32
-    energy_labels = [np.array([1.0]) for _ in range(len(qcel_molecules))]
+    qcel_molecules = [mol_dimer] * 31
+    energy_labels = [1.0 for _ in range(len(qcel_molecules))]
+    print(
+        qcel_molecules,
+        energy_labels,
+    )
     ds = apnet2_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -904,5 +961,8 @@ if __name__ == "__main__":
     # test_dapnet2_dataset_ap2_stored_size_prebatched()
     # test_apnet2_dataset_size_prebatched_qcel_molecules()
     # test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory()
+    # test_apnet2_train_qcel_molecules_in_memory_transfer()
+    # test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory()
+    # test_apnet2_dataset_size_qcel_molecules_in_memory()
     test_apnet2_train_qcel_molecules_in_memory_transfer()
     pass
