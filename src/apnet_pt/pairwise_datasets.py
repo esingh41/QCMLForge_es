@@ -656,17 +656,8 @@ class apnet2_module_dataset(Dataset):
             f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
         )
         if self.in_memory:
-            # print("Loading data into memory")
-            # t = time()
-            # self.data = []
-            # for i in self.processed_file_names:
-            #     self.data.append(torch.load(osp.join(self.processed_dir, i), weights_only=False))
-            # total_time_seconds = int(time() - t)
-            # print(f"Loaded in {total_time_seconds:4d} seconds")
-            # print(self.data)
             self.get = self.get_in_memory
         self.batch_size = batch_size
-        # self.active_data = [None for i in self.processed_file_names]
         self.active_idx_data = None
         self.active_data = None
         if spec_type in [1, 2, 7, 9] and self.prebatched is False:
@@ -990,7 +981,6 @@ class apnet2_module_dataset(Dataset):
                     elif self.in_memory:
                         data_objects = data_objects[0]
                     if self.in_memory:
-                        # print(f"{idx = }, {len(data_objects) = }")
                         self.data.append(data_objects)
                     else:
                         datapath = osp.join(
@@ -1014,7 +1004,7 @@ class apnet2_module_dataset(Dataset):
             molB_data = []
             energies = []
         if len(data_objects) > 0:
-            # print(f"Extra data:", len(data_objects))
+            print("Extra data:", len(data_objects))
             if self.prebatched:
                 # collate based on batch_size
                 local_data_objects = []
@@ -1024,7 +1014,7 @@ class apnet2_module_dataset(Dataset):
             elif self.in_memory:
                 data_objects = data_objects[0]
             if self.in_memory:
-                # print(f"{idx = }, {len(data_objects) = }")
+                print(f"{idx = }, {len(data_objects) = }")
                 self.data.append(data_objects)
             else:
                 datapath = osp.join(
@@ -1039,9 +1029,9 @@ class apnet2_module_dataset(Dataset):
 
     def len(self):
         if self.in_memory and self.prebatched:
-            # print(len(self.data), len(self.data[0]), len(self.data[-1]))
-            # return (len(self.data) - 1) * len(self.data[0]) + len(self.data[-1])
-            return len(self.data) 
+            print((len(self.data) - 1) * len(self.data[0]), len(self.data[-1])
+)
+            return (len(self.data) - 1) * len(self.data[0]) + len(self.data[-1])
         elif self.in_memory:
             return len(self.data)
 
