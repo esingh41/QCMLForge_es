@@ -24,6 +24,7 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 from importlib import resources
+from copy import deepcopy
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
@@ -1552,6 +1553,7 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
+        best_model = deepcopy(self.model)
         if not skip_compile:
             print("Compiling model")
             self.compile_model()
@@ -1659,8 +1661,9 @@ units angstrom
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
+                cpu_model = unwrap_model(self.model).to("cpu")
+                best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                    cpu_model = unwrap_model(self.model).to("cpu")
                     torch.save(
                         {
                             "model_state_dict": cpu_model.state_dict(),
@@ -1675,7 +1678,7 @@ units angstrom
                         },
                         self.model_save_path,
                     )
-                    self.model.to(rank_device)
+                self.model.to(rank_device)
 
             if not transfer_learning:
                 print(
@@ -1693,6 +1696,7 @@ units angstrom
                 )
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
+        self.model = best_model
 
     def train(
         self,

@@ -31,6 +31,7 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 from importlib import resources
+from copy import deepcopy
 
 
 class APNet2_dAPNet2_MPNN(nn.Module):
@@ -1112,6 +1113,7 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
+        best_model = deepcopy(self.model)
         if not skip_compile:
             print("Compiling model")
             self.compile_model()
@@ -1190,8 +1192,9 @@ units angstrom
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
+                cpu_model = unwrap_model(self.model).to("cpu")
+                best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                    cpu_model = unwrap_model(self.model).to("cpu")
                     torch.save(
                         {
                             "model_state_dict": cpu_model.state_dict(),
@@ -1206,13 +1209,14 @@ units angstrom
                         },
                         self.model_save_path,
                     )
-                    self.model.to(rank_device)
+                self.model.to(rank_device)
 
             print(
                 f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
                 f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {star_marker}",
                 flush=True,
             )
+        self.model = best_model
 
     def train(
         self,
@@ -1331,6 +1335,7 @@ units angstrom
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
+                skip_compile=skip_compile,
             )
         return
 
@@ -1634,7 +1639,8 @@ class dAPNet2Model:
                 ndimer=ndimers[0],
             )
             preds = self.eval_fn(dimer_batch)
-            predictions[i: i + batch_size] = preds[0].cpu().numpy()
+            preds = preds.flatten()
+            predictions[i: i + batch_size] = preds.cpu().numpy()
         return predictions
 
     def example_input(self):
@@ -2130,7 +2136,7 @@ units angstrom
 
             print(
                 f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
-                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {star_marker}",
                 flush=True,
             )
 

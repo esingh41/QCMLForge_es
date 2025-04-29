@@ -21,6 +21,7 @@ from pathlib import Path
 import os.path as osp
 from importlib import resources
 import qcelemental as qcel
+from apnet_pt import constants
 
 # file dir
 # prefix = os.path.dirname(os.path.abspath(__file__))
@@ -42,9 +43,20 @@ def clean_str_for_filename(string):
 
 
 def dapnet2_collate_update_no_target(batch):
-    print(batch)
     batched_data = Data(
         # ZA=torch.cat([data.ZA for data in batch], dim=0),
+        h_AB=torch.cat([data.h_AB for data in batch], dim=0),
+        h_BA=torch.cat([data.h_BA for data in batch], dim=0),
+        cutoff=torch.cat([data.cutoff for data in batch], dim=0),
+        dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
+        ndimer=torch.tensor([data.ndimer for data in batch], dtype=torch.long),
+    )
+    return batched_data
+
+def dapnet2_collate_update(batch):
+    y = torch.stack([data.y for data in batch], dim=0)
+    batched_data = Data(
+        y=y,
         h_AB=torch.cat([data.h_AB for data in batch], dim=0),
         h_BA=torch.cat([data.h_BA for data in batch], dim=0),
         cutoff=torch.cat([data.cutoff for data in batch], dim=0),
@@ -228,6 +240,7 @@ class dapnet2_module_dataset(Dataset):
             for mol in self.qcel_molecules:
                 # Extract monomer data from dimer
                 monA, monB = mol.get_fragment(0), mol.get_fragment(1)
+                print(monA)
                 
                 # Get coordinates and atomic numbers for each monomer
                 RA = torch.tensor(monA.geometry, dtype=torch.float32) * constants.au2ang
@@ -273,11 +286,11 @@ class dapnet2_module_dataset(Dataset):
                         continue
                 print(f"raw_path: {raw_path}")
                 print("Loading dimers...")
-                RAs, RBs, ZAs, ZBs, TQAs, TQBs, labels = util.load_dimer_dataset(
+                RA, RB, ZA, ZB, TQA, TQB, label = util.load_dimer_dataset(
                     raw_path, self.MAX_SIZE, return_qcel_mols=False, return_qcel_mons=False,
                     columns=[self.m1, self.m2],
                 )
-                labels = labels[:, 0] - labels[:, 1]
+                labels = label[:, 0] - label[:, 1]
                 RAs.extend(RA)
                 RBs.extend(RB)
                 ZAs.extend(ZA)
@@ -488,7 +501,9 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         skip_processed=True,
         # only need for processing
         atom_model_path=pretrained_atom_model_path,
+        atom_model=None,
         apnet_model_path=pretrained_pairwise_model_path,
+        apnet_model=None,
         batch_size=16,
         preprocessing_batch_size=256,
         prebatched=True, # Note only operates as prebatched
@@ -540,7 +555,12 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         self.skip_processed = skip_processed
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
-        if atom_model_path is not None and not self.skip_processed:
+        if atom_model is not None:
+            self.atom_model = atom_model
+            self.atom_model.model.to(self.atom_model.device)
+            if not skip_compile:
+                self.atom_model.compile_model()
+        elif atom_model_path is not None and not self.skip_processed:
             self.atom_model = AtomModel(
                 pre_trained_model_path=atom_model_path,
                 ds_root=None,
@@ -550,7 +570,12 @@ class dapnet2_module_dataset_apnetStored(Dataset):
             if not skip_compile:
                 self.atom_model.compile_model()
 
-        if atom_model_path is not None and not self.skip_processed:
+        if apnet_model is not None:
+            self.ap_model = apnet_model
+            self.ap_model.model.to(self.atom_model.device)
+            if not skip_compile:
+                self.ap_model.compile_model()
+        elif atom_model_path is not None and not self.skip_processed:
             self.ap_model = APNet2Model(
                 atom_model=self.atom_model.model,
                 pre_trained_model_path=apnet_model_path,
@@ -762,14 +787,6 @@ class dapnet2_module_dataset_apnetStored(Dataset):
                 # idx += self.batch_size
                 idx += 1
         if len(data_objects) > 0:
-            if self.prebatched:
-                # collate based on batch_size
-                local_data_objects = []
-                for k in range(len(data_objects) // self.batch_size):
-                    local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
-                data_objects = local_data_objects
-            elif self.in_memory:
-                data_objects = data_objects[0]
             if self.in_memory:
                 self.data.append(data_objects)
             else:
