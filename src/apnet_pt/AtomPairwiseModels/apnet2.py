@@ -25,7 +25,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 from importlib import resources
 
-file_dir = os.path.dirname(os.path.realpath(__file__))
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
     p = step / decay_steps
@@ -796,8 +795,6 @@ class APNet2Model:
 
     def set_pretrained_model(self, ap2_model_path=None, am_model_path=None, model_id=None):
         if model_id is not None:
-            # am_model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
-            # ap2_model_path = f"{file_dir}/../models/ap2_ensemble/ap2_{model_id}.pt"
             am_model_path = resources.files('apnet_pt').joinpath("models", "am_ensemble", f"am_{model_id}.pt")
             ap2_model_path = resources.files('apnet_pt').joinpath("models", "ap2_ensemble", f"ap2_{model_id}.pt")
         elif ap2_model_path is None and model_id is None:
@@ -956,6 +953,10 @@ class APNet2Model:
                     dimer_ls
                 )
         return dimer_batch
+    
+    def set_return_hidden_states(self, value=True):
+        self.model.return_hidden_states = value
+        return self
 
     @torch.inference_mode()
     def predict_qcel_mols(

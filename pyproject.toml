@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qcmlforge"
-version = "0.0.5"
+version = "0.0.6"
 authors = [
   { name="Austin M. Wallace", email="awallace43@gatech.edu" },
 ]

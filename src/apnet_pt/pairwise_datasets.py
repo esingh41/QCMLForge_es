@@ -739,7 +739,6 @@ class apnet2_module_dataset(Dataset):
 
     def download(self):
         if self.energy_labels and self.qcel_molecules:
-            # print("Skipping download as QCElemental molecules and energy labels are provided")
             return
 
         print(
@@ -783,8 +782,6 @@ class apnet2_module_dataset(Dataset):
         self.data = []
         idx = 0
         data_objects = []
-        print(f"{self.points_per_file = }")
-        
         # Handle direct qcel_mols input
         RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
         if self.qcel_molecules is not None and self.energy_labels is not None:
@@ -830,11 +827,7 @@ class apnet2_module_dataset(Dataset):
                 
             print(f"Processing {len(RAs)} dimers from provided QCElemental molecules...")
         else:
-            # Original code path for loading from files
             for raw_path in self.raw_paths:
-                # Alternatively, could perform a while loop on dimers and manually
-                # create batches to be evaluated instead of doing all monomer
-                # predictions up front to avoid a large memory footprint
                 split_name = ""
                 if self.spec_type in [2, 5, 6, 7, 9]:
                     split_name = f"_{self.split}"
@@ -1004,7 +997,7 @@ class apnet2_module_dataset(Dataset):
             molB_data = []
             energies = []
         if len(data_objects) > 0:
-            print("Extra data:", len(data_objects))
+            # print("Extra data:", len(data_objects))
             if self.prebatched:
                 # collate based on batch_size
                 local_data_objects = []
@@ -1014,7 +1007,6 @@ class apnet2_module_dataset(Dataset):
             elif self.in_memory:
                 data_objects = data_objects[0]
             if self.in_memory:
-                print(f"{idx = }, {len(data_objects) = }")
                 self.data.append(data_objects)
             else:
                 datapath = osp.join(
