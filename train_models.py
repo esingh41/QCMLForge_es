@@ -94,7 +94,7 @@ def train_pairwise_model(
             n_embed=n_embed,
             r_cut=r_cut,
             r_cut_im=r_cut_im,
-            am_model_path=am_model_path,
+            atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path="./models/dapnet2/ap2_0.pt",
         )
         apnet2_model.model.return_hidden_states = True
