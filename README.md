@@ -14,6 +14,12 @@ conda activate qcml
 pip install -e .
 ```
 
+## Usage Workshop Demo
+A QCArchive+QCMLForge+Cybershuttle workshop demo is available
+[here](https://github.com/Awallace3/psi4_interaction_energy_cybershuttle). This
+demonstrates a complete workflow of using QCArchive to generate QM data and
+then training AP-Net models with QCMLForge.
+
 ## Inference
 ### AtomModel multipole example
 To run the AtomModel inference, run the following command:
