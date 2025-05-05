@@ -6,4 +6,4 @@ __version__ = "0.0.1"
 __author__ = "Austin M. Wallace"
 __credits__ = "Georgia Institute of Technology"
 
-from . import setup_qca
+from . import qca
