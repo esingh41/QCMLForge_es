@@ -452,7 +452,8 @@ def test_dapnet2_train_qcel_molecules_in_memory_transfer():
     prebatched = False
     number_dimers = 31
     qcel_molecules = [mol_dimer] * number_dimers
-    qcel_molecules_pair = [mol_dimer, mol_dimer2]
+    # qcel_molecules_pair = [mol_dimer, mol_dimer2]
+    qcel_molecules_pair = [mol_dimer, mol_dimer]
     energy_labels = [np.array([1.0]) for _ in range(len(qcel_molecules))]
     ds = dapnet2_module_dataset_apnetStored(
         root=data_path,
