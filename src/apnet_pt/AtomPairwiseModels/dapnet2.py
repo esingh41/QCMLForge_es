@@ -1618,7 +1618,7 @@ class dAPNet2Model:
         batch_size=1,
         r_cut=5.0,
         r_cut_im=8.0,
-    ):
+    ) -> np.ndarray:
         predictions = np.zeros((len(mols)))
         for i in range(0, len(mols) + len(mols) % batch_size + 1, batch_size):
             upper_bound = min(i + batch_size, len(mols))

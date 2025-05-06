@@ -109,10 +109,23 @@ def test_dapnet2_architecture():
     print(output)
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+def test_dapnet2_pretrained_hfadz():
+    qcel_mols = [mol3, mol3]
+    v = apnet_pt.pretrained_models.dapnet2_model_predict(
+        qcel_mols,
+        m1="HF/aug-cc-pVDZ/CP",
+        m2="CCSD(T)/CBS/CP",
+        compile=False,
+    )
+    print(v)
+    ref = np.array([0.03997326, 0.03997326])
+    assert np.allclose(v, ref, atol=1e-6), f"Expected {ref}, but got {v}"
+
 def main():
     # test_dapnet_ds()
-    test_apnet2_dapnet2_architecture()
-    test_dapnet2_architecture()
+    # test_apnet2_dapnet2_architecture()
+    # test_dapnet2_architecture()
+    test_dapnet2_pretrained_hfadz()
     return
 
 
