@@ -463,12 +463,9 @@ class AtomModel:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
-        elif not use_GPU:
-            device = torch.device("cpu")
-            print("running on the CPU")
         else:
             device = torch.device("cpu")
             print("running on the CPU")

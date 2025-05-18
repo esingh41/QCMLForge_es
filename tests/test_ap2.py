@@ -52,11 +52,13 @@ def test_ap2_architecture():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
+        use_GPU=False,
     )
     set_weights_to_value(atom_model.model, 0.0001)
     pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
         atom_model=atom_model.model,
         ignore_database_null=True,
+        use_GPU=False,
     )
     output = pair_model.predict_qcel_mols([mol3], batch_size=1)
     set_weights_to_value(pair_model.model, 0.0001)

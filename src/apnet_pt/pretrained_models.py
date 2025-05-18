@@ -154,13 +154,16 @@ def dapnet2_model_predict(
     compile: bool = True,
     pre_trained_model_path: str = None,
     batch_size: int = 16,
+    use_GPU: bool = None,
 ) -> np.ndarray:
     atom_model = AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
+        use_GPU=use_GPU,
     ).set_pretrained_model(model_id=0)
     apnet2 = AtomPairwiseModels.apnet2.APNet2Model(
         atom_model=atom_model.model,
+        use_GPU=use_GPU,
     ).set_pretrained_model(model_id=0)
     apnet2.model.return_hidden_states = True
     if pre_trained_model_path is None:
@@ -178,5 +181,6 @@ def dapnet2_model_predict(
         atom_model=atom_model,
         apnet2_model=apnet2,
         pre_trained_model_path=pre_trained_model_path,
+        use_GPU=use_GPU,
     )
     return dapnet2.predict_qcel_mols(mols, batch_size=batch_size)

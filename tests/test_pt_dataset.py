@@ -1142,6 +1142,7 @@ def test_ap3_model_train():
         ds_skip_process=False,
         ds_datapoint_storage_n_objects=batch_size,
         ds_prebatched=True,
+        use_GPU=False,
     )
     apnet3.train(
         model_path="./ap3_test.pt",
