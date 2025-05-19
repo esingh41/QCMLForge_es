@@ -40,11 +40,15 @@ def atom_model_predict(
     data = [
         atomic_datasets.qcel_mon_to_pyg_data(mol, r_cut=am.model.r_cut) for mol in mols
     ]
+    print(data)
     batched_data = [
         atomic_datasets.atomic_collate_update_no_target(
             data[i: i + batch_size])
         for i in range(0, len(data), batch_size)
     ]
+    print(f"Number of batches: {len(batched_data)}")
+    print(f"{batched_data = }")
+    print(f"{batched_data[0].x = }")
     print("Predicting...")
     atom_count = sum([len(d.x) for d in data])
     pred_qs = np.zeros((atom_count))
@@ -71,20 +75,21 @@ def atom_model_predict(
         pred_qs[atom_idx: atom_idx + len(batch.x)] = qs_t
         pred_ds[atom_idx: atom_idx + len(batch.x)] = ds_t
         pred_qps[atom_idx: atom_idx + len(batch.x)] = qps_t
-        tmp = np.unique(
+        unique_values, repeats = np.unique(
             [batch.molecule_ind[i] for i in range(len(batch.molecule_ind))],
             return_counts=True,
         )
-        mol_id_ranges = [atom_idx]
-        for i in range(len(tmp[1]) - 1):
-            mol_id_ranges.append(int(mol_id_ranges[i] + tmp[1][i + 1]))
-        atom_idx += len(batch.x)
+        mol_id_ranges = []
+        for i in repeats:
+            mol_id_ranges.append(int(i) + atom_idx)
+            atom_idx += int(i)
         mol_ids.extend(mol_id_ranges)
-    mol_ids.append(atom_idx)
     if return_mol_arrays:
-        pred_qs = np.split(pred_qs, mol_ids[1:-1])
-        pred_ds = np.split(pred_ds, mol_ids[1:-1])
-        pred_qps = np.split(pred_qps, mol_ids[1:-1])
+        # Drop the final mol_ids because the split will take the full last
+        # slice
+        pred_qs = np.split(pred_qs, mol_ids[:-1])
+        pred_ds = np.split(pred_ds, mol_ids[:-1])
+        pred_qps = np.split(pred_qps, mol_ids[:-1])
         return pred_qs, pred_ds, pred_qps
     return pred_qs, pred_ds, pred_qps, mol_ids
 
