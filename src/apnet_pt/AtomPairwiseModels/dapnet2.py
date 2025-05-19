@@ -30,8 +30,8 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
-
-file_dir = os.path.dirname(os.path.realpath(__file__))
+from importlib import resources
+from copy import deepcopy
 
 
 class APNet2_dAPNet2_MPNN(nn.Module):
@@ -263,7 +263,7 @@ class APNet2_dAPNet2Model:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
         else:
@@ -443,8 +443,8 @@ class APNet2_dAPNet2Model:
 
     def set_pretrained_model(self, ap2_model_path=None, am_model_path=None, model_id=None):
         if model_id is not None:
-            am_model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
-            ap2_model_path = f"{file_dir}/../models/ap2_ensemble/ap2_{model_id}.pt"
+            am_model_path = resources.files("apnet_pt").joinpath("models", "am_ensemble", f"am_{model_id}.pt")
+            ap2_model_path = resources.files("apnet_pt").joinpath("models", "ap2_ensemble", f"ap2_{model_id}.pt")
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
@@ -1113,6 +1113,7 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
+        best_model = deepcopy(self.model)
         if not skip_compile:
             print("Compiling model")
             self.compile_model()
@@ -1191,8 +1192,9 @@ units angstrom
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
+                cpu_model = unwrap_model(self.model).to("cpu")
+                best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                    cpu_model = unwrap_model(self.model).to("cpu")
                     torch.save(
                         {
                             "model_state_dict": cpu_model.state_dict(),
@@ -1207,13 +1209,14 @@ units angstrom
                         },
                         self.model_save_path,
                     )
-                    self.model.to(rank_device)
+                self.model.to(rank_device)
 
             print(
                 f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
                 f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {star_marker}",
                 flush=True,
             )
+        self.model = best_model
 
     def train(
         self,
@@ -1332,6 +1335,7 @@ units angstrom
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
+                skip_compile=skip_compile,
             )
         return
 
@@ -1372,7 +1376,7 @@ class dAPNet2Model:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
         else:
@@ -1539,20 +1543,21 @@ class dAPNet2Model:
 
     def set_pretrained_model(self, ap2_model_path=None, am_model_path=None, model_id=None):
         if model_id is not None:
-            am_model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
-            ap2_model_path = f"{file_dir}/../models/ap2_ensemble/ap2_{model_id}.pt"
+            am_model_path = resources.files("apnet_pt").joinpath("models", "am_ensemble", f"am_{model_id}.pt")
+            ap2_model_path = resources.files("apnet_pt").joinpath("models", "ap2_ensemble", f"ap2_{model_id}.pt")
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
         checkpoint = torch.load(ap2_model_path)
+        print(checkpoint)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
                 for k, v in checkpoint["model_state_dict"].items()
             }
-            self.model.load_state_dict(model_state_dict)
+            self.apnet2_model.load_state_dict(model_state_dict)
         else:
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+            self.apnet2_model.load_state_dict(checkpoint["model_state_dict"])
         checkpoint = torch.load(am_model_path)
         if "_orig_mod" not in list(self.atom_model.state_dict().keys())[0]:
             model_state_dict = {
@@ -1613,7 +1618,7 @@ class dAPNet2Model:
         batch_size=1,
         r_cut=5.0,
         r_cut_im=8.0,
-    ):
+    ) -> np.ndarray:
         predictions = np.zeros((len(mols)))
         for i in range(0, len(mols) + len(mols) % batch_size + 1, batch_size):
             upper_bound = min(i + batch_size, len(mols))
@@ -1633,8 +1638,10 @@ class dAPNet2Model:
                 dimer_ind=dimer_inds[0],
                 ndimer=ndimers[0],
             )
+            dimer_batch.to(self.device)
             preds = self.eval_fn(dimer_batch)
-            predictions[i: i + batch_size] = preds[0].cpu().numpy()
+            preds = preds.flatten()
+            predictions[i: i + batch_size] = preds.cpu().numpy()
         return predictions
 
     def example_input(self):
@@ -2130,7 +2137,7 @@ units angstrom
 
             print(
                 f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
-                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {star_marker}",
                 flush=True,
             )
 
@@ -2247,5 +2254,6 @@ units angstrom
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
+                skip_compile=skip_compile,
             )
         return

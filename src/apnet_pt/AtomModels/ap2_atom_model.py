@@ -19,12 +19,14 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import os
+from importlib import resources
+import qcelemental as qcel
 
 warnings.filterwarnings("ignore")
 
 max_Z = 118  # largest atomic number
 
-file_dir = os.path.dirname(os.path.realpath(__file__))
+# file_dir = os.path.dirname(os.path.realpath(__file__))
 
 
 def unsorted_segment_sum_2d(data, segment_ids, num_segments):
@@ -461,12 +463,9 @@ class AtomModel:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
-        elif not use_GPU:
-            device = torch.device("cpu")
-            print("running on the CPU")
         else:
             device = torch.device("cpu")
             print("running on the CPU")
@@ -514,7 +513,8 @@ class AtomModel:
 
     def set_pretrained_model(self, model_path=None, model_id=None):
         if model_id is not None:
-            model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
+            # model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
+            model_path = resources.files("apnet_pt").joinpath("models", "am_ensemble", f"am_{model_id}.pt")
         elif model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
@@ -556,6 +556,25 @@ class AtomModel:
             natom_per_mol=batch.natom_per_mol,
         )
         return charge, dipole, qpole, hlist
+
+    def _qcel_example_input(self, mols, batch_size=1):
+        mol_data = [qcel_mon_to_pyg_data(mol) for mol in mols]
+        batches = []
+        for i in range(0, len(mol_data), batch_size):
+            batch_mol_data = mol_data[i: i + batch_size]
+            batch_A = atomic_collate_update_no_target(batch_mol_data)
+            batches.append(batch_A)
+        return batches
+
+    def example_input(self):
+        mol = qcel.models.Molecule.from_data("""
+0 1
+8   -0.702196054   -0.056060256   0.009942262
+1   -1.022193224   0.846775782   -0.011488714
+1   0.257521062   0.042121496   0.005218999
+units angstrom
+        """)
+        return self._qcel_example_input([mol], batch_size=1)
 
     def evaluate_model_collate_train(self, data_loader, optimizer=None, loss_fn=None):
         charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []
@@ -1187,9 +1206,11 @@ class AtomModel:
     def predict_multipoles_batch(self, batch, isolate_predictions=True):
         batch.to(self.device)
         self.model.to(self.device)
-        qA, muA, thA, hlistA = self.model_predict(batch)
+        qA, muA, thA, hlistA = self.eval_fn(batch)
         batch = batch.cpu()
         qA = qA.detach().detach().cpu()
+        # print("predict_multipoles_batch")
+        # print(qA)
         muA = muA.detach().detach().cpu()
         thA = thA.detach().detach().cpu()
         hlistA = hlistA.detach().cpu()
@@ -1243,7 +1264,7 @@ class AtomModel:
             if len(mol_data) == batch_size or cnt == len(mols) - 1:
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
-                    charge, dipole, qpole, hlist = self.model_predict(batch)
+                    charge, dipole, qpole, hlist = self.eval_fn(batch)
                     output.append((charge, dipole, qpole, hlist))
         return output
 

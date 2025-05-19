@@ -73,7 +73,7 @@ def train_pairwise_model(
     spec_type=2,
     r_cut_im=8.0,
     r_cut=5.0,
-    n_rfb=8,
+    n_rbf=8,
     n_neuron=128,
     n_embed=8,
     m1="",
@@ -89,12 +89,12 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.dapnet2.dAPNet2Model
         # apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0).model
         apnet2_model = AtomPairwiseModels.apnet2.APNet2Model(
-            n_rfb=n_rfb,
+            n_rbf=n_rbf,
             n_neuron=n_neuron,
             n_embed=n_embed,
             r_cut=r_cut,
             r_cut_im=r_cut_im,
-            am_model_path=am_model_path,
+            atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path="./models/dapnet2/ap2_0.pt",
         )
         apnet2_model.model.return_hidden_states = True
@@ -119,7 +119,7 @@ def train_pairwise_model(
             apnet2_model=apnet2_model,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
-            n_rfb=n_rfb,
+            n_rbf=n_rbf,
             n_neuron=n_neuron,
             n_embed=n_embed,
             r_cut=r_cut,
@@ -139,7 +139,7 @@ def train_pairwise_model(
         apnet2 = APNet(
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
-            n_rfb=n_rfb,
+            n_rbf=n_rbf,
             n_neuron=n_neuron,
             n_embed=n_embed,
             r_cut=r_cut,
@@ -294,12 +294,12 @@ def main():
         default=5.0,
         help="specify AP r_cut (default: 5.0)"
     )
-    # create args for n_rfb, n_neuron, n_embed
+    # create args for n_rbf, n_neuron, n_embed
     args.add_argument(
-        "--n_rfb",
+        "--n_rbf",
         type=int,
         default=8,
-        help="specify AP n_rfb (default: 8)"
+        help="specify AP n_rbf (default: 8)"
     )
     args.add_argument(
         "--n_neuron",
@@ -339,7 +339,7 @@ def main():
             spec_type=args.spec_type_ap,
             r_cut=args.r_cut,
             r_cut_im=args.r_cut_im,
-            n_rfb=args.n_rfb,
+            n_rbf=args.n_rbf,
             n_neuron=args.n_neuron,
             n_embed=args.n_embed,
             m1=args.m1,

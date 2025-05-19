@@ -4,31 +4,34 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qcmlforge"
-version = "0.0.1"
+version = "0.0.8"
 authors = [
   { name="Austin M. Wallace", email="awallace43@gatech.edu" },
 ]
-description = "Provides QCArchive data for creating QC ML models. The AP-Net2 has been re-implemnented in PyTorch with newer versions to come."
+description = "Package for creating QC ML models on QCArchive datasets. The AP-Net2 has been re-implemnented in PyTorch with newer versions to come."
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
-    "Development Status :: 1 - Planning",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
-    "matplotlib",
+    "torch==2.5.1",
     "qm_tools_aw",
-    "numpy>=1.20.0",
-    "pandas>=1.4.3"
-
+    "numpy>=2.2.0",
+    "qcelemental==0.29.0",
+    "torch-geometric==2.6.1",
+    "torch-scatter==2.1.2",
+    "pytorch-minimize",
+    "qcportal==0.59",
 ]
+license = {text = "MIT"}
 
 [project.urls]
 "Homepage" = "https://github.com/Awallace3/QCMLForge"
 "Bug Tracker" = "https://github.com/Awallace3/QCMLForge/issues"
+
+[tool.setuptools-git-versioning]
+enabled = true
+dev_template = "{tag}.{ccount}+git.{sha}"
+dirty_template = "{tag}.{ccount}+git.{sha}.dirty"
