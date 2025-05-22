@@ -42,8 +42,7 @@ def atom_model_predict(
     ]
     print(data)
     batched_data = [
-        atomic_datasets.atomic_collate_update_no_target(
-            data[i: i + batch_size])
+        atomic_datasets.atomic_collate_update_no_target(data[i : i + batch_size])
         for i in range(0, len(data), batch_size)
     ]
     print(f"Number of batches: {len(batched_data)}")
@@ -72,9 +71,9 @@ def atom_model_predict(
         qs_t /= num_models
         ds_t /= num_models
         qps_t /= num_models
-        pred_qs[atom_idx: atom_idx + len(batch.x)] = qs_t
-        pred_ds[atom_idx: atom_idx + len(batch.x)] = ds_t
-        pred_qps[atom_idx: atom_idx + len(batch.x)] = qps_t
+        pred_qs[atom_idx : atom_idx + len(batch.x)] = qs_t
+        pred_ds[atom_idx : atom_idx + len(batch.x)] = ds_t
+        pred_qps[atom_idx : atom_idx + len(batch.x)] = qps_t
         unique_values, repeats = np.unique(
             [batch.molecule_ind[i] for i in range(len(batch.molecule_ind))],
             return_counts=True,
@@ -99,6 +98,7 @@ def apnet2_model_predict(
     compile: bool = True,
     batch_size: int = 16,
     ensemble_model_dir: str = model_dir,
+    return_pairs: bool = False,
 ):
     num_models = 5
     ap2 = AtomPairwiseModels.apnet2.APNet2Model(
@@ -129,7 +129,11 @@ def apnet2_model_predict(
     pred_IEs = np.zeros((len(mols), 5))
     print("Processing mols...")
     for i in range(num_models):
-        IEs = models[i].predict_qcel_mols(mols, batch_size=batch_size)
+        IEs = models[i].predict_qcel_mols(
+            mols,
+            batch_size=batch_size,
+            return_pairs=return_pairs,
+        )
         pred_IEs[:, 1:] += IEs
         pred_IEs[:, 0] += np.sum(IEs, axis=1)
     pred_IEs /= num_models
@@ -180,7 +184,9 @@ def dapnet2_model_predict(
             "Pretrained models only predict m2=CCSD(T)/CBS/CP"
         )
         pre_trained_model_path = resources.files("apnet_pt").joinpath(
-            "models", "dapnet2", f"{clean_str_for_filename(m1)}_to_{clean_str_for_filename(m2)}_0.pt"
+            "models",
+            "dapnet2",
+            f"{clean_str_for_filename(m1)}_to_{clean_str_for_filename(m2)}_0.pt",
         )
     dapnet2 = AtomPairwiseModels.dapnet2.dAPNet2Model(
         atom_model=atom_model,

@@ -959,6 +959,17 @@ class APNet2Model:
         self.model.return_hidden_states = value
         return self
 
+    def _assemble_pairs(
+        self,
+        batch,
+        E_sr_dimer,
+        E_sr,
+        E_elst_sr,
+        E_elst_lr,
+    ):
+
+        return
+
     @torch.inference_mode()
     def predict_qcel_mols(
         self,
@@ -967,6 +978,7 @@ class APNet2Model:
         r_cut=None,
         r_cut_im=None,
         verbose=False,
+        return_pairs=False,
     ):
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -975,6 +987,8 @@ class APNet2Model:
 
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
         predictions = np.zeros((len(mol_data), 4))
+        if return_pairs:
+            pairs = []
         if self.model.return_hidden_states:
             # need to capture output
             h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
@@ -1083,6 +1097,8 @@ class APNet2Model:
                     dimer_inds.append(dimer_batch.dimer_ind)
                     ndimers.append(torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long))
                     predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                elif return_pairs:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
                 else:
                     predictions[i: i + batch_size] = preds[0].cpu().numpy()
             if verbose:
