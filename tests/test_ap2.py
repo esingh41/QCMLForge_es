@@ -79,6 +79,7 @@ def test_ap2_architecture():
     print(output[0])
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+
 def test_ap2_predict_pairs():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
