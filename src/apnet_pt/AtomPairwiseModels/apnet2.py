@@ -27,6 +27,15 @@ from importlib import resources
 from copy import deepcopy
 
 
+def assemble_RA_RB_lists(
+    RA,
+    RB,
+    dimer_ind
+):
+    return
+
+
+
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
     p = step / decay_steps
     if staircase:
@@ -974,43 +983,65 @@ class APNet2Model:
         pair_energies = []
         pair_energies_batch = []
 
-        for dimer_ind, (sizeA, sizeB) in enumerate(sizes_batch):
-            indA_to_dimer.append(np.full((sizeA,), dimer_ind))
-            indB_to_dimer.append(np.full((sizeB,), dimer_ind))
-            indA_to_atom.append(np.arange(sizeA))
-            indB_to_atom.append(np.arange(sizeB))
-            pair_energies_batch.append(np.zeros((4, sizeA, sizeB)))
+        indsA_sr = inp_batch["e_ABsr_source"]
+        indsB_sr = inp_batch["e_ABsr_target"]
+        indsA_lr = inp_batch["e_ABlr_source"]
+        indsB_lr = inp_batch["e_ABlr_target"]
+
+        print(inp_batch)
+        print(inp_batch.dimer_ind)
+
+        dimer_inds, atoms_per_dimer = torch.unique(inp_batch.dimer_ind, return_counts=True)
+        n_dimers = torch.max(dimer_inds) + 1
+        print(f"n_dimers: {n_dimers}, atoms_per_dimer: {atoms_per_dimer}")
+        print(f"{indsA_sr = }")
+        print(f"{indsB_sr = }")
+        print(inp_batch.indA)
+        print(inp_batch.indB)
+        indsA_monomer = inp_batch.indA
+        indsB_monomer = inp_batch.indB
+
+        for i in dimer_inds:
+            size_A = torch.sum(indsA_monomer == i)
+            size_B = torch.sum(indsB_monomer == i)
+            indA_to_dimer.append(np.full((size_A,), i))
+            indB_to_dimer.append(np.full((size_B,), i))
+            indA_to_atom.append(np.arange(size_A))
+            indB_to_atom.append(np.arange(size_B))
+            pair_energies_batch.append(np.zeros((4, size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
         indB_to_dimer = np.concatenate(indB_to_dimer)
         indA_to_atom = np.concatenate(indA_to_atom)
         indB_to_atom = np.concatenate(indB_to_atom)
 
-        indsA_sr = inp_batch["e_ABsr_source"]
-        indsB_sr = inp_batch["e_ABsr_target"]
-        indsA_lr = inp_batch["e_ABlr_source"]
-        indsB_lr = inp_batch["e_ABlr_target"]
+        print(f"{indA_to_dimer = }")
+        print(f"{indB_to_dimer = }")
+        print(f"{indA_to_atom = }")
+        print(f"{indB_to_atom = }")
 
-        for e_pair, e_elst_sr, indA, indB in zip(pair_preds, pair_mtp_sr, indsA_sr, indsB_sr):
+        # E_sr, E_elst_sr, E_elst_lr
+        for e_pair, e_elst_sr, indA, indB in zip(E_sr, E_elst_sr, indsA_sr, indsB_sr):
 
-            dimer_ind = indA_to_dimer[indA]
-            assert dimer_ind == indB_to_dimer[indB]
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_energies_batch[dimer_ind][0:4, atomA, atomB] += e_pair
-            pair_energies_batch[dimer_ind][0, atomA, atomB] += e_elst_sr
+            print(f"{i = }, {atomA = }, {atomB = }")
+            print(pair_energies_batch[i][0:4, atomA, atomB])
+            print("e_pair:", e_pair.numpy())
+            print("e_elst_sr:", e_elst_sr.numpy())
+            pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
+            pair_energies_batch[i][0, atomA, atomB] += e_elst_sr.numpy()
 
-        for e_elst_lr, indA, indB in zip(pair_mtp_lr, indsA_lr, indsB_lr):
+        for e_elst_lr, indA, indB in zip(E_elst_lr, indsA_lr, indsB_lr):
 
-            dimer_ind = indA_to_dimer[indA]
-            assert dimer_ind == indB_to_dimer[indB]
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_energies_batch[dimer_ind][0, atomA, atomB] += e_elst_lr
-
-        pair_energies.extend(pair_energies_batch)
-
-        return
+            pair_energies_batch[i][0, atomA, atomB] += e_elst_lr
+        return pair_energies_batch
 
     @torch.inference_mode()
     def predict_qcel_mols(
@@ -1126,7 +1157,7 @@ class APNet2Model:
                             hlistB=hlistB,
                         )
                         dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
+                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target_monomer_indices(
                     dimer_ls
                 )
                 dimer_batch.to(device=self.device)
@@ -1140,8 +1171,18 @@ class APNet2Model:
                     ndimers.append(torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long))
                     predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
                 elif return_pairs:
+                    # assert batch_size == 1, "Currently batch size must be 1 for pairwise energies"
                     E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
                     predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                    pairwise_energies.extend(
+                        self._assemble_pairs(
+                            dimer_batch,
+                            E_sr_dimer,
+                            E_sr,
+                            E_elst_sr,
+                            E_elst_lr,
+                        )
+                    )
                 else:
                     predictions[i: i + batch_size] = preds[0].cpu().numpy()
             if verbose:

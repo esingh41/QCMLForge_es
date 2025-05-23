@@ -90,7 +90,13 @@ def test_ap2_predict_pairs():
         ignore_database_null=True,
         use_GPU=False,
     ).set_pretrained_model(model_id=0)
-    pairs = pair_model.predict_qcel_mols([mol_dimer], batch_size=1, return_pairs=True)
+    _, pairs = pair_model.predict_qcel_mols([
+        mol_dimer.copy(deep=True),
+        mol_dimer.copy(deep=True),
+        mol3.copy(deep=True),
+        mol_dimer.copy(deep=True),
+    ], batch_size=2, return_pairs=True)
+    print("final Pairs:")
     print(pairs)
     return
 
