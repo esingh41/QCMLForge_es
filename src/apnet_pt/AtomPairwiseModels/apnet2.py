@@ -988,16 +988,8 @@ class APNet2Model:
         indsA_lr = inp_batch["e_ABlr_source"]
         indsB_lr = inp_batch["e_ABlr_target"]
 
-        print(inp_batch)
-        print(inp_batch.dimer_ind)
-
         dimer_inds, atoms_per_dimer = torch.unique(inp_batch.dimer_ind, return_counts=True)
         n_dimers = torch.max(dimer_inds) + 1
-        print(f"n_dimers: {n_dimers}, atoms_per_dimer: {atoms_per_dimer}")
-        print(f"{indsA_sr = }")
-        print(f"{indsB_sr = }")
-        print(inp_batch.indA)
-        print(inp_batch.indB)
         indsA_monomer = inp_batch.indA
         indsB_monomer = inp_batch.indB
 
@@ -1015,11 +1007,6 @@ class APNet2Model:
         indA_to_atom = np.concatenate(indA_to_atom)
         indB_to_atom = np.concatenate(indB_to_atom)
 
-        print(f"{indA_to_dimer = }")
-        print(f"{indB_to_dimer = }")
-        print(f"{indA_to_atom = }")
-        print(f"{indB_to_atom = }")
-
         # E_sr, E_elst_sr, E_elst_lr
         for e_pair, e_elst_sr, indA, indB in zip(E_sr, E_elst_sr, indsA_sr, indsB_sr):
 
@@ -1027,10 +1014,6 @@ class APNet2Model:
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            print(f"{i = }, {atomA = }, {atomB = }")
-            print(pair_energies_batch[i][0:4, atomA, atomB])
-            print("e_pair:", e_pair.numpy())
-            print("e_elst_sr:", e_elst_sr.numpy())
             pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
             pair_energies_batch[i][0, atomA, atomB] += e_elst_sr.numpy()
 

@@ -16,7 +16,7 @@ H 3.260455 0.500000 -0.872893
 """)
 
 mol3 = qcelemental.models.Molecule.from_data(
-        """
+    """
     1 1
     C       0.0545060001    -0.1631290019   -1.1141539812
     C       -0.9692260027   -1.0918780565   0.6940879822
@@ -45,6 +45,42 @@ mol3 = qcelemental.models.Molecule.from_data(
     units angstrom
                 """
 )
+mol_fsapt = qcelemental.models.Molecule.from_data("""
+0 1
+C   11.54100       27.68600       13.69600
+H   12.45900       27.15000       13.44600
+C   10.79000       27.96500       12.40600
+H   10.55700       27.01400       11.92400
+H   9.879000       28.51400       12.64300
+H   11.44300       28.56800       11.76200
+H   10.90337       27.06487       14.34224
+H   11.78789       28.62476       14.21347
+--
+0 1
+C   10.60200       24.81800       6.466000
+O   10.95600       23.84000       7.103000
+N   10.17800       25.94300       7.070000
+C   10.09100       26.25600       8.476000
+C   9.372000       27.59000       8.640000
+C   11.44600       26.35600       9.091000
+C   9.333000       25.25000       9.282000
+H   9.874000       26.68900       6.497000
+H   9.908000       28.37100       8.093000
+H   8.364000       27.46400       8.233000
+H   9.317000       27.84600       9.706000
+H   9.807000       24.28200       9.160000
+H   9.371000       25.57400       10.32900
+H   8.328000       25.26700       8.900000
+H   11.28800       26.57600       10.14400
+H   11.97000       27.14900       8.585000
+H   11.93200       25.39300       8.957000
+H   10.61998       24.85900       5.366911
+units angstrom
+
+symmetry c1
+no_reorient
+no_com
+""")
 
 
 def set_weights_to_value(model, value=0.9):
@@ -56,7 +92,7 @@ def set_weights_to_value(model, value=0.9):
 
 def test_ap2_architecture():
     target_energies = [
-        -3.402202606201171875e+01,  # ELST
+        -3.402202606201171875e01,  # ELST
         4.996978532290086150e-06,  # EXCH
         4.996978532290086150e-06,  # INDU
         4.996978532290086150e-06,  # DISP
@@ -81,6 +117,45 @@ def test_ap2_architecture():
 
 
 def test_ap2_predict_pairs():
+    refInteractions = {
+        "Methyl1_A Peptide_B": {
+            "fEelst": 0.463,
+            "fEexch": 0.000,
+            "fEindAB": -0.010,
+            "fEindBA": 0.000,
+            "fEdisp": -0.009,
+            "fEedisp": 0.0,
+            "fEtot": 0.443,
+        },
+        "Methyl1_A T-Butyl_B": {
+            "fEelst": -0.328,
+            "fEexch": 0.023,
+            "fEindAB": 0.001,
+            "fEindBA": 0.024,
+            "fEdisp": -0.186,
+            "fEedisp": 0.0,
+            "fEtot": -0.467,
+        },
+        "Methyl2_A Peptide_B": {
+            "fEelst": -0.827,
+            "fEexch": 0.014,
+            "fEindAB": -0.041,
+            "fEindBA": -0.001,
+            "fEdisp": -0.040,
+            "fEedisp": 0.0,
+            "fEtot": -0.895,
+        },
+        "Methyl2_A T-Butyl_B": {
+            "fEelst": -0.611,
+            "fEexch": 4.130,
+            "fEindAB": -0.217,
+            "fEindBA": -0.143,
+            "fEdisp": -1.812,
+            "fEedisp": 0.0,
+            "fEtot": 1.347,
+        },
+    }
+
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
@@ -91,14 +166,46 @@ def test_ap2_predict_pairs():
         ignore_database_null=True,
         use_GPU=False,
     ).set_pretrained_model(model_id=0)
-    _, pairs = pair_model.predict_qcel_mols([
-        mol_dimer.copy(deep=True),
-        mol_dimer.copy(deep=True),
-        mol3.copy(deep=True),
-        mol_dimer.copy(deep=True),
-    ], batch_size=2, return_pairs=True)
+    _, pairs = pair_model.predict_qcel_mols(
+        [
+            mol_fsapt,
+        ],
+        batch_size=2,
+        return_pairs=True,
+    )
     print("final Pairs:")
-    print(pairs)
+    pairs = pairs[0]
+    print(pairs.shape)
+    fA = {
+        "Methyl1_A": [1, 2, 7, 8],
+        "Methyl2_A": [3, 4, 5, 6],
+    }
+    fB = {
+        "Peptide_B": [9, 10, 11, 16, 26],
+        "T-Butyl_B": [12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+    }
+    # pairs[comp, A, B]
+    print(mol_fsapt)
+    monA = mol_fsapt.get_fragment(0)
+    print(monA)
+    nA = len(monA.atomic_numbers)
+    for kA, vA in fA.items():
+        for kB, vB in fB.items():
+            elst_sum = 0.0
+            exch_sum = 0.0
+            indu_sum = 0.0
+            disp_sum = 0.0
+            total_sum = 0.0
+            for iA in vA:
+                for iB in vB:
+                    elst_sum += pairs[0, iA - 1, iB - 1 - nA]
+                    exch_sum += pairs[1, iA - 1, iB - 1 - nA]
+                    indu_sum += pairs[2, iA - 1, iB - 1 - nA]
+                    disp_sum += pairs[3, iA - 1, iB - 1 - nA]
+            total_sum = elst_sum + exch_sum + indu_sum + disp_sum
+            print(
+                f"{kA} {kB}:\n  ELST: {elst_sum:.6f}, EXCH: {exch_sum:.6f}, INDU: {indu_sum:.6f}, DISP: {disp_sum:.6f}, TOTAL: {total_sum:.6f}"
+            )
     return
 
 
