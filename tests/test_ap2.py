@@ -79,6 +79,7 @@ def test_ap2_architecture():
     print(output[0])
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+
 def test_ap2_predict_pairs():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
@@ -90,7 +91,7 @@ def test_ap2_predict_pairs():
         ignore_database_null=True,
         use_GPU=False,
     ).set_pretrained_model(model_id=0)
-    pairs = pair_model.predict_qcel_mols([mol_dimer], batch_size=1, return_pairs=True)
+    energies, pairs = pair_model.predict_qcel_mols([mol_dimer], batch_size=1, return_pairs=True)
     print(pairs)
     return
 
