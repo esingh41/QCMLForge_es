@@ -3,6 +3,18 @@ import numpy as np
 import qcelemental
 import torch
 
+mol_dimer = qcelemental.models.Molecule.from_data("""
+0 1
+O 0.000000 0.000000  0.000000
+H 0.758602 0.000000  0.504284
+H 0.260455 0.000000 -0.872893
+--
+0 1
+O 3.000000 0.500000  0.000000
+H 3.758602 0.500000  0.504284
+H 3.260455 0.500000 -0.872893
+""")
+
 mol3 = qcelemental.models.Molecule.from_data(
         """
     1 1
@@ -67,6 +79,22 @@ def test_ap2_architecture():
     print(output[0])
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+def test_ap2_predict_pairs():
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
+        atom_model=atom_model.model,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    pairs = pair_model.predict_qcel_mols([mol_dimer], batch_size=1, return_pairs=True)
+    print(pairs)
+    return
+
 
 if __name__ == "__main__":
-    test_ap2_architecture()
+    # test_ap2_architecture()
+    test_ap2_predict_pairs()
