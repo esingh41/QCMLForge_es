@@ -166,7 +166,7 @@ def test_ap2_predict_pairs():
         ignore_database_null=True,
         use_GPU=False,
     ).set_pretrained_model(model_id=0)
-    _, pairs = pair_model.predict_qcel_mols(
+    IEs, pairs = pair_model.predict_qcel_mols(
         [
             mol_fsapt,
         ],
@@ -206,6 +206,7 @@ def test_ap2_predict_pairs():
             print(
                 f"{kA} {kB}:\n  TOTAL: {total_sum:.6f}, ELST: {elst_sum:.6f}, EXCH: {exch_sum:.6f}, INDU: {indu_sum:.6f}, DISP: {disp_sum:.6f}"
             )
+    print(IEs)
     return
 
 
