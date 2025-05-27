@@ -249,6 +249,85 @@ def apnet2_collate_update_no_target(batch):
     return batched_data
 
 
+def apnet2_collate_update_no_target_monomer_indices(batch):
+    """
+    Need to update the edge_index values so that each molecule has a unique
+    set of indices. Then, the data.molecule_ind can be used to group
+    atoms into molecules during a forward pass.
+    """
+    monA_edge_offset, monB_edge_offset = 0, 0
+    local_e_ABsr_source = []
+    local_e_ABsr_target = []
+    local_e_ABlr_source = []
+    local_e_ABlr_target = []
+    local_e_AA_source = []
+    local_e_AA_target = []
+    local_e_BB_source = []
+    local_e_BB_target = []
+    local_indA = []
+    local_indB = []
+    for i, data in enumerate(batch):
+        data.dimer_ind = (
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype)
+            * i
+        )
+        data.dimer_ind_lr = (
+            torch.ones(data.e_ABlr_source.size(
+                0), dtype=data.dimer_ind_lr.dtype)
+            * i
+        )
+        local_e_ABsr_source.append(
+            data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(
+            data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(
+            data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(
+            data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
+        local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
+        local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
+        local_e_BB_target.append(data.e_BB_target.clone() + monB_edge_offset)
+
+        monA_edge_offset += data.RA.size(0)
+        monB_edge_offset += data.RB.size(0)
+        local_indA.append(
+            torch.ones(data.RA.size(0), dtype=data.dimer_ind.dtype) * i)
+        local_indB.append(
+            torch.ones(data.RB.size(0), dtype=data.dimer_ind_lr.dtype) * i)
+    batched_data = Data(
+        ZA=torch.cat([data.ZA for data in batch], dim=0),
+        RA=torch.cat([data.RA for data in batch], dim=0),
+        ZB=torch.cat([data.ZB for data in batch], dim=0),
+        RB=torch.cat([data.RB for data in batch], dim=0),
+        e_AA_source=torch.cat(local_e_AA_source, dim=0),
+        e_AA_target=torch.cat(local_e_AA_target, dim=0),
+        e_BB_source=torch.cat(local_e_BB_source, dim=0),
+        e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
+        e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
+        e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
+        e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
+        dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
+        dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
+        total_charge_A=torch.tensor(
+            [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+        ),
+        total_charge_B=torch.tensor(
+            [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+        ),
+        qA=torch.cat([data.qA for data in batch], dim=0),
+        muA=torch.cat([data.muA for data in batch], dim=0),
+        quadA=torch.cat([data.quadA for data in batch], dim=0),
+        hlistA=torch.cat([data.hlistA for data in batch], dim=0),
+        qB=torch.cat([data.qB for data in batch], dim=0),
+        muB=torch.cat([data.muB for data in batch], dim=0),
+        quadB=torch.cat([data.quadB for data in batch], dim=0),
+        hlistB=torch.cat([data.hlistB for data in batch], dim=0),
+        indA=torch.cat(local_indA, dim=0),
+        indB=torch.cat(local_indB, dim=0),
+    )
+    return batched_data
 
 
 def apnet3_collate_update_prebatched(batch):

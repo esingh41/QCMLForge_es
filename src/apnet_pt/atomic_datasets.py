@@ -403,7 +403,7 @@ class atomic_module_dataset(Dataset):
             assert spec_type in [1, 2, 3, 4]
         except Exception:
             print(
-                "Currently spec_type must be 1, 2, or 3 for HF/jun-cc-pV(D+D)Z (CMPNN), PBE0/aug-cc-pV(T+D)Z (CMPNN), or HF/jun-cc-pV(D+D)Z (APNET2) respectively. Only 1 and 2 are available for download at the moment."
+                "Currently spec_type must be 1, 2, or 3 for HF/jun-cc-pV(D+d)Z (CMPNN), PBE0/aug-cc-pV(T+D)Z (CMPNN), or HF/jun-cc-pV(D+D)Z (APNET2) respectively. Only 1 and 2 are available for download at the moment."
             )
             raise ValueError
         self.testing = testing
