@@ -26,7 +26,8 @@ def test_elst_multipoles():
     ).set_pretrained_model(model_id=0)
     monA = lr_water_dimer.get_fragment(0).copy()
     monB = lr_water_dimer.get_fragment(1).copy()
-    multipoles = atom_model.predict_qcel_mols([monA, monB], batch_size=1)
+    multipoles = atom_model.predict_qcel_mols([monA, monB, monA.copy(), monB.copy()], batch_size=3)
+    assert len(multipoles) == 4, f"Expected 4 multipoles, got {len(multipoles)}"
     mtp_A = multipoles[0]
     mtp_B = multipoles[1]
     E_elst = apnet_pt.multipole.eval_qcel_dimer(
