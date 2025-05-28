@@ -162,20 +162,20 @@ def T_cart(RA, RB):
     return T0, T1, T2, T3, T4
 
 
-def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB):
+def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
 
     T0, T1, T2, T3, T4 = T_cart(RA, RB)
 
-    # Trace is already taken care of
-    # if False:
-    #    traceA = np.trace(thetaA)
-    #    thetaA[0,0] -= traceA / 3.0
-    #    thetaA[1,1] -= traceA / 3.0
-    #    thetaA[2,2] -= traceA / 3.0
-    #    traceB = np.trace(thetaB)
-    #    thetaB[0,0] -= traceB / 3.0
-    #    thetaB[1,1] -= traceB / 3.0
-    #    thetaB[2,2] -= traceB / 3.0
+    # Most inputs will already be traceless, but we can ensure this is the case
+    if not traceless:
+        traceA = np.trace(thetaA)
+        thetaA[0, 0] -= traceA / 3.0
+        thetaA[1, 1] -= traceA / 3.0
+        thetaA[2, 2] -= traceA / 3.0
+        traceB = np.trace(thetaB)
+        thetaB[0, 0] -= traceB / 3.0
+        thetaB[1, 1] -= traceB / 3.0
+        thetaB[2, 2] -= traceB / 3.0
 
     E_qq = np.sum(T0 * qA * qB)
     E_qu = np.sum(T1 * (qA * muB - qB * muA))
@@ -186,7 +186,7 @@ def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB):
         T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
     ) * (
         -1.0 / 3.0
-    )  # sign ??
+    )
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * (1.0 / 9.0)
 
