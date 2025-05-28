@@ -6,7 +6,6 @@ import numpy as np
 from . import constants
 import torch
 
-
 def proc_molden(name):
     """Get coordinates (a.u.) and atom types from a molden.
     Accounts for ghost atoms"""
@@ -160,6 +159,36 @@ def T_cart(RA, RB):
     )
 
     return T0, T1, T2, T3, T4
+
+
+def eval_qcel_dimer(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
+    """
+    Evaluate the electrostatic interaction energy between two molecules using
+    their multipole moments. Dimensionalities of qA should be [N], muA should
+    be [N, 3], and thetaA should be [N, 3, 3]. Same for qB, muB, and thetaB.
+    """
+    tot_energy = 0.0
+    RA = mol_dimer.get_fragment(0).geometry
+    RB = mol_dimer.get_fragment(1).geometry
+    ZA = mol_dimer.get_fragment(0).atomic_numbers
+    ZB = mol_dimer.get_fragment(1).atomic_numbers
+    for i in range(len(ZA)):
+        for j in range(len(ZB)):
+            rA = RA[i]
+            qA_i = qA[i]
+            muA_i = muA[i]
+            thetaA_i = thetaA[i]
+
+            rB = RB[j]
+            qB_j = qB[j]
+            muB_j = muB[j]
+            thetaB_j = thetaB[j]
+
+            pair_energy = eval_interaction(
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j
+            )
+            tot_energy += pair_energy
+    return tot_energy * constants.h2kcalmol
 
 
 def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):

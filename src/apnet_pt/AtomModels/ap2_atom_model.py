@@ -1261,11 +1261,13 @@ units angstrom
         for mol in mols:
             data = qcel_mon_to_pyg_data(mol)
             mol_data.append(data)
+            cnt += 1
             if len(mol_data) == batch_size or cnt == len(mols) - 1:
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
                     charge, dipole, qpole, hlist = self.eval_fn(batch)
                     output.append((charge, dipole, qpole, hlist))
+                mol_data = []
         return output
 
     @torch.inference_mode()
