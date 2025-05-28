@@ -87,7 +87,7 @@ def test_am():
 def test_am_hirshfeld():
     am = AtomHirshfeldModel(
         use_GPU=False,
-        ignore_database_null=False,
+        ignore_database_null=True,
     )
     return
 
