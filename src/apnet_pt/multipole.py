@@ -167,7 +167,7 @@ def eval_qcel_dimer(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
     their multipole moments. Dimensionalities of qA should be [N], muA should
     be [N, 3], and thetaA should be [N, 3, 3]. Same for qB, muB, and thetaB.
     """
-    tot_energy = 0.0
+    total_energy = 0.0
     RA = mol_dimer.get_fragment(0).geometry
     RB = mol_dimer.get_fragment(1).geometry
     ZA = mol_dimer.get_fragment(0).atomic_numbers
@@ -187,8 +187,76 @@ def eval_qcel_dimer(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
             pair_energy = eval_interaction(
                 rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j
             )
-            tot_energy += pair_energy
-    return tot_energy * constants.h2kcalmol
+            total_energy += pair_energy
+    return total_energy * constants.h2kcalmol
+
+
+def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
+    """
+    Evaluate the electrostatic interaction energy between two molecules using
+    their multipole moments. Dimensionalities of qA should be [N], muA should
+    be [N, 3], and thetaA should be [N, 3, 3]. Same for qB, muB, and thetaB.
+    """
+    total_energy = np.zeros(3)
+    RA = mol_dimer.get_fragment(0).geometry
+    RB = mol_dimer.get_fragment(1).geometry
+    ZA = mol_dimer.get_fragment(0).atomic_numbers
+    ZB = mol_dimer.get_fragment(1).atomic_numbers
+    for i in range(len(ZA)):
+        for j in range(len(ZB)):
+            rA = RA[i]
+            qA_i = qA[i]
+            muA_i = muA[i]
+            thetaA_i = thetaA[i]
+
+            rB = RB[j]
+            qB_j = qB[j]
+            muB_j = muB[j]
+            thetaB_j = thetaB[j]
+
+            E_q, E_dp, E_qpole = eval_interaction_individual(
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j
+            )
+            total_energy[0] += E_q
+            total_energy[1] += E_dp
+            total_energy[2] += E_qpole
+    return total_energy * constants.h2kcalmol
+
+
+def eval_interaction_individual(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
+
+    T0, T1, T2, T3, T4 = T_cart(RA, RB)
+
+    # Most inputs will already be traceless, but we can ensure this is the case
+    if not traceless:
+        traceA = np.trace(thetaA)
+        thetaA[0, 0] -= traceA / 3.0
+        thetaA[1, 1] -= traceA / 3.0
+        thetaA[2, 2] -= traceA / 3.0
+        traceB = np.trace(thetaB)
+        thetaB[0, 0] -= traceB / 3.0
+        thetaB[1, 1] -= traceB / 3.0
+        thetaB[2, 2] -= traceB / 3.0
+
+    E_qq = np.sum(T0 * qA * qB)
+    E_qu = np.sum(T1 * (qA * muB - qB * muA))
+    E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) * (1.0 / 3.0)
+
+    E_uu = np.sum(T2 * np.outer(muA, muB)) * (-1.0)
+    E_uQ = np.sum(
+        T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
+    ) * (
+        -1.0 / 3.0
+    )
+
+    E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * (1.0 / 9.0)
+    # partial-charge electrostatic energy
+    E_q = E_qq
+    # dipole correction
+    E_u = E_qu + E_uu
+    # quadrupole correction
+    E_Q = E_qQ + E_uQ + E_QQ
+    return E_q, E_u, E_Q
 
 
 def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
@@ -255,7 +323,7 @@ def eval_dimer2(RA, RB, ZA, ZB, QA, QB):
         # QB_temp[ib][4:10] = (3.0/2.0) * qpole_redundant(QB_temp[ib][4:10])
         quadrupole_B.append((3.0 / 2.0) * qpole_redundant(QB_temp[ib][4:10]))
 
-    tot_energy = 0.0
+    total_energy = 0.0
 
     # calculate multipole electrostatics for each atom pair
     for ia in range(len(RA_temp)):
@@ -279,11 +347,11 @@ def eval_dimer2(RA, RB, ZA, ZB, QA, QB):
                 quadrupole_B[ib],
             )
 
-            tot_energy += pair_energy
+            total_energy += pair_energy
 
     Har2Kcalmol = 627.5094737775374055927342256
 
-    return tot_energy * Har2Kcalmol
+    return total_energy * Har2Kcalmol
 
 
 def eval_dimer(RA, RB, ZA, ZB, QA, QB):
@@ -296,7 +364,7 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
     RA_temp = RA * 1.88973
     RB_temp = RB * 1.88973
 
-    tot_energy = 0.0
+    total_energy = 0.0
 
     maskA = ZA >= 1
     maskB = ZB >= 1
@@ -336,12 +404,12 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
             )
 
             # print('pair', pair_energy)
-            tot_energy += pair_energy
+            total_energy += pair_energy
             pair_mat[ia][ib] = pair_energy
 
     Har2Kcalmol = 627.5094737775374055927342256
 
-    return tot_energy * Har2Kcalmol, pair_mat * Har2Kcalmol
+    return total_energy * Har2Kcalmol, pair_mat * Har2Kcalmol
 
 
 # def eval_dimer(moldenA, moldenB, h5A, h5B, print_=False):
@@ -358,7 +426,7 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
 #    QA = hfA['cartesian_multipoles'][:]
 #    QB = hfB['cartesian_multipoles'][:]
 #
-#    tot_energy = 0.0
+#    total_energy = 0.0
 #    pair_energies_l = []
 #
 #    # calculate multipole electrostatics for each atom pair
@@ -384,7 +452,7 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
 #            pair_energy = np.sum(pair_energies)
 #            pair_energies_l.append(pair_energies)
 #
-#            tot_energy += pair_energy
+#            total_energy += pair_energy
 #
 #    pair_energies_l = np.array(pair_energies_l)
 #    Har2Kcalmol = 627.509

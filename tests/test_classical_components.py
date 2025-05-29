@@ -44,7 +44,38 @@ def test_elst_multipoles():
     print(f"E_elst = {E_elst:.6f} kcal/mol")
     E_ref = -0.853646
     assert abs(E_elst - E_ref) < 1e-6, f"Expected {E_ref}, got {E_elst}"
-    return
+
+
+def test_elst_charge_dipole_qpole():
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    monA = lr_water_dimer.get_fragment(0).copy()
+    monB = lr_water_dimer.get_fragment(1).copy()
+    multipoles = atom_model.predict_qcel_mols([monA, monB, monA.copy(), monB.copy()], batch_size=3)
+    assert len(multipoles) == 4, f"Expected 4 multipoles, got {len(multipoles)}"
+    mtp_A = multipoles[0]
+    mtp_B = multipoles[1]
+    E_q, E_dp, E_qpole = apnet_pt.multipole.eval_qcel_dimer_individual(
+        mol_dimer=lr_water_dimer,
+        qA=mtp_A[0].numpy(),
+        muA=mtp_A[1].numpy(),
+        thetaA=mtp_A[2].numpy(),
+        qB=mtp_B[0].numpy(),
+        muB=mtp_B[1].numpy(),
+        thetaB=mtp_B[2].numpy(),
+    )
+    print(f"E_q = {E_q:.6f} kcal/mol")
+    print(f"E_dp = {E_dp:.6f} kcal/mol")
+    print(f"E_qpole = {E_qpole:.6f} kcal/mol")
+    E_q_ref = -1.239722
+    E_dp_ref = 0.392898
+    E_qpole_ref = -0.006823
+    assert abs(E_q - E_q_ref) < 1e-6, f"Expected {E_q_ref}, got {E_q}"
+    assert abs(E_dp - E_dp_ref) < 1e-6, f"Expected {E_dp_ref}, got {E_dp}"
+    assert abs(E_qpole - E_qpole_ref) < 1e-6, f"Expected {E_qpole_ref}, got {E_qpole}"
 
 
 def test_elst_multipoles_am_hirshfeld():
@@ -73,9 +104,9 @@ def test_elst_multipoles_am_hirshfeld():
     print(f"E_elst = {E_elst:.6f} kcal/mol")
     E_ref = -0.7430384309295008
     assert abs(E_elst - E_ref) < 1e-6, f"Expected {E_ref}, got {E_elst}"
-    return
 
 
 if __name__ == "__main__":
     # test_elst_multipoles()
-    test_elst_multipoles_am_hirshfeld()
+    # test_elst_multipoles_am_hirshfeld()
+    test_elst_charge_dipole_qpole()
