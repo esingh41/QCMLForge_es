@@ -1573,3 +1573,404 @@ class apnet3_module_dataset(Dataset):
         except Exception:
             print(f"Error loading {datapath}\n    at {idx=}, {idx_datapath=}, {obj_ind=}")
         return self.active_data[obj_ind]
+
+
+class atomic_module_dimer_dataset(Dataset):
+    def __init__(
+        self,
+        root,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        spec_type=1,
+        spec_type_str=None,
+        max_size=None,
+        force_reprocess=False,
+        skip_processed=True,
+        skip_compile=False,
+        # only need for processing
+        batch_size=16,
+        atomic_batch_size=200,
+        prebatched=False,
+        # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
+        datapoint_storage_n_objects=1000,
+        in_memory=False,
+        num_devices=1,
+        split="all",  # train, test
+        print_level=1,
+        qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
+        energy_labels: Optional[List[float]] = None,
+    ):
+        """
+        spec_type definitions:
+            1. regular
+            None: assumes that data is passed as qcel_molecules and energy labels
+        """
+        self.print_level = print_level
+        try:
+            assert spec_type in [1, None]
+        except Exception:
+            print("Currently spec_type must be 1")
+            raise ValueError
+        self.spec_type = spec_type
+        
+        self.qcel_molecules = None
+        self.energy_labels = None
+        # Store qcel_molecules and energy_labels if provided
+        if qcel_molecules is not None and energy_labels is not None:
+            self.qcel_molecules = qcel_molecules
+            self.energy_labels = energy_labels
+            if len(qcel_molecules) != len(energy_labels):
+                raise ValueError("Length of qcel_molecules and energy_labels must match")
+            print(f"Received {len(qcel_molecules)} QCElemental molecules with energy labels")
+        self.prebatched = prebatched
+
+        if spec_type in [1, 2, 7] and self.prebatched is False:
+            print("WARNING: spec_type [1, 2, 7] requires prebatched=True\n  Setting prebatched=True")
+            self.prebatched = True
+        self.MAX_SIZE = max_size
+        self.in_memory = in_memory
+        self.split = split
+        self.r_cut = r_cut
+        self.r_cut_im = torch.inf
+        self.force_reprocess = force_reprocess
+        self.atomic_batch_size = atomic_batch_size
+        self.batch_size = batch_size
+        self.training_batch_size = batch_size if not prebatched else 1;
+        self.datapoint_storage_n_objects = datapoint_storage_n_objects
+        self.points_per_file = self.datapoint_storage_n_objects
+        self.skip_compile = skip_compile
+        if self.prebatched:
+            self.points_per_file *= self.batch_size
+        elif self.in_memory:
+            self.points_per_file = 1
+        if self.prebatched:
+            print("WARNING: prebatched=True, setting training_batch_size=1 because data is already batched")
+        self.data = []
+        self.skip_processed = skip_processed
+        if os.path.exists(root) is False:
+            os.makedirs(root, exist_ok=True)
+        super(atomic_module_dimer_dataset, self).__init__(
+            root, transform, pre_transform)
+        if self.force_reprocess:
+            self.force_reprocess = False
+            super(atomic_module_dimer_dataset, self).__init__(
+                root, transform, pre_transform)
+        print(
+            f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
+        )
+        if self.in_memory:
+            self.get = self.get_in_memory
+        self.batch_size = batch_size
+        self.active_idx_data = None
+        self.active_data = None
+        if spec_type in [1] and self.prebatched is False:
+            self.prebatched = True
+        if not spec_type_str and spec_type is not None:
+            spec_type_str = f"spec_{self.spec_type}"
+        elif spec_type_str is None:
+            spec_type_str = ""
+        split_str = split if split != "all" else ""
+        self.file_path_default = f"{self.root}/processed/am_dimer_{split_str}_{spec_type_str}_"
+
+    @property
+    def raw_file_names(self):
+        if self.spec_type == 1:
+            return [
+                "1600K_train_dimers-fixed.pkl",
+                "1600K_test_dimers-fixed.pkl",
+            ]
+        else:
+            return []
+
+    def reprocess_file_names(self):
+        if self.force_reprocess:
+            return ["file"]
+        else:
+            file_cmd = f"{self.file_path_default}*.pt"
+            spec_files = glob(file_cmd)
+            spec_files = [i.split("/")[-1] for i in spec_files]
+            if len(spec_files) > 0:
+                # want to preserve idx ordering
+                spec_files.sort(key=natural_key)
+                if self.MAX_SIZE is not None:
+                    max_size = int(self.MAX_SIZE /
+                                   self.datapoint_storage_n_objects)
+                if self.MAX_SIZE is not None:
+                    if len(spec_files) > max_size and max_size > 0:
+                        spec_files = spec_files[:max_size]
+                    elif len(spec_files) > max_size:
+                        spec_files = spec_files[:1]
+                return spec_files
+            else:
+                # Forces a re-processing of the dataset
+                return ["dimer_missing.pt"]
+
+    @property
+    def processed_file_names(self):
+        return self.reprocess_file_names()
+
+    def download(self):
+        if self.energy_labels and self.qcel_molecules:
+            return
+        raise ValueError(
+            "This dataset does not support downloading. Please provide qcel_molecules and energy_labels directly."
+        )
+        return
+
+
+    def process(self):
+        self.data = []
+        idx = 0
+        data_objects = []
+        # Handle direct qcel_mols input
+        RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
+        if self.qcel_molecules is not None and self.energy_labels is not None:
+            print("Processing directly from provided QCElemental molecules...")
+            split_name = ""
+            
+            # Process directly from qcel_mols and energy_labels
+            for mol in self.qcel_molecules:
+                # Extract monomer data from dimer
+                monA, monB = mol.get_fragment(0), mol.get_fragment(1)
+                
+                # Get coordinates and atomic numbers for each monomer
+                RA = torch.tensor(monA.geometry, dtype=torch.float32) * constants.au2ang
+                RB = torch.tensor(monB.geometry, dtype=torch.float32) * constants.au2ang
+                ZA = torch.tensor(monA.atomic_numbers, dtype=torch.int64)
+                ZB = torch.tensor(monB.atomic_numbers, dtype=torch.int64)
+                
+                # Calculate total charges
+                TQA = torch.tensor(monA.molecular_charge, dtype=torch.float32)
+                TQB = torch.tensor(monB.molecular_charge, dtype=torch.float32)
+                
+                RAs.append(RA)
+                RBs.append(RB)
+                ZAs.append(ZA)
+                ZBs.append(ZB)
+                TQAs.append(TQA)
+                TQBs.append(TQB)
+            
+            # Use provided energy labels
+            targets = self.energy_labels
+            
+            if self.MAX_SIZE is not None and len(RAs) > self.MAX_SIZE:
+                RAs = RAs[:self.MAX_SIZE]
+                RBs = RBs[:self.MAX_SIZE]
+                ZAs = ZAs[:self.MAX_SIZE]
+                ZBs = ZBs[:self.MAX_SIZE]
+                TQAs = TQAs[:self.MAX_SIZE]
+                TQBs = TQBs[:self.MAX_SIZE]
+                targets = targets[:self.MAX_SIZE]
+                
+            print(f"Processing {len(RAs)} dimers from provided QCElemental molecules...")
+        else:
+            for raw_path in self.raw_paths:
+                split_name = ""
+                if self.spec_type in [1]:
+                    split_name = f"_{self.split}"
+                    print(f"{split_name=}")
+                    if self.split not in Path(raw_path).stem:
+                        print(f"{self.split} is skipping {raw_path}")
+                        continue
+                print(f"raw_path: {raw_path}")
+                print("Loading dimers...")
+                RA, RB, ZA, ZB, TQA, TQB, target = util.load_dimer_dataset(
+                    raw_path, self.MAX_SIZE, return_qcel_mols=False, return_qcel_mons=False,
+                    # columns=['E_q', 'E_mu', 'E_theta'],
+                    columns=[],
+                )
+                RAs.extend(RA)
+                RBs.extend(RB)
+                ZAs.extend(ZA)
+                ZBs.extend(ZB)
+                TQAs.extend(TQA)
+                TQBs.extend(TQB)
+                targets.extend(target)
+        print("Creating data objects...")
+        t1 = time()
+        t2 = time()
+        print(f"{len(RAs)=}, {self.atomic_batch_size=}, {self.batch_size=}")
+        molA_data = []
+        molB_data = []
+        energies = []
+        for i in range(0, len(RAs) + len(RAs) % self.atomic_batch_size + 1, self.atomic_batch_size):
+            if self.skip_processed:
+                datapath = osp.join(
+                    self.processed_dir,
+                    f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
+                )
+                if osp.exists(datapath):
+                    idx += 1
+                    continue
+            upper_bound = min(i + self.atomic_batch_size, len(RAs))
+            for j in range(i, upper_bound):
+                monA_data = atomic_datasets.create_atomic_data(
+                    ZAs[j], RAs[j], TQAs[j], r_cut=self.r_cut
+                )
+                monB_data = atomic_datasets.create_atomic_data(
+                    ZBs[j], RBs[j], TQBs[j], r_cut=self.r_cut
+                )
+                molA_data.append(monA_data)
+                molB_data.append(monB_data)
+                energies.append(targets[j])
+            if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
+                continue
+            for j in range(len(molA_data)):
+                atomic_props_A = molA_data[j]
+                atomic_props_B = molB_data[j]
+                local_energies = energies[j]
+                # e_AA_source, e_AA_target = pairwise_edges(
+                #     atomic_props_A.R, self.r_cut
+                # )
+                # e_BB_source, e_BB_target = pairwise_edges(
+                #     atomic_props_B.R, self.r_cut
+                # )
+                e_AB_source, e_AB_target, _, _ = (
+                    pairwise_edges_im(
+                        atomic_props_A.R, atomic_props_B.R, self.r_cut_im
+                    )
+                )
+                # TODO: update when data available.
+                y_Elst_q = torch.tensor(local_energies, dtype=torch.float32)
+                y_Elst_mu = torch.tensor(local_energies, dtype=torch.float32)
+                y_Elst_theta = torch.tensor(local_energies, dtype=torch.float32)
+                dimer_ind = torch.ones((1), dtype=torch.long) * i
+                data = Data(
+                    # Electrostatic pairwise energies
+                    y_Elst_q=y_Elst_q,
+                    y_Elst_mu=y_Elst_mu,
+                    y_Elst_theta=y_Elst_theta,
+                    # MBIS multipoles for monomer A
+                    y_TQA=atomic_props_A.y,
+                    # MBIS multipoles for monomer B
+                    y_TQB=atomic_props_B.y,
+
+                    # monomer A properties
+                    molecule_ind_A=atomic_props_A.molecule_ind,
+                    ZA=atomic_props_A.x,
+                    RA=atomic_props_A.R,
+                    total_charge_A=atomic_props_A.total_charge,
+                    e_AA=atomic_props_A.edge_index,
+
+                    molecule_ind_B=atomic_props_B.molecule_ind,
+                    ZB=atomic_props_B.x,
+                    RB=atomic_props_B.R,
+                    e_BB=atomic_props_B.edge_index,
+                    total_charge_B=atomic_props_B.total_charge,
+
+                    # Dimer properties
+                    e_AB_source=e_AB_source,
+                    e_AB_target=e_AB_target,
+                    dimer_ind=dimer_ind,
+                )
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                # if self.pre_transform is not None:
+                #     data = self.pre_transform(data)
+                data_objects.append(data)
+
+                # Normally would store the data object to individual files,
+                # but at 1.67M dimers, this is too many files. Need to
+                # store self.datapoint_storage_n_objects (like 1000) dimers per file
+                if (
+                    len(data_objects) == self.points_per_file
+                ):
+                    # if we are pre-batching, we need to collate and save here.
+                    if self.prebatched:
+                        # collate based on batch_size
+                        local_data_objects = []
+                        for k in range(self.datapoint_storage_n_objects):
+                            local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
+                        data_objects = local_data_objects
+                    elif self.in_memory:
+                        data_objects = data_objects[0]
+                    if self.in_memory:
+                        self.data.append(data_objects)
+                    else:
+                        datapath = osp.join(
+                            self.processed_dir,
+                            f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
+                        )
+                        if self.print_level >= 2:
+                            print(f"Saving to {datapath}")
+                            print(len(data_objects))
+                        torch.save(data_objects, datapath)
+                    data_objects = []
+                    if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
+                        break
+                idx += 1
+            if self.print_level >= 2:
+                print(f"{i}/{len(RAs)}, {time()-t2:.2f}s, {time()-t1:.2f}s")
+            elif self.print_level >= 1 and idx % 1000:
+                print(f"{i}/{len(RAs)}, {time()-t2:.2f}s, {time()-t1:.2f}s")
+            t2 = time()
+            molA_data = []
+            molB_data = []
+            energies = []
+        if len(data_objects) > 0:
+            # print("Extra data:", len(data_objects))
+            if self.prebatched:
+                # collate based on batch_size
+                local_data_objects = []
+                for k in range(len(data_objects) // self.batch_size):
+                    local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
+                data_objects = local_data_objects
+            elif self.in_memory:
+                data_objects = data_objects[0]
+            if self.in_memory:
+                self.data.append(data_objects)
+            else:
+                datapath = osp.join(
+                    self.processed_dir,
+                        f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
+                )
+                if self.print_level >= 2:
+                    print(f"Final Saving to {datapath}")
+                    print(len(data_objects))
+                torch.save(data_objects, datapath)
+        return
+
+    def len(self):
+        if self.in_memory and self.prebatched:
+            print((len(self.data) - 1) * len(self.data[0]), len(self.data[-1])
+)
+            return (len(self.data) - 1) * len(self.data[0]) + len(self.data[-1])
+        elif self.in_memory:
+            return len(self.data)
+
+        d = torch.load(
+            osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
+        )
+        if self.prebatched:
+            return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
+        return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
+
+    def get(self, idx):
+        idx_datapath = idx // self.datapoint_storage_n_objects
+        obj_ind = idx % self.datapoint_storage_n_objects
+        if self.active_idx_data == idx_datapath:
+            return self.active_data[obj_ind]
+        split_name = ""
+        if self.spec_type in [2, 5, 6, 7, 9]:
+            split_name = f"_{self.split}"
+        datapath = osp.join(
+            self.processed_dir, f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
+        )
+        self.active_data = torch.load(datapath, weights_only=False)
+        try:
+            self.active_data[obj_ind]
+        except Exception:
+            print(f"Error loading {datapath}\n    at {idx=}, {idx_datapath=}, {obj_ind=}")
+        return self.active_data[obj_ind]
+
+        
+    def get_in_memory(self, idx):
+        """Method for retrieving data when in_memory=True"""
+        if self.prebatched:
+            idx_datapath = idx // self.datapoint_storage_n_objects
+            obj_ind = idx % self.datapoint_storage_n_objects
+            return self.data[idx_datapath][obj_ind]
+        else:
+            return self.data[idx]

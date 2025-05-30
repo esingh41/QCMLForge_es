@@ -15,6 +15,7 @@ H 3.758602 0.500000  0.504284
 H 3.260455 0.500000 -0.872893
 """)
 
+
 mol3 = qcelemental.models.Molecule.from_data(
     """
     1 1
