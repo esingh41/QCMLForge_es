@@ -1608,7 +1608,7 @@ class atomic_module_dimer_dataset(Dataset):
         """
         self.print_level = print_level
         try:
-            assert spec_type in [1, None]
+            assert spec_type in [1, 9, None]
         except Exception:
             print("Currently spec_type must be 1")
             raise ValueError
@@ -1650,6 +1650,12 @@ class atomic_module_dimer_dataset(Dataset):
         self.skip_processed = skip_processed
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
+        if not spec_type_str and spec_type is not None:
+            spec_type_str = f"spec_{self.spec_type}"
+        elif spec_type_str is None:
+            spec_type_str = ""
+        split_str = split if split != "all" else ""
+        self.file_path_default = f"{root}/processed/am_dimer_{split_str}_{spec_type_str}_"
         super(atomic_module_dimer_dataset, self).__init__(
             root, transform, pre_transform)
         if self.force_reprocess:
@@ -1666,12 +1672,6 @@ class atomic_module_dimer_dataset(Dataset):
         self.active_data = None
         if spec_type in [1] and self.prebatched is False:
             self.prebatched = True
-        if not spec_type_str and spec_type is not None:
-            spec_type_str = f"spec_{self.spec_type}"
-        elif spec_type_str is None:
-            spec_type_str = ""
-        split_str = split if split != "all" else ""
-        self.file_path_default = f"{self.root}/processed/am_dimer_{split_str}_{spec_type_str}_"
 
     @property
     def raw_file_names(self):
@@ -1679,6 +1679,11 @@ class atomic_module_dimer_dataset(Dataset):
             return [
                 "1600K_train_dimers-fixed.pkl",
                 "1600K_test_dimers-fixed.pkl",
+            ]
+        elif self.spec_type == 9:
+            return [
+                "t_train_19.pkl",
+                "t_test_19.pkl",
             ]
         else:
             return []
