@@ -763,6 +763,7 @@ class APNet3Model:
             device = torch.device("cpu")
             print("running on the CPU")
         self.ds_spec_type = ds_spec_type
+        self.atom_model = AtomHirshfeldMPNN()
         if atom_model_pre_trained_path:
             print(
                 f"Loading pre-trained AtomHirshfeldMPNN model from {atom_model_pre_trained_path}"
@@ -789,9 +790,10 @@ class APNet3Model:
             print(
                 """No atom model provided.
     Assuming atomic multipoles and embeddings are
-    pre-computed and passes as input to the model.
+    pre-computed and passed as input to the model.
 """
             )
+        self.atom_model.to(device)
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet3_MPNN model from {pre_trained_model_path}"

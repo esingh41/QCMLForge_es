@@ -652,7 +652,14 @@ class APNet2Model:
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
             self.atom_model = atom_model
-        # self.atom_model.to(device)
+        else:
+            print(
+                """No atom model provided.
+    Assuming atomic multipoles and embeddings are
+    pre-computed and passed as input to the model.
+"""
+            )
+        self.atom_model.to(device)
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
