@@ -1156,6 +1156,42 @@ def test_ap3_model_train():
     )
 
 
+def test_am_dimer_multipole_ds():
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomModels.ap2_atom_model.AtomModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        optimize_for_speed=False,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+    return
+
+
 if __name__ == "__main__":
     # test_dapnet2_dataset_size_prebatched()
     test_dapnet2_train_qcel_molecules_in_memory_transfer()
