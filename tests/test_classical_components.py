@@ -137,6 +137,11 @@ def test_elst_multipoles_am_hirshfeld():
     assert abs(E_elst - E_ref) < 1e-6, f"Expected {E_ref}, got {E_elst}"
 
 
+def test_induced_dipole():
+    return
+
+
+
 if __name__ == "__main__":
     # test_elst_multipoles()
     # test_elst_multipoles_am_hirshfeld()
