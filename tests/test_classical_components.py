@@ -2,6 +2,8 @@ import pytest
 import apnet_pt
 import qcelemental as qcel
 import os
+import pandas as pd
+from pprint import pprint
 
 lr_water_dimer = qcel.models.Molecule.from_data("""
 0 1
@@ -138,7 +140,37 @@ def test_elst_multipoles_am_hirshfeld():
 
 
 def test_induced_dipole():
-    return
+    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes.pkl"))
+    pprint(df.columns.tolist())
+    sapt0_ind = df['SAPT0 IND ENERGY adz'].iloc[0]
+    mol = df['qcel_molecule'].iloc[0]
+    print(mol)
+    qA = df['q_A pbe0/atz'].iloc[0]
+    muA = df['mu_A pbe0/atz'].iloc[0]
+    thetaA = df['theta_A pbe0/atz'].iloc[0]
+    qB = df['q_B pbe0/atz'].iloc[0]
+    muB = df['mu_B pbe0/atz'].iloc[0]
+    thetaB = df['theta_B pbe0/atz'].iloc[0]
+    vrA = df['vol_ratios_A pbe0/atz'].iloc[0]
+    vrB = df['vol_ratios_B pbe0/atz'].iloc[0]
+    vwA = df['val_widths_A pbe0/atz'].iloc[0]
+    vwB = df['val_widths_B pbe0/atz'].iloc[0]
+    induction_energy = apnet_pt.multipole.dimer_induced_dipole(
+        mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        qB=qB,
+        muB=muB,
+        thetaB=thetaB,
+        hirshfeld_volume_ratio_A=vrA,
+        hirshfeld_volume_ratio_B=vrB,
+        valence_widths_A=vwA,
+        valence_widths_B=vwB,
+    )
+    print(f"Induction energy = {induction_energy} kcal/mol")
+    print(f"SAPT0 induced dipole energy = {sapt0_ind:.6f} kcal/mol")
+    assert abs(induction_energy - sapt0_ind) < 1e-6, f"Expected {sapt0_ind}, got {induction_energy}"
 
 
 
@@ -146,4 +178,5 @@ if __name__ == "__main__":
     # test_elst_multipoles()
     # test_elst_multipoles_am_hirshfeld()
     # test_elst_charge_dipole_qpole()
-    test_elst_charge_dipole_qpole_pairwise()
+    # test_elst_charge_dipole_qpole_pairwise()
+    test_induced_dipole()

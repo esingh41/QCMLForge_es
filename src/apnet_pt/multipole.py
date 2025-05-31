@@ -6,6 +6,7 @@ import numpy as np
 from . import constants
 import torch
 from typing import Tuple
+import qcelemental as qcel
 
 
 def proc_molden(name):
@@ -163,6 +164,7 @@ def T_cart(RA, RB):
 
     return T0, T1, T2, T3, T4
 
+
 def T_cart_torch(RA, RB):
     """
     Compute the multipole interaction tensors for N_A x N_B atom pairs.
@@ -177,112 +179,132 @@ def T_cart_torch(RA, RB):
         T4: (N_A, N_B, 3, 3, 3, 3)
     """
     import torch
-    
+
     # Get dimensions
     N_A = RA.shape[0]
     N_B = RB.shape[0]
     device = RA.device
-    
+
     # Reshape for broadcasting: RA [N_A, 1, 3], RB [1, N_B, 3]
     RA_expanded = RA.unsqueeze(1)  # [N_A, 1, 3]
     RB_expanded = RB.unsqueeze(0)  # [1, N_B, 3]
-    
+
     # Compute displacement vectors for all pairs
     dR = RB_expanded - RA_expanded  # [N_A, N_B, 3]
-    
+
     # Compute distance for all pairs
     R_squared = torch.sum(dR**2, dim=2)  # [N_A, N_B]
     R = torch.sqrt(R_squared)  # [N_A, N_B]
-    
+
     # Avoid division by zero by adding small epsilon
     eps = 1e-10
     R_safe = torch.clamp(R, min=eps)
-    
+
     # Identity tensor
     delta = torch.eye(3, device=device)  # [3, 3]
-    
+
     # T0: Charge-charge interaction tensor [N_A, N_B]
     T0 = 1.0 / R_safe
-    
+
     # T1: Charge-dipole interaction tensor [N_A, N_B, 3]
     # R^-3 * (-dR)
     R_inv_cubed = 1.0 / (R_safe**3)
     T1 = -dR * R_inv_cubed.unsqueeze(-1)  # [N_A, N_B, 3]
-    
+
     # T2: Dipole-dipole interaction tensor [N_A, N_B, 3, 3]
     R_inv_fifth = 1.0 / (R_safe**5)
-    
+
     # Compute outer product of dR with itself for all pairs
-    dR_outer = torch.einsum('...i,...j->...ij', dR, dR)  # [N_A, N_B, 3, 3]
-    
+    dR_outer = torch.einsum("...i,...j->...ij", dR, dR)  # [N_A, N_B, 3, 3]
+
     # 3 * (dR ⊗ dR) - R^2 * δ
     T2_term1 = 3.0 * dR_outer  # [N_A, N_B, 3, 3]
     T2_term2 = R_squared.unsqueeze(-1).unsqueeze(-1) * delta  # [N_A, N_B, 3, 3]
-    T2 = (T2_term1 - T2_term2) * R_inv_fifth.unsqueeze(-1).unsqueeze(-1)  # [N_A, N_B, 3, 3]
-    
+    T2 = (T2_term1 - T2_term2) * R_inv_fifth.unsqueeze(-1).unsqueeze(
+        -1
+    )  # [N_A, N_B, 3, 3]
+
     # T3: Dipole-quadrupole interaction tensor [N_A, N_B, 3, 3, 3]
     R_inv_seventh = 1.0 / (R_safe**7)
-    
+
     # Create Rdd tensor: dR_i * δ_jk for all pairs
-    Rdd = torch.einsum('...i,jk->...ijk', dR, delta)  # [N_A, N_B, 3, 3, 3]
-    
+    Rdd = torch.einsum("...i,jk->...ijk", dR, delta)  # [N_A, N_B, 3, 3, 3]
+
     # Create dR_i * dR_j * dR_k tensor
-    dR_outer_outer = torch.einsum('...i,...j,...k->...ijk', dR, dR, dR)  # [N_A, N_B, 3, 3, 3]
-    
+    dR_outer_outer = torch.einsum(
+        "...i,...j,...k->...ijk", dR, dR, dR
+    )  # [N_A, N_B, 3, 3, 3]
+
     # Calculate T3
     T3_term1 = 15.0 * dR_outer_outer  # [N_A, N_B, 3, 3, 3]
-    
+
     # Sum of permuted Rdd tensors
     # Rdd has shape [N_A, N_B, 3, 3, 3] with indices [batch_A, batch_B, i, j, k]
     # We want to permute the last 3 dimensions
     Rdd_sum = Rdd + Rdd.permute(0, 1, 3, 2, 4) + Rdd.permute(0, 1, 4, 3, 2)
     T3_term2 = 3.0 * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * Rdd_sum
-    
-    T3 = -1.0 * (T3_term1 - T3_term2) * R_inv_seventh.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-    
+
+    T3 = (
+        -1.0
+        * (T3_term1 - T3_term2)
+        * R_inv_seventh.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    )
+
     # T4: Quadrupole-quadrupole interaction tensor [N_A, N_B, 3, 3, 3, 3]
     R_inv_ninth = 1.0 / (R_safe**9)
-    
+
     # Create RRdd tensor: dR_i * dR_j * δ_kl
     # We need to expand delta to match batch dimensions
     delta_expanded = delta.view(1, 1, 3, 3).expand(N_A, N_B, 3, 3)
-    RRdd = torch.einsum('...ij,...kl->...ijkl', dR_outer, delta_expanded)  # [N_A, N_B, 3, 3, 3, 3]
-    
+    RRdd = torch.einsum(
+        "...ij,...kl->...ijkl", dR_outer, delta_expanded
+    )  # [N_A, N_B, 3, 3, 3, 3]
+
     # Create δδ tensor: δ_ij * δ_kl
-    dddd = torch.einsum('ij,kl->ijkl', delta, delta)
+    dddd = torch.einsum("ij,kl->ijkl", delta, delta)
     dddd_expanded = dddd.view(1, 1, 3, 3, 3, 3).expand(N_A, N_B, 3, 3, 3, 3)
-    
+
     # Create dR_i * dR_j * dR_k * dR_l tensor
-    dR_outer_outer_outer = torch.einsum('...ij,...kl->...ijkl', dR_outer, dR_outer)
-    
+    dR_outer_outer_outer = torch.einsum("...ij,...kl->...ijkl", dR_outer, dR_outer)
+
     # Calculate T4
     T4_term1 = 105.0 * dR_outer_outer_outer
-    
+
     # Sum of permuted RRdd tensors
     # RRdd has shape [N_A, N_B, 3, 3, 3, 3] with indices [batch_A, batch_B, i, j, k, l]
     # We need to permute the last 4 dimensions: i, j, k, l
     RRdd_sum = (
-        RRdd +
-        RRdd.permute(0, 1, 2, 4, 3, 5) +  # i,k,j,l
-        RRdd.permute(0, 1, 2, 5, 4, 3) +  # i,l,k,j
-        RRdd.permute(0, 1, 4, 3, 2, 5) +  # k,j,i,l
-        RRdd.permute(0, 1, 5, 3, 4, 2) +  # l,j,k,i
-        RRdd.permute(0, 1, 4, 5, 2, 3)    # k,l,i,j
+        RRdd
+        + RRdd.permute(0, 1, 2, 4, 3, 5)  # i,k,j,l
+        + RRdd.permute(0, 1, 2, 5, 4, 3)  # i,l,k,j
+        + RRdd.permute(0, 1, 4, 3, 2, 5)  # k,j,i,l
+        + RRdd.permute(0, 1, 5, 3, 4, 2)  # l,j,k,i
+        + RRdd.permute(0, 1, 4, 5, 2, 3)  # k,l,i,j
     )
-    
-    T4_term2 = 15.0 * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * RRdd_sum
-    
+
+    T4_term2 = (
+        15.0
+        * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        * RRdd_sum
+    )
+
     # Sum of permuted dddd tensors
     dddd_sum = (
-        dddd_expanded +
-        dddd_expanded.permute(0, 1, 2, 4, 3, 5) +  # i,k,j,l
-        dddd_expanded.permute(0, 1, 2, 5, 4, 3)    # i,l,k,j
+        dddd_expanded
+        + dddd_expanded.permute(0, 1, 2, 4, 3, 5)  # i,k,j,l
+        + dddd_expanded.permute(0, 1, 2, 5, 4, 3)  # i,l,k,j
     )
-    
-    T4_term3 = 3.0 * (R_squared**2).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * dddd_sum
-    
-    T4 = (T4_term1 - T4_term2 + T4_term3) * R_inv_ninth.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-    
+
+    T4_term3 = (
+        3.0
+        * (R_squared**2).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        * dddd_sum
+    )
+
+    T4 = (T4_term1 - T4_term2 + T4_term3) * R_inv_ninth.unsqueeze(-1).unsqueeze(
+        -1
+    ).unsqueeze(-1).unsqueeze(-1)
+
     return T0, T1, T2, T3, T4
 
 
@@ -580,13 +602,6 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
     maskB = ZB >= 1
 
     pair_mat = np.zeros((int(np.sum(maskA, axis=0)), int(np.sum(maskB, axis=0))))
-    # print(pair_mat.shape)
-    # QA[:,0] -= maskA * np.sum(QA[:,0]) / np.sum(maskA)
-    # QB[:,0] -= maskB * np.sum(QB[:,0]) / np.sum(maskB)
-    # QA[:,0] -= np.average(QA[:,0])
-    # QB[:,0] -= np.average(QB[:,0])
-    # print(f'{np.sum(QA[:,0]):.2f} {np.sum(QB[:,0]):.2f}')
-    # print(QA[:,0], QB[:,0])
 
     # calculate multipole electrostatics for each atom pair
     for ia in range(len(RA_temp)):
@@ -612,8 +627,6 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
                 qB[1:4],
                 (3.0 / 2.0) * qpole_redundant(qB[4:10]),
             )
-
-            # print('pair', pair_energy)
             total_energy += pair_energy
             pair_mat[ia][ib] = pair_energy
 
@@ -621,146 +634,82 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
 
     return total_energy * Har2Kcalmol, pair_mat * Har2Kcalmol
 
+import pandas as pd
+from importlib import resources
 
-# def eval_dimer(moldenA, moldenB, h5A, h5B, print_=False):
-#
-#    # Keep R in a.u. (molden convention)
-#    RA, ZA = proc_molden(moldenA)
-#    RB, ZB = proc_molden(moldenB)
-#
-#    # Get horton output
-#    hfA = h5py.File(h5A, 'r')
-#    hfB = h5py.File(h5B, 'r')
-#
-#    # get multipoles
-#    QA = hfA['cartesian_multipoles'][:]
-#    QB = hfB['cartesian_multipoles'][:]
-#
-#    total_energy = 0.0
-#    pair_energies_l = []
-#
-#    # calculate multipole electrostatics for each atom pair
-#    for ia in range(len(ZA)):
-#        for ib in range(len(ZB)):
-#            rA = RA[ia]
-#            zA = ZA[ia]
-#            qA = QA[ia]
-#
-#            rB = RB[ib]
-#            zB = ZB[ib]
-#            qB = QB[ib]
-#
-#            #print(zA, qA[0], zB, qB[0])
-#
-#            ## [E0 (qq), E1 (qmu), E2(qTh+mumu), E3(muTh), E4(ThTh)]
-#            #pair_energies = eval_interaction(rA, qA[0], qA[1:4], (3.0/2.0) * qpole_redundant(qA[4:10]),
-#            #        rB, qB[0], qB[1:4], (3.0/2.0) * qpole_redundant(qB[4:10]))
-#
-#            # [E0 (qq), E1 (qmu), E2(qTh+mumu), E3(muTh), E4(ThTh)]
-#            pair_energies = eval_interaction_damp(rA, zA, qA[0] - zA, qA[1:4], (3.0/2.0) * qpole_redundant(qA[4:10]),
-#                    rB, zB, qB[0] - zB, qB[1:4], (3.0/2.0) * qpole_redundant(qB[4:10]))
-#            pair_energy = np.sum(pair_energies)
-#            pair_energies_l.append(pair_energies)
-#
-#            total_energy += pair_energy
-#
-#    pair_energies_l = np.array(pair_energies_l)
-#    Har2Kcalmol = 627.509
-#
-#    if print_:
-#        print('  Energies (mEh)')
-#        print('     E_q        E_u        E_Q        Total')
-#        for l in pair_energies_l:
-#            print(f'{l[0]*Har2Kcalmol:10.5f} {l[1]*Har2Kcalmol:10.5f} {l[2]*Har2Kcalmol:10.5f} {np.sum(l)*Har2Kcalmol:10.5f}')
-#        l = np.sum(pair_energies_l, axis=0)
-#        print('  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-#        print(f'{l[0]*Har2Kcalmol:10.5f} {l[1]*Har2Kcalmol:10.5f} {l[2]*Har2Kcalmol:10.5f} {np.sum(l)*Har2Kcalmol:10.5f}')
-#
-#    E_q = np.sum(pair_energies_l[:,:1])
-#    E_qu = np.sum(pair_energies_l[:,:2])
-#    E_quQ = np.sum(pair_energies_l[:,:3])
-#    return E_q, E_qu, E_quQ
+libmbd_vwd_params = pd.read_csv(
+    # osp.join(current_file_path, "data", "vdw-params.csv"),
+    resources.files("apnet_pt",).joinpath("data", "vdw-params.csv"),
+    header=0,
+    index_col=0,
+    sep=",",
+    nrows=102,
+)
+free_atom_polarizabilities = {
+    # el: v for el, v in zip(libmbd_vwd_params['Z'], libmbd_vwd_params['alpha_0(TS)'])
+    el: v
+    for el, v in zip(libmbd_vwd_params["Z"], libmbd_vwd_params["alpha_0(BG)"])
+}
 
+def dimer_induced_dipole(
+    qcel_dimer: qcel.models.Molecule,
+    qA: np.ndarray,
+    muA: np.ndarray,
+    thetaA: np.ndarray,
+    qB: np.ndarray,
+    muB: np.ndarray,
+    thetaB: np.ndarray,
+    hirshfeld_volume_ratio_A: np.ndarray,
+    hirshfeld_volume_ratio_B: np.ndarray,
+    valence_widths_A: np.ndarray,
+    valence_widths_B: np.ndarray,
+) -> float:
+    """
+    Calculate the induced dipole interaction energy between two molecules using
+    their multipole moments and Hirshfeld volume ratios. Follow classical
+    induction model from this paper: 
+    https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
 
-if __name__ == "__main__":
-    import pandas as pd
+    
+    The induction energy is calculated as:
+    $E_{ind} = \sum_{i \in A} \sum_{j \in B} \mu'_i T_{ij} M_j + K_{indu}^{ij} S_i$
+    where the induced dipole moment μ′_i at atom i is given by:
+        $\mu'_i(n + 1) = (1 - \omega) \mu'_i(n) + \omega [\mu'_i(0) + \alpha_i \sum_{k \in A \cup B, k \neq i} T_{ik} M_k]$
+    and $\mu'_i(0)$ is the initial induced dipole moment at atom i, which is given by:
+        $\mu'_i(0) = \alpha_i \sum_{j \in B} T_{ij} M_j $
+    $\mu'_i$ is computed in an iterative, self-consistent manner.
 
-    df = pd.read_pickle("../directional-mpnn/data/HBC6_hfjdz.pkl")
-    df_prd = pd.read_pickle("../directional-mpnn/preds/HBC6_hfjdz_modelB.pkl")
+    $T_{ij}$ is the interaction tensor between atom i in molecule A and atom j in molecule B,
+    and is Thole damped through:
+    $T_{ij} = T_{ij}^0 \frac{3a}{4π}exp^{−0.39 * {\frac{r_{ij}}{{\alpha_i\alpha_j}}^{1/6}}^{3}}$
 
-    print(df.cartesian_multipoles[0].shape)
-    print(df_prd.cartesian_multipoles_prd[0].shape)
-    print(df.columns)
-
-    df_elst = {
-        "name": [],
-        "dimer": [],
-        "dist": [],
-        "e_mbis_q": [],
-        "e_mbis_u": [],
-        "e_mbis_Q": [],
-        "e_mpnn_q": [],
-        "e_mpnn_u": [],
-        "e_mpnn_Q": [],
-        "e_sapt": [],
-    }
-
-    errs = []
-    for i in range(0, len(df.index), 2):
-        print(i, df.name[i])
-        RA = df.R[i]
-        RB = df.R[i + 1]
-        ZA = df.Z[i]
-        ZB = df.Z[i + 1]
-        QA = df.cartesian_multipoles[i]
-        QB = df.cartesian_multipoles[i + 1]
-        QA_prd = df_prd.cartesian_multipoles_prd[i]
-        QB_prd = df_prd.cartesian_multipoles_prd[i + 1]
-        # print(QA[:,0]-QA_prd[:,0])
-        # print(QB[:,0]-QB_prd[:,0])
-        e_mbis = eval_dimer(
-            RA,
-            RB,
-            ZA,
-            ZB,
-            QA,
-            QB,
-        )
-        e_mpnn = eval_dimer(RA, RB, ZA, ZB, QA_prd, QB_prd)
-        errs.append(e_mbis - e_mpnn)
-        print(
-            f"{df.sapt0_hfjdz_elst[i] * 627.509:8.3f} {e_mbis * 627.509:8.3f} {e_mpnn * 627.509:8.3f}"
-        )
-        print(df.name[i].split("-"))
-    errs = np.array(errs)
-    print(np.average(np.abs(errs)) * 627.509)
-
-    # df_elst = pd.DataFrame.from_dict(data=df_elst)
-    # df_elst.to_pickle(f'preds/HBC6_elst.pkl', protocol=4)
-    # print(df_elst)
-
-    # older comment vvv
-
-    # dfA = pd.read_pickle('data/S66x8-A.pkl')
-    # dfA_prd = pd.read_pickle('preds/S66x8-A_modelB.pkl')
-    # dfB = pd.read_pickle('data/S66x8-B.pkl')
-    # dfB_prd = pd.read_pickle('preds/S66x8-B_modelB.pkl')
-
-    # for i in range(66*8):
-
-    #    if i % 8 == 0:
-    #        print()
-    #        print(dfA.name[i])
-    #    RA = dfA.R[i]
-    #    RB = dfB.R[i]
-    #    ZA = dfA.Z[i]
-    #    ZB = dfB.Z[i]
-    #    QA = dfA.cartesian_multipoles[i]
-    #    QB = dfB.cartesian_multipoles[i]
-    #    QA_prd = dfA_prd.cartesian_multipoles_prd[i]
-    #    QB_prd = dfB_prd.cartesian_multipoles_prd[i]
-    #    #print(QA[:,0]-QA_prd[:,0])
-    #    #print(QB[:,0]-QB_prd[:,0])
-    #    _,_,e_mbis = eval_dimer(RA, RB, ZA, ZB, QA, QB, print_=False)
-    #    _,_,e_mpnn = eval_dimer(RA, RB, ZA, ZB, QA_prd, QB_prd, print_=False)
-    #    print(f'{e_mbis * 627.509:8.3f} {e_mpnn * 627.509:8.3f}')
+    alpha_i is the polarizability computed from the Hirshfeld volume ratio:
+    $\alpha_i = \alpha_{0,i}^{\rm free} \hirshfeld\_volume\_ratio_i$
+    where $\alpha_{0,i}^{\rm free}$ is the free atom polarizability for atom i.
+    """
+    # E_ind = 0.0
+    # Get molecular fragments
+    molA = qcel_dimer.get_fragment(0)
+    molB = qcel_dimer.get_fragment(1)
+    alpha_0_A = np.array([
+        free_atom_polarizabilities[i] for i in molA.atomic_numbers
+    ])
+    alpha_0_B = np.array([
+        free_atom_polarizabilities[i] for i in molB.atomic_numbers
+    ])
+    
+    # Get atomic positions (in bohr)
+    RA = molA.geometry
+    RB = molB.geometry
+    ZA = molA.atomic_numbers
+    ZB = molB.atomic_numbers
+    
+    # Calculate atomic polarizabilities using Hirshfeld volume ratios
+    # alpha_i = alpha_free_i * (V_i / V_free_i)^(4/3)
+    # where V_i / V_free_i is the hirshfeld_volume_ratio
+    alpha_A = alpha_0_A * (hirshfeld_volume_ratio_A ** (4.0/3.0))
+    alpha_B = alpha_0_B * (hirshfeld_volume_ratio_B ** (4.0/3.0))
+    
+    
+    # Convert from hartree to kcal/mol
+    return E_ind * constants.h2kcalmol
