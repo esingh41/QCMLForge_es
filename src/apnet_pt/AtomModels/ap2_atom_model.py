@@ -1261,11 +1261,17 @@ units angstrom
         for mol in mols:
             data = qcel_mon_to_pyg_data(mol)
             mol_data.append(data)
-            if len(mol_data) == batch_size or cnt == len(mols) - 1:
+            cnt += 1
+            if len(mol_data) == batch_size or cnt == len(mols):
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
                     charge, dipole, qpole, hlist = self.eval_fn(batch)
-                    output.append((charge, dipole, qpole, hlist))
+                    # Isolate atomic properties by molecule
+                    mol_charges, mol_dipoles, mol_qpoles, mol_hlists = isolate_atomic_property_predictions(
+                        batch, (charge, dipole, qpole, hlist)
+                    )
+                    output.extend(list(zip(mol_charges, mol_dipoles, mol_qpoles, mol_hlists)))
+                mol_data = []
         return output
 
     @torch.inference_mode()
