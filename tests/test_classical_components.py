@@ -145,8 +145,8 @@ def test_induced_dipole():
     import qm_tools_aw
     for n, r in df.iterrows():
         sapt0_ind = r['SAPT0 IND ENERGY adz']
+        sapt0_elst = r['SAPT0 ELST ENERGY adz']
         mol = r['qcel_molecule']
-        print(mol)
         # qm_tools_aw.molecular_visualization.visualize_molecule(
         #     mol,
         #    temp_filename=f"{n}_water_dimer_sapt0_ind.html",
@@ -156,7 +156,6 @@ def test_induced_dipole():
         monB = mol.get_fragment(1).copy()
         dist = np.sqrt(np.sum((monA.geometry[:, None] - monB.geometry)**2, axis=2)).min()
         bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
-        print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
         qA = r['q_A pbe0/atz']
         muA = r['mu_A pbe0/atz']
         thetaA = r['theta_A pbe0/atz']
@@ -167,7 +166,7 @@ def test_induced_dipole():
         vrB = r['vol_ratios_B pbe0/atz']
         vwA = r['val_widths_A pbe0/atz']
         vwB = r['val_widths_B pbe0/atz']
-        induction_energy = apnet_pt.multipole.dimer_induced_dipole(
+        induction_energy, E_elst = apnet_pt.multipole.dimer_induced_dipole(
             mol,
             qA=qA,
             muA=muA,
@@ -180,8 +179,11 @@ def test_induced_dipole():
             valence_widths_A=vwA,
             valence_widths_B=vwB,
         )
+        print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
+        print(f"SAPT0 elst       = {sapt0_elst:.6f} kcal/mol")
+        print(f"E_elst           = {E_elst} kcal/mol")
+        print(f"SAPT0 induction  = {sapt0_ind:.6f} kcal/mol")
         print(f"Induction energy = {induction_energy} kcal/mol")
-        print(f"SAPT0 induced dipole energy = {sapt0_ind:.6f} kcal/mol")
         # assert abs(induction_energy - sapt0_ind) < 1e-6, f"Expected {sapt0_ind}, got {induction_energy}"
 
 
