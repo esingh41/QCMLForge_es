@@ -592,85 +592,6 @@ def interaction_tensor(coord1, coord2, cell=None):
             it[i,j] *= -1.
     return it
 
-def build_interaction_tensor_induced_dipole(coord1, coord2s, u_i, smear):
-    """
-    Returns natom x 3 x 13 interaction tensor
-    Interaction of atom i with all atoms in other system
-    
-    @params
-
-    coords, array
-        XYZ coords of ref element in reference system
-    
-    r, array
-        Distance vector of element i in sys1 and all in 
-
-    u, array
-        Effective distance matrix weighted by element polarizabilities,
-        same dim as r
-
-    smear, float
-        Smearing coefficient in Thole model 
-    """
-    r = np.zeros((len(coord2s),3))
-    xyz = np.zeros((len(coord2s),3))
-    exp = np.zeros((len(coord2s),3))
-    l3 = np.zeros((len(coord2s),3))
-    l5 = np.zeros((len(coord2s),3))
-    l7 = np.zeros((len(coord2s),3))
-
-    for n, coord in enumerate(coord2s):
-        vec = coord1 - coord
-        xyz[n] = np.asarray(vec)
-        r[n] = np.asarray(np.linalg.norm(vec))
-
-        exp = np.multiply(np.power(u_i[n],3.0),-smear)
-        l3[n] = np.asarray(1.0 - np.exp(exp)) 
-        l5[n] = np.asarray(1.0 - (1 - exp)*np.exp(exp) )
-        l7[n] = np.asarray(1.0 - (1.0 - exp + 0.6*exp*exp)*np.exp(exp))
-    #T = np.zeros([3,13,r.shape[0]])
-    T = np.zeros([r.shape[0],3,13])
-
-    # dipole-charge
-    dc = np.copy(xyz)
-    dc = np.multiply(dc, np.power(r,-3))    
-    dc = np.multiply(dc,-l3)
-    T[:,:,0] = dc 
-
-    # dipole-dipole
-    r5 = np.power(r,-5.0)
-    for n in range(3):
-        dd = np.copy(xyz)
-        for m in range(3):
-            dd[:,m] = np.multiply(dd[:,m], 3*xyz[:,n])
-
-        dd = np.multiply(dd, r5)
-        T[:,:,n+1] = np.multiply(dd,l5)
-            
-        # diagonal term
-        T[:,n,n+1] -= np.multiply(l3[:,0], np.power(r[:,0],-3.0))
-
-    # dipole-quadripole
-    r7 = np.power(r,-7.0)
-    for m in range(3):
-        for n in range(3):
-            dq = np.multiply(xyz,r7) * -15.0
-            dq = np.multiply(dq,l7)
-            for p in range(3):
-                dq[:,p] = np.asarray(np.multiply(dq[:,p], np.multiply(xyz[:,m],xyz[:,n])))
-                
-                num = np.zeros(len(coord2s))
-                if m == n:
-                    num += xyz[:,p]
-                if m == p:
-                    num += xyz[:,n]
-                if n == p:
-                    num += xyz[:,m]
-                num *= 3
-                dq[:,p] += np.multiply(np.multiply(num,l5[:,0]), r5[:,0])
-
-            T[:,:,4 + m*3 + n] = dq 
-    return T
 
 
 def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
@@ -888,6 +809,8 @@ def dimer_induced_dipole(
     RA = molA.geometry
     RB = molB.geometry
     Z = qcel_dimer.atomic_numbers
+    ZA = molA.atomic_numbers
+    ZB = molB.atomic_numbers
 
     print(RA)
     print(RB)
@@ -916,7 +839,7 @@ def dimer_induced_dipole(
     distances = np.zeros((n_atoms_total, n_atoms_total))
 
     # Interaction tensor between M_i*T_ij*M_j
-    T = np.zeros((n_atoms_total, n_atoms_total, 3, 13))
+    T = np.zeros((n_atoms_total, n_atoms_total, 13, 13))
     T_undamped = np.zeros((n_atoms_total, n_atoms_total, 13, 13))
 
     M = np.zeros((n_atoms_total, 13))
@@ -957,21 +880,24 @@ def dimer_induced_dipole(
                 # print(f"{f_damp=}")
 
                 # [N_atoms, N_atoms, dipole(3), multipole(13)], I don't think dipole dimension is getting set correctly...
-                T_pair = interaction_tensor(
-                    R_all[i], R_all[j]
-                )
-                T_undamped[j, i, :, :] = T_pair.copy()
                 exp = thole_damping_exp
                 l3 = (1 - np.exp(exp))
                 l5 = (1 - (1 - exp) * np.exp(exp))
                 l7 = (1 - (1.0 - exp + 0.6 * exp * exp) * np.exp(exp))
 
-                T[i, j, :, :] = T_pair[1:4, :]
-                T[i, j, :, 0] *= l3
-                T[i, j, : 1:4] *= l5
-                T[i, j, :, 4:13] *= l7
+                l3, l5, l7 = 1, 1, 1
 
-                print(f"{T[i, j] = }")
+                T_pair = interaction_tensor(
+                    R_all[i], R_all[j]
+                )
+                T_undamped[i, j, :, :] = T_pair.copy()
+
+                T[i, j, :, :] = T_pair #[1:4, :]
+                # T[i, j, :, 0] *= l3
+                # T[i, j, : 1:4] *= l5
+                # T[i, j, :, 4:13] *= l7
+
+                print(f"{T[i, j, :, 0] = }")
                 # T[i, j, :, 0] = T0
                 # T[i, j, :, 1:4] = T1
                 # T[i, j, :, 4:13] = T2.flatten()
@@ -982,33 +908,56 @@ def dimer_induced_dipole(
     E_elst += np.einsum(
         "ai,abij,bj->", M_B, T_undamped[:n_atoms_A, n_atoms_A:, :, :], M_A
     ) * constants.h2kcalmol
+    # Z_iM_j, Z_jM_i terms
+    # E_elst += np.einsum(
+    #     'z,abij,bj->', ZA, T_undamped[n_atoms_A:, :n_atoms_A, :, :], M_B
+    # ) * constants.h2kcalmol
+    # E_elst += np.einsum(
+    #     'z,abij,bj->', ZB, T_undamped[n_atoms_A:, :n_atoms_A, :, :], M_A
+    # ) * constants.h2kcalmol
+    # # Z_iZ_j/r_ij
+    # E_elst += np.sum(
+    #     ZA * ZB / distances[0, n_atoms_A:] 
+    # )  * constants.h2kcalmol
 
-    print(f"{T=}")
-    print(f"{T[:, :, 0, 0]=}")
-    print(f"{T[:, :, 1, 0]=}")
-    print(f"{T[:, :, 2, 0]=}")
-    print(f"{M=}")
+    # print(f"{T=}")
+    # print(f"{T[:, :, 0, 0]=}")
+    # print(f"{T[:, :, 1, 0]=}")
+    # print(f"{T[:, :, 2, 0]=}")
+    # print(f"{M=}")
     # Initialize induced dipole moments
+    # print(f"{n_atoms_A=}, {n_atoms_B=}, {n_atoms_total=}")
     mu_induced_0 = np.zeros((n_atoms_total, 3))
     mu_induced_0_A = mu_induced_0[:n_atoms_A, :]
     mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
 
-    # Calculate initial induced dipoles for molecule A atoms due to molecule B
+    # TODO: this is too small of a guess
+    T_BA = T[:n_atoms_A, n_atoms_A:, 1:4, :]
+    T_AB = T[n_atoms_A:, :n_atoms_A, 1:4, :]
+    print(f"{T_AB[0, 0, :, :] = }")
+    print(f"{T_BA[0, 0, :, :] = }")
     mu_induced_0_A[:, :] = np.einsum(
-        "a,abij,bj->ai", alpha_A, T[:n_atoms_A, n_atoms_A:, :, :], M_B,
+        "a,abij,bj->ai", alpha_A, T_AB, M_B,
     )
     mu_induced_0_B[:, :]  = np.einsum(
-        "b,abij,aj->bi", alpha_B, T[n_atoms_A:, :n_atoms_A, :, :], M_A
+        "b,abij,aj->bi", alpha_B, T_BA, M_A
     )
     # T = T.reshape(n_atoms_A * n_atoms_B, 3, 13)
-    M = M.reshape(n_atoms_A + n_atoms_B, 13)
+    # M = M.reshape(n_atoms_A + n_atoms_B, 13)
     # Self-consistent field iteration
     mu_induced = mu_induced_0.copy()
     for iteration in range(max_iterations):
         mu_induced_old = mu_induced.copy()
         mu_sum = np.einsum(
-            "n,abik,nk->ni", alpha_all, T[:, :, :, :], M
+            "n,abik,nk->ni", alpha_all, T[:, :, 1:4, :], M
         ) 
+        # mu_sum_A = np.einsum(
+        #     "n,abik,nk->ni", alpha_A, T_AB, M_B
+        # )
+        # mu_sum_B = np.einsum(
+        #     "n,abik,nk->ni", alpha_B, T_BA, M_A
+        # )
+        mu_sum = np.zeros_like(mu_induced)
         mu_induced = (1 - omega) * mu_induced_old + omega * mu_sum
 
         # Check convergence
@@ -1029,8 +978,10 @@ def dimer_induced_dipole(
 
     # Calculate induction energy
     E_ind = 0.
-    E_ind += np.einsum("ni,abij,nj->", mu_induced_A, T[n_atoms_A:, :n_atoms_A, :, :], M_B)
-    E_ind += np.einsum("ni,abij,nj->", mu_induced_B, T[:n_atoms_A, n_atoms_A:, :, :], M_A)
+    # E_ind += np.einsum("ni,abij,nj->", mu_induced_A, T_AB, M_B)
+    # E_ind += np.einsum("ni,abij,nj->", mu_induced_B, T_BA, M_A)
+    E_ind += np.einsum("ni,abij,nj->", mu_induced_0_A, T_AB, M_B)
+    E_ind += np.einsum("ni,abij,nj->", mu_induced_0_B, T_BA, M_A)
 
     E_ind *= constants.h2kcalmol
 
