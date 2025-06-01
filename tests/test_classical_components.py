@@ -142,11 +142,15 @@ def test_elst_multipoles_am_hirshfeld():
 
 def test_induced_dipole():
     df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes.pkl"))
+    import qm_tools_aw
     for n, r in df.iterrows():
-        print()
         sapt0_ind = r['SAPT0 IND ENERGY adz']
         mol = r['qcel_molecule']
         print(mol)
+        # qm_tools_aw.molecular_visualization.visualize_molecule(
+        #     mol,
+        #    temp_filename=f"{n}_water_dimer_sapt0_ind.html",
+        #                                                        )
         # Distance between monomers
         monA = mol.get_fragment(0).copy()
         monB = mol.get_fragment(1).copy()
