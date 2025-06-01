@@ -962,10 +962,14 @@ def dimer_induced_dipole(
                 )
                 T_undamped[j, i, :, :] = T_pair.copy()
                 exp = thole_damping_exp
+                l3 = (1 - np.exp(exp))
+                l5 = (1 - (1 - exp) * np.exp(exp))
+                l7 = (1 - (1.0 - exp + 0.6 * exp * exp) * np.exp(exp))
+
                 T[i, j, :, :] = T_pair[1:4, :]
-                T[i, j, :, 0] *= (1 - np.exp(exp))
-                T[i, j, : 1:4] *= (1.0 - (1 - exp) * np.exp(exp))
-                T[i, j, :, 4:13] *= (1.0 - (1.0 - exp + 0.6*exp*exp)*np.exp(exp))
+                T[i, j, :, 0] *= l3
+                T[i, j, : 1:4] *= l5
+                T[i, j, :, 4:13] *= l7
 
                 print(f"{T[i, j] = }")
                 # T[i, j, :, 0] = T0
@@ -991,10 +995,10 @@ def dimer_induced_dipole(
 
     # Calculate initial induced dipoles for molecule A atoms due to molecule B
     mu_induced_0_A[:, :] = np.einsum(
-        "a,abij,bj->ai", alpha_A, T[:n_atoms_A, n_atoms_A:, 1:4, :], M_B,
+        "a,abij,bj->ai", alpha_A, T[:n_atoms_A, n_atoms_A:, :, :], M_B,
     )
     mu_induced_0_B[:, :]  = np.einsum(
-        "b,abij,aj->bi", alpha_B, T[n_atoms_A:, :n_atoms_A, 1:4, :], M_A
+        "b,abij,aj->bi", alpha_B, T[n_atoms_A:, :n_atoms_A, :, :], M_A
     )
     # T = T.reshape(n_atoms_A * n_atoms_B, 3, 13)
     M = M.reshape(n_atoms_A + n_atoms_B, 13)
@@ -1003,7 +1007,7 @@ def dimer_induced_dipole(
     for iteration in range(max_iterations):
         mu_induced_old = mu_induced.copy()
         mu_sum = np.einsum(
-            "n,abik,nk->ni", alpha_all, T[:, :, 1:4, :], M
+            "n,abik,nk->ni", alpha_all, T[:, :, :, :], M
         ) 
         mu_induced = (1 - omega) * mu_induced_old + omega * mu_sum
 
@@ -1025,8 +1029,8 @@ def dimer_induced_dipole(
 
     # Calculate induction energy
     E_ind = 0.
-    E_ind += np.einsum("ni,abij,nj->", mu_induced_A, T[n_atoms_A:, :n_atoms_A, 1:4, :], M_B)
-    E_ind += np.einsum("ni,abij,nj->", mu_induced_B, T[:n_atoms_A, n_atoms_A:, 1:4, :], M_A)
+    E_ind += np.einsum("ni,abij,nj->", mu_induced_A, T[n_atoms_A:, :n_atoms_A, :, :], M_B)
+    E_ind += np.einsum("ni,abij,nj->", mu_induced_B, T[:n_atoms_A, n_atoms_A:, :, :], M_A)
 
     E_ind *= constants.h2kcalmol
 
