@@ -908,6 +908,7 @@ def dimer_induced_dipole(
     E_elst += np.einsum(
         "ai,abij,bj->", M_B, T_undamped[:n_atoms_A, n_atoms_A:, :, :], M_A
     ) * constants.h2kcalmol
+
     # Z_iM_j, Z_jM_i terms
     # E_elst += np.einsum(
     #     'z,abij,bj->', ZA, T_undamped[n_atoms_A:, :n_atoms_A, :, :], M_B
@@ -932,10 +933,11 @@ def dimer_induced_dipole(
     mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
 
     # TODO: this is too small of a guess
-    T_BA = T[:n_atoms_A, n_atoms_A:, 1:4, :]
-    T_AB = T[n_atoms_A:, :n_atoms_A, 1:4, :]
-    print(f"{T_AB[0, 0, :, :] = }")
-    print(f"{T_BA[0, 0, :, :] = }")
+    T_AB = T[:n_atoms_A, n_atoms_A:, 1:4, :]
+    T_BA = T[n_atoms_A:, :n_atoms_A, 1:4, :]
+    print(f"{T_AB.shape=}, {T_BA.shape=}")
+    print(f"{T_AB[0, 0, :, 0] = }")
+    print(f"{T_BA[0, 0, :, 0] = }")
     mu_induced_0_A[:, :] = np.einsum(
         "a,abij,bj->ai", alpha_A, T_AB, M_B,
     )
