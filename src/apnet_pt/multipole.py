@@ -839,11 +839,15 @@ def dimer_induced_dipole(
     distances = np.zeros((n_atoms_total, n_atoms_total))
 
     # Interaction tensor between M_i*T_ij*M_j
-    T = np.zeros((n_atoms_total, n_atoms_total, 13, 13))
+    T_abij = np.zeros((n_atoms_total, n_atoms_total, 13, 13))
     T_undamped = np.zeros((n_atoms_total, n_atoms_total, 13, 13))
 
     M = np.zeros((n_atoms_total, 13))
     M[:, 0] = q_all  # Charge
+    # print(M[:, 0])
+    # print(Z)
+    # M[:, 0] += Z
+    # print(M[:, 0])
     M[:, 1:4] = mu_all  # Dipole
     M[:, 4:13] = theta_all.reshape(n_atoms_total, 9)  # Quadrupole (flattened)
 
@@ -892,12 +896,12 @@ def dimer_induced_dipole(
                 )
                 T_undamped[i, j, :, :] = T_pair.copy()
 
-                T[i, j, :, :] = T_pair #[1:4, :]
-                # T[i, j, :, 0] *= l3
-                # T[i, j, : 1:4] *= l5
-                # T[i, j, :, 4:13] *= l7
+                T_abij[i, j, :, :] = T_pair #[1:4, :]
+                T_abij[i, j, :, 0] *= l3
+                T_abij[i, j, : 1:4] *= l5
+                T_abij[i, j, :, 4:13] *= l7
 
-                print(f"{T[i, j, :, 0] = }")
+                print(f"{T_abij[i, j, :, 0] = }")
                 # T[i, j, :, 0] = T0
                 # T[i, j, :, 1:4] = T1
                 # T[i, j, :, 4:13] = T2.flatten()
@@ -933,8 +937,8 @@ def dimer_induced_dipole(
     mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
 
     # TODO: this is too small of a guess
-    T_AB = T[:n_atoms_A, n_atoms_A:, 1:4, :]
-    T_BA = T[n_atoms_A:, :n_atoms_A, 1:4, :]
+    T_AB = T_abij[:n_atoms_A, n_atoms_A:, 1:4, :]
+    T_BA = T_abij[n_atoms_A:, :n_atoms_A, 1:4, :]
     print(f"{T_AB.shape=}, {T_BA.shape=}")
     print(f"{T_AB[0, 0, :, 0] = }")
     print(f"{T_BA[0, 0, :, 0] = }")
@@ -944,22 +948,22 @@ def dimer_induced_dipole(
     mu_induced_0_B[:, :]  = np.einsum(
         "b,abij,aj->bi", alpha_B, T_BA, M_A
     )
-    # T = T.reshape(n_atoms_A * n_atoms_B, 3, 13)
-    # M = M.reshape(n_atoms_A + n_atoms_B, 13)
+    print(f"{muA[0, :]            = }")
+    print(f"{mu_induced_0_A[0, :] = }")
     # Self-consistent field iteration
     mu_induced = mu_induced_0.copy()
     for iteration in range(max_iterations):
         mu_induced_old = mu_induced.copy()
         mu_sum = np.einsum(
-            "n,abik,nk->ni", alpha_all, T[:, :, 1:4, :], M
-        ) 
+            "n,abik,nk->ni", alpha_all, T_abij[:, :, 1:4, :], M
+        )
         # mu_sum_A = np.einsum(
         #     "n,abik,nk->ni", alpha_A, T_AB, M_B
         # )
         # mu_sum_B = np.einsum(
         #     "n,abik,nk->ni", alpha_B, T_BA, M_A
         # )
-        mu_sum = np.zeros_like(mu_induced)
+        # mu_sum = np.vstack([mu_sum_A, mu_sum_B])
         mu_induced = (1 - omega) * mu_induced_old + omega * mu_sum
 
         # Check convergence
