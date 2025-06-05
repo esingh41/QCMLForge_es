@@ -210,6 +210,28 @@ def test_ap2_predict_pairs():
     return
 
 
+def test_ap2_elst():
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
+        atom_model=atom_model.model,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    output = pair_model.predict_qcel_mols([mol_dimer], batch_size=1)
+    set_weights_to_value(pair_model.model, 0.0)
+    output = pair_model.predict_qcel_mols([mol_dimer], batch_size=1)
+    print("ELST output:", output[0][0])
+    # TODO check against MBIS values...
+    apnet_pt.multipole.eval_qcel_dimer_individual(
+        mol_dimer,
+    )
+
+
 if __name__ == "__main__":
     # test_ap2_architecture()
-    test_ap2_predict_pairs()
+    # test_ap2_predict_pairs()
+    test_ap2_elst()
