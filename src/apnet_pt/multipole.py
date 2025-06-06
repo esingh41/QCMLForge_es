@@ -779,26 +779,6 @@ def dimer_induced_dipole(
     https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
     """
 
-    """
-                T_A[i, :, 0] *= (1 - np.exp(thole_damping_exp))
-                T_A[i, :, 1:4] *= (1.0 - (1 - thole_damping_exp) * np.exp(
-                    thole_damping_exp
-                ))
-                T_A[i, :, 4:13] *= (1.0 - (
-                    1.0
-                    - thole_damping_exp
-                    + 0.6 * thole_damping_exp * thole_damping_exp
-                ) * np.exp(thole_damping_exp))
-                T_B[j, :, 0] *= (1 - np.exp(thole_damping_exp))
-                T_B[j, :, 1:4] *= (1.0 - (1 - thole_damping_exp) * np.exp(
-                    thole_damping_exp
-                ))
-                T_B[j, :, 4:13] *= (1.0 - (
-                    1.0
-                    - thole_damping_exp
-                    + 0.6 * thole_damping_exp * thole_damping_exp
-                ) * np.exp(thole_damping_exp))
-                """
     # Get molecular fragments
     molA = qcel_dimer.get_fragment(0)
     molB = qcel_dimer.get_fragment(1)
@@ -897,11 +877,7 @@ def dimer_induced_dipole(
             )
             T_undamped[i, j, :, :] = T_pair.copy()
 
-            # print("lambdas:", l3, l5, l7)
-
             T_abij[i, j, :, :] = T_pair #[1:4, :]
-            # T_abij[i, j, :, 0] *= l3
-            # T_abij[i, j, :, 1:4] *= l5
             T_abij[i, j, 0, 0] = l3 * T_abij[i, j, 0, 0]
             T_abij[i, j, 1:4, 0] = -l3 * T_abij[i, j, 1:4, 0]
             T_abij[i, j, 1:4, 1:4] = l5 * T_abij[i, j, 1:4, 1:4]
@@ -910,11 +886,9 @@ def dimer_induced_dipole(
             T_abij[i, j, 1:4, 4:13] = l5 * T_abij[i, j, 1:4, 4:13]
             T_abij[i, j, 4:13, 4:13] *= l7
 
-            # print(f"{T_abij[i, j, :, 0] = }")
-            # T[i, j, :, 0] = T0
-            # T[i, j, :, 1:4] = T1
-            # T[i, j, :, 4:13] = T2.flatten()
-            # T[i, j, :, :] *= f_damp
+    # Not full elst term, but multipole elst. Need to include Z_iZ_j and
+    # Z_iM_j, Z_jM_i terms, but agrees well enough with SAPT0 Elst to say T_ij
+    # is seemingly correct
     E_elst = np.einsum(
         "ai,abij,bj->", M_A, T_undamped[n_atoms_A:, :n_atoms_A, :, :], M_B
     ) * constants.h2kcalmol
@@ -935,8 +909,6 @@ def dimer_induced_dipole(
     print(f"{distances = }")
     T_abij_q_mu = T_abij[:n_atoms_A, n_atoms_A:, :4, :4]
     T_abij = T_abij[:, :, :4, :4]
-    # drop T_abij[3, :, :, :] T_abij[6, :, :, :], T_abij[:, 3, :, :], T_abij[:, 6, :, :]
-
     print(T_abij[0, 0, :, :])
     print("q:\n",
         np.einsum(
@@ -980,12 +952,12 @@ def dimer_induced_dipole(
     # T_AB = T_abij[:n_atoms_A, n_atoms_A:, 1:4, :]
     # T_BA = T_abij[n_atoms_A:, :n_atoms_A, 1:4, :]
     T_AB = T_abij[:n_atoms_A, n_atoms_A:, 1:4, :]
-    T_BA = T_abij[n_atoms_A:, :n_atoms_A, 1:4, :]
+    T_BA = T_abij[n_atoms_A:, :n_atoms_A, :, 1:4]
     mu_induced_0_A[:, :] = np.einsum(
         "a,abij,bj->ai", alpha_A, T_AB, M_B,
     )
     mu_induced_0_B[:, :]  = np.einsum(
-        "b,abij,aj->bi", alpha_B, T_BA, M_A
+        "b,abji,aj->bi", alpha_B, T_BA, M_A
     )
     # Self-consistent field iteration
     mu_induced = mu_induced_0.copy()
@@ -1054,11 +1026,9 @@ def dimer_induced_dipole(
     # E_ind += np.einsum("ni,abij,nj->", mu_induced_A, T_AB, M_B)
     # E_ind += np.einsum("ni,abij,nj->", mu_induced_B, T_BA, M_A)
     E_ind += np.einsum("ni,abij,nj->", mu_induced_0_A, T_AB, M_B)
-    E_ind += np.einsum("ni,abij,nj->", mu_induced_0_B, T_BA, M_A)
+    # E_ind += np.einsum("ni,abij,nj->", mu_induced_0_B, T_BA, M_A)
+    E_ind += np.einsum("ni,abji,nj->", mu_induced_0_B, T_BA, M_A)
 
     E_ind *= constants.h2kcalmol
 
-    # Not full elst term, but multipole elst. Need to include Z_iZ_j and
-    # Z_iM_j, Z_jM_i terms, but agrees well enough with SAPT0 Elst to say T_ij
-    # is seemingly correct
     return E_ind, E_elst
