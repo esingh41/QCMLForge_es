@@ -167,6 +167,24 @@ def test_induced_dipole():
         vrB = r['vol_ratios_B pbe0/atz']
         vwA = r['val_widths_A pbe0/atz']
         vwB = r['val_widths_B pbe0/atz']
+        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=mol,
+            qA=qA,
+            muA=muA,
+            thetaA=thetaA,
+            qB=qB,
+            muB=muB,
+            thetaB=thetaB,
+        )
+        E_qq = E_qqs.sum()
+        E_qu = E_qus.sum()
+        E_uu = E_uus.sum()
+        E_qQ = E_qQs.sum()
+        print(f"{total_energy=:.6f} kcal/mol")
+        print(f"{E_qq=:.6f} kcal/mol")
+        print(f"{E_qu=:.6f} kcal/mol")
+        print(f"{E_uu=:.6f} kcal/mol")
+        print(f"{E_qQ=:.6f} kcal/mol")
         induction_energy, E_elst = apnet_pt.multipole.dimer_induced_dipole(
             mol,
             qA=qA,
