@@ -869,7 +869,7 @@ def dimer_induced_dipole(
             T_abij[i, j, 0, 1:4] = l3 * T1.T
             T_abij[i, j, 1:4, 1:4] = l5 * T2 * -1.0
             for d in range(1, 4):
-                T_abij[i, j, d, 1] -= l3 * np.power(distances[i, j], -3.0)
+                T_abij[i, j, d, d] *= l3 / l5
 
             T_pair = interaction_tensor(
                 R_all[i], R_all[j]
