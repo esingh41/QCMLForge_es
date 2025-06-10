@@ -983,14 +983,12 @@ def dimer_induced_dipole(
     # T_AB = T_abij[:n_atoms_A, n_atoms_A:, 1:4, :]
     # T_BA = T_abij[n_atoms_A:, :n_atoms_A, 1:4, :]
     mu_induced_0_A[:, :] = np.einsum(
-        # "a,abij,bj->ai", alpha_A, T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B,
-        "abij,a,bj->ai", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], alpha_A, M_B,
+        "a,abij,bj->ai", alpha_A, T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B,
     )
-    mu_induced_0_B[:, :]  = np.einsum(
-        # "b,abji,aj->bi", alpha_B, T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], M_A
-        "abji,b,aj->bi", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], alpha_B, M_A
+    mu_induced_0_B[:, :] = np.einsum(
+        "b,abij,ai->bj", alpha_B, T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], M_A
     )
-    # Self-consistent field iteration
+    # Self-consistent induced dipole iterations
     mu_induced = mu_induced_0.copy()
     M_induced_0 = M.copy()
     M_induced_0[:n_atoms_A, 1:4] = mu_induced_0_A
@@ -1007,10 +1005,10 @@ def dimer_induced_dipole(
             mu_sum_iB = np.einsum("bij,bj->i", T_abij[i, n_atoms_A:, 1:4, 1:4], M_B_induced[:, 1:4])
             mu_sum_iA = np.einsum("bji,aj->i", T_abij[n_atoms_A:, i, 1:4, 1:4], M_A_induced[:, 1:4])
             mu_sum[i] = np.dot(alpha_all[i], (mu_sum_iB + mu_sum_iA))
-            M_induced[i, 1:4] = mu_sum[i]
         mu_sum += mu_induced_0
         mu_induced = (1 - omega) * mu_induced_old + omega * (mu_sum)
         print(f"{mu_induced[0]=}, {mu_sum[0]=}")
+        M_induced[:, 1:4] = mu_induced
         # Check convergence
         delta = np.linalg.norm(mu_induced - mu_induced_old)
         # break
