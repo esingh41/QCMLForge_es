@@ -165,6 +165,50 @@ def T_cart(RA, RB):
     return T0, T1, T2, T3, T4
 
 
+def thole_damping(r_ij, alpha_i, alpha_j, a):
+    """Apply Thole damping to interaction tensor"""
+    # Compute damping factor
+    u = r_ij / ((alpha_i * alpha_j) ** (1.0 / 6.0))
+    au3 = a * (u**3)
+    l3 = (1 - np.exp(-au3))
+    l5 = (1 - (1 + au3) * np.exp(-au3))
+    l7 = (1 - (1.0 + au3 + 0.6 * au3 ** 2) * np.exp(-au3))
+    l9 = (1- (1 + au3 + (18 * au3 ** 2 + 9 * au3 ** 3) / 35) * np.exp(-au3))
+    return au3, l3, l5, l7, l9
+
+
+def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a):
+    dR = RB - RA
+    R = np.linalg.norm(dR)
+
+    delta = np.identity(3)
+
+    au3, l3, l5, l7, l9 = thole_damping(R, alpha_i, alpha_j, a)
+
+    T0 = R**-1
+    T1 = -l3 * (R**-3) * (-1.0 * dR)
+    T2 = (R**-5) * (l5 * 3 * np.outer(dR, dR) - l3 * R * R * delta)
+
+    Rdd = np.multiply.outer(dR, delta)
+    T3 = (
+        (R**-7)
+        * -1.0
+        * (
+            l7 * 15 * np.multiply.outer(np.outer(dR, dR), dR)
+            - l5 * 3 * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
+        )
+    )
+
+    RRdd = np.multiply.outer(np.outer(dR, dR), delta)
+    dddd = np.multiply.outer(delta, delta)
+    T4 = (R**-9) * (
+        l9 * 105 * np.multiply.outer(np.outer(dR, dR), np.outer(dR, dR))
+        - l7 * 15 * R * R * ( RRdd + RRdd.transpose(0, 2, 1, 3) + RRdd.transpose(0, 3, 2, 1) + RRdd.transpose(2, 1, 0, 3) + RRdd.transpose(3, 1, 2, 0) + RRdd.transpose(2, 3, 0, 1))
+        + l5 * 3 * (R**4) * (dddd + dddd.transpose(0, 2, 1, 3) + dddd.transpose(0, 3, 2, 1))
+    )
+    return T0, T1, T2, T3, T4
+
+
 def T_cart_torch(RA, RB):
     """
     Compute the multipole interaction tensors for N_A x N_B atom pairs.
@@ -822,14 +866,6 @@ def dimer_induced_dipole(
     # Multipoles on molecule B
     M_B = M[n_atoms_A:, :]
 
-    # Apply Thole damping to interaction tensors
-    def thole_damping(r_ij, alpha_i, alpha_j, a):
-        """Apply Thole damping to interaction tensor"""
-        # Compute damping factor
-        u = r_ij / ((alpha_i * alpha_j) ** (1.0 / 6.0))
-        damping_exp = -a * (u**3)
-        # print(f"{u=:.2f}, {alpha_i=:.2f}, {alpha_j=:.2f}, {a=:.2f}, {damping_exp=:.2f}")
-        return damping_exp
 
     # Initialize interaction tensors
     for i in range(n_atoms_total):
@@ -837,24 +873,11 @@ def dimer_induced_dipole(
             if i == j:
                 T_abij[i, j, :, :] = np.zeros((13, 13))
                 continue
-            distances[i, j] = np.linalg.norm(R_all[i] - R_all[j])
-
-            thole_damping_exp = thole_damping(
-                distances[i, j], alpha_all[i], alpha_all[j], thole_damping_param
-            )
-            T0, T1, T2, T3, T4 = T_cart(R_all[i], R_all[j])
-            exp = thole_damping_exp
-            l3 = (1 - np.exp(exp))
-            l5 = (1 - (1 - exp) * np.exp(exp))
-            l7 = (1 - (1.0 - exp + 0.6 * exp * exp) * np.exp(exp))
-
-            T_abij[i, j, 0, 0] = l3 * T0
-            # Already have -1 in definition of T1, so no need to multiply by -1
-            T_abij[i, j, 1:4, 0] = l3 * T1
-            T_abij[i, j, 0, 1:4] = l3 * T1.T
-            T_abij[i, j, 1:4, 1:4] = l5 * T2
-            for d in range(1, 4):
-                T_abij[i, j, d, d] *= -l3 / l5
+            T0, T1, T2, T3, T4 = T_cart_Thole_damping(R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param)
+            T_abij[i, j, 0, 0] = T0
+            T_abij[i, j, 1:4, 0] = T1
+            T_abij[i, j, 0, 1:4] = T1.T
+            T_abij[i, j, 1:4, 1:4] = T2
 
     # Temporarily limiting to only charge and dipole interactions
     # Also, lets examine the 2x2 electrostaics OH, OH interaction only to keep
@@ -906,9 +929,7 @@ def dimer_induced_dipole(
         mu_induced_old = mu_induced.copy()
         mu_sum = np.zeros_like(mu_induced)
         for i in range(n_atoms_total):
-            mu_sum_iB = np.einsum("bij,bj->i", T_abij[i, n_atoms_A:, 1:4, 1:4], M_B_induced[:, 1:4])
-            mu_sum_iA = np.einsum("aji,aj->i", T_abij[n_atoms_A:, i, 1:4, 1:4], M_A_induced[:, 1:4])
-            mu_sum[i] = np.dot(alpha_all[i], (mu_sum_iB + mu_sum_iA))
+            mu_sum[i] = alpha_all[i] * np.einsum("nij,nj->i", T_abij[i, :, 1:4, 1:4], M_induced[:, 1:4])
         mu_sum += mu_induced_0
         mu_induced = (1 - omega) * mu_induced_old + omega * (mu_sum)
         M_induced[:, 1:4] = mu_induced
