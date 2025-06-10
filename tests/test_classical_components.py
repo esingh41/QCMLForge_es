@@ -180,11 +180,13 @@ def test_induced_dipole():
         E_qu = E_qus.sum()
         E_uu = E_uus.sum()
         E_qQ = E_qQs.sum()
+        E_uQ = E_uQs.sum()
         print(f"{total_energy=:.6f} kcal/mol")
         print(f"{E_qq=:.6f} kcal/mol")
         print(f"{E_qu=:.6f} kcal/mol")
         print(f"{E_uu=:.6f} kcal/mol")
         print(f"{E_qQ=:.6f} kcal/mol")
+        print(f"{E_uQ=:.6f} kcal/mol")
         induction_energy = apnet_pt.multipole.dimer_induced_dipole(
             mol,
             qA=qA,
@@ -240,12 +242,14 @@ def test_induced_dipole_bz_meoh():
         E_qq = E_qqs.sum()
         E_qu = E_qus.sum()
         E_uu = E_uus.sum()
+        E_uQ = E_uQs.sum()
         E_qQ = E_qQs.sum()
         print(f"{total_energy=:.6f} kcal/mol")
         print(f"{E_qq=:.6f} kcal/mol")
         print(f"{E_qu=:.6f} kcal/mol")
         print(f"{E_uu=:.6f} kcal/mol")
         print(f"{E_qQ=:.6f} kcal/mol")
+        print(f"{E_uQ=:.6f} kcal/mol")
         induction_energy = apnet_pt.multipole.dimer_induced_dipole(
             mol,
             qA=qA,
@@ -267,5 +271,5 @@ def test_induced_dipole_bz_meoh():
         # assert abs(induction_energy - sapt0_ind) < 1e-6, f"Expected {sapt0_ind}, got {induction_energy}"
 
 if __name__ == "__main__":
-    # test_induced_dipole()
+    test_induced_dipole()
     test_induced_dipole_bz_meoh()
