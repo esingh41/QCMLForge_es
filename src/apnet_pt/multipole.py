@@ -186,7 +186,7 @@ def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a):
     au3, l3, l5, l7, l9 = thole_damping(R, alpha_i, alpha_j, a)
 
     T0 = R**-1
-    T1 = -l3 * (R**-3) * (-1.0 * dR)
+    T1 = l3 * (R**-3) * (-1.0 * dR)
     T2 = (R**-5) * (l5 * 3 * np.outer(dR, dR) - l3 * R * R * delta)
 
     Rdd = np.multiply.outer(dR, delta)
@@ -877,7 +877,8 @@ def dimer_induced_dipole(
             T_abij[i, j, 0, 0] = T0
             T_abij[i, j, 1:4, 0] = T1
             T_abij[i, j, 0, 1:4] = T1.T
-            T_abij[i, j, 1:4, 1:4] = T2
+            # Need negative on T2 for right sign on E_uu...
+            T_abij[i, j, 1:4, 1:4] = -T2
             T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
             T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
             T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
@@ -969,7 +970,7 @@ def dimer_induced_dipole(
     print(f"{mu_B = }")
     E_ind = float(
         np.einsum("abij,ai,bj->", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], mu_induced_A, M_B) + 
-        np.einsum("abji,bi,bj->", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_B, M_A)
+        np.einsum("abji,bi,aj->", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_B, M_A)
     )
     E_ind *= constants.h2kcalmol * 0.5
     return E_ind
