@@ -185,6 +185,8 @@ def test_induced_dipole():
         print(f"{E_qu=:.6f} kcal/mol")
         print(f"{E_uu=:.6f} kcal/mol")
         print(f"{E_qQ=:.6f} kcal/mol")
+        E_mu = E_qu + E_uu
+        print(f"{E_mu=:.6f} kcal/mol")
         induction_energy, E_elst = apnet_pt.multipole.dimer_induced_dipole(
             mol,
             qA=qA,

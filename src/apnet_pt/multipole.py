@@ -976,6 +976,15 @@ def dimer_induced_dipole(
             ) 
     ) * constants.h2kcalmol)
     print(f"{E_uu = }")
+    E_mu = float((
+            np.einsum(
+            "ai,abij,bj->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B[:, :]
+            ) +
+            np.einsum(
+                "ai,abij,bj->", M_A[:, :], T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], M_B[:, 1:4]
+            )
+    ) * constants.h2kcalmol)
+    print(f"{E_mu = }")
     mu_induced_0 = np.zeros((n_atoms_total, 3))
     mu_induced_0_A = mu_induced_0[:n_atoms_A, :]
     mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
@@ -1003,15 +1012,13 @@ def dimer_induced_dipole(
         mu_sum = np.zeros_like(mu_induced)
         for i in range(n_atoms_total):
             mu_sum_iB = np.einsum("bij,bj->i", T_abij[i, n_atoms_A:, 1:4, 1:4], M_B_induced[:, 1:4])
-            mu_sum_iA = np.einsum("bji,aj->i", T_abij[n_atoms_A:, i, 1:4, 1:4], M_A_induced[:, 1:4])
+            mu_sum_iA = np.einsum("aji,aj->i", T_abij[n_atoms_A:, i, 1:4, 1:4], M_A_induced[:, 1:4])
             mu_sum[i] = np.dot(alpha_all[i], (mu_sum_iB + mu_sum_iA))
         mu_sum += mu_induced_0
         mu_induced = (1 - omega) * mu_induced_old + omega * (mu_sum)
-        print(f"{mu_induced[0]=}, {mu_sum[0]=}")
         M_induced[:, 1:4] = mu_induced
         # Check convergence
         delta = np.linalg.norm(mu_induced - mu_induced_old)
-        # break
         if delta < convergence_threshold:
             print(f"   Converged after {iteration + 1} iterations.")
             break
@@ -1059,5 +1066,4 @@ def dimer_induced_dipole(
         np.einsum("abji,bi,bj->", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_B, M_A)
     )
     E_ind *= constants.h2kcalmol
-
     return E_ind, E_elst
