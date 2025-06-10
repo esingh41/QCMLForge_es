@@ -185,9 +185,7 @@ def test_induced_dipole():
         print(f"{E_qu=:.6f} kcal/mol")
         print(f"{E_uu=:.6f} kcal/mol")
         print(f"{E_qQ=:.6f} kcal/mol")
-        E_mu = E_qu + E_uu
-        print(f"{E_mu=:.6f} kcal/mol")
-        induction_energy, E_elst = apnet_pt.multipole.dimer_induced_dipole(
+        induction_energy = apnet_pt.multipole.dimer_induced_dipole(
             mol,
             qA=qA,
             muA=muA,
@@ -202,7 +200,6 @@ def test_induced_dipole():
         )
         print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
         print(f"SAPT0 elst       = {sapt0_elst:.6f} kcal/mol")
-        print(f"E_elst           = {E_elst} kcal/mol")
         print(f"SAPT0 induction  = {sapt0_ind:.6f} kcal/mol")
         print(f"Induction energy = {induction_energy} kcal/mol")
         # assert abs(induction_energy - sapt0_ind) < 1e-6, f"Expected {sapt0_ind}, got {induction_energy}"
@@ -210,8 +207,4 @@ def test_induced_dipole():
 
 
 if __name__ == "__main__":
-    # test_elst_multipoles()
-    # test_elst_multipoles_am_hirshfeld()
-    # test_elst_charge_dipole_qpole()
-    # test_elst_charge_dipole_qpole_pairwise()
     test_induced_dipole()
