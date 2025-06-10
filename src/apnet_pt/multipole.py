@@ -865,16 +865,25 @@ def dimer_induced_dipole(
             # print(f"{l3=:.2f}, {l5=:.2f}, {l7=:.2f}")
 
             T_abij[i, j, 0, 0] = l3 * T0
+            # Already have -1 in definition of T1, so no need to multiply by -1
             T_abij[i, j, 1:4, 0] = l3 * T1
             T_abij[i, j, 0, 1:4] = l3 * T1.T
-            T_abij[i, j, 1:4, 1:4] = l5 * T2 * -1.0
+            T_abij[i, j, 1:4, 1:4] = l5 * T2 * 1.0
             for d in range(1, 4):
                 T_abij[i, j, d, d] *= l3 / l5
 
-            T_pair = interaction_tensor(
-                R_all[i], R_all[j]
-            )
-            T_undamped[i, j, :, :] = T_pair.copy()
+
+            T_undamped[i, j, 0, 0] = l3 * T0
+            T_undamped[i, j, 1:4, 0] = l3 * T1
+            T_undamped[i, j, 0, 1:4] = l3 * T1.T
+            T_undamped[i, j, 1:4, 1:4] = l5 * T2
+            for d in range(1, 4):
+                T_abij[i, j, d, d] *= -l3 / l5
+
+            # T_pair = interaction_tensor(
+            #     R_all[i], R_all[j]
+            # )
+            # T_undamped[i, j, :, :] = T_pair.copy()
 
             # T_abij[i, j, :, :] = T_pair
             # T_abij[i, j, 0, 0] = l3 * T_abij[i, j, 0, 0]
@@ -947,22 +956,26 @@ def dimer_induced_dipole(
     #         "ai,abij,bj->ab", M_A[:, 1:4], T_abij[:n_atoms_A, :n_atoms_A, 1:4, 1:4], M_A[:, 1:4]
     #       )
     # )
-    q_energies = float((
+    E_qq = float((
         np.einsum(
-            "ai,abij,bj->", M_A[:, 0:1], T_abij[:n_atoms_A, n_atoms_A:, 0:1, :], M_B[:, 0:1]
-        ) + np.einsum(
-            "ai,abij,bj->", M_A[:, 0:1], T_abij[:n_atoms_A, n_atoms_A:, :, 0:1], M_B[:, 1:4]
-        )
+            "ai,abij,bj->", M_A[:, 0:1], T_abij[:n_atoms_A, n_atoms_A:, 0:1, 0:1], M_B[:, 0:1]
+        ) 
     ) * constants.h2kcalmol)
-    print(f"{q_energies = }")
-    mu_energies = float((
+    print(f"{E_qq = }")
+    E_qu = float((
             np.einsum(
-            "ai,abij,bj->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4], M_B[:, 1:4]
-            ) + np.einsum(
-                "ai,abij,bj->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4], M_B[:, 1:4]
+            "a,abj,bj->", M_A[:, 0], T_abij[:n_atoms_A, n_atoms_A:, 0, 1:4], M_B[:, 1:4]
+            ) - np.einsum(
+            "ai,abi,b->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0], M_B[:, 0]
             )
     ) * constants.h2kcalmol)
-    print(f"{mu_energies = }")
+    print(f"{E_qu = }")
+    E_uu = float((
+            np.einsum(
+            "ai,abij,bj->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4], M_B[:, 1:4]
+            ) 
+    ) * constants.h2kcalmol)
+    print(f"{E_uu = }")
     mu_induced_0 = np.zeros((n_atoms_total, 3))
     mu_induced_0_A = mu_induced_0[:n_atoms_A, :]
     mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
@@ -1020,14 +1033,14 @@ def dimer_induced_dipole(
 
     # Calculate induction energy
     E_ind = 0.
-    mu_energies = float((
+    E_uu = float((
             np.einsum(
             "ai,abij,bj->", M_A_induced[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B
             ) + np.einsum(
                 "ai,abij,bj->", M_A, T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], M_B_induced[:, 1:4]
             )
     ) * constants.h2kcalmol)
-    print(f"{mu_energies = }")
+    print(f"{E_uu = }")
     mu_0_A = np.einsum("abij,ai,bj->a", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], mu_induced_0_A, M_B_induced_0) * constants.h2kcalmol   
     print(f"{mu_0_A = }")
     mu_0_B = np.einsum("abji,bi,bj->b", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_0_B, M_A_induced_0) * constants.h2kcalmol 
