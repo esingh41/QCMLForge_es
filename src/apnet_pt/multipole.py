@@ -957,9 +957,9 @@ def dimer_induced_dipole(
     print(f"{q_energies = }")
     mu_energies = float((
             np.einsum(
-            "ai,abij,bj->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B
+            "ai,abij,bj->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4], M_B[:, 1:4]
             ) + np.einsum(
-                "ai,abij,bj->", M_A, T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], M_B[:, 1:4]
+                "ai,abij,bj->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4], M_B[:, 1:4]
             )
     ) * constants.h2kcalmol)
     print(f"{mu_energies = }")
@@ -991,12 +991,10 @@ def dimer_induced_dipole(
         mu_induced_old = mu_induced.copy()
         mu_sum = np.zeros_like(mu_induced)
         for i in range(n_atoms_total):
-            mu_sum_iB = np.einsum("bij,bj->i", T_abij[i, n_atoms_A:, 1:4, :], M_B_induced[:, :])
-            mu_sum_iA = np.einsum("bji,aj->i", T_abij[n_atoms_A:, i, :, 1:4], M_A_induced[:, :])
+            mu_sum_iB = np.einsum("bij,bj->i", T_abij[i, n_atoms_A:, 1:4, 1:4], M_B_induced[:, 1:4])
+            mu_sum_iA = np.einsum("bji,aj->i", T_abij[n_atoms_A:, i, 1:4, 1:4], M_A_induced[:, 1:4])
             mu_sum[i] = np.dot(alpha_all[i], (mu_sum_iB + mu_sum_iA))
             M_induced[i, 1:4] = mu_sum[i]
-            # if i == 0:
-            #     print(f"{mu_sum[i]=}")
         mu_sum += mu_induced_0
         mu_induced = (1 - omega) * mu_induced_old + omega * (mu_sum)
         print(f"{mu_induced[0]=}, {mu_sum[0]=}")
