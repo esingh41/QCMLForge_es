@@ -828,6 +828,8 @@ def dimer_induced_dipole(
     molB = qcel_dimer.get_fragment(1)
     alpha_0_A = np.array([free_atom_polarizabilities[i] for i in molA.atomic_numbers])
     alpha_0_B = np.array([free_atom_polarizabilities[i] for i in molB.atomic_numbers])
+    hirshfeld_volume_ratio_A = hirshfeld_volume_ratio_A.flatten()
+    hirshfeld_volume_ratio_B = hirshfeld_volume_ratio_B.flatten()
 
     # Get atomic positions (in bohr)
     RA = molA.geometry
@@ -840,8 +842,9 @@ def dimer_induced_dipole(
 
     # Combine all atoms and properties
     R_all = np.vstack([RA, RB])
-    alpha_all = np.concatenate([alpha_A, alpha_B])
-    q_all = np.concatenate([qA, qB])
+    print(f"{R_all.shape = }, {RA.shape = }, {RB.shape = }")
+    alpha_all = np.vstack([alpha_A.reshape(-1, 1), alpha_B.reshape(-1, 1)]).flatten()
+    q_all = np.concatenate([qA, qB]).flatten()
     mu_all = np.concatenate([muA, muB])
     theta_all = np.concatenate([thetaA, thetaB])
 
@@ -895,7 +898,7 @@ def dimer_induced_dipole(
             "ai,abij,bj->", M_A[:, 0:1], T_abij[:n_atoms_A, n_atoms_A:, 0:1, 0:1], M_B[:, 0:1]
         ) 
     ) * constants.h2kcalmol)
-    print(f"{E_qq = }")
+    print(f"{E_qq = :.6f}")
     E_qu = float((
             np.einsum(
             "a,abj,bj->", M_A[:, 0], T_abij[:n_atoms_A, n_atoms_A:, 0, 1:4], M_B[:, 1:4]
@@ -903,13 +906,13 @@ def dimer_induced_dipole(
             "ai,abi,b->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0], M_B[:, 0]
             )
     ) * constants.h2kcalmol)
-    print(f"{E_qu = }")
+    print(f"{E_qu = :.6f}")
     E_uu = float((
             np.einsum(
             "ai,abij,bj->", M_A[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4], M_B[:, 1:4]
             ) 
     ) * constants.h2kcalmol)
-    print(f"{E_uu = }")
+    print(f"{E_uu = :.6f}")
     mu_induced_0 = np.zeros((n_atoms_total, 3))
     mu_induced_0_A = mu_induced_0[:n_atoms_A, :]
     mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
@@ -960,13 +963,13 @@ def dimer_induced_dipole(
     # print(f"{mu_0_B = }")
     E_0_ind = float(
         np.einsum("abij,ai,bj->", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], mu_induced_0_A, M_B_induced_0) + 
-        np.einsum("abji,bi,bj->", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_0_B, M_A_induced_0)
+        np.einsum("abji,bi,aj->", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_0_B, M_A_induced_0)
     ) * constants.h2kcalmol
     print(f"{E_0_ind = }")
 
     mu_A = np.einsum("ai,abij,bj->a", mu_induced_A, T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B) * constants.h2kcalmol   
     print(f"{mu_A = }")
-    mu_B = np.einsum("bi,abji,bj->b", mu_induced_B, T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], M_A) * constants.h2kcalmol 
+    mu_B = np.einsum("bi,abji,aj->b", mu_induced_B, T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], M_A) * constants.h2kcalmol 
     print(f"{mu_B = }")
     E_ind = float(
         np.einsum("abij,ai,bj->", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], mu_induced_A, M_B) + 

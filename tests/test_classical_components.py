@@ -201,10 +201,71 @@ def test_induced_dipole():
         print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
         print(f"SAPT0 elst       = {sapt0_elst:.6f} kcal/mol")
         print(f"SAPT0 induction  = {sapt0_ind:.6f} kcal/mol")
-        print(f"Induction energy = {induction_energy} kcal/mol")
+        print(f"Induction energy = {induction_energy:.6f} kcal/mol")
+
+def test_induced_dipole_bz_meoh():
+    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl"))
+    for n, r in df.iterrows():
+        sapt0_ind = r['SAPT0 IND ENERGY adz']
+        sapt0_elst = r['SAPT0 ELST ENERGY adz']
+        mol = r['qcel_molecule']
+        # qm_tools_aw.molecular_visualization.visualize_molecule(
+        #     mol,
+        #    temp_filename=f"{n}_water_dimer_sapt0_ind.html",
+        #                                                        )
+        # Distance between monomers
+        monA = mol.get_fragment(0).copy()
+        monB = mol.get_fragment(1).copy()
+        dist = np.sqrt(np.sum((monA.geometry[:, None] - monB.geometry)**2, axis=2)).min()
+        bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
+        qA = r['q_A pbe0/atz']
+        muA = r['mu_A pbe0/atz']
+        thetaA = r['theta_A pbe0/atz']
+        qB = r['q_B pbe0/atz']
+        muB = r['mu_B pbe0/atz']
+        thetaB = r['theta_B pbe0/atz']
+        vrA = r['vol_ratios_A pbe0/atz']
+        vrB = r['vol_ratios_B pbe0/atz']
+        vwA = r['val_widths_A pbe0/atz']
+        vwB = r['val_widths_B pbe0/atz']
+        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=mol,
+            qA=qA,
+            muA=muA,
+            thetaA=thetaA,
+            qB=qB,
+            muB=muB,
+            thetaB=thetaB,
+        )
+        E_qq = E_qqs.sum()
+        E_qu = E_qus.sum()
+        E_uu = E_uus.sum()
+        E_qQ = E_qQs.sum()
+        print(f"{total_energy=:.6f} kcal/mol")
+        print(f"{E_qq=:.6f} kcal/mol")
+        print(f"{E_qu=:.6f} kcal/mol")
+        print(f"{E_uu=:.6f} kcal/mol")
+        print(f"{E_qQ=:.6f} kcal/mol")
+        induction_energy = apnet_pt.multipole.dimer_induced_dipole(
+            mol,
+            qA=qA,
+            muA=muA,
+            thetaA=thetaA,
+            qB=qB,
+            muB=muB,
+            thetaB=thetaB,
+            hirshfeld_volume_ratio_A=vrA,
+            hirshfeld_volume_ratio_B=vrB,
+            valence_widths_A=vwA,
+            valence_widths_B=vwB,
+        )
+        h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
+        print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
+        print(f"SAPT0 elst       = {sapt0_elst * h2kcalmol:.6f} kcal/mol")
+        print(f"SAPT0 induction  = {sapt0_ind * h2kcalmol:.6f} kcal/mol")
+        print(f"Induction energy = {induction_energy:.6f} kcal/mol")
         # assert abs(induction_energy - sapt0_ind) < 1e-6, f"Expected {sapt0_ind}, got {induction_energy}"
 
-
-
 if __name__ == "__main__":
-    test_induced_dipole()
+    # test_induced_dipole()
+    test_induced_dipole_bz_meoh()
