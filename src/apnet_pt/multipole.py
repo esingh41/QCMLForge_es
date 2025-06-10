@@ -878,14 +878,17 @@ def dimer_induced_dipole(
             T_abij[i, j, 1:4, 0] = T1
             T_abij[i, j, 0, 1:4] = T1.T
             T_abij[i, j, 1:4, 1:4] = T2
+            T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
+            T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
+            T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
 
     # Temporarily limiting to only charge and dipole interactions
     # Also, lets examine the 2x2 electrostaics OH, OH interaction only to keep
     # it simple under *_q_mu vars
-    M = M[:, :4]  # Keep only charge and dipole moments
-    M_A = M[:n_atoms_A, :4]
-    M_B = M[n_atoms_A:, :4]
-    T_abij = T_abij[:, :, :4, :4]
+    # M = M[:, :4]  # Keep only charge and dipole moments
+    # M_A = M[:n_atoms_A, :4]
+    # M_B = M[n_atoms_A:, :4]
+    # T_abij = T_abij[:, :, :4, :4]
     E_qq = float((
         np.einsum(
             "ai,abij,bj->", M_A[:, 0:1], T_abij[:n_atoms_A, n_atoms_A:, 0:1, 0:1], M_B[:, 0:1]
@@ -920,11 +923,9 @@ def dimer_induced_dipole(
     M_induced_0 = M.copy()
     M_induced_0[:n_atoms_A, 1:4] = mu_induced_0_A
     M_induced_0[n_atoms_A:, 1:4] = mu_induced_0_B
-    M_A_induced_0 = M_induced_0[:n_atoms_A, :4]
-    M_B_induced_0 = M_induced_0[n_atoms_A:, :4]
+    M_A_induced_0 = M_induced_0[:n_atoms_A, :]
+    M_B_induced_0 = M_induced_0[n_atoms_A:, :]
     M_induced = M.copy()
-    M_A_induced = M_induced[:n_atoms_A, :4]
-    M_B_induced = M_induced[n_atoms_A:, :4]
     for iteration in range(max_iterations):
         mu_induced_old = mu_induced.copy()
         mu_sum = np.zeros_like(mu_induced)
@@ -952,18 +953,10 @@ def dimer_induced_dipole(
 
     # Calculate induction energy
     E_ind = 0.
-    E_uu = float((
-            np.einsum(
-            "ai,abij,bj->", M_A_induced[:, 1:4], T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B
-            ) + np.einsum(
-                "ai,abij,bj->", M_A, T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], M_B_induced[:, 1:4]
-            )
-    ) * constants.h2kcalmol)
-    print(f"{E_uu = }")
-    mu_0_A = np.einsum("abij,ai,bj->a", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], mu_induced_0_A, M_B_induced_0) * constants.h2kcalmol   
-    print(f"{mu_0_A = }")
-    mu_0_B = np.einsum("abji,bi,bj->b", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_0_B, M_A_induced_0) * constants.h2kcalmol 
-    print(f"{mu_0_B = }")
+    # mu_0_A = np.einsum("abij,ai,bj->a", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], mu_induced_0_A, M_B_induced_0) * constants.h2kcalmol   
+    # print(f"{mu_0_A = }")
+    # mu_0_B = np.einsum("abji,bi,bj->b", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_0_B, M_A_induced_0) * constants.h2kcalmol 
+    # print(f"{mu_0_B = }")
     E_0_ind = float(
         np.einsum("abij,ai,bj->", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], mu_induced_0_A, M_B_induced_0) + 
         np.einsum("abji,bi,bj->", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_0_B, M_A_induced_0)
