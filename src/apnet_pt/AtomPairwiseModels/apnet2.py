@@ -1178,8 +1178,12 @@ class APNet2Model:
             return predictions, pairwise_energies
         return predictions
 
-    def example_input(self):
-        mol = qcel.models.Molecule.from_data("""
+    def example_input(self, mol=None,
+        r_cut=5.0,
+        r_cut_im=8.0,
+):
+        if mol is None:
+            mol = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714
@@ -1191,7 +1195,7 @@ class APNet2Model:
 1   2.641145101   -0.449872874   -0.744894473
 units angstrom
         """)
-        return self._qcel_example_input([mol], batch_size=1)
+        return self._qcel_example_input([mol], batch_size=1, r_cut=r_cut, r_cut_im=r_cut_im)
 
     ########################################################################
     # TRAINING/VALIDATION HELPERS
