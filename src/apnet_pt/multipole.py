@@ -1065,13 +1065,15 @@ def dimer_induced_dipole(
         * constants.h2kcalmol
     )
     print(f"{mu_B = }")
+    E_ind_BA = np.einsum(
+            "bi,baij,aj->", mu_induced_B, T_abij[n_atoms_A:, :n_atoms_A, 1:4, :], M_A
+    ) * constants.h2kcalmol
+    E_ind_AB = np.einsum(
+            "ai,baij,bj->", mu_induced_A, T_abij[n_atoms_A:, :n_atoms_A, 1:4, :], M_B
+    ) * constants.h2kcalmol
+    print(f" {E_ind_AB = :.6f}\n {E_ind_BA = :.6f}")
     E_ind = float(
-        np.einsum(
-            "abji,bi,aj->", T_abij[:n_atoms_A, n_atoms_A:, :, 1:4], mu_induced_B, M_A
-        )
-        - np.einsum(
-            "abij,ai,bj->", T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], mu_induced_A, M_B
-        )
+        E_ind_BA + E_ind_AB
     )
-    E_ind *= constants.h2kcalmol  # * 0.5
+    # E_ind *= constants.h2kcalmol  # * 0.5
     return E_ind
