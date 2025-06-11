@@ -893,15 +893,25 @@ def dimer_induced_dipole(
                 R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
             )
             # Added constants to agree with eval_interaction terms
+            # T_abij[i, j, 0, 0] = T0
+            # T_abij[i, j, 1:4, 0] = -1.0 * T1
+            # T_abij[i, j, 0, 1:4] = T1.T
+            # T_abij[i, j, 1:4, 1:4] = T2
+            # T_abij[i, j, 1:4, 4:13] = -1 / 3 * T3.reshape(3, 9)
+            # T_abij[i, j, 4:13, 1:4] = 1 / 3 * T3.T.reshape(9, 3)
+            # T_abij[i, j, 4:13, 4:13] = 1.0 / 9.0 * T4.reshape(9, 9)
+            # T_abij[i, j, 0, 4:13] = 1 / 3 * T2.reshape(9)
+            # T_abij[i, j, 4:13, 0] = 1 / 3 * T2.reshape(9)
+
             T_abij[i, j, 0, 0] = T0
-            T_abij[i, j, 1:4, 0] = -1.0 * T1
-            T_abij[i, j, 0, 1:4] = T1.T
+            T_abij[i, j, 1:4, 0] = T1
+            T_abij[i, j, 0, 1:4] = T1
             T_abij[i, j, 1:4, 1:4] = T2
-            T_abij[i, j, 1:4, 4:13] = -1 / 3 * T3.reshape(3, 9)
-            T_abij[i, j, 4:13, 1:4] = 1 / 3 * T3.T.reshape(9, 3)
-            T_abij[i, j, 4:13, 4:13] = 1.0 / 9.0 * T4.reshape(9, 9)
-            T_abij[i, j, 0, 4:13] = 1 / 3 * T2.reshape(9)
-            T_abij[i, j, 4:13, 0] = 1 / 3 * T2.reshape(9)
+            T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
+            T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
+            T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
+            T_abij[i, j, 0, 4:13] =  T2.reshape(9)
+            T_abij[i, j, 4:13, 0] =  T2.reshape(9)
 
     E_qq = float(
         (
@@ -923,7 +933,7 @@ def dimer_induced_dipole(
                 T_abij[:n_atoms_A, n_atoms_A:, 0, 1:4],
                 M_B[:, 1:4],
             )
-            + np.einsum(
+            - np.einsum(
                 "ai,abi,b->",
                 M_A[:, 1:4],
                 T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0],
@@ -934,8 +944,8 @@ def dimer_induced_dipole(
     )
     print(f"{E_qu=:.6f}")
     E_uu = float(
-        (
-            -np.einsum(
+        -1.0 * (
+            np.einsum(
                 "ai,abij,bj->",
                 M_A[:, 1:4],
                 T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
@@ -946,7 +956,7 @@ def dimer_induced_dipole(
     )
     print(f"{E_uu=:.6f}")
     E_qQ = float(
-        (
+        1/3*(
             np.einsum(
                 "ai,abij,bj->",
                 M_A[:, 0:1],
@@ -964,7 +974,7 @@ def dimer_induced_dipole(
     )
     print(f"{E_qQ=:.6f}")
     E_uQ = float(
-        (
+        1/3*(
             np.einsum(
                 "ai,abij,bj->",
                 M_A[:, 1:4],
@@ -1073,7 +1083,7 @@ def dimer_induced_dipole(
     ) * constants.h2kcalmol
     print(f" {E_ind_AB = :.6f}\n {E_ind_BA = :.6f}")
     E_ind = float(
-        E_ind_BA + E_ind_AB
+        E_ind_AB - E_ind_BA
     )
     # E_ind *= constants.h2kcalmol  # * 0.5
     return E_ind
