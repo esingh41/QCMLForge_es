@@ -201,8 +201,8 @@ def test_induced_dipole():
             valence_widths_B=vwB,
         )
         print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
-        print(f"SAPT0 elst       = {sapt0_elst:.6f} kcal/mol")
-        print(f"SAPT0 induction  = {sapt0_ind:.6f} kcal/mol")
+        print(f"SAPT elst        = {sapt0_elst:.6f} kcal/mol")
+        print(f"SAPT induction   = {sapt0_ind:.6f} kcal/mol")
         print(f"Induction energy = {induction_energy:.6f} kcal/mol")
 
 def test_induced_dipole_bz_meoh():
@@ -265,8 +265,8 @@ def test_induced_dipole_bz_meoh():
         )
         h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
         print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
-        print(f"SAPT0 elst       = {sapt0_elst * h2kcalmol:.6f} kcal/mol")
-        print(f"SAPT0 induction  = {sapt0_ind * h2kcalmol:.6f} kcal/mol")
+        print(f"SAPT elst        = {sapt0_elst * h2kcalmol:.6f} kcal/mol")
+        print(f"SAPT induction   = {sapt0_ind * h2kcalmol:.6f} kcal/mol")
         print(f"Induction energy = {induction_energy:.6f} kcal/mol")
         # assert abs(induction_energy - sapt0_ind) < 1e-6, f"Expected {sapt0_ind}, got {induction_energy}"
 

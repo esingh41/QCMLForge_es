@@ -891,13 +891,14 @@ def dimer_induced_dipole(
             T0, T1, T2, T3, T4 = T_cart_Thole_damping(
                 R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
             )
+            # Added constants to agree with eval_interaction terms
             T_abij[i, j, 0, 0] = T0
-            T_abij[i, j, 1:4, 0] = -T1
+            T_abij[i, j, 1:4, 0] = -1.0 * T1
             T_abij[i, j, 0, 1:4] = T1.T
             T_abij[i, j, 1:4, 1:4] = T2
-            T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
-            T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
-            T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
+            T_abij[i, j, 1:4, 4:13] = 1/3 * T3.reshape(3, 9)
+            T_abij[i, j, 4:13, 1:4] = -1/3 * T3.T.reshape(9, 3)
+            T_abij[i, j, 4:13, 4:13] = 1.0 / 9.0 * T4.reshape(9, 9)
 
     E_qq = float(
         (
@@ -942,14 +943,14 @@ def dimer_induced_dipole(
     )
     print(f"{E_uu = :.6f}")
     E_uQ = float(
-        (1 / 3) * (
+        (
             np.einsum(
                 "ai,abij,bj->",
                 M_A[:, 1:4],
                 T_abij[:n_atoms_A, n_atoms_A:, 1:4, 4:],
                 M_B[:, 4:],
             )
-            - np.einsum(
+            + np.einsum(
                 "ai,abij,bj->",
                 M_A[:, 4:],
                 T_abij[:n_atoms_A, n_atoms_A:, 4:, 1:4],
