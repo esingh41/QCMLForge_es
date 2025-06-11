@@ -841,6 +841,7 @@ def dimer_induced_dipole(
     induction model from this paper:
     https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
     """
+    print()
 
     # Get molecular fragments
     molA = qcel_dimer.get_fragment(0)
@@ -896,9 +897,11 @@ def dimer_induced_dipole(
             T_abij[i, j, 1:4, 0] = -1.0 * T1
             T_abij[i, j, 0, 1:4] = T1.T
             T_abij[i, j, 1:4, 1:4] = T2
-            T_abij[i, j, 1:4, 4:13] = 1/3 * T3.reshape(3, 9)
-            T_abij[i, j, 4:13, 1:4] = -1/3 * T3.T.reshape(9, 3)
+            T_abij[i, j, 1:4, 4:13] = -1 / 3 * T3.reshape(3, 9)
+            T_abij[i, j, 4:13, 1:4] = 1 / 3 * T3.T.reshape(9, 3)
             T_abij[i, j, 4:13, 4:13] = 1.0 / 9.0 * T4.reshape(9, 9)
+            T_abij[i, j, 0, 4:13] = 1 / 3 * T2.reshape(9)
+            T_abij[i, j, 4:13, 0] = 1 / 3 * T2.reshape(9)
 
     E_qq = float(
         (
@@ -911,7 +914,7 @@ def dimer_induced_dipole(
         )
         * constants.h2kcalmol
     )
-    print(f"{E_qq = :.6f}")
+    print(f"{E_qq=:.6f}")
     E_qu = float(
         (
             np.einsum(
@@ -929,7 +932,7 @@ def dimer_induced_dipole(
         )
         * constants.h2kcalmol
     )
-    print(f"{E_qu = :.6f}")
+    print(f"{E_qu=:.6f}")
     E_uu = float(
         (
             -np.einsum(
@@ -941,7 +944,25 @@ def dimer_induced_dipole(
         )
         * constants.h2kcalmol
     )
-    print(f"{E_uu = :.6f}")
+    print(f"{E_uu=:.6f}")
+    E_qQ = float(
+        (
+            np.einsum(
+                "ai,abij,bj->",
+                M_A[:, 0:1],
+                T_abij[:n_atoms_A, n_atoms_A:, 0:1, 4:],
+                M_B[:, 4:],
+            )
+            + np.einsum(
+                "ai,abij,bj->",
+                M_A[:, 4:],
+                T_abij[:n_atoms_A, n_atoms_A:, 4:, 0:1],
+                M_B[:, 0:1],
+            )
+        )
+        * constants.h2kcalmol
+    )
+    print(f"{E_qQ=:.6f}")
     E_uQ = float(
         (
             np.einsum(
@@ -959,7 +980,7 @@ def dimer_induced_dipole(
         )
         * constants.h2kcalmol
     )
-    print(f"{E_uQ = :.6f}")
+    print(f"{E_uQ=:.6f}")
     mu_induced_0 = np.zeros((n_atoms_total, 3))
     mu_induced_0_A = mu_induced_0[:n_atoms_A, :]
     mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
