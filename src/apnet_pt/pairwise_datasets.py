@@ -39,15 +39,18 @@ libmbd_vwd_params = pd.read_csv(
 )
 free_atom_polarizabilities = {
     # el: v for el, v in zip(libmbd_vwd_params['Z'], libmbd_vwd_params['alpha_0(TS)'])
-    el: v for el, v in zip(libmbd_vwd_params['Z'], libmbd_vwd_params['alpha_0(BG)'])
+    el: v
+    for el, v in zip(libmbd_vwd_params["Z"], libmbd_vwd_params["alpha_0(BG)"])
 }
 
 
 def qcel_dimer_to_pyg_data(dimer, r_cut=5.0, custom=False):
     data_A = atomic_datasets.qcel_mon_to_pyg_data(
-        dimer.get_fragment(0), r_cut=r_cut, custom=custom)
+        dimer.get_fragment(0), r_cut=r_cut, custom=custom
+    )
     data_B = atomic_datasets.qcel_mon_to_pyg_data(
-        dimer.get_fragment(1), r_cut=r_cut, custom=custom)
+        dimer.get_fragment(1), r_cut=r_cut, custom=custom
+    )
     return data_A, data_B
 
 
@@ -60,7 +63,7 @@ def natural_key(text):
 ###############################
 
 
-def pairwise_edges(R, r_cut):
+def pairwise_edges(R, r_cut, full_indices=False):
     natom = R.size(0)
 
     RA = R.unsqueeze(0).repeat(natom, 1, 1)  # [natom x natom x 3]
@@ -70,11 +73,18 @@ def pairwise_edges(R, r_cut):
 
     mask = (dist < r_cut) & (dist > 0.0)
     edges = torch.where(mask)  # indices where the mask is true
+    if full_indices:
+        full_edges = torch.where((dist > 0.0))
+        return (
+            edges[0].long(),
+            edges[1].long(),
+            full_edges[0].long(),
+            full_edges[1].long(),
+        )
     return edges[0].long(), edges[1].long()
 
 
-def pairwise_edges_im(RA, RB, r_cut_im):
-
+def pairwise_edges_im(RA, RB, r_cut_im, full_indices=False):
     natomA = RA.shape[0]
     natomB = RB.shape[0]
 
@@ -89,6 +99,16 @@ def pairwise_edges_im(RA, RB, r_cut_im):
     # dimensions [n_edge x 2]
     edges_lr = torch.nonzero(~mask, as_tuple=False).long()
 
+    if full_indices:
+        full_edges = torch.cat([edges_sr, edges_lr], dim=0)
+        return (
+            edges_sr[:, 0],
+            edges_sr[:, 1],
+            edges_lr[:, 0],
+            edges_lr[:, 1],
+            full_edges[0].long(),
+            full_edges[1].long(),
+        )
     return edges_sr[:, 0], edges_sr[:, 1], edges_lr[:, 0], edges_lr[:, 1]
 
 
@@ -116,22 +136,15 @@ def apnet2_collate_update(batch):
     for i, data in enumerate(batch):
         # need dimer ind to be index size of short-range edges
         data.dimer_ind = (
-            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype)
-            * i
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
         )
         data.dimer_ind_lr = (
-            torch.ones(data.e_ABlr_source.size(
-                0), dtype=data.dimer_ind_lr.dtype)
-            * i
+            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
         )
-        local_e_ABsr_source.append(
-            data.e_ABsr_source.clone() + monA_edge_offset)
-        local_e_ABsr_target.append(
-            data.e_ABsr_target.clone() + monB_edge_offset)
-        local_e_ABlr_source.append(
-            data.e_ABlr_source.clone() + monA_edge_offset)
-        local_e_ABlr_target.append(
-            data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
 
         # Monomer edges
         local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
@@ -193,22 +206,15 @@ def apnet2_collate_update_no_target(batch):
     local_e_BB_target = []
     for i, data in enumerate(batch):
         data.dimer_ind = (
-            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype)
-            * i
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
         )
         data.dimer_ind_lr = (
-            torch.ones(data.e_ABlr_source.size(
-                0), dtype=data.dimer_ind_lr.dtype)
-            * i
+            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
         )
-        local_e_ABsr_source.append(
-            data.e_ABsr_source.clone() + monA_edge_offset)
-        local_e_ABsr_target.append(
-            data.e_ABsr_target.clone() + monB_edge_offset)
-        local_e_ABlr_source.append(
-            data.e_ABlr_source.clone() + monA_edge_offset)
-        local_e_ABlr_target.append(
-            data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
         local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
         local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
         local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
@@ -351,31 +357,39 @@ def apnet3_collate_update(batch):
     local_e_BB_source = []
     local_e_BB_target = []
 
+    local_e_AA_source_all = []
+    local_e_AA_target_all = []
+    local_e_BB_source_all = []
+    local_e_BB_target_all = []
+    local_e_AB_source_all = []
+    local_e_AB_target_all = []
+
     for i, data in enumerate(batch):
         # need dimer ind to be index size of short-range edges
         data.dimer_ind = (
-            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype)
-            * i
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
         )
         data.dimer_ind_lr = (
-            torch.ones(data.e_ABlr_source.size(
-                0), dtype=data.dimer_ind_lr.dtype)
-            * i
+            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
         )
-        local_e_ABsr_source.append(
-            data.e_ABsr_source.clone() + monA_edge_offset)
-        local_e_ABsr_target.append(
-            data.e_ABsr_target.clone() + monB_edge_offset)
-        local_e_ABlr_source.append(
-            data.e_ABlr_source.clone() + monA_edge_offset)
-        local_e_ABlr_target.append(
-            data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
 
         # Monomer edges
         local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
         local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
         local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
         local_e_BB_target.append(data.e_BB_target.clone() + monB_edge_offset)
+
+        # Full edges
+        local_e_AA_source_all.append(data.e_AA_source.clone() + monA_edge_offset)
+        local_e_AA_target_all.append(data.e_AA_target.clone() + monA_edge_offset)
+        local_e_BB_source_all.append(data.e_BB_source.clone() + monB_edge_offset)
+        local_e_BB_target_all.append(data.e_BB_target.clone() + monB_edge_offset)
+        local_e_AB_source_all.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_AB_target_all.append(data.e_ABsr_target.clone() + monB_edge_offset)
 
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
@@ -420,7 +434,6 @@ def apnet3_collate_update(batch):
     return batched_data
 
 
-
 def apnet3_collate_update_no_target(batch):
     """
     Need to update the edge_index values so that each molecule has a unique
@@ -436,28 +449,37 @@ def apnet3_collate_update_no_target(batch):
     local_e_AA_target = []
     local_e_BB_source = []
     local_e_BB_target = []
+
+    local_e_AA_source_all = []
+    local_e_AA_target_all = []
+    local_e_BB_source_all = []
+    local_e_BB_target_all = []
+    local_e_AB_source_all = []
+    local_e_AB_target_all = []
+
     for i, data in enumerate(batch):
         data.dimer_ind = (
-            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype)
-            * i
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
         )
         data.dimer_ind_lr = (
-            torch.ones(data.e_ABlr_source.size(
-                0), dtype=data.dimer_ind_lr.dtype)
-            * i
+            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
         )
-        local_e_ABsr_source.append(
-            data.e_ABsr_source.clone() + monA_edge_offset)
-        local_e_ABsr_target.append(
-            data.e_ABsr_target.clone() + monB_edge_offset)
-        local_e_ABlr_source.append(
-            data.e_ABlr_source.clone() + monA_edge_offset)
-        local_e_ABlr_target.append(
-            data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
         local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
         local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
         local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
         local_e_BB_target.append(data.e_BB_target.clone() + monB_edge_offset)
+
+        # Full edges
+        local_e_AA_source_all.append(data.e_AA_source.clone() + monA_edge_offset)
+        local_e_AA_target_all.append(data.e_AA_target.clone() + monA_edge_offset)
+        local_e_BB_source_all.append(data.e_BB_source.clone() + monB_edge_offset)
+        local_e_BB_target_all.append(data.e_BB_target.clone() + monB_edge_offset)
+        local_e_AB_source_all.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_AB_target_all.append(data.e_ABsr_target.clone() + monB_edge_offset)
 
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
@@ -496,6 +518,12 @@ def apnet3_collate_update_no_target(batch):
         vwB=torch.cat([data.vwB for data in batch], dim=0),
         alpha_0_B=torch.cat([data.alpha_0_B for data in batch], dim=0),
         hlistB=torch.cat([data.hlistB for data in batch], dim=0),
+        e_AB_source_all=torch.cat(local_e_AB_source_all, dim=0),
+        e_AB_target_all=torch.cat(local_e_AB_target_all, dim=0),
+        e_AA_source_all=torch.cat(local_e_AA_source_all, dim=0),
+        e_AA_target_all=torch.cat(local_e_AA_target_all, dim=0),
+        e_BB_source_all=torch.cat(local_e_BB_source_all, dim=0),
+        e_BB_target_all=torch.cat(local_e_BB_target_all, dim=0),
     )
     return batched_data
 
@@ -556,13 +584,9 @@ class APNet2_DataLoader(torch.utils.data.DataLoader):
 
 def apnet2_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
     batch_A = atomic_datasets.atomic_collate_update_no_target(molA_data)
-    qAs, muAs, thAs, hlistAs = atom_model.predict_multipoles_batch(
-        batch_A
-    )
+    qAs, muAs, thAs, hlistAs = atom_model.predict_multipoles_batch(batch_A)
     batch_B = atomic_datasets.atomic_collate_update_no_target(molB_data)
-    qBs, muBs, thBs, hlistBs = atom_model.predict_multipoles_batch(
-        batch_B
-    )
+    qBs, muBs, thBs, hlistBs = atom_model.predict_multipoles_batch(batch_B)
     dimer_data = []
     for j in range(len(molA_data)):
         atomic_props_A = molA_data[j]
@@ -577,16 +601,10 @@ def apnet2_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
             qB = qB.unsqueeze(0).unsqueeze(0)
         elif len(qB.size()) == 1:
             qB = qB.unsqueeze(-1)
-        e_AA_source, e_AA_target = pairwise_edges(
-            atomic_props_A.R, r_cut
-        )
-        e_BB_source, e_BB_target = pairwise_edges(
-            atomic_props_B.R, r_cut
-        )
-        e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-            pairwise_edges_im(
-                atomic_props_A.R, atomic_props_B.R, r_cut_im
-            )
+        e_AA_source, e_AA_target = pairwise_edges(atomic_props_A.R, r_cut)
+        e_BB_source, e_BB_target = pairwise_edges(atomic_props_B.R, r_cut)
+        e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = pairwise_edges_im(
+            atomic_props_A.R, atomic_props_B.R, r_cut_im
         )
         dimer_ind = torch.ones((1), dtype=torch.long) * index
         data = Data(
@@ -683,7 +701,9 @@ class apnet2_module_dataset(Dataset):
         self.prebatched = prebatched
 
         if spec_type in [1, 2, 7] and self.prebatched is False:
-            print("WARNING: spec_type [1, 2, 7] requires prebatched=True\n  Setting prebatched=True")
+            print(
+                "WARNING: spec_type [1, 2, 7] requires prebatched=True\n  Setting prebatched=True"
+            )
             self.prebatched = True
         self.MAX_SIZE = max_size
         self.in_memory = in_memory
@@ -1107,7 +1127,8 @@ class apnet2_module_dataset(Dataset):
             return len(self.data)
 
         d = torch.load(
-            osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
+            osp.join(self.processed_dir, self.processed_file_names[-1]),
+            weights_only=False,
         )
         if self.prebatched:
             return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)
@@ -1184,7 +1205,9 @@ class apnet3_module_dataset(Dataset):
         self.spec_type = spec_type
         self.prebatched = prebatched
         if spec_type in [1, 2, 7] and self.prebatched is False:
-            print("WARNING: spec_type [1, 2, 7] requires prebatched=True\n  Setting prebatched=True")
+            print(
+                "WARNING: spec_type [1, 2, 7] requires prebatched=True\n  Setting prebatched=True"
+            )
             self.prebatched = True
         self.MAX_SIZE = max_size
         self.split = split
@@ -1233,7 +1256,9 @@ class apnet3_module_dataset(Dataset):
             t = time()
             self.data = []
             for i in self.processed_file_names:
-                self.data.append(torch.load(osp.join(self.processed_dir, i), weights_only=False))
+                self.data.append(
+                    torch.load(osp.join(self.processed_dir, i), weights_only=False)
+                )
             total_time_seconds = int(time() - t)
             print(f"Loaded in {total_time_seconds:4d} seconds")
             self.get = self.get_in_memory
@@ -1353,7 +1378,9 @@ class apnet3_module_dataset(Dataset):
         idx = 0
         batch_size = self.atomic_batch_size
         if self.spec_type in [1, 2, 7]:
-            print(f"ENSURE THAT {batch_size=} is the same as the batch size used in the AP-Net2 model training! This mode avoids collating completely.")
+            print(
+                f"ENSURE THAT {batch_size=} is the same as the batch size used in the AP-Net2 model training! This mode avoids collating completely."
+            )
         for raw_path in self.raw_paths:
             # Alternatively, could perform a while loop on dimers and manually
             # create batches to be evaluated instead of doing all monomer
@@ -1368,7 +1395,10 @@ class apnet3_module_dataset(Dataset):
             print(f"raw_path: {raw_path}")
             print("Loading dimers...")
             RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = util.load_dimer_dataset(
-                raw_path, self.MAX_SIZE, return_qcel_mols=False, return_qcel_mons=False,
+                raw_path,
+                self.MAX_SIZE,
+                return_qcel_mols=False,
+                return_qcel_mons=False,
                 columns=["Elst_aug", "Exch_aug", "Ind_aug", "Disp_aug"],
             )
             print("Creating data objects...")
@@ -1401,26 +1431,42 @@ class apnet3_module_dataset(Dataset):
                     energies.append(targets[j])
                 if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
                     continue
-                batch_A = atomic_datasets.atomic_collate_update_no_target(
-                    molA_data)
+                batch_A = atomic_datasets.atomic_collate_update_no_target(molA_data)
                 # torch.save(batch_A, "batch_A.pt")
-                qAs, muAs, thAs, hfvrAs, vwAs, hlistAs = self.atom_model.predict_multipoles_batch(
-                    batch_A
+                qAs, muAs, thAs, hfvrAs, vwAs, hlistAs = (
+                    self.atom_model.predict_multipoles_batch(batch_A)
                 )
-                batch_B = atomic_datasets.atomic_collate_update_no_target(
-                    molB_data)
-                alpha_0_A = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_A.x])
-                alpha_0_B = torch.tensor([free_atom_polarizabilities[int(z)] for z in batch_B.x])
+                batch_B = atomic_datasets.atomic_collate_update_no_target(molB_data)
+                alpha_0_A = torch.tensor(
+                    [free_atom_polarizabilities[int(z)] for z in batch_A.x]
+                )
+                alpha_0_B = torch.tensor(
+                    [free_atom_polarizabilities[int(z)] for z in batch_B.x]
+                )
                 # torch.save(batch_B, "batch_B.pt")
-                qBs, muBs, thBs, hfvrBs, vwBs, hlistBs = self.atom_model.predict_multipoles_batch(
-                    batch_B
+                qBs, muBs, thBs, hfvrBs, vwBs, hlistBs = (
+                    self.atom_model.predict_multipoles_batch(batch_B)
                 )
                 for j in range(len(molA_data)):
                     atomic_props_A = molA_data[j]
                     atomic_props_B = molB_data[j]
                     local_energies = energies[j]
-                    qA, muA, quadA, hfvrA, vwA, hlistA = qAs[j], muAs[j], thAs[j], hfvrAs[j], vwAs[j], hlistAs[j]
-                    qB, muB, quadB, hfvrB, vwB, hlistB = qBs[j], muBs[j], thBs[j], hfvrBs[j], vwBs[j], hlistBs[j]
+                    qA, muA, quadA, hfvrA, vwA, hlistA = (
+                        qAs[j],
+                        muAs[j],
+                        thAs[j],
+                        hfvrAs[j],
+                        vwAs[j],
+                        hlistAs[j],
+                    )
+                    qB, muB, quadB, hfvrB, vwB, hlistB = (
+                        qBs[j],
+                        muBs[j],
+                        thBs[j],
+                        hfvrBs[j],
+                        vwBs[j],
+                        hlistBs[j],
+                    )
                     if len(qA.size()) == 0:
                         qA = qA.unsqueeze(0).unsqueeze(0)
                         hfvrA = hfvrA.unsqueeze(0).unsqueeze(0)
@@ -1437,16 +1483,32 @@ class apnet3_module_dataset(Dataset):
                         qB = qB.unsqueeze(-1)
                         hfvrB = hfvrB.unsqueeze(-1)
                         vwB = vwB.unsqueeze(-1)
-                    e_AA_source, e_AA_target = pairwise_edges(
-                        atomic_props_A.R, self.r_cut
-                    )
-                    e_BB_source, e_BB_target = pairwise_edges(
-                        atomic_props_B.R, self.r_cut
-                    )
-                    e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                        pairwise_edges_im(
-                            atomic_props_A.R, atomic_props_B.R, self.r_cut_im
+                    e_AA_source, e_AA_target, e_AA_source_all, e_AA_target_all = (
+                        pairwise_edges(
+                            atomic_props_A.R,
+                            self.r_cut,
+                            full_indices=True,
                         )
+                    )
+                    e_BB_source, e_BB_target, e_AA_source_all, e_AA_target_all = (
+                        pairwise_edges(
+                            atomic_props_B.R,
+                            self.r_cut,
+                            full_indices=True,
+                        )
+                    )
+                    (
+                        e_ABsr_source,
+                        e_ABsr_target,
+                        e_ABlr_source,
+                        e_ABlr_target,
+                        e_AB_source_all,
+                        e_AB_target_all,
+                    ) = pairwise_edges_im(
+                        atomic_props_A.R,
+                        atomic_props_B.R,
+                        self.r_cut_im,
+                        full_indices=True,
                     )
                     # NOTE: was wrong iterator before... should be j, not i
                     y = torch.tensor(local_energies, dtype=torch.float32)
@@ -1524,9 +1586,9 @@ class apnet3_module_dataset(Dataset):
                             break
                     idx += 1
                 if self.print_level >= 2:
-                    print(f"{i}/{len(RAs)}, {time()-t2:.2f}s, {time()-t1:.2f}s")
+                    print(f"{i}/{len(RAs)}, {time() - t2:.2f}s, {time() - t1:.2f}s")
                 elif self.print_level >= 1 and idx % 1000:
-                    print(f"{i}/{len(RAs)}, {time()-t2:.2f}s, {time()-t1:.2f}s")
+                    print(f"{i}/{len(RAs)}, {time() - t2:.2f}s, {time() - t1:.2f}s")
                 t2 = time()
                 molA_data = []
                 molB_data = []
@@ -1550,7 +1612,8 @@ class apnet3_module_dataset(Dataset):
 
     def len(self):
         d = torch.load(
-            osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
+            osp.join(self.processed_dir, self.processed_file_names[-1]),
+            weights_only=False,
         )
         if self.prebatched:
             return (len(self.processed_file_names) - 1) * self.datapoint_storage_n_objects + len(d)

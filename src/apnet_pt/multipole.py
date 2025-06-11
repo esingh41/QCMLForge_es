@@ -5,6 +5,8 @@ Functions for evaluating electrostatics between atom-centered multipoles
 import numpy as np
 from . import constants
 import torch
+from typing import Tuple
+
 
 def proc_molden(name):
     """Get coordinates (a.u.) and atom types from a molden.
@@ -32,30 +34,30 @@ def proc_molden(name):
 
     return R[mask], Z[mask]
 
-def make_quad_np(flat_quad):
 
+def make_quad_np(flat_quad):
     natom = flat_quad.shape[0]
     full_quad = np.zeros((natom, 3, 3))
-    full_quad[:,0,0] = flat_quad[:,0] # xx
-    full_quad[:,0,1] = flat_quad[:,1] # xy
-    full_quad[:,1,0] = flat_quad[:,1] # xy
-    full_quad[:,0,2] = flat_quad[:,2] # xz
-    full_quad[:,2,0] = flat_quad[:,2] # xz
-    full_quad[:,1,1] = flat_quad[:,3] # yy
-    full_quad[:,1,2] = flat_quad[:,4] # yz
-    full_quad[:,2,1] = flat_quad[:,4] # yz
-    full_quad[:,2,2] = flat_quad[:,5] # zz
+    full_quad[:, 0, 0] = flat_quad[:, 0]  # xx
+    full_quad[:, 0, 1] = flat_quad[:, 1]  # xy
+    full_quad[:, 1, 0] = flat_quad[:, 1]  # xy
+    full_quad[:, 0, 2] = flat_quad[:, 2]  # xz
+    full_quad[:, 2, 0] = flat_quad[:, 2]  # xz
+    full_quad[:, 1, 1] = flat_quad[:, 3]  # yy
+    full_quad[:, 1, 2] = flat_quad[:, 4]  # yz
+    full_quad[:, 2, 1] = flat_quad[:, 4]  # yz
+    full_quad[:, 2, 2] = flat_quad[:, 5]  # zz
 
-    trace = full_quad[:,0,0] + full_quad[:,1,1] + full_quad[:,2,2]
+    trace = full_quad[:, 0, 0] + full_quad[:, 1, 1] + full_quad[:, 2, 2]
 
-    full_quad[:,0,0] -= trace / 3.0
-    full_quad[:,1,1] -= trace / 3.0
-    full_quad[:,2,2] -= trace / 3.0
+    full_quad[:, 0, 0] -= trace / 3.0
+    full_quad[:, 1, 1] -= trace / 3.0
+    full_quad[:, 2, 2] -= trace / 3.0
 
     return full_quad
 
-def qpole_redundant(unique):
 
+def qpole_redundant(unique):
     assert len(unique) == 6
     redundant = np.zeros((3, 3))
 
@@ -99,6 +101,7 @@ def ensure_traceless_qpole_torch(qpole):
     qpole = torch.cat((qpole[:, 0, :], qpole[:, 1, 1:], qpole[:, 2, 2:]), dim=1)
     return qpole
 
+
 def compact_multipoles_to_charge_dipole_qpoles(multipoles):
     charges = multipoles[:, 0]
     dipoles = multipoles[:, 1:4]
@@ -110,6 +113,7 @@ def compact_multipoles_to_charge_dipole_qpoles(multipoles):
     qpoles = np.array(qpoles_out)
     return charges, dipoles, qpoles
 
+
 def charge_dipole_qpoles_to_compact_multipoles(charges, dipoles, qpoles):
     multipoles = np.zeros((charges.shape[0], 10))
     multipoles[:, 0] = charges
@@ -120,7 +124,6 @@ def charge_dipole_qpoles_to_compact_multipoles(charges, dipoles, qpoles):
 
 
 def T_cart(RA, RB):
-
     dR = RB - RA
     R = np.linalg.norm(dR)
 
@@ -160,6 +163,128 @@ def T_cart(RA, RB):
 
     return T0, T1, T2, T3, T4
 
+def T_cart_torch(RA, RB):
+    """
+    Compute the multipole interaction tensors for N_A x N_B atom pairs.
+    Args:
+        RA: Tensor of shape (N_A, 3), positions of set A.
+        RB: Tensor of shape (N_B, 3), positions of set B.
+    Returns:
+        T0: (N_A, N_B)
+        T1: (N_A, N_B, 3)
+        T2: (N_A, N_B, 3, 3)
+        T3: (N_A, N_B, 3, 3, 3)
+        T4: (N_A, N_B, 3, 3, 3, 3)
+    """
+    import torch
+    
+    # Get dimensions
+    N_A = RA.shape[0]
+    N_B = RB.shape[0]
+    device = RA.device
+    
+    # Reshape for broadcasting: RA [N_A, 1, 3], RB [1, N_B, 3]
+    RA_expanded = RA.unsqueeze(1)  # [N_A, 1, 3]
+    RB_expanded = RB.unsqueeze(0)  # [1, N_B, 3]
+    
+    # Compute displacement vectors for all pairs
+    dR = RB_expanded - RA_expanded  # [N_A, N_B, 3]
+    
+    # Compute distance for all pairs
+    R_squared = torch.sum(dR**2, dim=2)  # [N_A, N_B]
+    R = torch.sqrt(R_squared)  # [N_A, N_B]
+    
+    # Avoid division by zero by adding small epsilon
+    eps = 1e-10
+    R_safe = torch.clamp(R, min=eps)
+    
+    # Identity tensor
+    delta = torch.eye(3, device=device)  # [3, 3]
+    
+    # T0: Charge-charge interaction tensor [N_A, N_B]
+    T0 = 1.0 / R_safe
+    
+    # T1: Charge-dipole interaction tensor [N_A, N_B, 3]
+    # R^-3 * (-dR)
+    R_inv_cubed = 1.0 / (R_safe**3)
+    T1 = -dR * R_inv_cubed.unsqueeze(-1)  # [N_A, N_B, 3]
+    
+    # T2: Dipole-dipole interaction tensor [N_A, N_B, 3, 3]
+    R_inv_fifth = 1.0 / (R_safe**5)
+    
+    # Compute outer product of dR with itself for all pairs
+    dR_outer = torch.einsum('...i,...j->...ij', dR, dR)  # [N_A, N_B, 3, 3]
+    
+    # 3 * (dR ⊗ dR) - R^2 * δ
+    T2_term1 = 3.0 * dR_outer  # [N_A, N_B, 3, 3]
+    T2_term2 = R_squared.unsqueeze(-1).unsqueeze(-1) * delta  # [N_A, N_B, 3, 3]
+    T2 = (T2_term1 - T2_term2) * R_inv_fifth.unsqueeze(-1).unsqueeze(-1)  # [N_A, N_B, 3, 3]
+    
+    # T3: Dipole-quadrupole interaction tensor [N_A, N_B, 3, 3, 3]
+    R_inv_seventh = 1.0 / (R_safe**7)
+    
+    # Create Rdd tensor: dR_i * δ_jk for all pairs
+    Rdd = torch.einsum('...i,jk->...ijk', dR, delta)  # [N_A, N_B, 3, 3, 3]
+    
+    # Create dR_i * dR_j * dR_k tensor
+    dR_outer_outer = torch.einsum('...i,...j,...k->...ijk', dR, dR, dR)  # [N_A, N_B, 3, 3, 3]
+    
+    # Calculate T3
+    T3_term1 = 15.0 * dR_outer_outer  # [N_A, N_B, 3, 3, 3]
+    
+    # Sum of permuted Rdd tensors
+    # Rdd has shape [N_A, N_B, 3, 3, 3] with indices [batch_A, batch_B, i, j, k]
+    # We want to permute the last 3 dimensions
+    Rdd_sum = Rdd + Rdd.permute(0, 1, 3, 2, 4) + Rdd.permute(0, 1, 4, 3, 2)
+    T3_term2 = 3.0 * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * Rdd_sum
+    
+    T3 = -1.0 * (T3_term1 - T3_term2) * R_inv_seventh.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    
+    # T4: Quadrupole-quadrupole interaction tensor [N_A, N_B, 3, 3, 3, 3]
+    R_inv_ninth = 1.0 / (R_safe**9)
+    
+    # Create RRdd tensor: dR_i * dR_j * δ_kl
+    # We need to expand delta to match batch dimensions
+    delta_expanded = delta.view(1, 1, 3, 3).expand(N_A, N_B, 3, 3)
+    RRdd = torch.einsum('...ij,...kl->...ijkl', dR_outer, delta_expanded)  # [N_A, N_B, 3, 3, 3, 3]
+    
+    # Create δδ tensor: δ_ij * δ_kl
+    dddd = torch.einsum('ij,kl->ijkl', delta, delta)
+    dddd_expanded = dddd.view(1, 1, 3, 3, 3, 3).expand(N_A, N_B, 3, 3, 3, 3)
+    
+    # Create dR_i * dR_j * dR_k * dR_l tensor
+    dR_outer_outer_outer = torch.einsum('...ij,...kl->...ijkl', dR_outer, dR_outer)
+    
+    # Calculate T4
+    T4_term1 = 105.0 * dR_outer_outer_outer
+    
+    # Sum of permuted RRdd tensors
+    # RRdd has shape [N_A, N_B, 3, 3, 3, 3] with indices [batch_A, batch_B, i, j, k, l]
+    # We need to permute the last 4 dimensions: i, j, k, l
+    RRdd_sum = (
+        RRdd +
+        RRdd.permute(0, 1, 2, 4, 3, 5) +  # i,k,j,l
+        RRdd.permute(0, 1, 2, 5, 4, 3) +  # i,l,k,j
+        RRdd.permute(0, 1, 4, 3, 2, 5) +  # k,j,i,l
+        RRdd.permute(0, 1, 5, 3, 4, 2) +  # l,j,k,i
+        RRdd.permute(0, 1, 4, 5, 2, 3)    # k,l,i,j
+    )
+    
+    T4_term2 = 15.0 * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * RRdd_sum
+    
+    # Sum of permuted dddd tensors
+    dddd_sum = (
+        dddd_expanded +
+        dddd_expanded.permute(0, 1, 2, 4, 3, 5) +  # i,k,j,l
+        dddd_expanded.permute(0, 1, 2, 5, 4, 3)    # i,l,k,j
+    )
+    
+    T4_term3 = 3.0 * (R_squared**2).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * dddd_sum
+    
+    T4 = (T4_term1 - T4_term2 + T4_term3) * R_inv_ninth.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    
+    return T0, T1, T2, T3, T4
+
 
 def eval_qcel_dimer(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
     """
@@ -191,7 +316,7 @@ def eval_qcel_dimer(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
     return total_energy * constants.h2kcalmol
 
 
-def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
+def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB) -> float:
     """
     Evaluate the electrostatic interaction energy between two molecules using
     their multipole moments. Dimensionalities of qA should be [N], muA should
@@ -223,8 +348,71 @@ def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
     return total_energy * constants.h2kcalmol
 
 
-def eval_interaction_individual(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
+def eval_qcel_dimer_individual_components(
+    mol_dimer, qA, muA, thetaA, qB, muB, thetaB
+) -> Tuple[
+    float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
+]:
+    """
+    Evaluate the electrostatic interaction energy between two molecules using
+    their multipole moments. Dimensionalities of qA should be [N], muA should
+    be [N, 3], and thetaA should be [N, 3, 3]. Same for qB, muB, and thetaB.
+    """
+    RA = mol_dimer.get_fragment(0).geometry
+    RB = mol_dimer.get_fragment(1).geometry
+    ZA = mol_dimer.get_fragment(0).atomic_numbers
+    ZB = mol_dimer.get_fragment(1).atomic_numbers
+    t = np.zeros((len(ZA), len(ZB)))
+    E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+        t.copy(),
+        t.copy(),
+        t.copy(),
+        t.copy(),
+        t.copy(),
+        t.copy(),
+    )
+    for i in range(len(ZA)):
+        for j in range(len(ZB)):
+            rA = RA[i]
+            qA_i = qA[i]
+            muA_i = muA[i]
+            thetaA_i = thetaA[i]
 
+            rB = RB[j]
+            qB_j = qB[j]
+            muB_j = muB[j]
+            thetaB_j = thetaB[j]
+
+            E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ = eval_interaction_individual_components(
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j
+            )
+            E_qqs[i, j] = E_qq
+            E_qus[i, j] = E_qu
+            E_uus[i, j] = E_uu
+            E_qQs[i, j] = E_qQ
+            E_uQs[i, j] = E_uQ
+            E_QQs[i, j] = E_QQ
+    total_energy = (
+        np.sum(E_qqs)
+        + np.sum(E_qus)
+        + np.sum(E_uus)
+        + np.sum(E_qQs)
+        + np.sum(E_uQs)
+        + np.sum(E_QQs)
+    )
+    total_energy *= constants.h2kcalmol
+    E_qqs *= constants.h2kcalmol
+    E_qus *= constants.h2kcalmol
+    E_uus *= constants.h2kcalmol
+    E_qQs *= constants.h2kcalmol
+    E_uQs *= constants.h2kcalmol
+    E_QQs *= constants.h2kcalmol
+    return total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs
+
+
+def eval_interaction_individual(
+    RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False
+):
     T0, T1, T2, T3, T4 = T_cart(RA, RB)
 
     # Most inputs will already be traceless, but we can ensure this is the case
@@ -245,9 +433,7 @@ def eval_interaction_individual(RA, qA, muA, thetaA, RB, qB, muB, thetaB, tracel
     E_uu = np.sum(T2 * np.outer(muA, muB)) * (-1.0)
     E_uQ = np.sum(
         T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
-    ) * (
-        -1.0 / 3.0
-    )
+    ) * (-1.0 / 3.0)
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * (1.0 / 9.0)
     # partial-charge electrostatic energy
@@ -259,8 +445,9 @@ def eval_interaction_individual(RA, qA, muA, thetaA, RB, qB, muB, thetaB, tracel
     return E_q, E_u, E_Q
 
 
-def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
-
+def eval_interaction_individual_components(
+    RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False
+):
     T0, T1, T2, T3, T4 = T_cart(RA, RB)
 
     # Most inputs will already be traceless, but we can ensure this is the case
@@ -281,9 +468,34 @@ def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
     E_uu = np.sum(T2 * np.outer(muA, muB)) * (-1.0)
     E_uQ = np.sum(
         T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
-    ) * (
-        -1.0 / 3.0
-    )
+    ) * (-1.0 / 3.0)
+
+    E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * (1.0 / 9.0)
+    return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ
+
+
+def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
+    T0, T1, T2, T3, T4 = T_cart(RA, RB)
+
+    # Most inputs will already be traceless, but we can ensure this is the case
+    if not traceless:
+        traceA = np.trace(thetaA)
+        thetaA[0, 0] -= traceA / 3.0
+        thetaA[1, 1] -= traceA / 3.0
+        thetaA[2, 2] -= traceA / 3.0
+        traceB = np.trace(thetaB)
+        thetaB[0, 0] -= traceB / 3.0
+        thetaB[1, 1] -= traceB / 3.0
+        thetaB[2, 2] -= traceB / 3.0
+
+    E_qq = np.sum(T0 * qA * qB)
+    E_qu = np.sum(T1 * (qA * muB - qB * muA))
+    E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) * (1.0 / 3.0)
+
+    E_uu = np.sum(T2 * np.outer(muA, muB)) * (-1.0)
+    E_uQ = np.sum(
+        T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
+    ) * (-1.0 / 3.0)
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * (1.0 / 9.0)
 
@@ -300,7 +512,6 @@ def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
 
 
 def eval_dimer2(RA, RB, ZA, ZB, QA, QB):
-
     maskA = ZA >= 1
     maskB = ZB >= 1
 
@@ -355,7 +566,6 @@ def eval_dimer2(RA, RB, ZA, ZB, QA, QB):
 
 
 def eval_dimer(RA, RB, ZA, ZB, QA, QB):
-
     # print()
     # print(RA.shape, ZA.shape, QA.shape)
     # print(RB.shape, ZB.shape, QB.shape)
@@ -473,7 +683,6 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
 
 
 if __name__ == "__main__":
-
     import pandas as pd
 
     df = pd.read_pickle("../directional-mpnn/data/HBC6_hfjdz.pkl")

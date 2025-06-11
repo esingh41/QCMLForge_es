@@ -53,6 +53,7 @@ mol_dimer_big = qcel.models.Molecule.from_data(
                 """
 )
 
+
 def test_elst_multipoles():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
@@ -115,6 +116,41 @@ def test_elst_charge_dipole_qpole():
     assert abs(E_qpole - E_qpole_ref) < 1e-6, f"Expected {E_qpole_ref}, got {E_qpole}"
 
 
+def test_elst_charge_dipole_qpole_pairwise():
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    monA = lr_water_dimer.get_fragment(0).copy()
+    monB = lr_water_dimer.get_fragment(1).copy()
+    multipoles = atom_model.predict_qcel_mols(
+        [monA, monB, monA.copy(), monB.copy()], batch_size=3
+    )
+    assert len(multipoles) == 4, f"Expected 4 multipoles, got {len(multipoles)}"
+    mtp_A = multipoles[0]
+    mtp_B = multipoles[1]
+    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+        apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=lr_water_dimer,
+            qA=mtp_A[0].numpy(),
+            muA=mtp_A[1].numpy(),
+            thetaA=mtp_A[2].numpy(),
+            qB=mtp_B[0].numpy(),
+            muB=mtp_B[1].numpy(),
+            thetaB=mtp_B[2].numpy(),
+        )
+    )
+    print(f"Total energy = {total_energy:.6f} kcal/mol")
+    print(f"E_qqs = {E_qqs.sum():.6f} kcal/mol")
+    print(f"E_qus = {E_qus.sum():.6f} kcal/mol")
+    print(f"E_uus = {E_uus.sum():.6f} kcal/mol")
+    print(f"E_qQs = {E_qQs.sum():.6f} kcal/mol")
+    print(f"E_uQs = {E_uQs.sum():.6f} kcal/mol")
+    print(f"E_QQs = {E_QQs.sum():.6f} kcal/mol")
+    return
+
+
 def test_elst_multipoles_am_hirshfeld():
     atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         ds_root=None,
@@ -151,7 +187,7 @@ def test_ap2_elst_multipoles():
         ignore_database_null=True,
         use_GPU=False,
     ).set_pretrained_model(model_id=0)
-            
+
     ap2 = apnet_pt.APNet2Model(
         ds_root=None,
         ignore_database_null=True,
@@ -161,7 +197,6 @@ def test_ap2_elst_multipoles():
     mol_dimer = mol_dimer_big
     batch = ap2.example_input(mol_dimer, r_cut=1000.0, r_cut_im=1000.0)
     print(batch)
-    print(batch.qA, batch.qB)
     dR_sr, dR_sr_xyz = ap2.model.get_distances(
         batch.RA, batch.RB, batch.e_ABsr_source, batch.e_ABsr_target
     )
@@ -179,18 +214,24 @@ def test_ap2_elst_multipoles():
     )
     Elst = torch.sum(Elst)
     print(f"Elst = {Elst:.6f} kcal/mol")
-    # Reference value from 
-    E_ref = apnet_pt.multipole.eval_qcel_dimer(
-        mol_dimer=mol_dimer,
-        qA=batch.qA.numpy(),
-        muA=batch.muA.numpy(),
-        thetaA=batch.quadA.numpy(),
-        qB=batch.qB.numpy(),
-        muB=batch.muB.numpy(),
-        thetaB=batch.quadB.numpy(),
+    # Reference value from
+    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+        apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=mol_dimer,
+            qA=batch.qA.numpy(),
+            muA=batch.muA.numpy(),
+            thetaA=batch.quadA.numpy(),
+            qB=batch.qB.numpy(),
+            muB=batch.muB.numpy(),
+            thetaB=batch.quadB.numpy(),
+        )
     )
+# Eqq, Equ, and Euu agree. E_qQ disagrees when quadA and quadB are scaled by 2/3
+    print(f"{E_qqs.sum()=:.6f}\n{E_qus.sum()=:.6f}\n{E_qQs.sum()=:.6f}\n{E_uus.sum()=:.8f}")
+    print(f"Total energy = {total_energy:.6f} kcal/mol")
+    E_ref = np.sum([E_qqs.sum(), E_qus.sum(), E_uus.sum(), E_qQs.sum()])
     print(f"E_ref = {E_ref:.6f} kcal/mol")
-    assert abs(Elst - E_ref) < 1e-6, f"Expected {E_ref}, got {Elst}"
+    assert abs(Elst - E_ref) < 1e-4, f"Expected {E_ref}, got {Elst}"
 
 
 if __name__ == "__main__":

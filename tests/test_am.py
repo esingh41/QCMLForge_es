@@ -91,6 +91,12 @@ def test_am_hirshfeld():
     )
     return
 
+def test_dimer_multipole_training():
+    am = AtomModel(
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    return
+
 
 if __name__ == "__main__":
     # test_am_hirshfeld()
