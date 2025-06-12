@@ -5,8 +5,7 @@ import qcelemental as qcel
 import os
 import numpy as np
 
-lr_water_dimer = qcel.models.Molecule.from_data("""
-0 1
+lr_water_dimer = qcel.models.Molecule.from_data("""0 1
 --
 0 1
 O                    -1.326958230000    -0.105938530000     0.018788150000
@@ -17,6 +16,40 @@ H                     0.486644280000     0.079598090000     0.009862480000
 O                     8.088671270000     0.019951580000    -0.007942850000
 H                     8.800382980000    -0.808466680000     1.439822410000
 H                     8.792148880000    -0.879960520000    -1.416549430000
+units bohr
+""")
+
+sr_lr_water_dimer = qcel.models.Molecule.from_data("""0 1
+--
+0 1
+O                    -1.326958230000    -0.105938530000     0.018788150000
+H                    -1.931665240000     1.600174320000    -0.021710520000
+H                     0.486644280000     0.079598090000     0.009862480000
+--
+0 1
+O                     3.088671270000     0.019951580000    -0.007942850000
+H                     3.800382980000    -0.808466680000     1.439822410000
+H                     3.792148880000    -0.879960520000    -1.416549430000
+O                     12.088671270000     0.019951580000    -0.007942850000
+H                     12.800382980000    -0.808466680000     1.439822410000
+H                     12.792148880000    -0.879960520000    -1.416549430000
+units bohr
+""")
+
+sr_lr_water_dimer2 = qcel.models.Molecule.from_data("""0 1
+--
+0 1
+O                    -1.326958230000    -0.105938530000     0.018788150000
+H                    -1.931665240000     1.600174320000    -0.021710520000
+H                     0.486644280000     0.079598090000     0.009862480000
+--
+0 1
+O                     3.088671270000     0.019951580000    -0.007942850000
+H                     3.800382980000    -0.808466680000     1.439822410000
+H                     3.792148880000    -0.879960520000    -1.416549430000
+O                     10.088671270000     0.019951580000    -0.007942850000
+H                     10.800382980000    -0.808466680000     1.439822410000
+H                     10.792148880000    -0.879960520000    -1.416549430000
 units bohr
 """)
 
@@ -49,8 +82,7 @@ mol_dimer_big = qcel.models.Molecule.from_data(
     H       -4.9275932312   4.5184249878    6.4953727722
     H       -3.8300020695   3.8421258926    7.6719899178
     H       -4.1228170395   3.0444390774    6.1303391457
-    units angstrom
-                """
+    units angstrom"""
 )
 
 
@@ -194,13 +226,16 @@ def test_ap2_elst_multipoles():
         use_GPU=False,
         atom_model=am.model,
     )
-    mol_dimer = mol_dimer_big
-    batch = ap2.example_input(mol_dimer, r_cut=1000.0, r_cut_im=1000.0)
+    mol_dimer = sr_lr_water_dimer
+    batch = ap2.example_input(mol_dimer, r_cut=5.0, r_cut_im=5.0)
     print(batch)
     dR_sr, dR_sr_xyz = ap2.model.get_distances(
         batch.RA, batch.RB, batch.e_ABsr_source, batch.e_ABsr_target
     )
-    Elst = ap2.model.mtp_elst(
+    dR_lr, dR_lr_xyz = ap2.model.get_distances(
+        batch.RA, batch.RB, batch.e_ABlr_source, batch.e_ABlr_target
+    )
+    Elst_sr = ap2.model.mtp_elst(
         qA=batch.qA,
         muA=batch.muA,
         quadA=batch.quadA,
@@ -212,7 +247,21 @@ def test_ap2_elst_multipoles():
         dR_ang=dR_sr,
         dR_xyz_ang=dR_sr_xyz,
     )
-    Elst = torch.sum(Elst)
+    Elst_lr = ap2.model.mtp_elst(
+        qA=batch.qA,
+        muA=batch.muA,
+        quadA=batch.quadA,
+        qB=batch.qB,
+        muB=batch.muB,
+        quadB=batch.quadB,
+        e_ABsr_source=batch.e_ABlr_source,
+        e_ABsr_target=batch.e_ABlr_target,
+        dR_ang=dR_lr,
+        dR_xyz_ang=dR_lr_xyz,
+    )
+    print(f"Elst_sr = {torch.sum(Elst_sr):.6f} kcal/mol")
+    print(f"Elst_lr = {torch.sum(Elst_lr):.6f} kcal/mol")
+    Elst = torch.sum(Elst_sr) + torch.sum(Elst_lr)
     print(f"Elst = {Elst:.6f} kcal/mol")
     # Reference value from
     total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
@@ -226,8 +275,63 @@ def test_ap2_elst_multipoles():
             thetaB=batch.quadB.numpy(),
         )
     )
-# Eqq, Equ, and Euu agree. E_qQ disagrees when quadA and quadB are scaled by 2/3
-    print(f"{E_qqs.sum()=:.6f}\n{E_qus.sum()=:.6f}\n{E_qQs.sum()=:.6f}\n{E_uus.sum()=:.8f}")
+    # Eqq, Equ, and Euu agree. E_qQ disagrees when quadA and quadB are scaled by 2/3
+    print(
+        f"{E_qqs.sum()=:.6f}\n{E_qus.sum()=:.6f}\n{E_qQs.sum()=:.6f}\n{E_uus.sum()=:.8f}"
+    )
+    print(f"Total energy = {total_energy:.6f} kcal/mol")
+    E_ref = np.sum([E_qqs.sum(), E_qus.sum(), E_uus.sum(), E_qQs.sum()])
+    print(f"E_ref = {E_ref:.6f} kcal/mol")
+    assert abs(Elst - E_ref) < 1e-4, f"Expected {E_ref}, got {Elst}"
+
+def set_weights_to_value(model, value=0.9):
+    """Sets all weights and biases in the model to a specific value."""
+    with torch.no_grad():  # Disable gradient tracking
+        for param in model.parameters():
+            param.fill_(value)  # Set all elements to the given value
+
+
+def test_ap2_elst_sr_lr():
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+
+    ap2 = apnet_pt.APNet2Model(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+        atom_model=am.model,
+        r_cut_im=2.0,
+    )
+    batch = ap2.example_input()
+    ap2.model(**batch)
+    set_weights_to_value(ap2.model, 0.0)
+    print("\n   Weights set to 0.0\n")
+    mol_dimer = sr_lr_water_dimer
+    preds = ap2.predict_qcel_mols([mol_dimer, sr_lr_water_dimer2 ], batch_size=2)
+    print(f"{preds = }")
+    batch = ap2.example_input(mol_dimer, r_cut=5.0, r_cut_im=5.0)
+    print(batch)
+    Elst = preds[0][0]
+    print(f"Elst         = {Elst:.6f} kcal/mol")
+    # Reference value from
+    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+        apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=mol_dimer,
+            qA=batch.qA.numpy(),
+            muA=batch.muA.numpy(),
+            thetaA=batch.quadA.numpy(),
+            qB=batch.qB.numpy(),
+            muB=batch.muB.numpy(),
+            thetaB=batch.quadB.numpy(),
+        )
+    )
+    # Eqq, Equ, and Euu agree. E_qQ disagrees when quadA and quadB are scaled by 2/3
+    print(
+        f"{E_qqs.sum()=:.6f}\n{E_qus.sum()=:.6f}\n{E_qQs.sum()=:.6f}\n{E_uus.sum()=:.8f}"
+    )
     print(f"Total energy = {total_energy:.6f} kcal/mol")
     E_ref = np.sum([E_qqs.sum(), E_qus.sum(), E_uus.sum(), E_qQs.sum()])
     print(f"E_ref = {E_ref:.6f} kcal/mol")
@@ -238,4 +342,5 @@ if __name__ == "__main__":
     # test_elst_multipoles()
     # test_elst_multipoles_am_hirshfeld()
     # test_elst_charge_dipole_qpole()
-    test_ap2_elst_multipoles()
+    # test_ap2_elst_multipoles()
+    test_ap2_elst_sr_lr()
