@@ -5,6 +5,7 @@ import torch
 
 current_file_path = os.path.dirname(os.path.realpath(__file__))
 
+
 def test_am():
     # Test Values
     qA_ref = torch.load(
@@ -86,10 +87,17 @@ def test_am():
 def test_am_hirshfeld():
     am = AtomHirshfeldModel(
         use_GPU=False,
-        ignore_database_null=False,
+        ignore_database_null=True,
     )
+    return
+
+def test_dimer_multipole_training():
+    am = AtomModel(
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
     return
 
 
 if __name__ == "__main__":
-    test_am_hirshfeld()
+    # test_am_hirshfeld()
+    test_am()

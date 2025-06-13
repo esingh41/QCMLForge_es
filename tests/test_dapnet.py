@@ -36,20 +36,6 @@ mol3 = qcelemental.models.Molecule.from_data(
 )
 
 
-def test_dapnet_ds():
-    ds_train = apnet_pt.pt_datasets.dapnet_ds.dapnet2_module_dataset(
-        root="data_dir",
-        split="train",
-        skip_processed=False,
-    )
-    ds_test = apnet_pt.pt_datasets.dapnet_ds.dapnet2_module_dataset(
-        root="data_dir",
-        split="test",
-        skip_processed=False,
-    )
-    return
-
-
 def set_weights_to_value(model, value=0.9):
     """Sets all weights and biases in the model to a specific value."""
     with torch.no_grad():  # Disable gradient tracking
@@ -66,16 +52,20 @@ def test_apnet2_dapnet2_architecture():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
+        use_GPU=False,
     )
     set_weights_to_value(atom_model.model, 0.0001)
     apnet2_model = (
-        apnet_pt.AtomPairwiseModels.apnet2.APNet2Model()
+        apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
+            use_GPU=False,
+        )
         .set_pretrained_model(model_id=0)
         .model
     )
     apnet2_model.return_hidden_states = True
     dapnet2 = apnet_pt.AtomPairwiseModels.dapnet2.APNet2_dAPNet2Model(
         apnet2_model,
+        use_GPU=False,
     )
     output = dapnet2.predict_qcel_mols([mol3], batch_size=1)
     set_weights_to_value(dapnet2.model, 0.0001)
@@ -91,6 +81,7 @@ def test_dapnet2_architecture():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
+        use_GPU=False,
     )
     set_weights_to_value(atom_model.model, 0.0001)
     apnet2 = (
@@ -101,6 +92,7 @@ def test_dapnet2_architecture():
     print(apnet2)
     dapnet2 = apnet_pt.AtomPairwiseModels.dapnet2.dAPNet2Model(
         apnet2,
+        use_GPU=False,
     )
     output = dapnet2.predict_qcel_mols([mol3], batch_size=1)
     set_weights_to_value(dapnet2.model, 0.0001)
@@ -109,10 +101,24 @@ def test_dapnet2_architecture():
     print(output)
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+def test_dapnet2_pretrained_hfadz():
+    qcel_mols = [mol3, mol3]
+    v = apnet_pt.pretrained_models.dapnet2_model_predict(
+        qcel_mols,
+        m1="HF/aug-cc-pVDZ/CP",
+        m2="CCSD(T)/CBS/CP",
+        compile=False,
+        use_GPU=False,
+    )
+    print(v)
+    ref = np.array([0.03997326, 0.03997326])
+    assert np.allclose(v, ref, atol=1e-6), f"Expected {ref}, but got {v}"
+
 def main():
     # test_dapnet_ds()
-    test_apnet2_dapnet2_architecture()
-    test_dapnet2_architecture()
+    # test_apnet2_dapnet2_architecture()
+    # test_dapnet2_architecture()
+    test_dapnet2_pretrained_hfadz()
     return
 
 

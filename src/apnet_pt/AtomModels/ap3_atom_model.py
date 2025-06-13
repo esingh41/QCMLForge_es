@@ -180,7 +180,14 @@ class AtomHirshfeldMPNN(MessagePassing):
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
             h_list = torch.stack(h_list, dim=1)
             # if we get a single atom, we should return ones for volume_ratio, valence_width
-            return charge.squeeze(), dipole, qpole, volume_ratio.squeeze(), volume_ratio.squeeze(), h_list
+            return (
+                charge.squeeze(),
+                dipole,
+                qpole,
+                volume_ratio.squeeze(),
+                volume_ratio.squeeze(),
+                h_list,
+            )
 
         # 1) Identify which molecules have more than one atom
         mol_ind = torch.where(natom_per_mol != 1)[0]
@@ -380,12 +387,9 @@ class AtomHirshfeldModel:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
-        elif not use_GPU:
-            device = torch.device("cpu")
-            print("running on the CPU")
         else:
             device = torch.device("cpu")
             print("running on the CPU")
@@ -1318,27 +1322,35 @@ class AtomHirshfeldModel:
         for mol in mols:
             data = qcel_mon_to_pyg_data(mol)
             mol_data.append(data)
-            if len(mol_data) == batch_size or cnt == len(mols) - 1:
+            cnt += 1
+            if len(mol_data) == batch_size or cnt == len(mols):
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
+                    charge, dipole, qpole, hfvr, vw, hlist = self.eval_fn(batch)
+                    # Isolate atomic properties by molecule
                     (
-                        charge,
-                        dipole,
-                        qpole,
-                        hirshfeld_volume_ratios,
-                        valence_widths,
-                        hlist,
-                    ) = self.model_predict(batch)
-                    output.append(
-                        (
-                            charge,
-                            dipole,
-                            qpole,
-                            hirshfeld_volume_ratios,
-                            valence_widths,
-                            hlist,
+                        mol_charges,
+                        mol_dipoles,
+                        mol_qpoles,
+                        mol_hfvrs,
+                        mol_vws,
+                        mol_hlists,
+                    ) = isolate_atomic_property_predictions(
+                        batch, (charge, dipole, qpole, hfvr, vw, hlist)
+                    )
+                    output.extend(
+                        list(
+                            zip(
+                                mol_charges,
+                                mol_dipoles,
+                                mol_qpoles,
+                                mol_hfvrs,
+                                mol_vws,
+                                mol_hlists,
+                            )
                         )
                     )
+                mol_data = []
         return output
 
     @torch.inference_mode()

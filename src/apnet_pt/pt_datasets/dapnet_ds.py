@@ -13,16 +13,22 @@ from ..pairwise_datasets import (
 from ..AtomPairwiseModels.apnet2 import (
     APNet2Model,
 )
+from typing import List, Optional, Sequence, Union
 from .. import atomic_datasets
 from time import time
 from glob import glob
 from pathlib import Path
 import os.path as osp
+from importlib import resources
+import qcelemental as qcel
+from apnet_pt import constants
 
 # file dir
-prefix = os.path.dirname(os.path.abspath(__file__))
-pretrained_atom_model_path = prefix + "/../models/am_ensemble/"
-pretrained_pairwise_model_path = prefix + "/../models/ap2_ensemble/"
+# prefix = os.path.dirname(os.path.abspath(__file__))
+# pretrained_atom_model_path = prefix + "/../models/am_ensemble/"
+# pretrained_pairwise_model_path = prefix + "/../models/ap2_ensemble/"
+pretrained_atom_model_path = resources.files("apnet_pt").joinpath("models", "am_ensemble", "am_0.pt")
+pretrained_pairwise_model_path = resources.files("apnet_pt").joinpath("models", "ap2_ensemble", "ap2_0.pt")
 
 def clean_str_for_filename(string):
     """
@@ -37,9 +43,20 @@ def clean_str_for_filename(string):
 
 
 def dapnet2_collate_update_no_target(batch):
-    print(batch)
     batched_data = Data(
         # ZA=torch.cat([data.ZA for data in batch], dim=0),
+        h_AB=torch.cat([data.h_AB for data in batch], dim=0),
+        h_BA=torch.cat([data.h_BA for data in batch], dim=0),
+        cutoff=torch.cat([data.cutoff for data in batch], dim=0),
+        dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
+        ndimer=torch.tensor([data.ndimer for data in batch], dtype=torch.long),
+    )
+    return batched_data
+
+def dapnet2_collate_update(batch):
+    y = torch.stack([data.y for data in batch], dim=0)
+    batched_data = Data(
+        y=y,
         h_AB=torch.cat([data.h_AB for data in batch], dim=0),
         h_BA=torch.cat([data.h_BA for data in batch], dim=0),
         cutoff=torch.cat([data.cutoff for data in batch], dim=0),
@@ -61,7 +78,7 @@ class dapnet2_module_dataset(Dataset):
         force_reprocess=True,
         skip_processed=True,
         # only need for processing
-        atom_model_path=pretrained_atom_model_path + "am_0.pt",
+        atom_model_path=pretrained_atom_model_path,
         batch_size=16,
         atomic_batch_size=256,
         prebatched=False,
@@ -74,6 +91,8 @@ class dapnet2_module_dataset(Dataset):
         print_level=2,
         m1="B3LYP-D3/aug-cc-pVTZ/CP",
         m2="CCSD(T)/CBS/CP",
+        qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
+        energy_labels: Optional[List[float]] = None,
     ):
         """
         spec_type definitions:
@@ -88,11 +107,22 @@ class dapnet2_module_dataset(Dataset):
         self.spec_type = spec_type
         self.prebatched = prebatched
         self.MAX_SIZE = max_size
+        self.in_memory = in_memory
         self.m1 = m1
         self.m2 = m2
+        self.data = []
         self.split = split
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
+        self.qcel_molecules = None
+        self.energy_labels = None
+        # Store qcel_molecules and energy_labels if provided
+        if qcel_molecules is not None and energy_labels is not None:
+            self.qcel_molecules = qcel_molecules
+            self.energy_labels = energy_labels
+            if len(qcel_molecules) != len(energy_labels):
+                raise ValueError("Length of qcel_molecules and energy_labels must match")
+            print(f"Received {len(qcel_molecules)} QCElemental molecules with energy labels")
         self.force_reprocess = force_reprocess
         self.filename_methods = clean_str_for_filename(m1) + "_to_" + clean_str_for_filename(m2)
         self.datapoint_storage_n_objects = datapoint_storage_n_objects
@@ -102,7 +132,8 @@ class dapnet2_module_dataset(Dataset):
         self.points_per_file = self.datapoint_storage_n_objects
         if self.prebatched:
             self.points_per_file *= self.batch_size
-        self.in_memory = in_memory
+        elif self.in_memory:
+            self.points_per_file = 1
         self.skip_processed = skip_processed
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
@@ -125,15 +156,7 @@ class dapnet2_module_dataset(Dataset):
             f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
         )
         if self.in_memory:
-            print("Loading data into memory")
-            t = time()
-            self.data = []
-            for i in self.processed_file_names:
-                self.data.append(torch.load(os.path.join(self.processed_dir, i), weights_only=False))
-            total_time_seconds = int(time() - t)
-            print(f"Loaded in {total_time_seconds:4d} seconds")
             self.get = self.get_in_memory
-        # self.active_data = [None for i in self.processed_file_names]
         self.active_idx_data = None
         self.active_data = None
 
@@ -153,8 +176,8 @@ class dapnet2_module_dataset(Dataset):
             ]
         elif self.spec_type == 2:
             return [
-                # "DES370K_b3lyp_255586.pkl",
-                "DES370K_b3lyp_64.pkl",
+                "DES370K_b3lyp_255586.pkl",
+                # "DES370K_b3lyp_64.pkl",
             ]
         elif self.spec_type == 8:
             return [
@@ -196,37 +219,93 @@ class dapnet2_module_dataset(Dataset):
         return self.reprocess_file_names()
 
     def download(self):
+        if self.energy_labels and self.qcel_molecules:
+            return
         raise RuntimeError(
             "Dataset does not have a download method. Development usage only at the moment."
         )
         return
 
     def process(self):
+        self.data = []
         idx = 0
         atomic_batch_size = self.atomic_batch_size
         data_objects = []
-        for raw_path in self.raw_paths:
+        RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
+        if self.qcel_molecules is not None and self.energy_labels is not None:
+            print("Processing directly from provided QCElemental molecules...")
             split_name = ""
-            if self.spec_type in [1]:
-                split_name = f"_{self.split}"
-                print(f"{split_name=}")
-                if self.split not in Path(raw_path).stem:
-                    print(f"{self.split} is skipping {raw_path}")
-                    continue
-            print(f"raw_path: {raw_path}")
-            print("Loading dimers...")
-            RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = util.load_dimer_dataset(
-                raw_path, self.MAX_SIZE, return_qcel_mols=False, return_qcel_mons=False,
-                columns=[self.m1, self.m2],
-            )
+            
+            # Process directly from qcel_mols and energy_labels
+            for mol in self.qcel_molecules:
+                # Extract monomer data from dimer
+                monA, monB = mol.get_fragment(0), mol.get_fragment(1)
+                print(monA)
+                
+                # Get coordinates and atomic numbers for each monomer
+                RA = torch.tensor(monA.geometry, dtype=torch.float32) * constants.au2ang
+                RB = torch.tensor(monB.geometry, dtype=torch.float32) * constants.au2ang
+                ZA = torch.tensor(monA.atomic_numbers, dtype=torch.int64)
+                ZB = torch.tensor(monB.atomic_numbers, dtype=torch.int64)
+                
+                # Calculate total charges
+                TQA = torch.tensor(monA.molecular_charge, dtype=torch.float32)
+                TQB = torch.tensor(monB.molecular_charge, dtype=torch.float32)
+                
+                RAs.append(RA)
+                RBs.append(RB)
+                ZAs.append(ZA)
+                ZBs.append(ZB)
+                TQAs.append(TQA)
+                TQBs.append(TQB)
+            
+            # Use provided energy labels
+            targets = self.energy_labels
+            # if targets[0] is not iterable, need to convert to list
+            # if not isinstance(targets[0], (list, tuple)):
+            #     targets = [[t] for t in targets]
+            
+            if self.MAX_SIZE is not None and len(RAs) > self.MAX_SIZE:
+                RAs = RAs[:self.MAX_SIZE]
+                RBs = RBs[:self.MAX_SIZE]
+                ZAs = ZAs[:self.MAX_SIZE]
+                ZBs = ZBs[:self.MAX_SIZE]
+                TQAs = TQAs[:self.MAX_SIZE]
+                TQBs = TQBs[:self.MAX_SIZE]
+                targets = targets[:self.MAX_SIZE]
+                
+            print(f"Processing {len(RAs)} dimers from provided QCElemental molecules...")
+        else:
+            for raw_path in self.raw_paths:
+                split_name = ""
+                if self.spec_type in [2, 5, 6, 7, 9]:
+                    split_name = f"_{self.split}"
+                    print(f"{split_name=}")
+                    if self.split not in Path(raw_path).stem:
+                        print(f"{self.split} is skipping {raw_path}")
+                        continue
+                print(f"raw_path: {raw_path}")
+                print("Loading dimers...")
+                RA, RB, ZA, ZB, TQA, TQB, label = util.load_dimer_dataset(
+                    raw_path, self.MAX_SIZE, return_qcel_mols=False, return_qcel_mons=False,
+                    columns=[self.m1, self.m2],
+                )
+                labels = label[:, 0] - label[:, 1]
+                RAs.extend(RA)
+                RBs.extend(RB)
+                ZAs.extend(ZA)
+                ZBs.extend(ZB)
+                TQAs.extend(TQA)
+                TQBs.extend(TQB)
+                targets.extend(labels)
             print("Creating data objects...")
             t1 = time()
             t2 = time()
-            print(f"{len(RAs)=}, {atomic_batch_size=}")
+            print(f"{len(RAs)=}, {self.atomic_batch_size=}, {self.batch_size=}")
             molA_data = []
             molB_data = []
             energies = []
-            targets = targets[:, 0] - targets[:, 1]
+            # targets = targets[:, 0] - targets[:, 1]
             for i in range(0, len(RAs) + len(RAs) % self.atomic_batch_size + 1, self.atomic_batch_size):
                 if self.skip_processed:
                     datapath = osp.join(
@@ -322,7 +401,12 @@ class dapnet2_module_dataset(Dataset):
                             for k in range(self.datapoint_storage_n_objects):
                                 local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
                             data_objects = local_data_objects
-                        torch.save(data_objects, datapath)
+                        elif self.in_memory:
+                            data_objects = data_objects[0]
+                        if self.in_memory:
+                            self.data.append(data_objects)
+                        else:
+                            torch.save(data_objects, datapath)
                         data_objects = []
                         if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
                             break
@@ -342,17 +426,28 @@ class dapnet2_module_dataset(Dataset):
                 for k in range(len(data_objects) // self.batch_size):
                     local_data_objects.append(apnet2_collate_update(data_objects[k * self.batch_size:(k + 1) * self.batch_size]))
                 data_objects = local_data_objects
-            datapath = osp.join(
-                self.processed_dir,
-                f"dimer_dap2{split_name}_spec_{self.spec_type}_{self.filename_methods}_{idx // self.points_per_file}.pt",
-            )
-            if self.print_level >= 2:
-                print(f"Final Saving to {datapath}")
-                print(len(data_objects))
-            torch.save(data_objects, datapath)
+            elif self.in_memory:
+                data_objects = data_objects[0]
+            if self.in_memory:
+                self.data.append(data_objects)
+            else:
+                datapath = osp.join(
+                    self.processed_dir,
+                    f"dimer_dap2{split_name}_spec_{self.spec_type}_{self.filename_methods}_{idx // self.points_per_file}.pt",
+                )
+                if self.print_level >= 2:
+                    print(f"Final Saving to {datapath}")
+                    print(len(data_objects))
+                torch.save(data_objects, datapath)
         return
 
     def len(self):
+        if self.in_memory and self.prebatched:
+            print((len(self.data) - 1) * len(self.data[0]), len(self.data[-1])
+)
+            return (len(self.data) - 1) * len(self.data[0]) + len(self.data[-1])
+        elif self.in_memory:
+            return len(self.data)
         d = torch.load(
             osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
         )
@@ -382,6 +477,15 @@ class dapnet2_module_dataset(Dataset):
         # self.active_idx_data = idx_datapath
         return self.active_data[obj_ind]
 
+    def get_in_memory(self, idx):
+        """Method for retrieving data when in_memory=True"""
+        if self.prebatched:
+            idx_datapath = idx // self.datapoint_storage_n_objects
+            obj_ind = idx % self.datapoint_storage_n_objects
+            return self.data[idx_datapath][obj_ind]
+        else:
+            return self.data[idx]
+
 
 class dapnet2_module_dataset_apnetStored(Dataset):
     def __init__(
@@ -396,8 +500,10 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         force_reprocess=True,
         skip_processed=True,
         # only need for processing
-        atom_model_path=pretrained_atom_model_path + "am_0.pt",
-        apnet_model_path=pretrained_pairwise_model_path + "ap2_0.pt",
+        atom_model_path=pretrained_atom_model_path,
+        atom_model=None,
+        apnet_model_path=pretrained_pairwise_model_path,
+        apnet_model=None,
         batch_size=16,
         preprocessing_batch_size=256,
         prebatched=True, # Note only operates as prebatched
@@ -410,6 +516,8 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         print_level=2,
         m1="B3LYP-D3/aug-cc-pVTZ/CP",
         m2="CCSD(T)/CBS/CP",
+        qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
+        energy_labels: Optional[List[float]] = None,
     ):
         """
         spec_type definitions:
@@ -417,7 +525,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         """
         self.print_level = print_level
         try:
-            assert spec_type in [1, 2, 8]
+            assert spec_type in [1, 2, 8, None]
         except Exception:
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
@@ -429,6 +537,15 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
+        self.qcel_molecules = None
+        self.energy_labels = None
+        # Store qcel_molecules and energy_labels if provided
+        if qcel_molecules is not None and energy_labels is not None:
+            self.qcel_molecules = qcel_molecules
+            self.energy_labels = energy_labels
+            if len(qcel_molecules) != len(energy_labels):
+                raise ValueError("Length of qcel_molecules and energy_labels must match")
+            print(f"Received {len(qcel_molecules)} QCElemental molecules with energy labels")
         self.prebatched = True
         self.filename_methods = clean_str_for_filename(m1) + "_to_" + clean_str_for_filename(m2)
         self.datapoint_storage_n_objects = datapoint_storage_n_objects
@@ -438,7 +555,12 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         self.skip_processed = skip_processed
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
-        if atom_model_path is not None and not self.skip_processed:
+        if atom_model is not None:
+            self.atom_model = atom_model
+            self.atom_model.model.to(self.atom_model.device)
+            if not skip_compile:
+                self.atom_model.compile_model()
+        elif atom_model_path is not None and not self.skip_processed:
             self.atom_model = AtomModel(
                 pre_trained_model_path=atom_model_path,
                 ds_root=None,
@@ -448,7 +570,12 @@ class dapnet2_module_dataset_apnetStored(Dataset):
             if not skip_compile:
                 self.atom_model.compile_model()
 
-        if atom_model_path is not None and not self.skip_processed:
+        if apnet_model is not None:
+            self.ap_model = apnet_model
+            self.ap_model.model.to(self.atom_model.device)
+            if not skip_compile:
+                self.ap_model.compile_model()
+        elif atom_model_path is not None and not self.skip_processed:
             self.ap_model = APNet2Model(
                 atom_model=self.atom_model.model,
                 pre_trained_model_path=apnet_model_path,
@@ -470,17 +597,10 @@ class dapnet2_module_dataset_apnetStored(Dataset):
             f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
         )
         if self.in_memory:
-            print("Loading data into memory")
-            t = time()
-            self.data = []
-            for i in self.processed_file_names:
-                self.data.append(torch.load(os.path.join(self.processed_dir, i), weights_only=False))
-            total_time_seconds = int(time() - t)
-            print(f"Loaded in {total_time_seconds:4d} seconds")
             self.get = self.get_in_memory
         # self.active_data = [None for i in self.processed_file_names]
         self.active_idx_data = None
-        self.active_data = None
+        self.active_data = []
         self.process_m1_m2()
         targets_datapath = os.path.join(
                 self.processed_dir, f"targets_{self.filename_methods}.pt"
@@ -510,8 +630,8 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         elif self.spec_type == 2:
             return [
                 # "DES370K_b3lyp_255586.pkl",
-                # "DES370K_b3lyp_255586.pkl",
-                "DES370K_b3lyp_64.pkl",
+                "DES370K_b3lyp_255586.pkl",
+                # "DES370K_b3lyp_64.pkl",
             ]
         elif self.spec_type == 8:
             return [
@@ -553,6 +673,8 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         return self.reprocess_file_names()
 
     def download(self):
+        if self.energy_labels and self.qcel_molecules:
+            return
         raise RuntimeError(
             "Dataset does not have a download method. Development usage only at the moment."
         )
@@ -570,11 +692,15 @@ class dapnet2_module_dataset_apnetStored(Dataset):
                     continue
             print(f"raw_path: {raw_path}")
             print("Loading dimers...")
-            qcel_mols, targets = util.load_dimer_dataset(
-                raw_path, self.MAX_SIZE, return_qcel_mols=True, return_qcel_mons=False,
-                columns=[self.m1, self.m2],
-            )
-            values = torch.tensor(targets[:, 0] - targets[:, 1], dtype=torch.float32)
+            if not self.in_memory:
+                qcel_mols, targets = util.load_dimer_dataset(
+                    raw_path, self.MAX_SIZE, return_qcel_mols=True, return_qcel_mons=False,
+                    columns=[self.m1, self.m2],
+                )
+                values = torch.tensor(targets[:, 0] - targets[:, 1], dtype=torch.float32)
+            else:
+                values = torch.tensor(self.energy_labels, dtype=torch.float32)
+                qcel_mols = self.qcel_molecules
             for i in range(0, len(qcel_mols) + len(qcel_mols) % self.batch_size + 1, self.batch_size):
                 upper_bound = min(i + self.batch_size, len(qcel_mols))
                 if len(qcel_mols[i: upper_bound]) == 0:
@@ -590,6 +716,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         return
 
     def process(self):
+        self.data = []
         idx = 0
         data_objects = []
         for raw_path in self.raw_paths:
@@ -602,10 +729,13 @@ class dapnet2_module_dataset_apnetStored(Dataset):
                     continue
             print(f"raw_path: {raw_path}")
             print("Loading dimers...")
-            qcel_mols, targets = util.load_dimer_dataset(
-                raw_path, self.MAX_SIZE, return_qcel_mols=True, return_qcel_mons=False,
-                columns=[],
-            )
+            if not self.in_memory:
+                qcel_mols, targets = util.load_dimer_dataset(
+                    raw_path, self.MAX_SIZE, return_qcel_mols=True, return_qcel_mons=False,
+                    columns=[],
+                )
+            else:
+                qcel_mols = self.qcel_molecules
             print("Creating data objects...")
             print(f"{len(qcel_mols)=}, {self.batch_size=}")
             for i in range(0, len(qcel_mols) + len(qcel_mols) % self.batch_size + 1, self.batch_size):
@@ -637,39 +767,47 @@ class dapnet2_module_dataset_apnetStored(Dataset):
                 )
                 data_objects.append(data)
                 if len(data_objects) == self.datapoint_storage_n_objects:
-                    idx_datapath = idx // self.datapoint_storage_n_objects
-                    split_name = ""
-                    if self.spec_type in [1]:
-                        split_name = f"_{self.split}"
-                    datapath = os.path.join(
-                        self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{
-                            self.spec_type}_{idx_datapath}.pt"
-                    )
-                    if self.print_level >= 2:
-                        print(f"Saving to {datapath}")
-                        print(len(data_objects))
-                    torch.save(data_objects, datapath)
+                    if self.in_memory:
+                        self.data.append(data_objects)
+                    else:
+                        idx_datapath = idx // self.datapoint_storage_n_objects
+                        split_name = ""
+                        if self.spec_type in [1]:
+                            split_name = f"_{self.split}"
+                        datapath = os.path.join(
+                            self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
+                        )
+                        if self.print_level >= 2:
+                            print(f"Saving to {datapath}")
+                            print(len(data_objects))
+                        torch.save(data_objects, datapath)
                     data_objects = []
                     if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
                         break
                 # idx += self.batch_size
                 idx += 1
         if len(data_objects) > 0:
-            idx_datapath = idx // self.datapoint_storage_n_objects
-            split_name = ""
-            if self.spec_type in [1]:
-                split_name = f"_{self.split}"
-            datapath = os.path.join(
-                self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{
-                    self.spec_type}_{idx_datapath}.pt"
-            )
-            if self.print_level >= 2:
-                print(f"Saving to {datapath}")
-                print(len(data_objects))
-            torch.save(data_objects, datapath)
+            if self.in_memory:
+                self.data.append(data_objects)
+            else:
+                idx_datapath = idx // self.datapoint_storage_n_objects
+                split_name = ""
+                if self.spec_type in [1]:
+                    split_name = f"_{self.split}"
+                datapath = os.path.join(
+                    self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
+                )
+                if self.print_level >= 2:
+                    print(f"Saving to {datapath}")
+                    print(len(data_objects))
+                torch.save(data_objects, datapath)
         return
 
     def len(self):
+        if self.in_memory and self.prebatched:
+            return (len(self.data) - 1) * len(self.data[0]) + len(self.data[-1])
+        elif self.in_memory:
+            return len(self.data)
         d = torch.load(
             osp.join(self.processed_dir, self.processed_file_names[-1]), weights_only=False
         )
@@ -683,8 +821,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         if self.spec_type in [1]:
             split_name = f"_{self.split}"
         datapath = os.path.join(
-            self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{
-                self.spec_type}_{idx_datapath}.pt"
+            self.processed_dir, f"dimer_dap2_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
         )
         local_data = torch.load(datapath, weights_only=False, map_location='cpu')
         try:
@@ -700,3 +837,14 @@ class dapnet2_module_dataset_apnetStored(Dataset):
         self.active_data = local_data
         self.active_data[obj_ind].y = self.target_data[idx]
         return self.active_data[obj_ind]
+
+    def get_in_memory(self, idx):
+        """Method for retrieving data when in_memory=True"""
+        if self.prebatched:
+            idx_datapath = idx // self.datapoint_storage_n_objects
+            obj_ind = idx % self.datapoint_storage_n_objects
+            self.data[idx_datapath][obj_ind].y = self.target_data[idx]
+            return self.data[idx_datapath][obj_ind]
+        else:
+            self.data[idx].y = self.target_data[idx]
+            return self.data[idx]

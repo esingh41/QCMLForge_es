@@ -23,8 +23,18 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
+from importlib import resources
+from copy import deepcopy
 
-file_dir = os.path.dirname(os.path.realpath(__file__))
+
+def assemble_RA_RB_lists(
+    RA,
+    RB,
+    dimer_ind
+):
+    return
+
+
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
     p = step / decay_steps
@@ -611,7 +621,7 @@ class APNet2Model:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
         else:
@@ -642,6 +652,13 @@ class APNet2Model:
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
             self.atom_model = atom_model
+        else:
+            print(
+                """No atom model provided.
+    Assuming atomic multipoles and embeddings are
+    pre-computed and passed as input to the model.
+"""
+            )
         self.atom_model.to(device)
         if pre_trained_model_path:
             print(
@@ -795,8 +812,8 @@ class APNet2Model:
 
     def set_pretrained_model(self, ap2_model_path=None, am_model_path=None, model_id=None):
         if model_id is not None:
-            am_model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
-            ap2_model_path = f"{file_dir}/../models/ap2_ensemble/ap2_{model_id}.pt"
+            am_model_path = resources.files('apnet_pt').joinpath("models", "am_ensemble", f"am_{model_id}.pt")
+            ap2_model_path = resources.files('apnet_pt').joinpath("models", "ap2_ensemble", f"ap2_{model_id}.pt")
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
@@ -953,6 +970,68 @@ class APNet2Model:
                     dimer_ls
                 )
         return dimer_batch
+    
+    def set_return_hidden_states(self, value=True):
+        self.model.return_hidden_states = value
+        return self
+
+    def _assemble_pairs(
+        self,
+        inp_batch,
+        E_sr_dimer,
+        E_sr,
+        E_elst_sr,
+        E_elst_lr,
+    ):
+        indA_to_dimer = []
+        indB_to_dimer = []
+        indA_to_atom = []
+        indB_to_atom = []
+        pair_energies = []
+        pair_energies_batch = []
+
+        indsA_sr = inp_batch["e_ABsr_source"]
+        indsB_sr = inp_batch["e_ABsr_target"]
+        indsA_lr = inp_batch["e_ABlr_source"]
+        indsB_lr = inp_batch["e_ABlr_target"]
+
+        dimer_inds, atoms_per_dimer = torch.unique(inp_batch.dimer_ind, return_counts=True)
+        n_dimers = torch.max(dimer_inds) + 1
+        indsA_monomer = inp_batch.indA
+        indsB_monomer = inp_batch.indB
+
+        for i in dimer_inds:
+            size_A = torch.sum(indsA_monomer == i)
+            size_B = torch.sum(indsB_monomer == i)
+            indA_to_dimer.append(np.full((size_A,), i))
+            indB_to_dimer.append(np.full((size_B,), i))
+            indA_to_atom.append(np.arange(size_A))
+            indB_to_atom.append(np.arange(size_B))
+            pair_energies_batch.append(np.zeros((4, size_A, size_B)))
+
+        indA_to_dimer = np.concatenate(indA_to_dimer)
+        indB_to_dimer = np.concatenate(indB_to_dimer)
+        indA_to_atom = np.concatenate(indA_to_atom)
+        indB_to_atom = np.concatenate(indB_to_atom)
+
+        # E_sr, E_elst_sr, E_elst_lr
+        for e_pair, e_elst_sr, indA, indB in zip(E_sr, E_elst_sr, indsA_sr, indsB_sr):
+
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
+            pair_energies_batch[i][0, atomA, atomB] += e_elst_sr.numpy()
+
+        for e_elst_lr, indA, indB in zip(E_elst_lr, indsA_lr, indsB_lr):
+
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_energies_batch[i][0, atomA, atomB] += e_elst_lr
+        return pair_energies_batch
 
     @torch.inference_mode()
     def predict_qcel_mols(
@@ -962,6 +1041,7 @@ class APNet2Model:
         r_cut=None,
         r_cut_im=None,
         verbose=False,
+        return_pairs=False,
     ):
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -970,10 +1050,13 @@ class APNet2Model:
 
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
         predictions = np.zeros((len(mol_data), 4))
+        if return_pairs:
+            pairwise_energies = []
         if self.model.return_hidden_states:
             # need to capture output
             h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
         # self.model.to(self.device)
+        self.atom_model.to(self.device)
         for i in range(0, len(mol_data), batch_size):
             batch_mol_data = mol_data[i: i + batch_size]
             data_A = [d[0] for d in batch_mol_data]
@@ -1064,7 +1147,7 @@ class APNet2Model:
                             hlistB=hlistB,
                         )
                         dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
+                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target_monomer_indices(
                     dimer_ls
                 )
                 dimer_batch.to(device=self.device)
@@ -1077,6 +1160,19 @@ class APNet2Model:
                     dimer_inds.append(dimer_batch.dimer_ind)
                     ndimers.append(torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long))
                     predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                elif return_pairs:
+                    # assert batch_size == 1, "Currently batch size must be 1 for pairwise energies"
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                    pairwise_energies.extend(
+                        self._assemble_pairs(
+                            dimer_batch,
+                            E_sr_dimer,
+                            E_sr,
+                            E_elst_sr,
+                            E_elst_lr,
+                        )
+                    )
                 else:
                     predictions[i: i + batch_size] = preds[0].cpu().numpy()
             if verbose:
@@ -1085,6 +1181,8 @@ class APNet2Model:
                 )
         if self.model.return_hidden_states:
             return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
+        if return_pairs:
+            return predictions, pairwise_energies
         return predictions
 
     def example_input(self):
@@ -1159,8 +1257,6 @@ units angstrom
         self.model.eval()
         comp_errors_t = []
         total_loss = 0.0
-        # print time every 1% of data
-        t = time.time()
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
@@ -1174,9 +1270,6 @@ units angstrom
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
-                # if n % 50 == 0:
-                #     print(f"    Time for {n/len(dataloader)*100:.2f}%", time.time() - t)
-
         comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
         total_MAE_t = torch.mean(torch.abs(comp_errors_t))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
@@ -1184,6 +1277,62 @@ units angstrom
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
         disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
+
+    def __train_batches_single_proc_transfer(
+        self, dataloader, loss_fn, optimizer, rank_device, scheduler
+    ):
+        """
+        Single-process training loop body.
+        """
+        self.model.train()
+        comp_errors_t = []
+        total_loss = 0.0
+        for n, batch in enumerate(dataloader):
+            optimizer.zero_grad(set_to_none=True)  # minor speed-up
+            batch = batch.to(rank_device, non_blocking=True)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
+                batch)
+            preds = E_sr_dimer.reshape(-1, 4)
+            preds = torch.sum(preds, dim=1)
+            comp_errors = preds - batch.y.squeeze(-1)
+            batch_loss = (
+                torch.mean(torch.square(comp_errors))
+                if (loss_fn is None)
+                else loss_fn(preds, batch.y)
+            )
+            batch_loss.backward()
+            optimizer.step()
+            total_loss += batch_loss.item()
+            comp_errors_t.append(comp_errors.detach().cpu())
+        if scheduler is not None:
+            scheduler.step()
+
+        comp_errors_t = torch.cat(comp_errors_t, dim=0)
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        return total_loss, total_MAE_t
+
+    # @torch.inference_mode()
+    def __evaluate_batches_single_proc_transfer(self, dataloader, loss_fn, rank_device):
+        self.model.eval()
+        comp_errors_t = []
+        total_loss = 0.0
+        with torch.no_grad():
+            for n, batch in enumerate(dataloader):
+                batch = batch.to(rank_device, non_blocking=True)
+                E_sr_dimer, _, _, _, _, _ = self.eval_fn(batch)
+                preds = E_sr_dimer.reshape(-1, 4)
+                preds = torch.sum(preds, dim=1)
+                comp_errors = preds - batch.y.squeeze(-1)
+                batch_loss = (
+                    torch.mean(torch.square(comp_errors))
+                    if (loss_fn is None)
+                    else loss_fn(preds, batch.y)
+                )
+                total_loss += batch_loss.item()
+                comp_errors_t.append(comp_errors.detach().cpu())
+        comp_errors_t = torch.cat(comp_errors_t, dim=0)
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        return total_loss, total_MAE_t
 
     ########################################################################
     # SINGLE-PROCESS TRAINING
@@ -1489,6 +1638,7 @@ units angstrom
         num_workers,
         lr_decay=None,
         skip_compile=False,
+        transfer_learning=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -1496,6 +1646,7 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
+        best_model = deepcopy(self.model)
         if not skip_compile:
             print("Compiling model")
             self.compile_model()
@@ -1533,51 +1684,79 @@ units angstrom
         )
         criterion = None  # defaults to MSE
 
-        # (4) Print table header
-        print(
-            "                                       Total            Elst            Exch            Ind            Disp",
-            flush=True,
-        )
+        # (4) Set eval functions
+        if not transfer_learning:
+            __evaluate_batch = self.__evaluate_batches_single_proc
+            __train_batch = self.__train_batches_single_proc
+            print(
+                "                                       Total            Elst            Exch            Ind            Disp",
+                flush=True,
+            )
+        else:
+            __evaluate_batch = self.__evaluate_batches_single_proc_transfer
+            __train_batch = self.__train_batches_single_proc_transfer
+            print(
+                "                                       Total",
+                flush=True,
+            )
+
 
         # (5) Evaluate once pre-training
         t0 = time.time()
-        train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-            self.__evaluate_batches_single_proc(
+        t_out = (
+            __evaluate_batch(
                 train_loader, criterion, rank_device)
         )
-        test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-            self.__evaluate_batches_single_proc(
+        v_out = (
+            __evaluate_batch(
                 test_loader, criterion, rank_device)
         )
+        if not transfer_learning:
+            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = t_out
+            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = v_out
+            print(
+                f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} "
+                f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
+                f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                flush=True,
+            )
+        else:
+            train_loss, total_MAE_t = t_out
+            test_loss, total_MAE_v = v_out
+            print(
+                f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+                flush=True,
+            )
 
-        print(
-            f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} "
-            f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
-            f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
-            flush=True,
-        )
 
         # (6) Main training loop
         lowest_test_loss = test_loss
         for epoch in range(n_epochs):
             t1 = time.time()
-            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-                self.__train_batches_single_proc(
+            t_out = (
+                __train_batch(
                     train_loader, criterion, optimizer, rank_device, scheduler
                 )
             )
-            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches_single_proc(
+            v_out = (
+                __evaluate_batch(
                     test_loader, criterion, rank_device)
             )
+            if not transfer_learning:
+                train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = t_out
+                test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = v_out
+            else:
+                train_loss, total_MAE_t = t_out
+                test_loss, total_MAE_v = v_out
 
             # Track best model
             star_marker = " "
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
+                cpu_model = unwrap_model(self.model).to("cpu")
+                best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                    cpu_model = unwrap_model(self.model).to("cpu")
                     torch.save(
                         {
                             "model_state_dict": cpu_model.state_dict(),
@@ -1592,17 +1771,25 @@ units angstrom
                         },
                         self.model_save_path,
                     )
-                    self.model.to(rank_device)
+                self.model.to(rank_device)
 
-            print(
-                f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
-                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
-                f"{exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} "
-                f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
-                flush=True,
-            )
+            if not transfer_learning:
+                print(
+                    f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
+                    f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
+                    f"{exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} "
+                    f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
+                    f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {star_marker}",
+                    flush=True,
+                )
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
+        self.model = best_model
 
     def train(
         self,
@@ -1619,6 +1806,7 @@ units angstrom
         lr_decay=None,
         random_seed=42,
         skip_compile=False,
+        transfer_learning=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1726,5 +1914,6 @@ units angstrom
                 num_workers=dataloader_num_workers,
                 lr_decay=lr_decay,
                 skip_compile=skip_compile,
+                transfer_learning=transfer_learning,
             )
         return
