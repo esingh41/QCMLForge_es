@@ -454,6 +454,7 @@ class atomic_module_dataset(Dataset):
         # spec_1 = "spec_1" # 'hf/jun-cc-pv_dpd_z' CMPNN
         # spec_2 = "spec_2" # 'pbe0/aug-cc-pv_tpd_z' CMPNN
         # spec_3 = "spec_3" # 'hf/jun-cc-pv_dpd_z' APNET2
+        # spec_4 = "spec_4" # 'pbe0/aug-cc-pvtz' APNET2
         if self.testing:
             return [
                 "testing.pkl",

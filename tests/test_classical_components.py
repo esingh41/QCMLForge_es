@@ -342,5 +342,5 @@ if __name__ == "__main__":
     # test_elst_multipoles()
     # test_elst_multipoles_am_hirshfeld()
     # test_elst_charge_dipole_qpole()
-    # test_ap2_elst_multipoles()
+    test_ap2_elst_multipoles()
     test_ap2_elst_sr_lr()
