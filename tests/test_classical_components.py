@@ -106,7 +106,7 @@ def test_elst_charge_dipole_qpole_pairwise():
     print(f"E_qQs = {E_qQs.sum():.6f} kcal/mol")
     print(f"E_uQs = {E_uQs.sum():.6f} kcal/mol")
     print(f"E_QQs = {E_QQs.sum():.6f} kcal/mol")
-    return 
+    return
 
 
 def test_elst_multipoles_am_hirshfeld():
