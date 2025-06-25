@@ -349,7 +349,7 @@ def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB) -> f
 
 
 def eval_qcel_dimer_individual_components(
-    mol_dimer, qA, muA, thetaA, qB, muB, thetaB
+    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, ensure_traceless=False,
 ) -> Tuple[
     float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
 ]:
@@ -384,7 +384,7 @@ def eval_qcel_dimer_individual_components(
             thetaB_j = thetaB[j]
 
             E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ = eval_interaction_individual_components(
-                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, ensure_traceless=ensure_traceless
             )
             E_qqs[i, j] = E_qq
             E_qus[i, j] = E_qu
@@ -446,12 +446,12 @@ def eval_interaction_individual(
 
 
 def eval_interaction_individual_components(
-    RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False
+    RA, qA, muA, thetaA, RB, qB, muB, thetaB, ensure_traceless=True
 ):
     T0, T1, T2, T3, T4 = T_cart(RA, RB)
 
     # Most inputs will already be traceless, but we can ensure this is the case
-    if not traceless:
+    if ensure_traceless:
         traceA = np.trace(thetaA)
         thetaA[0, 0] -= traceA / 3.0
         thetaA[1, 1] -= traceA / 3.0

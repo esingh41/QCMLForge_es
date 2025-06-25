@@ -71,7 +71,7 @@ interaction_energies = apnet_pt.pretrained_models.apnet2_model_predict(
     batch_size=2,
 )
 print(interaction_energies)
-# interaction_energies = np.array((N, 5)), where [[E_total, E_elst, E_ind, E_disp, E_exch]...]
+# interaction_energies = np.array((N, 5)), where [[E_total, E_elst, E_exch, E_ind, E_disp]...]
 # [[-1.4542807  -2.25828605  2.25395055 -0.49102123 -0.95892397]
 #  [-1.45427967 -2.258285    2.25395055 -0.49102128 -0.95892394]
 #  [-1.45428585 -2.25829129  2.25395064 -0.49102129 -0.95892391]]
