@@ -295,10 +295,9 @@ class AtomMPNN(MessagePassing):
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
             h_list = torch.stack(h_list, dim=1)
             return charge.squeeze(), dipole, qpole, h_list
-
         
         # 1) Identify which molecules have more than one atom
-        mol_ind = torch.where(natom_per_mol != 1)[0] 
+        mol_ind = torch.where(natom_per_mol != 1)[0]
         keep_mask = (molecule_ind.unsqueeze(1) == mol_ind).any(dim=1)
         filtered_charge = charge[keep_mask]
         # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms.
@@ -315,7 +314,6 @@ class AtomMPNN(MessagePassing):
         idx_map = idx_map.long()                     # ensure integer
         e_source = idx_map[e_source]
         e_target = idx_map[e_target]
-
 
         R = R[keep_mask, :]
 
@@ -673,9 +671,10 @@ units angstrom
                     train_loader,  # loss_fn=criterion
                 )
             )
-            charge_MAE_t = np.mean(np.abs(charge_errors_t))
-            dipole_MAE_t = np.mean(np.abs(dipole_errors_t))
-            qpole_MAE_t = np.mean(np.abs(qpole_errors_t))
+            print(charge_errors_t.shape, dipole_errors_t.shape, qpole_errors_t.shape)
+            charge_MAE_t = np.mean(np.abs(charge_errors_t.numpy()))
+            dipole_MAE_t = np.mean(np.abs(dipole_errors_t.numpy()))
+            qpole_MAE_t = np.mean(np.abs(qpole_errors_t.numpy()))
 
             charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []
             test_loss, charge_errors_v, dipole_errors_v, qpole_errors_v = (
@@ -683,9 +682,9 @@ units angstrom
                     test_loader,  # loss_fn=criterion
                 )
             )
-            charge_MAE_v = np.mean(np.abs(charge_errors_v))
-            dipole_MAE_v = np.mean(np.abs(dipole_errors_v))
-            qpole_MAE_v = np.mean(np.abs(qpole_errors_v))
+            charge_MAE_v = np.mean(np.abs(charge_errors_v.numpy()))
+            dipole_MAE_v = np.mean(np.abs(dipole_errors_v.numpy()))
+            qpole_MAE_v = np.mean(np.abs(qpole_errors_v.numpy()))
             charge_errors_v, dipole_errors_v, qpole_errors_v = [], [], []
             dt = time.time() - t1
             print(
@@ -1054,6 +1053,8 @@ units angstrom
 
         lowest_test_loss = torch.tensor(float("inf"))
         print(f"{rank=}")
+
+        test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
 
         for epoch in range(n_epochs):
             t1 = time.time()

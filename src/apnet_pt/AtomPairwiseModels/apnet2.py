@@ -579,6 +579,7 @@ class APNet2_MPNN(nn.Module):
         padded = E_elst_dimer.new_zeros((rows, cols + 3))
         padded[:, :cols] = E_elst_dimer
         E_elst_dimer = padded
+        # E_sr_dimer[:, 0] = 0.0
         E_output = E_sr_dimer + E_elst_dimer
         if self.return_hidden_states:
             return E_output, E_sr_dimer, E_elst_sr_dimer, E_elst_lr_dimer, hAB, hBA, cutoff

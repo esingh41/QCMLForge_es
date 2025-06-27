@@ -974,7 +974,8 @@ class apnet2_module_dataset(Dataset):
                 molA_data.append(monA_data)
                 molB_data.append(monB_data)
                 energies.append(targets[j])
-            if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
+            # if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
+            if len(molA_data) != self.atomic_batch_size:
                 continue
             batch_A = atomic_datasets.atomic_collate_update_no_target(
                 molA_data)

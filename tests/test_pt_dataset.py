@@ -18,7 +18,6 @@ from apnet_pt.pt_datasets.dapnet_ds import (
     dapnet2_module_dataset_apnetStored,
     dapnet2_collate_update_no_target,
 )
-import pickle
 import os
 import numpy as np
 import pytest

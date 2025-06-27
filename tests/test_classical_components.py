@@ -284,6 +284,7 @@ def test_ap2_elst_multipoles():
     print(f"E_ref = {E_ref:.6f} kcal/mol")
     assert abs(Elst - E_ref) < 1e-4, f"Expected {E_ref}, got {Elst}"
 
+
 def set_weights_to_value(model, value=0.9):
     """Sets all weights and biases in the model to a specific value."""
     with torch.no_grad():  # Disable gradient tracking
