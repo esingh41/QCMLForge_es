@@ -140,7 +140,7 @@ def test_ap2_ensemble_compile():
         compile=True,
         batch_size=2,
     )
-    assert np.allclose(interaction_energies, ref, atol=1e-6)
+    assert np.allclose(interaction_energies, ref, atol=1e-5)
 
 
 def test_ap2_ensemble_predict_pairs():

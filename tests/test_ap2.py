@@ -212,5 +212,5 @@ def test_ap2_predict_pairs():
 
 
 if __name__ == "__main__":
-    # test_ap2_architecture()
-    test_ap2_predict_pairs()
+    test_ap2_architecture()
+    # test_ap2_predict_pairs()

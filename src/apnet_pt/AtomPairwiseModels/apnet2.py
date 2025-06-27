@@ -248,32 +248,28 @@ class APNet2_MPNN(nn.Module):
         muA_source = muA.index_select(0, e_ABsr_source)
         muB_source = muB.index_select(0, e_ABsr_target)
 
-        quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_ABsr_source)
-        quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_ABsr_target)
+        # TF implementation uses 3/2 factor for quadrupoles
+        # quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_ABsr_source)
+        # quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_ABsr_target)
+        quadA_source = quadA.index_select(0, e_ABsr_source)
+        quadB_source = quadB.index_select(0, e_ABsr_target)
 
-        E_qq = qA_source * qB_source * oodR
+        E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
+        
+        T1 = torch.einsum('x,xy->xy', oodR ** 3, -1.0 * dR_xyz)
+        qu = torch.einsum('x,xy->xy', qA_source, muB_source) - torch.einsum('x,xy->xy', qB_source, muA_source)
+        E_qu = torch.einsum('xy,xy->x', T1, qu)
 
-        T1 = -1.0 * dR_xyz * (oodR**3).unsqueeze(1)
-        qu = (qA_source.unsqueeze(1) * muB_source) - (
-            qB_source.unsqueeze(1) * muA_source
-        )
-        E_qu = (T1 * qu).sum(dim=1)
+        T2 = 3 * torch.einsum('xy,xz->xyz', dR_xyz, dR_xyz) - torch.einsum('x,x,yz->xyz', dR, dR, delta)
+        T2 = torch.einsum('x,xyz->xyz', oodR ** 5, T2)
 
-        # T2 = 3(dR_xyz x dR_xyz) - dR * delta
-        T2 = 3 * torch.einsum("ij,ik->ijk", dR_xyz, dR_xyz) - torch.einsum(
-            "i,jk->ijk", dR, delta
-        )
-        T2 = T2 * (oodR**5).unsqueeze(1).unsqueeze(2)
+        E_uu = -1.0 * torch.einsum('xy,xz,xyz->x', muA_source, muB_source, T2)
 
-        # E_uu should be close to zero
-        E_uu = -1.0 * torch.einsum("ij,ik,ijk->i", muA_source, muB_source, T2)
-
-        qA_quadB_source = qA_source.unsqueeze(1).unsqueeze(2) * quadB_source
-        qB_quadA_source = qB_source.unsqueeze(1).unsqueeze(2) * quadA_source
-        E_qQ = (T2 * (qA_quadB_source + qB_quadA_source)).sum(dim=(1, 2)) / 3.0
+        qA_quadB_source = torch.einsum('x,xyz->xyz', qA_source, quadB_source)
+        qB_quadA_source = torch.einsum('x,xyz->xyz', qB_source, quadA_source)
+        E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source + qB_quadA_source)  / 3.0
 
         E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu)
-
         return E_elst
 
     def get_messages(self, h0, h, rbf, e_source, e_target):
@@ -583,6 +579,7 @@ class APNet2_MPNN(nn.Module):
         padded = E_elst_dimer.new_zeros((rows, cols + 3))
         padded[:, :cols] = E_elst_dimer
         E_elst_dimer = padded
+        # E_sr_dimer[:, 0] = 0.0
         E_output = E_sr_dimer + E_elst_dimer
         if self.return_hidden_states:
             return E_output, E_sr_dimer, E_elst_sr_dimer, E_elst_lr_dimer, hAB, hBA, cutoff
@@ -652,7 +649,14 @@ class APNet2Model:
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
             self.atom_model = atom_model
-        # self.atom_model.to(device)
+        else:
+            print(
+                """No atom model provided.
+    Assuming atomic multipoles and embeddings are
+    pre-computed and passed as input to the model.
+"""
+            )
+        self.atom_model.to(device)
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
@@ -1178,8 +1182,12 @@ class APNet2Model:
             return predictions, pairwise_energies
         return predictions
 
-    def example_input(self):
-        mol = qcel.models.Molecule.from_data("""
+    def example_input(self, mol=None,
+        r_cut=5.0,
+        r_cut_im=8.0,
+):
+        if mol is None:
+            mol = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714
@@ -1191,7 +1199,7 @@ class APNet2Model:
 1   2.641145101   -0.449872874   -0.744894473
 units angstrom
         """)
-        return self._qcel_example_input([mol], batch_size=1)
+        return self._qcel_example_input([mol], batch_size=1, r_cut=r_cut, r_cut_im=r_cut_im)
 
     ########################################################################
     # TRAINING/VALIDATION HELPERS

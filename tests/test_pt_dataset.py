@@ -18,13 +18,14 @@ from apnet_pt.pt_datasets.dapnet_ds import (
     dapnet2_module_dataset_apnetStored,
     dapnet2_collate_update_no_target,
 )
-import pickle
 import os
 import numpy as np
 import pytest
 from glob import glob
 import qcelemental
 import torch
+import pandas as pd
+from pprint import pprint as pp
 
 
 torch.manual_seed(42)
@@ -77,10 +78,11 @@ mol_A = qcelemental.models.Molecule.from_data("""
 1   0.257521062   0.042121496   0.005218999
 """)
 
+
 def test_apnet2_dataset_size_no_prebatched():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = False
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = apnet2_module_dataset(
@@ -122,10 +124,11 @@ def test_apnet2_dataset_size_no_prebatched():
         os.remove(i)
     assert ds_labels == cnt, f"Expected {len(ds)} points, but got {cnt} points"
 
+
 def test_apnet2_dataset_size_prebatched():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = True
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = apnet2_module_dataset(
@@ -159,19 +162,76 @@ def test_apnet2_dataset_size_prebatched():
         collate_fn=collate,
     )
     cnt = 0
+    df = pd.read_pickle(f"{data_path}/raw/t_val_19.pkl")
+    pp(df.columns.tolist())
     for i in train_loader:
-        cnt += i.y.shape[0]
+        if cnt == 0:
+            pp(i)
+        inc = i.y.shape[0]
+        r_RA, r_RB, r_ZA, r_ZB = [], [], [], []
+        r_TQA, r_TQB = [], []
+        r_labels = []
+        for j in range(inc):
+            r = df.iloc[cnt + j]
+            r_RA.append(r["RA"])
+            r_RB.append(r["RB"])
+            r_ZA.append(r["ZA"])
+            r_ZB.append(r["ZB"])
+            y_data = np.array(
+                [
+                    r["Elst_aug"],
+                    r["Exch_aug"],
+                    r["Ind_aug"],
+                    r["Disp_aug"],
+                ]
+            )
+            r_labels.append(y_data)
+            r_TQA.append(r["TQA"])
+            r_TQB.append(r["TQB"])
+        r_RA = np.concatenate(r_RA, axis=0)
+        r_RB = np.concatenate(r_RB, axis=0)
+        r_ZA = np.concatenate(r_ZA, axis=0)
+        r_ZB = np.concatenate(r_ZB, axis=0)
+        r_labels = np.array(r_labels)
+        r_TQA = np.array(r_TQA)
+        r_TQB = np.array(r_TQB)
+        print(r_labels)
+        print(i.y.numpy())
+        assert np.allclose(i.RA.numpy(), r_RA, atol=1e-6), (
+            f"Expected {i.RA.numpy()} but got {r.RA}"
+        )
+        assert np.allclose(i.RB.numpy(), r_RB, atol=1e-6), (
+            f"Expected {i.RB.numpy()} but got {r.RB}"
+        )
+        assert np.allclose(i.ZA.numpy(), r_ZA, atol=1e-6), (
+            f"Expected {i.ZA.numpy()} but got {r.ZA}"
+        )
+        assert np.allclose(i.ZB.numpy(), r_ZB, atol=1e-6), (
+            f"Expected {i.ZB.numpy()} but got {r.ZB}"
+        )
+        assert np.allclose(i.y.numpy(), r_labels, atol=1e-6), (
+            f"Expected {i.y.numpy()} but got {r_labels}"
+        )
+        assert np.allclose(i.total_charge_A.numpy(), r_TQA, atol=1e-6), (
+            f"Expected {i.total_charge_A.numpy()} but got {r_TQA}"
+        )
+        assert np.allclose(i.total_charge_B.numpy(), r_TQB, atol=1e-6), (
+            f"Expected {i.total_charge_B.numpy()} but got {r_TQB}"
+        )
+        cnt += inc
     print("Number of labels in dataset:", cnt)
     ds_labels = len(ds)
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_8*.pt"):
         os.remove(i)
-    assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    assert ds_labels * ds.batch_size == cnt, (
+        f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    )
 
 
 def test_apnet2_dataset_size_prebatched_qcel_molecules():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=6
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 6
     prebatched = True
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     qcel_molecules = [mol_dimer] * 32
@@ -215,12 +275,15 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules():
     ds_labels = len(ds)
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_None*.pt"):
         os.remove(i)
-    assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    assert ds_labels * ds.batch_size == cnt, (
+        f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    )
+
 
 def test_apnet2_dataset_size_qcel_molecules_in_memory():
     batch_size = 2
-    atomic_batch_size=8
-    datapoint_storage_n_objects=4
+    atomic_batch_size = 8
+    datapoint_storage_n_objects = 4
     prebatched = False
     number_dimers = 22
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
@@ -266,12 +329,15 @@ def test_apnet2_dataset_size_qcel_molecules_in_memory():
     ds_labels = len(ds)
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_None*.pt"):
         os.remove(i)
-    assert number_dimers == cnt, f"Expected {number_dimers} points, but got {cnt} points"
+    assert number_dimers == cnt, (
+        f"Expected {number_dimers} points, but got {cnt} points"
+    )
+
 
 def test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory():
     batch_size = 4
-    atomic_batch_size=4
-    datapoint_storage_n_objects=4
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 4
     prebatched = True
     number_dimers = 31
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
@@ -313,12 +379,14 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory():
     print("Number of labels in dataset:", cnt)
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_None*.pt"):
         os.remove(i)
-    assert (number_dimers - number_dimers % batch_size) == cnt, f"Expected {number_dimers} points, but got {cnt} points"
+    assert (number_dimers - number_dimers % batch_size) == cnt, (
+        f"Expected {number_dimers} points, but got {cnt} points"
+    )
 
 
 def test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory():
     batch_size = 4
-    datapoint_storage_n_objects=4
+    datapoint_storage_n_objects = 4
     prebatched = True
     number_dimers = 31
     qcel_molecules = [mol_dimer] * number_dimers
@@ -357,11 +425,14 @@ def test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory():
     print("Number of labels in dataset:", cnt)
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_None*.pt"):
         os.remove(i)
-    assert (number_dimers) == cnt, f"Expected {number_dimers} points, but got {cnt} points"
+    assert (number_dimers) == cnt, (
+        f"Expected {number_dimers} points, but got {cnt} points"
+    )
+
 
 def test_dapnet2_dataset_size_qcel_molecules_in_memory():
     batch_size = 4
-    datapoint_storage_n_objects=4
+    datapoint_storage_n_objects = 4
     prebatched = False
     number_dimers = 31
     qcel_molecules = [mol_dimer] * number_dimers
@@ -400,12 +471,15 @@ def test_dapnet2_dataset_size_qcel_molecules_in_memory():
     print("Number of labels in dataset:", cnt)
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_None*.pt"):
         os.remove(i)
-    assert (number_dimers) == cnt, f"Expected {number_dimers} points, but got {cnt} points"
+    assert (number_dimers) == cnt, (
+        f"Expected {number_dimers} points, but got {cnt} points"
+    )
+
 
 def test_apnet2_train_qcel_molecules_in_memory_transfer():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=6
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 6
     prebatched = False
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     qcel_molecules = [mol_dimer] * 31
@@ -446,9 +520,10 @@ def test_apnet2_train_qcel_molecules_in_memory_transfer():
     print(np.sum(v_0, axis=1), np.sum(v, axis=1))
     assert np.allclose(np.sum(v, axis=1), np.ones(2), atol=1e-2)
 
+
 def test_dapnet2_train_qcel_molecules_in_memory_transfer():
     batch_size = 4
-    datapoint_storage_n_objects=4
+    datapoint_storage_n_objects = 4
     prebatched = False
     number_dimers = 31
     qcel_molecules = [mol_dimer] * number_dimers
@@ -474,8 +549,12 @@ def test_dapnet2_train_qcel_molecules_in_memory_transfer():
         in_memory=True,
     )
     dap2 = dAPNet2Model(
-        atom_model=AtomModels.ap2_atom_model.AtomModel().set_pretrained_model(model_id=0),
-        apnet2_model=APNet2Model().set_pretrained_model(model_id=0).set_return_hidden_states(True),
+        atom_model=AtomModels.ap2_atom_model.AtomModel().set_pretrained_model(
+            model_id=0
+        ),
+        apnet2_model=APNet2Model()
+        .set_pretrained_model(model_id=0)
+        .set_return_hidden_states(True),
     )
     v_0 = dap2.predict_qcel_mols(qcel_molecules_pair, batch_size=2)
     dap2.train(
@@ -487,10 +566,11 @@ def test_dapnet2_train_qcel_molecules_in_memory_transfer():
     print(v_0, v)
     assert np.allclose(v, np.ones(2), atol=1e-1)
 
+
 def test_apnet2_train_qcel_molecules_in_memory():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=6
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 6
     prebatched = False
     qcel_molecules = [mol_dimer] * 31
     energy_labels = [[1.0] * 4 for _ in range(len(qcel_molecules))]
@@ -535,13 +615,12 @@ def test_apnet2_train_qcel_molecules_in_memory():
     v = ap2.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
     print(v_0, v)
     assert np.allclose(v_0, v, atol=1e-6)
-    
 
 
 def test_apnet2_dataset_size_prebatched_train_spec8():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = True
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = apnet2_module_dataset(
@@ -576,10 +655,11 @@ def test_apnet2_dataset_size_prebatched_train_spec8():
     print("Example input after training:")
     print(ap2.eval_fn(ap2.example_input()))
 
+
 def test_apnet2_dataset_size_prebatched_train_spec9():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = True
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = apnet2_module_dataset(
@@ -610,10 +690,11 @@ def test_apnet2_dataset_size_prebatched_train_spec9():
         skip_compile=True,
     )
 
+
 def test_dapnet2_dataset_size_no_prebatched():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = False
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     ds = dapnet2_module_dataset(
@@ -633,7 +714,7 @@ def test_dapnet2_dataset_size_no_prebatched():
         skip_compile=True,
         # split="test",
         print_level=2,
-        m1="Elst_aug", 
+        m1="Elst_aug",
         m2="Exch_aug",
     )
     print()
@@ -653,17 +734,22 @@ def test_dapnet2_dataset_size_no_prebatched():
         cnt += i.y.shape[0]
     print("Number of labels in dataset:", cnt)
     ds_labels = len(ds)
-    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elstaug_to_Exchaug_*.pt"):
+    for i in glob(
+        f"{data_path}/processed_delta/dimer_dap2_spec_8_Elstaug_to_Exchaug_*.pt"
+    ):
         os.remove(i)
     assert ds_labels == cnt, f"Expected {len(ds)} points, but got {cnt} points"
 
+
 def test_dapnet2_dataset_size_prebatched():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = True
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
-    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+    for i in glob(
+        f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"
+    ):
         os.remove(i)
     ds = dapnet2_module_dataset(
         root=data_path,
@@ -681,7 +767,7 @@ def test_dapnet2_dataset_size_prebatched():
         skip_processed=False,
         skip_compile=True,
         print_level=2,
-        m1="Elst_aug", 
+        m1="Elst_aug",
         m2="Exch_aug",
     )
     print()
@@ -701,14 +787,18 @@ def test_dapnet2_dataset_size_prebatched():
         cnt += i.y.shape[0]
     print("Number of labels in dataset:", cnt)
     ds_labels = len(ds)
-    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+    for i in glob(
+        f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"
+    ):
         os.remove(i)
-    assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    assert ds_labels * ds.batch_size == cnt, (
+        f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    )
 
 
 def test_dapnet2_dataset_ap2_stored_size_prebatched():
     batch_size = 2
-    datapoint_storage_n_objects=8
+    datapoint_storage_n_objects = 8
     prebatched = True
     collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     for i in glob(f"{data_path}/processed_delta/dimer_dap2_ap2_spec_8_*.pt"):
@@ -728,7 +818,7 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched():
         skip_processed=False,
         skip_compile=True,
         print_level=2,
-        m1="Elst_aug", 
+        m1="Elst_aug",
         m2="Exch_aug",
     )
     print()
@@ -754,16 +844,20 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched():
         os.remove(i)
     for i in glob(f"{data_path}/processed_delta/targets_Elst_aug_to_Exch_aug.pt"):
         os.remove(i)
-    assert ds_labels * ds.batch_size - 1 == cnt, f"Expected {ds_labels * ds.batch_size - 1} points, but got {cnt} points"
-    
+    assert ds_labels * ds.batch_size - 1 == cnt, (
+        f"Expected {ds_labels * ds.batch_size - 1} points, but got {cnt} points"
+    )
+
 
 def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = True
     print(am_path)
-    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+    for i in glob(
+        f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"
+    ):
         os.remove(i)
     ds = dapnet2_module_dataset_apnetStored(
         root=data_path,
@@ -780,30 +874,32 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
         skip_processed=False,
         skip_compile=True,
         print_level=2,
-        m1="Elst_aug", 
+        m1="Elst_aug",
         m2="Exch_aug",
     )
     apnet2_model = APNet2Model().set_pretrained_model(model_id=0)
     apnet2_model.model.return_hidden_states = True
-    dapnet2 = dAPNet2Model(
-        apnet2_model=apnet2_model,
-        dataset=ds
-    )
+    dapnet2 = dAPNet2Model(apnet2_model=apnet2_model, dataset=ds)
     dapnet2.train(
         n_epochs=2,
         skip_compile=True,
     )
-    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+    for i in glob(
+        f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"
+    ):
         os.remove(i)
     return
 
+
 def test_dapnet2_dataset_size_prebatched_train():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = True
     print(am_path)
-    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+    for i in glob(
+        f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"
+    ):
         os.remove(i)
     ds = dapnet2_module_dataset(
         root=data_path,
@@ -821,28 +917,27 @@ def test_dapnet2_dataset_size_prebatched_train():
         skip_processed=False,
         skip_compile=True,
         print_level=2,
-        m1="Elst_aug", 
+        m1="Elst_aug",
         m2="Exch_aug",
     )
     apnet2_model = APNet2Model().set_pretrained_model(model_id=0).model
     apnet2_model.return_hidden_states = True
-    dapnet2 = APNet2_dAPNet2Model(
-        apnet2_mpnn=apnet2_model,
-        dataset=ds
-    )
+    dapnet2 = APNet2_dAPNet2Model(apnet2_mpnn=apnet2_model, dataset=ds)
     dapnet2.train(
         n_epochs=2,
         skip_compile=True,
     )
-    for i in glob(f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"):
+    for i in glob(
+        f"{data_path}/processed_delta/dimer_dap2_spec_8_Elst_aug_to_Exch_aug_*.pt"
+    ):
         os.remove(i)
     return
 
 
 def test_apnet3_dataset_size_no_prebatched():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = False
     collate = apnet3_collate_update_prebatched if prebatched else apnet3_collate_update
     ds = apnet3_module_dataset(
@@ -865,7 +960,6 @@ def test_apnet3_dataset_size_no_prebatched():
     )
     print()
     print(ds)
-    
 
     train_loader = APNet2_DataLoader(
         dataset=ds,
@@ -885,10 +979,11 @@ def test_apnet3_dataset_size_no_prebatched():
         os.remove(i)
     assert ds_labels == cnt, f"Expected {len(ds)} points, but got {cnt} points"
 
+
 def test_apnet3_dataset_size_prebatched():
     batch_size = 2
-    atomic_batch_size=4
-    datapoint_storage_n_objects=8
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 8
     prebatched = True
     collate = apnet3_collate_update_prebatched if prebatched else apnet3_collate_update
     ds = apnet3_module_dataset(
@@ -929,7 +1024,9 @@ def test_apnet3_dataset_size_prebatched():
     ds_labels = len(ds)
     for i in glob(f"{data_path}/processed/dimer_ap3_spec_8*.pt"):
         os.remove(i)
-    assert ds_labels * ds.batch_size == cnt, f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    assert ds_labels * ds.batch_size == cnt, (
+        f"Expected {len(ds) * ds.batch_size} points, but got {cnt} points"
+    )
 
 
 def test_apnet2_model_train():
@@ -968,6 +1065,7 @@ def test_apnet2_model_train():
         skip_compile=True,
     )
     return
+
 
 def test_apnet2_model_train_small():
     ds = apnet2_module_dataset(
@@ -1011,7 +1109,7 @@ def test_apnet2_model_train_small():
 
 def test_apnet2_model_train_small_r_cut_im():
     r_cut_im = 16.0
-    n_rbf=12
+    n_rbf = 12
     ds = apnet2_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -1051,6 +1149,7 @@ def test_apnet2_model_train_small_r_cut_im():
         # lr_decay=None,
     )
     return
+
 
 def test_atomhirshfeld_model_train():
     ds = atomic_datasets.atomic_hirshfeld_module_dataset(
@@ -1195,7 +1294,10 @@ def test_am_dimer_multipole_ds():
 
 
 if __name__ == "__main__":
+    test_apnet2_dataset_size_prebatched()
     # test_dapnet2_dataset_size_prebatched()
     # test_dapnet2_train_qcel_molecules_in_memory_transfer()
     test_am_dimer_multipole_ds()
+    # test_apnet2_model_train()
+    # test_ap3_model_train()
     pass
