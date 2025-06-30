@@ -196,3 +196,4 @@ models/ap2_test.pt
 models/ap2_test_r_cut_im.pt
 dist
 build.sh
+tmp.sh
