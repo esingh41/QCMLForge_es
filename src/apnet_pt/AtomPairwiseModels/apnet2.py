@@ -504,14 +504,10 @@ class APNet2_MPNN(nn.Module):
 
         E_sr = EAB_sr + EBA_sr
 
-        cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
-        E_sr *= cutoff
-        # When natomsA == 1, this causes nans...
-        # print("Exit")
-        # return torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), hAB, hBA
-        # if ndimer < 1:
-        #     return torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), hAB, hBA
-        # print(E_sr.dtype, dimer_ind.dtype, ndimer.dtype)
+        # cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
+        # E_sr *= cutoff
+        cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
+        E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
                              reduce="add", dim_size=ndimer)
 
@@ -1227,7 +1223,8 @@ units angstrom
         comp_errors_t = []
         total_loss = 0.0
         for n, batch in enumerate(dataloader):
-            optimizer.zero_grad(set_to_none=True)  # minor speed-up
+            # optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad()
             batch = batch.to(rank_device, non_blocking=True)
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
                 batch)
@@ -1327,7 +1324,7 @@ units angstrom
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
-                    else loss_fn(preds, batch.y)
+                    else loss_fn(preds.flatten(), batch.y.flatten())
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
@@ -1361,7 +1358,7 @@ units angstrom
             if loss_fn is None:
                 batch_loss = torch.mean(torch.square(comp_errors))
             else:
-                batch_loss = loss_fn(preds, batch.y)
+                batch_loss = loss_fn(preds.flatten(), batch.y.flatten())
 
             batch_loss.backward()
             optimizer.step()
@@ -1424,7 +1421,7 @@ units angstrom
                 if loss_fn is None:
                     batch_loss = torch.mean(torch.square(comp_errors))
                 else:
-                    batch_loss = loss_fn(preds, batch.y)
+                    batch_loss = loss_fn(preds.flatten(), batch.y.flatten())
 
                 total_loss += batch_loss.item()
                 total_errors = preds.sum(dim=1) - batch.y.sum(dim=1)
@@ -1683,7 +1680,8 @@ units angstrom
             if lr_decay
             else None
         )
-        criterion = None  # defaults to MSE
+        # criterion = None  # defaults to MSE
+        criterion = torch.nn.MSELoss()
 
         # (4) Set eval functions
         if not transfer_learning:

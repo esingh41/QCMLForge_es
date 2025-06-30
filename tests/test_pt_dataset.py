@@ -1292,9 +1292,11 @@ def test_am_dimer_multipole_ds():
 
 
 if __name__ == "__main__":
-    test_apnet2_dataset_size_prebatched()
+    test_apnet2_train_qcel_molecules_in_memory()
+    # test_apnet2_dataset_size_prebatched()
     # test_dapnet2_dataset_size_prebatched()
     # test_dapnet2_train_qcel_molecules_in_memory_transfer()
     # test_apnet2_model_train()
     # test_ap3_model_train()
     pass
+
