@@ -192,6 +192,29 @@ def test_am_architecture():
         dtype=np.float32,
     )
 
+
+    hidden_list_v = [np.array([[0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+           [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+           [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]], dtype=np.float32),
+    np.array([[1.0521429, 1.0521429, 1.0521429, 1.0521429, 1.0521429, 1.0521429,
+            1.0521429, 1.0521429],
+           [1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331,
+            1.0513331, 1.0513331],
+           [1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331,
+            1.0513331, 1.0513331]], dtype=np.float32),
+    np.array([[13.901527, 13.901527, 13.901527, 13.901527, 13.901527, 13.901527,
+            13.901527, 13.901527],
+           [13.890074, 13.890074, 13.890074, 13.890074, 13.890074, 13.890074,
+            13.890074, 13.890074],
+           [13.890074, 13.890074, 13.890074, 13.890074, 13.890074, 13.890074,
+            13.890074, 13.890074]], dtype=np.float32),
+    np.array([[173.86403, 173.86403, 173.86403, 173.86403, 173.86403, 173.86403,
+            173.86403, 173.86403],
+           [173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 ,
+            173.7179 , 173.7179 ],
+           [173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 ,
+            173.7179 , 173.7179 ]], dtype=np.float32)]
+
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
@@ -202,15 +225,18 @@ def test_am_architecture():
     charges, dipoles, quads, hlist = v[0]
     charges = charges.detach().cpu().numpy()
     dipoles = dipoles.detach().cpu().numpy()
+    hlist = hlist.detach().cpu().numpy()
     quads = quads.detach().cpu().numpy()
     quads = quads.reshape(-1, 9)
     quads = np.array(
         [quads[i].flatten()[[0, 1, 2, 4, 5, 8]] for i in range(len(quads))]
     )
     print(f"{charges=}\n{dipoles=}\n{quads=}")
+    hlist = np.transpose(hlist, (1, 0, 2))
     assert allclose_sigfig(charges, tf_charges, sigfigs=3)
     assert allclose_sigfig(dipoles, tf_dipoles, sigfigs=3)
     assert allclose_sigfig(quads, tf_quads, sigfigs=3)
+    assert allclose_sigfig(hlist, hidden_list_v, sigfigs=3), f"{hlist - hidden_list_v=}"
 
 
 if __name__ == "__main__":
