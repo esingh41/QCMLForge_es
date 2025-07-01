@@ -118,7 +118,8 @@ def test_ap2_architecture():
 
 def test_ap2_architecture_tf():
     target_energies = [
-        0.06961952, 0.09670906, 0.09670906, 0.09670906
+        # 0.06961952, 0.09670906, 0.09670906, 0.09670906
+        -1663.7108,   654.5416,   654.5416,   654.5416
     ]
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
@@ -132,11 +133,15 @@ def test_ap2_architecture_tf():
         use_GPU=False,
     )
     output = pair_model.predict_qcel_mols([mol_water], batch_size=1)
-    set_weights_to_value(atom_model.model, 0.02)
-    set_weights_to_value(pair_model.model, 0.01)
+    set_weights_to_value(pair_model.atom_model, 0.02)
+    set_weights_to_value(pair_model.model, 0.02)
     output = pair_model.predict_qcel_mols([mol_water], batch_size=1)
     print(target_energies)
-    print(output[0])
+    print(output[0].tolist())
+    print(f"ELST : {output[0][0]:.6f}, {target_energies[0]:.6f}")
+    print(f"EXCH : {output[0][1]:.6f}, {target_energies[1]:.6f}")
+    print(f"INDU : {output[0][2]:.6f}, {target_energies[2]:.6f}")
+    print(f"DISP : {output[0][3]:.6f}, {target_energies[3]:.6f}")
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
 
