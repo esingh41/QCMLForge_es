@@ -1,9 +1,9 @@
 import apnet_pt
 import numpy as np
-import qcelemental
+import qcelemental as qcel
 import torch
 
-mol_dimer = qcelemental.models.Molecule.from_data("""
+mol_water = qcel.models.Molecule.from_data("""
 0 1
 O 0.000000 0.000000  0.000000
 H 0.758602 0.000000  0.504284
@@ -15,7 +15,7 @@ H 3.758602 0.500000  0.504284
 H 3.260455 0.500000 -0.872893
 """)
 
-mol3 = qcelemental.models.Molecule.from_data(
+mol3 = qcel.models.Molecule.from_data(
     """
     1 1
     C       0.0545060001    -0.1631290019   -1.1141539812
@@ -45,7 +45,7 @@ mol3 = qcelemental.models.Molecule.from_data(
     units angstrom
                 """
 )
-mol_fsapt = qcelemental.models.Molecule.from_data("""
+mol_fsapt = qcel.models.Molecule.from_data("""
 0 1
 C   11.54100       27.68600       13.69600
 H   12.45900       27.15000       13.44600
@@ -111,6 +111,30 @@ def test_ap2_architecture():
     output = pair_model.predict_qcel_mols([mol3], batch_size=1)
     set_weights_to_value(pair_model.model, 0.0001)
     output = pair_model.predict_qcel_mols([mol3], batch_size=1)
+    print(target_energies)
+    print(output[0])
+    assert np.allclose(output[0], target_energies, atol=1e-6)
+
+
+def test_ap2_architecture_tf():
+    target_energies = [
+        0.06961952, 0.09670906, 0.09670906, 0.09670906
+    ]
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    set_weights_to_value(atom_model.model, 0.02)
+    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
+        atom_model=atom_model.model,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    output = pair_model.predict_qcel_mols([mol_water], batch_size=1)
+    set_weights_to_value(atom_model.model, 0.02)
+    set_weights_to_value(pair_model.model, 0.01)
+    output = pair_model.predict_qcel_mols([mol_water], batch_size=1)
     print(target_energies)
     print(output[0])
     assert np.allclose(output[0], target_energies, atol=1e-6)
@@ -211,5 +235,5 @@ def test_ap2_predict_pairs():
 
 
 if __name__ == "__main__":
-    test_ap2_architecture()
+    test_ap2_architecture_tf()
     # test_ap2_predict_pairs()

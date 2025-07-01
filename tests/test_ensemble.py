@@ -1,10 +1,10 @@
 import apnet_pt
-import qcelemental
+import qcelemental as qcel
 import torch
 import os
 import numpy as np
 
-mol_mon = qcelemental.models.Molecule.from_data("""0 1
+mol_mon = qcel.models.Molecule.from_data("""0 1
 16  -0.8795  -2.0832  -0.5531
 7   -0.2959  -1.8177   1.0312
 7    0.5447  -0.7201   1.0401
@@ -15,7 +15,7 @@ mol_mon = qcelemental.models.Molecule.from_data("""0 1
 units angstrom
 """)
 
-mol_dimer = qcelemental.models.Molecule.from_data("""
+mol_dimer = qcel.models.Molecule.from_data("""
 0 1
 O 0.000000 0.000000  0.000000
 H 0.758602 0.000000  0.504284
@@ -27,7 +27,7 @@ H 3.758602 0.500000  0.504284
 H 3.260455 0.500000 -0.872893
 """)
 
-mol_fsapt = qcelemental.models.Molecule.from_data("""
+mol_fsapt = qcel.models.Molecule.from_data("""
 0 1
 C   11.54100       27.68600       13.69600
 H   12.45900       27.15000       13.44600
@@ -102,6 +102,8 @@ def test_ap2_ensemble():
     )
     # torch.save(interaction_energies, os.path.join(os.path.dirname(
     #     __file__), "dataset_data/ap2_ensemble_test.pt"))
+    print(interaction_energies)
+    print(ref)
     assert np.allclose(interaction_energies, ref, atol=1e-6)
 
 
@@ -186,5 +188,5 @@ def test_ap2_ensemble_predict_pairs():
 
 if __name__ == "__main__":
     # test_am_ensemble()
-    # test_ap2_ensemble()
-    test_ap2_ensemble_predict_pairs()
+    test_ap2_ensemble()
+    # test_ap2_ensemble_predict_pairs()

@@ -22,7 +22,7 @@ import os
 import numpy as np
 import pytest
 from glob import glob
-import qcelemental
+import qcelemental as qcel
 import torch
 import pandas as pd
 from pprint import pprint as pp
@@ -36,7 +36,7 @@ am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
 am_hf_path = f"{current_file_path}/../src/apnet_pt/models/am_hf_ensemble/am_0.pt"
 
 
-mol_mon = qcelemental.models.Molecule.from_data("""0 1
+mol_mon = qcel.models.Molecule.from_data("""0 1
 16  -0.8795  -2.0832  -0.5531
 7   -0.2959  -1.8177   1.0312
 7    0.5447  -0.7201   1.0401
@@ -47,7 +47,7 @@ mol_mon = qcelemental.models.Molecule.from_data("""0 1
 units angstrom
 """)
 
-mol_dimer = qcelemental.models.Molecule.from_data("""
+mol_dimer = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714
@@ -59,7 +59,7 @@ mol_dimer = qcelemental.models.Molecule.from_data("""
 1   2.641145101   -0.449872874   -0.744894473
 """)
 
-mol_dimer2 = qcelemental.models.Molecule.from_data("""
+mol_dimer2 = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714
@@ -71,7 +71,7 @@ mol_dimer2 = qcelemental.models.Molecule.from_data("""
 1   3.641145101   -0.449872874   -0.744894473
 """)
 
-mol_A = qcelemental.models.Molecule.from_data("""
+mol_A = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714

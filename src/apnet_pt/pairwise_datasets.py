@@ -783,8 +783,8 @@ class apnet2_module_dataset(Dataset):
             ]
         elif self.spec_type == 7:
             return [
-                "t_train10k.pkl",
-                "t_test2k.pkl",
+                "t_train_100.pkl",
+                "t_test_20.pkl",
             ]
         elif self.spec_type == 8:
             return [
@@ -885,7 +885,7 @@ class apnet2_module_dataset(Dataset):
         RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
         if self.qcel_molecules is not None and self.energy_labels is not None:
             print("Processing directly from provided QCElemental molecules...")
-            split_name = ""
+            split_name = f"_{self.split}" if self.split != 'all' else ""
             
             # Process directly from qcel_mols and energy_labels
             for mol in self.qcel_molecules:
@@ -960,6 +960,7 @@ class apnet2_module_dataset(Dataset):
                     self.processed_dir,
                     f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
                 )
+                print(f"{datapath = }")
                 if osp.exists(datapath):
                     idx += 1
                     continue
@@ -974,8 +975,9 @@ class apnet2_module_dataset(Dataset):
                 molA_data.append(monA_data)
                 molB_data.append(monB_data)
                 energies.append(targets[j])
-            # if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
-            if len(molA_data) != self.atomic_batch_size:
+            if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
+            # print(len(molA_data), self.atomic_batch_size)
+            # if len(molA_data) != self.atomic_batch_size:
                 continue
             batch_A = atomic_datasets.atomic_collate_update_no_target(
                 molA_data)
@@ -1141,7 +1143,7 @@ class apnet2_module_dataset(Dataset):
         if self.active_idx_data == idx_datapath:
             return self.active_data[obj_ind]
         split_name = ""
-        if self.spec_type in [2, 5, 6, 7, 9]:
+        if self.spec_type in [2, 5, 6, 7, 9, None]:
             split_name = f"_{self.split}"
         datapath = osp.join(
             self.processed_dir, f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
@@ -1626,7 +1628,7 @@ class apnet3_module_dataset(Dataset):
         if self.active_idx_data == idx_datapath:
             return self.active_data[obj_ind]
         split_name = ""
-        if self.spec_type in [2, 5, 6, 7]:
+        if self.spec_type in [2, 5, 6, 7, 9, None]:
             split_name = f"_{self.split}"
         datapath = osp.join(
             self.processed_dir, f"dimer_ap3{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"

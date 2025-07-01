@@ -504,10 +504,10 @@ class APNet2_MPNN(nn.Module):
 
         E_sr = EAB_sr + EBA_sr
 
-        # cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
-        # E_sr *= cutoff
-        cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
-        E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
+        cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
+        E_sr *= cutoff
+        # cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
+        # E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
                              reduce="add", dim_size=ndimer)
 
@@ -607,6 +607,8 @@ class APNet2Model:
         ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
         print_lvl=0,
+        ds_qcel_molecules=None,
+        ds_energy_labels=None,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -701,13 +703,19 @@ class APNet2Model:
             self.model.r_cut = r_cut
         self.model.to(device)
         split_dbs = [2, 5, 6, 7]
+        ds_qcel_split_db = (
+            ds_qcel_molecules is not None
+            and len(ds_qcel_molecules) == 2
+            and isinstance(ds_qcel_molecules[0], list)
+        )
+        print(ds_qcel_split_db)
         self.dataset = dataset
         if (
             not ignore_database_null
             and self.dataset is None
             and self.ds_spec_type not in split_dbs
+            and not ds_qcel_split_db
         ):
-
             def setup_ds(fp=ds_force_reprocess):
                 return apnet2_module_dataset(
                     root=ds_root,
@@ -723,6 +731,8 @@ class APNet2Model:
                     datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                     prebatched=ds_prebatched,
                     print_level=print_lvl,
+                    qcel_molecules=ds_qcel_molecules,
+                    energy_labels=ds_energy_labels,
                 )
 
             self.dataset = setup_ds()
@@ -732,7 +742,7 @@ class APNet2Model:
         elif (
             not ignore_database_null
             and self.dataset is None
-            and self.ds_spec_type in split_dbs
+            and (self.ds_spec_type in split_dbs or ds_qcel_split_db)
         ):
             print("Processing Split dataset...")
 
@@ -753,6 +763,8 @@ class APNet2Model:
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
+                        qcel_molecules=ds_qcel_molecules[0],
+                        energy_labels=ds_energy_labels[0],
                     ),
                     apnet2_module_dataset(
                         root=ds_root,
@@ -769,6 +781,8 @@ class APNet2Model:
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
+                        qcel_molecules=ds_qcel_molecules[1],
+                        energy_labels=ds_energy_labels[1],
                     ),
                 ]
 
@@ -1848,7 +1862,6 @@ units angstrom
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
             batch_size = train_dataset.training_batch_size
-
         self.batch_size = batch_size
         print("~~ Training APNet2Model ~~", flush=True)
         print(
