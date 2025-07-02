@@ -750,6 +750,8 @@ class APNet2Model:
             print("Processing Split dataset...")
 
             def setup_ds(fp=ds_force_reprocess):
+                ds_qcel_molecules = [None, None]
+                ds_energy_labels = [None, None]
                 return [
                     apnet2_module_dataset(
                         root=ds_root,
