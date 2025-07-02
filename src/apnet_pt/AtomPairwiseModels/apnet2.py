@@ -603,6 +603,7 @@ class APNet2Model:
         ds_atomic_batch_size=200,
         ds_force_reprocess=False,
         ds_skip_process=False,
+        ds_skip_compile=False,
         ds_num_devices=1,
         ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
@@ -646,6 +647,7 @@ class APNet2Model:
             }
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
+            print("Using provided AtomMPNN model:", atom_model)
             self.atom_model = atom_model
         else:
             print(
@@ -723,10 +725,12 @@ class APNet2Model:
                     spec_type=ds_spec_type,
                     max_size=ds_max_size,
                     force_reprocess=fp,
-                    atom_model_path=atom_model_pre_trained_path,
+                    atom_model=self.atom_model,
+                    # atom_model_path=atom_model_pre_trained_path,
                     atomic_batch_size=ds_atomic_batch_size,
                     num_devices=ds_num_devices,
                     skip_processed=ds_skip_process,
+                    skip_compile=ds_skip_compile,
                     datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                     prebatched=ds_prebatched,
                     print_level=print_lvl,
@@ -754,10 +758,11 @@ class APNet2Model:
                         spec_type=ds_spec_type,
                         max_size=ds_max_size,
                         force_reprocess=fp,
-                        atom_model_path=atom_model_pre_trained_path,
+                        atom_model=self.atom_model,
                         atomic_batch_size=ds_atomic_batch_size,
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
+                        skip_compile=ds_skip_compile,
                         split="train",
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
@@ -772,10 +777,11 @@ class APNet2Model:
                         spec_type=ds_spec_type,
                         max_size=ds_max_size,
                         force_reprocess=fp,
-                        atom_model_path=atom_model_pre_trained_path,
+                        atom_model=self.atom_model,
                         atomic_batch_size=ds_atomic_batch_size,
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
+                        skip_compile=ds_skip_compile,
                         split="test",
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
@@ -1313,7 +1319,7 @@ units angstrom
             scheduler.step()
 
         comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))

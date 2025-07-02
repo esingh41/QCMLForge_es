@@ -22,7 +22,7 @@ H 3.260455 0.500000 -0.872893
 
 def set_weights_to_value(model, value=0.9):
     """Sets all weights and biases in the model to a specific value."""
-    print(f"Setting all weights and biases to {value}")
+    print(f"Setting all weights and biases {value}")
     with torch.no_grad():  # Disable gradient tracking
         for param in model.parameters():
             param.fill_(value)  # Set all elements to the given value
@@ -60,8 +60,14 @@ def train_pairwise_model(
 
     ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
+    AM = None
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
+        AM = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+            pre_trained_model_path=am_model_path,
+        ).model
+        set_weights_to_value(AM, value=weights)
+        am_model_path = None
     elif apnet_model_type == "APNet3":
         APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":
@@ -116,6 +122,7 @@ def train_pairwise_model(
         )
         apnet2 = APNet(
             apnet2_model=apnet2_model,
+            atom_model=AM,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
             n_rbf=n_rbf,
@@ -136,6 +143,7 @@ def train_pairwise_model(
         )
     else:
         apnet2 = APNet(
+            atom_model=AM,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
             n_rbf=n_rbf,
@@ -149,6 +157,7 @@ def train_pairwise_model(
             ds_atomic_batch_size=ds_atomic_batch_size,
             ds_num_devices=1,
             ds_skip_process=False,
+            ds_skip_compile=True,
             ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
             ds_prebatched=ds_prebatched,
             ds_qcel_molecules=ds_qcel_molecules,
@@ -188,14 +197,13 @@ def main():
         columns=["Elst_aug", "Exch_aug", "Ind_aug", "Disp_aug"],
         return_qcel_mols=True,
     )
-    print(train_labels.shape)
-    print(test_labels.shape)
+    print(train_mols[0])
     train_pairwise_model(
         apnet_model_type="APNet2",
         model_out=model_out,
         am_model_path=am_model_path,
         data_dir="./data_dir",
-        n_epochs=100,
+        n_epochs=10,
         lr=5e-4,
         lr_decay=None,
         random_seed=42,

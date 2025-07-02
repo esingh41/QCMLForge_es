@@ -728,7 +728,14 @@ class apnet2_module_dataset(Dataset):
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
         if atom_model is not None:
-            self.atom_model = atom_model
+            if isinstance(atom_model, AtomModel):
+                self.atom_model = atom_model
+            else:
+                self.atom_model = AtomModel(
+                    ds_root=None,
+                    ignore_database_null=True,
+                )
+                self.atom_model.model = atom_model
             if not skip_compile:
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True)
