@@ -1319,7 +1319,7 @@ units angstrom
             scheduler.step()
 
         comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
-        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t)))
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
@@ -1345,7 +1345,7 @@ units angstrom
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
         comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
@@ -1382,7 +1382,7 @@ units angstrom
             scheduler.step()
 
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         return total_loss, total_MAE_t
 
     # @torch.inference_mode()
@@ -1405,7 +1405,7 @@ units angstrom
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         return total_loss, total_MAE_t
 
     ########################################################################
