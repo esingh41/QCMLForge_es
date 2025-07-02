@@ -607,6 +607,7 @@ class APNet2Model:
         ds_num_devices=1,
         ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
+        ds_random_seed=42,
         print_lvl=0,
         ds_qcel_molecules=None,
         ds_energy_labels=None,
@@ -731,6 +732,7 @@ class APNet2Model:
                     num_devices=ds_num_devices,
                     skip_processed=ds_skip_process,
                     skip_compile=ds_skip_compile,
+                    random_seed=ds_random_seed,
                     datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                     prebatched=ds_prebatched,
                     print_level=print_lvl,
@@ -748,10 +750,11 @@ class APNet2Model:
             and (self.ds_spec_type in split_dbs or ds_qcel_split_db)
         ):
             print("Processing Split dataset...")
-
-            def setup_ds(fp=ds_force_reprocess):
+            if ds_qcel_molecules is None:
                 ds_qcel_molecules = [None, None]
                 ds_energy_labels = [None, None]
+
+            def setup_ds(fp=ds_force_reprocess):
                 return [
                     apnet2_module_dataset(
                         root=ds_root,
@@ -765,6 +768,7 @@ class APNet2Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         skip_compile=ds_skip_compile,
+                        random_seed=ds_random_seed,
                         split="train",
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
@@ -784,6 +788,7 @@ class APNet2Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         skip_compile=ds_skip_compile,
+                        random_seed=ds_random_seed,
                         split="test",
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
@@ -1878,9 +1883,8 @@ units angstrom
         lr=5e-4,
         split_percent=0.9,
         model_path=None,
-        shuffle=False,
+        shuffle=True,
         dataloader_num_workers=4,
-        optimize_for_speed=True,
         world_size=1,
         omp_num_threads_per_process=6,
         lr_decay=None,
@@ -1954,10 +1958,6 @@ units angstrom
             pin_memory = False
         else:
             pin_memory = False
-
-        # if optimize_for_speed:
-        # torch.jit.enable_onednn_fusion(False)
-        # torch.autograd.set_detect_anomaly(True)
 
         self.shuffle = shuffle
 

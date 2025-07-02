@@ -142,6 +142,25 @@ def train_pairwise_model(
             ds_m2=m2,
         )
     else:
+        print(
+            am_model_path,
+            pretrained_model,
+            n_rbf,
+            n_neuron,
+            n_embed,
+            r_cut,
+            r_cut_im,
+            spec_type,
+            data_dir,
+            False,
+            ds_atomic_batch_size,
+            1,
+            False,
+            ds_datapoint_storage_n_objects,
+            True,
+            m1,
+            m2,
+        )
         apnet2 = APNet(
             atom_model=AM,
             atom_model_pre_trained_path=am_model_path,

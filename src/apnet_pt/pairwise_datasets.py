@@ -671,6 +671,7 @@ class apnet2_module_dataset(Dataset):
         print_level=1,
         qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
         energy_labels: Optional[List[float]] = None,
+        random_seed=42,
     ):
         """
         spec_type definitions:
@@ -706,6 +707,7 @@ class apnet2_module_dataset(Dataset):
             )
             self.prebatched = True
         self.MAX_SIZE = max_size
+        self.random_seed = random_seed
         self.in_memory = in_memory
         self.split = split
         self.r_cut = r_cut
@@ -752,15 +754,15 @@ class apnet2_module_dataset(Dataset):
             if not skip_compile:
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True)
+        print(
+            f"{root=}, {self.spec_type=}, {self.in_memory=}"
+        )
         super(apnet2_module_dataset, self).__init__(
             root, transform, pre_transform)
         if self.force_reprocess:
             self.force_reprocess = False
             super(apnet2_module_dataset, self).__init__(
                 root, transform, pre_transform)
-        print(
-            f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
-        )
         if self.in_memory:
             self.get = self.get_in_memory
         self.batch_size = batch_size
@@ -801,6 +803,11 @@ class apnet2_module_dataset(Dataset):
             return [
                 "t_train_19.pkl",
                 "t_test_19.pkl",
+            ]
+        elif self.spec_type is None:
+            os.system(f"touch {self.raw_dir}/tmp.txt")
+            return [
+                'tmp.txt'
             ]
         else:
             return [
@@ -946,7 +953,7 @@ class apnet2_module_dataset(Dataset):
                 RA, RB, ZA, ZB, TQA, TQB, target = util.load_dimer_dataset(
                     raw_path, self.MAX_SIZE, return_qcel_mols=False, return_qcel_mons=False,
                     columns=["Elst_aug", "Exch_aug", "Ind_aug", "Disp_aug"],
-                    shuffle=True,
+                    random_seed_shuffle=self.random_seed,
                 )
                 RAs.extend(RA)
                 RBs.extend(RB)
