@@ -117,25 +117,29 @@ def test_ap2_architecture():
 
 
 def test_ap2_architecture_tf():
-    target_energies = [
-        # 0.06961952, 0.09670906, 0.09670906, 0.09670906
-        -1663.7108,   654.5416,   654.5416,   654.5416
-    ]
+    target_energies = [0.06961948, 0.09670904, 0.09670904, 0.09670904]
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
         use_GPU=False,
     )
-    set_weights_to_value(atom_model.model, 0.02)
+    set_weights_to_value(atom_model.model, 0.01)
     pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
         atom_model=atom_model.model,
         ignore_database_null=True,
         use_GPU=False,
     )
     output = pair_model.predict_qcel_mols([mol_water], batch_size=1)
-    set_weights_to_value(pair_model.atom_model, 0.02)
-    set_weights_to_value(pair_model.model, 0.02)
-    output = pair_model.predict_qcel_mols([mol_water], batch_size=1)
+    # NOTE: tf model logic sets atom model weights to be same, so need
+    # to ensure that all are in agreement
+    set_weights_to_value(pair_model.atom_model, 0.01)
+    set_weights_to_value(pair_model.model, 0.01)
+    output, mtp_elst = pair_model.predict_qcel_mols(
+        [mol_water], batch_size=1, return_elst=True
+    )
+    mtp_elst = np.sum(mtp_elst)
+    print(f"MTP ELST: {mtp_elst:6f}")
+    print(f"NN  ELST: {(output[0][0] - mtp_elst):6f}")
     print(target_energies)
     print(output[0].tolist())
     print(f"ELST : {output[0][0]:.6f}, {target_energies[0]:.6f}")
