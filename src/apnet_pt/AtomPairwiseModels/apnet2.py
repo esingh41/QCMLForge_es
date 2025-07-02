@@ -1313,6 +1313,8 @@ units angstrom
             )
             batch_loss.backward()
             optimizer.step()
+            # print(preds[0][0].item(), batch.y[0].numpy())
+            # print(f"    Loss value: {batch_loss.item()}")
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
         if scheduler is not None:
@@ -1735,6 +1737,7 @@ units angstrom
             dataset=train_dataset,
             batch_size=batch_size,
             shuffle=True,
+            # shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
             collate_fn=collate_fn,

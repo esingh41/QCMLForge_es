@@ -946,6 +946,7 @@ class apnet2_module_dataset(Dataset):
                 RA, RB, ZA, ZB, TQA, TQB, target = util.load_dimer_dataset(
                     raw_path, self.MAX_SIZE, return_qcel_mols=False, return_qcel_mons=False,
                     columns=["Elst_aug", "Exch_aug", "Ind_aug", "Disp_aug"],
+                    shuffle=True,
                 )
                 RAs.extend(RA)
                 RBs.extend(RB)

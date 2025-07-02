@@ -163,6 +163,7 @@ def load_dimer_dataset(
     columns=["Total_aug", "Elst_aug", "Exch_aug", "Ind_aug", "Disp_aug"],
     return_qcel_mols=True,
     return_qcel_mons=False,
+    shuffle=False,
 ):
     """Load multiple dimers from a :class:`~pandas.DataFrame`
 
@@ -192,6 +193,8 @@ def load_dimer_dataset(
     df = pd.read_pickle(file)
     if len(columns) > 0:
         df.dropna(subset=columns, inplace=True)
+    if shuffle:
+        df = df.sample(frac=1, random_state=4201).reset_index(drop=True)
     allowed_elements = constants.z_to_elem.keys()
     len_df_start = len(df)
     df = df[

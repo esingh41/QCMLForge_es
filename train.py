@@ -203,7 +203,7 @@ def main():
         model_out=model_out,
         am_model_path=am_model_path,
         data_dir="./data_dir",
-        n_epochs=5,
+        n_epochs=20,
         lr=5e-4,
         lr_decay=None,
         random_seed=42,
