@@ -131,10 +131,10 @@ def unwrap_model(model):
     return model.module if isinstance(model, DDP) else model
 
 
-class APNet2_MPNN(nn.Module):
+class APNet2_AM_MPNN(nn.Module):
     def __init__(
         self,
-        # atom_model,
+        atom_model: AtomMPNN,
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -145,7 +145,9 @@ class APNet2_MPNN(nn.Module):
     ):
         # super().__init__(aggr="add")
         super().__init__()
-        # self.atom_model = atom_model
+        self.atom_model = atom_model
+        # set atom_model parameters to be not trainable
+        self.atom_model.requires_grad_(False)
 
         self.n_message = n_message
         self.n_rbf = n_rbf
@@ -332,27 +334,16 @@ class APNet2_MPNN(nn.Module):
         # intramonomer edges (monomer A)
         e_AA_source,
         e_AA_target,
+        monomerA_ind,
         # intramonomer edges (monomer B)
         e_BB_source,
         e_BB_target,
+        monomerB_ind,
         # monomer charges
         total_charge_A,
         total_charge_B,
-        # monomer A properties
-        qA,
-        muA,
-        quadA,
-        hlistA,
-        # monomer B properties
-        qB,
-        muB,
-        quadB,
-        hlistB,
     ):
         # counts
-        # natomA = ZA.size(0)
-        # natomB = ZB.size(0)
-        # ndimer = total_charge_A.size(0)
         natomA = torch.tensor(ZA.size(0), dtype=torch.long)
         natomB = torch.tensor(ZB.size(0), dtype=torch.long)
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
@@ -376,6 +367,17 @@ class APNet2_MPNN(nn.Module):
         rbf_sr = self.distance_layer_im(dR_sr)
         rbfA = self.distance_layer(dRA)
         rbfB = self.distance_layer(dRB)
+
+        ##########################################################
+        ### predict monomer properties w/ pretrained AtomModel ###
+        ##########################################################
+
+        qA, muA, quadA, hlistA = self.atom_model(
+            ZA, RA, e_AA_source, e_AA_target, monomerA_ind, total_charge_A,
+        )
+        qB, muB, quadB, hlistB = self.atom_model(
+            ZB, RB, e_BB_source, e_BB_target, monomerB_ind, total_charge_B,
+        )
 
         ################################################################
         ### predict SAPT components via intramonomer message passing ###
@@ -580,7 +582,7 @@ class APNet2_MPNN(nn.Module):
         return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
 
 
-class APNet2Model:
+class APNet2_AM_Model:
     def __init__(
         self,
         dataset=None,
@@ -660,7 +662,8 @@ class APNet2Model:
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = APNet2_MPNN(
+            self.model = APNet2_AM_MPNN(
+                atom_model=self.atom_model,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -674,8 +677,8 @@ class APNet2Model:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = APNet2_MPNN(
-                # atom_model=self.atom_model,
+            self.model = APNet2_AM_MPNN(
+                atom_model=self.atom_model,
                 n_message=n_message,
                 n_rbf=n_rbf,
                 n_neuron=n_neuron,
