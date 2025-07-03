@@ -1,4 +1,4 @@
-name: qcml2
+name: qcml
 channels:
   - pytorch
   - nvidia
