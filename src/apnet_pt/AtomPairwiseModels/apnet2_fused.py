@@ -8,11 +8,11 @@ import time
 from ..AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
 from .. import atomic_datasets
 from .. import pairwise_datasets
-from ..pairwise_datasets import (
-    apnet2_module_dataset,
-    APNet2_DataLoader,
-    apnet2_collate_update,
-    apnet2_collate_update_prebatched,
+from ..pt_datasets.ap2_fused_ds import (
+    ap2_module_dataset,
+    APNet2_fused_DataLoader,
+    ap2_collate_update,
+    ap2_collate_update_prebatched,
     pairwise_edges,
     pairwise_edges_im,
     qcel_dimer_to_pyg_data,
@@ -723,7 +723,7 @@ class APNet2_AM_Model:
             and not ds_qcel_split_db
         ):
             def setup_ds(fp=ds_force_reprocess):
-                return apnet2_module_dataset(
+                return ap2_module_dataset(
                     root=ds_root,
                     r_cut=r_cut,
                     r_cut_im=r_cut_im,
@@ -760,7 +760,7 @@ class APNet2_AM_Model:
 
             def setup_ds(fp=ds_force_reprocess):
                 return [
-                    apnet2_module_dataset(
+                    ap2_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -780,7 +780,7 @@ class APNet2_AM_Model:
                         qcel_molecules=ds_qcel_molecules[0],
                         energy_labels=ds_energy_labels[0],
                     ),
-                    apnet2_module_dataset(
+                    ap2_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -987,7 +987,7 @@ class APNet2_AM_Model:
                         hlistB=hlistB,
                     )
                     dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
+                dimer_batch = pairwise_datasets.ap2_collate_update_no_target(
                     dimer_ls
                 )
         dimer_batch.to(self.device)
@@ -1217,7 +1217,7 @@ class APNet2_AM_Model:
                             hlistB=hlistB,
                         )
                         dimer_ls.append(data)
-                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target_monomer_indices(
+                dimer_batch = pairwise_datasets.ap2_collate_update_no_target_monomer_indices(
                     dimer_ls
                 )
                 dimer_batch.to(device=self.device)
@@ -1569,13 +1569,13 @@ units angstrom
         if rank == 0:
             print("Model Transferred to device")
         if world_size > 1:
-            first_pass_data = APNet2_DataLoader(
+            first_pass_data = APNet2_fused_DataLoader(
                 dataset=test_dataset[:batch_size],
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
-                collate_fn=apnet2_collate_update,
+                collate_fn=ap2_collate_update,
             )
             for b in first_pass_data:
                 b.to(rank_device)
@@ -1603,24 +1603,24 @@ units angstrom
             else None
         )
 
-        train_loader = APNet2_DataLoader(
+        train_loader = APNet2_fused_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
             shuffle=(train_sampler is None),
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=apnet2_collate_update,
+            collate_fn=ap2_collate_update,
         )
 
-        test_loader = APNet2_DataLoader(
+        test_loader = APNet2_fused_DataLoader(
             dataset=test_dataset,
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=apnet2_collate_update,
+            collate_fn=ap2_collate_update,
         )
         if rank == 0:
             print("Loaders setup\n")
@@ -1740,10 +1740,10 @@ units angstrom
         # (2) Dataloaders
         # if self.ds_spec_type in [1, 5, 6]:
         if train_dataset.prebatched:
-            collate_fn = apnet2_collate_update_prebatched
+            collate_fn = ap2_collate_update_prebatched
         else:
-            collate_fn = apnet2_collate_update
-        train_loader = APNet2_DataLoader(
+            collate_fn = ap2_collate_update
+        train_loader = APNet2_fused_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
             shuffle=True,
@@ -1752,7 +1752,7 @@ units angstrom
             pin_memory=pin_memory,
             collate_fn=collate_fn,
         )
-        test_loader = APNet2_DataLoader(
+        test_loader = APNet2_fused_DataLoader(
             dataset=test_dataset,
             batch_size=batch_size,
             shuffle=False,
