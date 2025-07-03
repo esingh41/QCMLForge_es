@@ -1728,6 +1728,7 @@ units angstrom
         # self.model.to(rank_device)
         batch = self.example_input()
         batch.to(rank_device)
+        print(batch)
         self.model(**batch)
         best_model = deepcopy(self.model)
         if not skip_compile:

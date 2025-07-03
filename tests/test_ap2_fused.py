@@ -8,6 +8,7 @@ from apnet_pt.pt_datasets.ap2_fused_ds import (
     ap2_fused_collate_update,
     APNet2_fused_DataLoader,
 )
+from apnet_pt.AtomPairwiseModels.apnet2_fused import APNet2_AM_Model
 from glob import glob
 
 torch.manual_seed(42)
@@ -112,16 +113,16 @@ def test_ap2_fused_dataset_size():
     assert ds_labels == cnt, f"Expected {len(ds)} points, but got {cnt} points"
 
 
-def test_apnet2_train_qcel_molecules_in_memory():
+def test_ap2_fused_train_qcel_molecules_in_memory():
     batch_size = 2
     atomic_batch_size = 4
     datapoint_storage_n_objects = 6
-    prebatched = False
     qcel_molecules = [mol_dimer] * 31
     energy_labels = [[1.0] * 4 for _ in range(len(qcel_molecules))]
-    atom_model = AtomModels.ap2_atom_model.AtomModel().set_pretrained_model(model_id=0)
-    ap2 = APNet2Model().set_pretrained_model(model_id=0)
-    ds = apnet2_module_dataset(
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel().set_pretrained_model(model_id=0)
+    ap2 = APNet2_AM_Model()
+    apnet_pt.torch_util.set_weights_to_value(atom_model.model, 0.01)
+    ds = ap2_fused_module_dataset(
         root=data_path,
         r_cut=5.0,
         r_cut_im=8.0,
@@ -132,7 +133,6 @@ def test_apnet2_train_qcel_molecules_in_memory():
         atomic_batch_size=atomic_batch_size,
         datapoint_storage_n_objects=datapoint_storage_n_objects,
         batch_size=batch_size,
-        prebatched=prebatched,
         num_devices=1,
         skip_processed=False,
         skip_compile=True,
@@ -156,7 +156,7 @@ def test_apnet2_train_qcel_molecules_in_memory():
         n_epochs=1,
         skip_compile=True,
         transfer_learning=False,
-        lr=0.5,
+        lr=0.05,
     )
     v = ap2.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
     print(v_0, v)
@@ -190,5 +190,6 @@ def test_ap2_fused_architecture():
 
 
 if __name__ == "__main__":
-    test_ap2_fused_dataset_size()
+    # test_ap2_fused_dataset_size()
     # test_ap2_fused_architecture()
+    test_ap2_fused_train_qcel_molecules_in_memory()

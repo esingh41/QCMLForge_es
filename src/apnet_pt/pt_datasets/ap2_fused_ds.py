@@ -22,14 +22,66 @@ from importlib import resources
 from apnet_pt import constants
 
 
-def qcel_dimer_to_pyg_data(dimer, r_cut=5.0, custom=False):
-    data_A = atomic_datasets.qcel_mon_to_pyg_data(
-        dimer.get_fragment(0), r_cut=r_cut, custom=custom
+def qcel_dimer_to_fused_data(dimer, r_cut=5.0, r_cut_im=8.0, **kwargs):
+    return dimer_fused_data(
+        RA=dimer.get_fragment(0).geometry * constants.au2ang,
+        ZA=dimer.get_fragment(0).atomic_numbers,
+        TQA=dimer.get_fragment(0).molecular_charge,
+        RB=dimer.get_fragment(1).geometry * constants.au2ang,
+        ZB=dimer.get_fragment(1).atomic_numbers,
+        TQB=dimer.get_fragment(1).molecular_charge,
+        r_cut=r_cut,
+        r_cut_im=r_cut_im,
+        **kwargs,
     )
-    data_B = atomic_datasets.qcel_mon_to_pyg_data(
-        dimer.get_fragment(1), r_cut=r_cut, custom=custom
+
+
+def dimer_fused_data(
+    RA,
+    ZA,
+    TQA,
+    RB,
+    ZB,
+    TQB,
+    dimer_ind,
+    r_cut=5.0,
+    r_cut_im=8.0,
+    **kwargs,
+):
+    atomic_props_A = atomic_datasets.create_atomic_data(ZA, RA, TQA, r_cut=r_cut)
+    atomic_props_B = atomic_datasets.create_atomic_data(ZB, RB, TQB, r_cut=r_cut)
+    e_AA_source, e_AA_target = pairwise_edges(atomic_props_A.R, r_cut)
+    e_BB_source, e_BB_target = pairwise_edges(atomic_props_B.R, r_cut)
+    e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = pairwise_edges_im(
+        atomic_props_A.R, atomic_props_B.R, r_cut_im
     )
-    return data_A, data_B
+    dimer_ind = torch.ones((1), dtype=torch.long) * dimer_ind
+    return Data(
+        ZA=atomic_props_A.x,
+        RA=atomic_props_A.R,
+        ZB=atomic_props_B.x,
+        RB=atomic_props_B.R,
+        # short range, intermolecular edges
+        e_ABsr_source=e_ABsr_source,
+        e_ABsr_target=e_ABsr_target,
+        dimer_ind=dimer_ind,
+        # long range, intermolecular edges
+        e_ABlr_source=e_ABlr_source,
+        e_ABlr_target=e_ABlr_target,
+        dimer_ind_lr=dimer_ind,
+        # intramonomer edges (monomer A)
+        e_AA_source=e_AA_source,
+        e_AA_target=e_AA_target,
+        molecule_ind_A=atomic_props_A.molecule_ind,
+        # intramonomer edges (monomer B)
+        e_BB_source=e_BB_source,
+        e_BB_target=e_BB_target,
+        molecule_ind_B=atomic_props_B.molecule_ind,
+        # monomer charges
+        total_charge_A=atomic_props_A.total_charge,
+        total_charge_B=atomic_props_B.total_charge,
+        **kwargs,  # allows for additional properties to be passed in
+    )
 
 
 def natural_key(text):
@@ -116,10 +168,10 @@ def ap2_fused_collate_update(batch):
             torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
         )
         data.molecule_ind_A = (
-            torch.ones(data.e_AA_source.size(0), dtype=data.molecule_ind_A.dtype) * i
+            torch.ones(data.molecule_ind_A.size(0), dtype=data.molecule_ind_A.dtype) * i
         )
         data.molecule_ind_B = (
-            torch.ones(data.e_BB_source.size(0), dtype=data.molecule_ind_B.dtype) * i
+            torch.ones(data.molecule_ind_B.size(0), dtype=data.molecule_ind_B.dtype) * i
         )
         local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
@@ -134,6 +186,10 @@ def ap2_fused_collate_update(batch):
 
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
+    molecule_ind_A = torch.cat([data.molecule_ind_A for data in batch], dim=0)
+    molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
+    natom_per_mol_A = torch.bincount(molecule_ind_A)
+    natom_per_mol_B = torch.bincount(molecule_ind_B)
     y = torch.stack([data.y for data in batch], dim=0)
     batched_data = Data(
         y=y,
@@ -143,10 +199,12 @@ def ap2_fused_collate_update(batch):
         RB=torch.cat([data.RB for data in batch], dim=0),
         e_AA_source=torch.cat(local_e_AA_source, dim=0),
         e_AA_target=torch.cat(local_e_AA_target, dim=0),
-        molecule_ind_A=torch.cat([data.molecule_ind_A for data in batch], dim=0),
-        molecule_ind_B=torch.cat([data.molecule_ind_B for data in batch], dim=0),
         e_BB_source=torch.cat(local_e_BB_source, dim=0),
         e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        molecule_ind_A=molecule_ind_A,
+        molecule_ind_B=molecule_ind_B,
+        natom_per_mol_A=natom_per_mol_A,
+        natom_per_mol_B=natom_per_mol_B,
         e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
         e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
         e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
@@ -185,6 +243,12 @@ def ap2_fused_collate_update_no_target(batch):
         data.dimer_ind_lr = (
             torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
         )
+        data.molecule_ind_A = (
+            torch.ones(data.molecule_ind_A.size(0), dtype=data.molecule_ind_A.dtype) * i
+        )
+        data.molecule_ind_B = (
+            torch.ones(data.molecule_ind_B.size(0), dtype=data.molecule_ind_B.dtype) * i
+        )
         local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
         local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
@@ -196,6 +260,10 @@ def ap2_fused_collate_update_no_target(batch):
 
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
+    molecule_ind_A = torch.cat([data.molecule_ind_A for data in batch], dim=0)
+    molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
+    natom_per_mol_A = torch.bincount(molecule_ind_A)
+    natom_per_mol_B = torch.bincount(molecule_ind_B)
     batched_data = Data(
         ZA=torch.cat([data.ZA for data in batch], dim=0),
         RA=torch.cat([data.RA for data in batch], dim=0),
@@ -205,6 +273,10 @@ def ap2_fused_collate_update_no_target(batch):
         e_AA_target=torch.cat(local_e_AA_target, dim=0),
         e_BB_source=torch.cat(local_e_BB_source, dim=0),
         e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        molecule_ind_A=molecule_ind_A,
+        molecule_ind_B=molecule_ind_B,
+        natom_per_mol_A=natom_per_mol_A,
+        natom_per_mol_B=natom_per_mol_B,
         e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
         e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
         e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
@@ -217,14 +289,6 @@ def ap2_fused_collate_update_no_target(batch):
         total_charge_B=torch.tensor(
             [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
         ),
-        qA=torch.cat([data.qA for data in batch], dim=0),
-        muA=torch.cat([data.muA for data in batch], dim=0),
-        quadA=torch.cat([data.quadA for data in batch], dim=0),
-        hlistA=torch.cat([data.hlistA for data in batch], dim=0),
-        qB=torch.cat([data.qB for data in batch], dim=0),
-        muB=torch.cat([data.muB for data in batch], dim=0),
-        quadB=torch.cat([data.quadB for data in batch], dim=0),
-        hlistB=torch.cat([data.hlistB for data in batch], dim=0),
     )
     return batched_data
 
@@ -730,12 +794,7 @@ class ap2_fused_module_dataset(Dataset):
         t1 = time()
         t2 = time()
         print(f"{len(RAs)=}, {self.atomic_batch_size=}, {self.batch_size=}")
-        molA_data = []
-        molB_data = []
-        energies = []
-        for i in range(
-            0, len(RAs) + len(RAs) % self.atomic_batch_size + 1, self.atomic_batch_size
-        ):
+        for i in range(len(RAs)):
             if self.skip_processed:
                 datapath = osp.join(
                     self.processed_dir,
@@ -746,94 +805,52 @@ class ap2_fused_module_dataset(Dataset):
                 if osp.exists(datapath):
                     idx += 1
                     continue
-            upper_bound = min(i + self.atomic_batch_size, len(RAs))
-            for j in range(i, upper_bound):
-                monA_data = atomic_datasets.create_atomic_data(
-                    ZAs[j], RAs[j], TQAs[j], r_cut=self.r_cut
-                )
-                monB_data = atomic_datasets.create_atomic_data(
-                    ZBs[j], RBs[j], TQBs[j], r_cut=self.r_cut
-                )
-                molA_data.append(monA_data)
-                molB_data.append(monB_data)
-                energies.append(targets[j])
-            if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
+            y = torch.tensor(targets[i], dtype=torch.float32)
+            data = dimer_fused_data(
+                RAs[i],
+                ZAs[i],
+                TQAs[i],
+                RBs[i],
+                ZBs[i],
+                TQBs[i],
+                dimer_ind=i,
+                r_cut=self.r_cut,
+                r_cut_im=self.r_cut_im,
+                y=y,
+            )
+            data = data.cpu()
+            if self.pre_filter is not None and not self.pre_filter(data):
                 continue
-            for j in range(len(molA_data)):
-                atomic_props_A = molA_data[j]
-                atomic_props_B = molB_data[j]
-                local_energies = energies[j]
-                e_AA_source, e_AA_target = pairwise_edges(atomic_props_A.R, self.r_cut)
-                e_BB_source, e_BB_target = pairwise_edges(atomic_props_B.R, self.r_cut)
-                e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
-                    pairwise_edges_im(atomic_props_A.R, atomic_props_B.R, self.r_cut_im)
-                )
-                y = torch.tensor(local_energies, dtype=torch.float32)
-                dimer_ind = torch.ones((1), dtype=torch.long) * i
-                data = Data(
-                    y=y,
-                    ZA=atomic_props_A.x,
-                    RA=atomic_props_A.R,
-                    ZB=atomic_props_B.x,
-                    RB=atomic_props_B.R,
-                    # short range, intermolecular edges
-                    e_ABsr_source=e_ABsr_source,
-                    e_ABsr_target=e_ABsr_target,
-                    dimer_ind=dimer_ind,
-                    # long range, intermolecular edges
-                    e_ABlr_source=e_ABlr_source,
-                    e_ABlr_target=e_ABlr_target,
-                    dimer_ind_lr=dimer_ind,
-                    # intramonomer edges (monomer A)
-                    e_AA_source=e_AA_source,
-                    e_AA_target=e_AA_target,
-                    molecule_ind_A=atomic_props_A.molecule_ind,
-                    # intramonomer edges (monomer B)
-                    e_BB_source=e_BB_source,
-                    e_BB_target=e_BB_target,
-                    molecule_ind_B=atomic_props_B.molecule_ind,
-                    # monomer charges
-                    total_charge_A=atomic_props_A.total_charge,
-                    total_charge_B=atomic_props_B.total_charge,
-                )
-                data = data.cpu()
-                if self.pre_filter is not None and not self.pre_filter(data):
-                    continue
-                data_objects.append(data)
-                # Normally would store the data object to individual files,
-                # but at 1.67M dimers, this is too many files. Need to
-                # store self.datapoint_storage_n_objects (like 1000) dimers per file
-                if len(data_objects) == self.points_per_file:
-                    # if we are pre-batching, we need to collate and save here.
-                    if self.in_memory:
-                        data_objects = data_objects[0]
-                    if self.in_memory:
-                        self.data.append(data_objects)
-                    else:
-                        datapath = osp.join(
-                            self.processed_dir,
-                            f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
-                                idx // self.points_per_file
-                            }.pt",
-                        )
-                        if self.print_level >= 2:
-                            print(f"Saving to {datapath}")
-                            print(len(data_objects))
-                        torch.save(data_objects, datapath)
-                    data_objects = []
-                    if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
-                        break
-                idx += 1
-            if self.print_level >= 2:
-                print(f"{i}/{len(RAs)}, {time() - t2:.2f}s, {time() - t1:.2f}s")
-            elif self.print_level >= 1 and idx % 1000:
-                print(f"{i}/{len(RAs)}, {time() - t2:.2f}s, {time() - t1:.2f}s")
-            t2 = time()
-            molA_data = []
-            molB_data = []
-            energies = []
+            data_objects.append(data)
+            # Normally would store the data object to individual files,
+            # but at 1.67M dimers, this is too many files. Need to
+            # store self.datapoint_storage_n_objects (like 1000) dimers per file
+            if len(data_objects) == self.points_per_file:
+                if self.in_memory:
+                    data_objects = data_objects[0]
+                if self.in_memory:
+                    self.data.append(data_objects)
+                else:
+                    datapath = osp.join(
+                        self.processed_dir,
+                        f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
+                            idx // self.points_per_file
+                        }.pt",
+                    )
+                    if self.print_level >= 2:
+                        print(f"Saving to {datapath}")
+                        print(len(data_objects))
+                    torch.save(data_objects, datapath)
+                data_objects = []
+                if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
+                    break
+            idx += 1
+        if self.print_level >= 2:
+            print(f"{i}/{len(RAs)}, {time() - t2:.2f}s, {time() - t1:.2f}s")
+        elif self.print_level >= 1 and idx % 1000:
+            print(f"{i}/{len(RAs)}, {time() - t2:.2f}s, {time() - t1:.2f}s")
+        t2 = time()
         if len(data_objects) > 0:
-            # print("Extra data:", len(data_objects))
             if self.in_memory:
                 data_objects = data_objects[0]
             if self.in_memory:
@@ -881,7 +898,7 @@ class ap2_fused_module_dataset(Dataset):
         except Exception:
             print(
                 f"Error loading {datapath}\n    at {
-                  idx=}, {idx_datapath=}, {obj_ind=}"
+                    idx=}, {idx_datapath=}, {obj_ind=}"
             )
         return self.active_data[obj_ind]
 
