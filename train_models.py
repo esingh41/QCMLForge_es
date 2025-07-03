@@ -82,6 +82,8 @@ def train_pairwise_model(
     ds_datapoint_storage_n_objects = 16
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
+    elif apnet_model_type == "APNet2-fused":
+        APNet = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model
     elif apnet_model_type == "APNet3":
         APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":

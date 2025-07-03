@@ -68,6 +68,13 @@ def train_pairwise_model(
         ).model
         set_weights_to_value(AM, value=weights)
         am_model_path = None
+    elif apnet_model_type == "APNet2-fused":
+        APNet = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model
+        AM = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+            pre_trained_model_path=am_model_path,
+        ).model
+        set_weights_to_value(AM, value=weights)
+        am_model_path = None
     elif apnet_model_type == "APNet3":
         APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":
@@ -94,7 +101,8 @@ def train_pairwise_model(
 
     omp_num_threads_per_process = 8
     if os.path.exists(model_out):
-        pretrained_model = model_out
+        # pretrained_model = model_out
+        pretrained_model = None
         print(f"\nTraining from {model_out}\n")
     else:
         pretrained_model = None
@@ -184,7 +192,8 @@ def train_pairwise_model(
         )
     if weights is not None:
         set_weights_to_value(apnet2.atom_model, value=weights)
-        set_weights_to_value(apnet2.model, value=weights)
+        # set_weights_to_value(apnet2.model, value=weights)
+        apnet2.set_all_weights_to_value(value=weights)
     apnet2.train(
         model_path=model_out,
         n_epochs=n_epochs,
@@ -195,6 +204,7 @@ def train_pairwise_model(
         dataloader_num_workers=4,
         random_seed=random_seed,
         skip_compile=True,
+        # skip_compile=False,
     )
     return
 
@@ -218,7 +228,8 @@ def main():
     )
     print(train_mols[0])
     train_pairwise_model(
-        apnet_model_type="APNet2",
+        # apnet_model_type="APNet2",
+        apnet_model_type="APNet2-fused",
         model_out=model_out,
         am_model_path=am_model_path,
         data_dir="./data_dir",
@@ -237,6 +248,27 @@ def main():
         ds_prebatched=False,
         weights=0.0,
     )
+    # train_pairwise_model(
+    #     # apnet_model_type="APNet2-fused",
+    #     apnet_model_type="APNet2",
+    #     model_out=model_out,
+    #     am_model_path=am_model_path,
+    #     data_dir="./data_dir",
+    #     n_epochs=20,
+    #     lr=5e-4,
+    #     lr_decay=None,
+    #     random_seed=42,
+    #     spec_type=None,
+    #     r_cut_im=8.0,
+    #     r_cut=5.0,
+    #     n_rbf=8,
+    #     n_neuron=128,
+    #     n_embed=8,
+    #     ds_qcel_molecules=[train_mols, test_mols],
+    #     ds_energy_labels=[train_labels, test_labels],
+    #     ds_prebatched=False,
+    #     weights=0.0,
+    # )
     return
 
 

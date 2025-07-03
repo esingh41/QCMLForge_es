@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter
+# from torch_scatter import scatter
+from torch_geometric.utils import scatter
 from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings

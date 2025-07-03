@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from torch_scatter import scatter
+# from torch_scatter import scatter
+from torch_geometric.utils import scatter
 from torch_geometric.data import Data
 import numpy as np
 import warnings
@@ -25,6 +26,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
+from apnet_pt.torch_util import set_weights_to_value
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
@@ -312,6 +314,18 @@ class APNet2_AM_MPNN(nn.Module):
         dR = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
         return dR, dR_xyz
 
+    @torch.compile
+    def readouts(self, H):
+        return torch.cat(
+            [
+                self.readout_layer_elst(H),
+                self.readout_layer_exch(H),
+                self.readout_layer_indu(H),
+                self.readout_layer_disp(H),
+            ],
+            dim=1,
+        )
+
     def forward(
         self,
         batch,
@@ -480,24 +494,26 @@ class APNet2_AM_MPNN(nn.Module):
         hBA = torch.cat([hBA, hB_dir_blah, hA_dir_blah], dim=1)
 
         # run atom-pair features through a dense net to predict SAPT components
-        EAB_sr = torch.cat(
-            [
-                self.readout_layer_elst(hAB),
-                self.readout_layer_exch(hAB),
-                self.readout_layer_indu(hAB),
-                self.readout_layer_disp(hAB),
-            ],
-            dim=1,
-        )
-        EBA_sr = torch.cat(
-            [
-                self.readout_layer_elst(hBA),
-                self.readout_layer_exch(hBA),
-                self.readout_layer_indu(hBA),
-                self.readout_layer_disp(hBA),
-            ],
-            dim=1,
-        )
+        # EAB_sr = torch.cat(
+        #     [
+        #         self.readout_layer_elst(hAB),
+        #         self.readout_layer_exch(hAB),
+        #         self.readout_layer_indu(hAB),
+        #         self.readout_layer_disp(hAB),
+        #     ],
+        #     dim=1,
+        # )
+        # EBA_sr = torch.cat(
+        #     [
+        #         self.readout_layer_elst(hBA),
+        #         self.readout_layer_exch(hBA),
+        #         self.readout_layer_indu(hBA),
+        #         self.readout_layer_disp(hBA),
+        #     ],
+        #     dim=1,
+        # )
+        EAB_sr = self.readouts(hAB)
+        EBA_sr = self.readouts(hBA)
 
         E_sr = EAB_sr + EBA_sr
 
@@ -828,18 +844,32 @@ class APNet2_AM_Model:
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
-        self.model = torch.compile(self.model)
+        # torch._dynamo.config.capture_scalar_outputs = True
+        self.model = torch.compile(self.model, dynamic=True)
         return
+
+
+    def set_all_weights_to_value(self, value: float):
+        """
+        Sets the weights of the model to a constant value for debugging.
+        """
+        batch = self.example_input()
+        batch.to(self.device)
+        self.model(batch)
+        set_weights_to_value(self.model, value)
+        return
+
 
     def set_pretrained_model(
         self, ap2_model_path=None, am_model_path=None, model_id=None
     ):
+        assert False, "This method has no trained models yet."
         if model_id is not None:
             am_model_path = resources.files("apnet_pt").joinpath(
                 "models", "am_ensemble", f"am_{model_id}.pt"
             )
             ap2_model_path = resources.files("apnet_pt").joinpath(
-                "models", "ap2_ensemble", f"ap2_{model_id}.pt"
+                "models", "ap2_fused_ensemble", f"ap2_{model_id}.pt"
             )
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")

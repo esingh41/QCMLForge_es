@@ -176,7 +176,7 @@ def test_ap2_fused_architecture():
         use_GPU=False,
     )
     set_weights_to_value(atom_model.model, 0.0001)
-    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
+    pair_model = apnet_pt.AtomPairwiseModels.apnet2_fused.APNet2_AM_Model(
         atom_model=atom_model.model,
         ignore_database_null=True,
         use_GPU=False,
@@ -191,5 +191,5 @@ def test_ap2_fused_architecture():
 
 if __name__ == "__main__":
     # test_ap2_fused_dataset_size()
-    # test_ap2_fused_architecture()
-    test_ap2_fused_train_qcel_molecules_in_memory()
+    test_ap2_fused_architecture()
+    # test_ap2_fused_train_qcel_molecules_in_memory()

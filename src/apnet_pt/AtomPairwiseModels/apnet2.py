@@ -25,15 +25,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
-
-
-def assemble_RA_RB_lists(
-    RA,
-    RB,
-    dimer_ind
-):
-    return
-
+from apnet_pt.torch_util import set_weights_to_value
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
@@ -826,6 +818,16 @@ class APNet2Model:
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
         self.model = torch.compile(self.model)
+        return
+
+    def set_all_weights_to_value(self, value: float):
+        """
+        Sets the weights of the model to a constant value for debugging.
+        """
+        batch = self.example_input()
+        batch.to(self.device)
+        self.model(**batch)
+        set_weights_to_value(self.model, value)
         return
 
     def set_pretrained_model(self, ap2_model_path=None, am_model_path=None, model_id=None):
