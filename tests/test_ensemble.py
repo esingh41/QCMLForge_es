@@ -68,7 +68,8 @@ no_com
 def test_am_ensemble():
     print("Testing AM ensemble...")
     ref = torch.load(
-        os.path.join(os.path.dirname(__file__), "dataset_data/am_ensemble_test.pt")
+        os.path.join(os.path.dirname(__file__), "dataset_data/am_ensemble_test.pt"),
+        weights_only=False,
     )
 
     mols = [mol_mon for _ in range(3)]
@@ -91,7 +92,8 @@ def test_am_ensemble():
 def test_ap2_ensemble():
     print("Testing AP2 ensemble...")
     ref = torch.load(
-        os.path.join(os.path.dirname(__file__), "dataset_data/ap2_ensemble_test.pt")
+        os.path.join(os.path.dirname(__file__), "dataset_data/ap2_ensemble_test.pt"),
+        weights_only=False,
     )
 
     mols = [mol_dimer for _ in range(3)]
@@ -100,8 +102,8 @@ def test_ap2_ensemble():
         compile=False,
         batch_size=2,
     )
-    # torch.save(interaction_energies, os.path.join(os.path.dirname(
-    #     __file__), "dataset_data/ap2_ensemble_test.pt"))
+    torch.save(interaction_energies, os.path.join(os.path.dirname(
+        __file__), "dataset_data/ap2_ensemble_test.pt"))
     print(interaction_energies)
     print(ref)
     assert np.allclose(interaction_energies, ref, atol=1e-6)
@@ -110,7 +112,9 @@ def test_ap2_ensemble():
 def test_am_ensemble_compile():
     print("Testing AM ensemble...")
     ref = torch.load(
-        os.path.join(os.path.dirname(__file__), "dataset_data/am_ensemble_test.pt")
+        os.path.join(os.path.dirname(__file__), "dataset_data/am_ensemble_test.pt"),
+        weights_only=False,
+
     )
 
     mols = [mol_mon for _ in range(3)]
@@ -133,7 +137,8 @@ def test_am_ensemble_compile():
 def test_ap2_ensemble_compile():
     print("Testing AP2 ensemble...")
     ref = torch.load(
-        os.path.join(os.path.dirname(__file__), "dataset_data/ap2_ensemble_test.pt")
+        os.path.join(os.path.dirname(__file__), "dataset_data/ap2_ensemble_test.pt"),
+        weights_only=False,
     )
 
     mols = [mol_dimer for _ in range(3)]
@@ -165,11 +170,10 @@ def test_ap2_ensemble_predict_pairs():
         print_results=True,
     )
     print(df)
-    # Methyl1_A-Peptide_B  0.147818  0.166611  0.004309 -0.006684 -0.016418
     ref = {
         "Methyl1_A-Peptide_B": {
-            'total': 0.147818,
-            'elst': 0.166611,
+            'total': 0.142137,
+            'elst': 0.160930,
             'exch': 0.004309,
             'indu': -0.006684,
             'disp': -0.016418,

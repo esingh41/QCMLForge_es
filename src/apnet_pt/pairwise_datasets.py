@@ -943,7 +943,7 @@ class apnet2_module_dataset(Dataset):
             for raw_path in self.raw_paths:
                 split_name = ""
                 if self.spec_type in [2, 5, 6, 7, 9]:
-                    split_name = f"_{self.split}"
+                    split_name = f"_{self.split}" if self.split != 'all' else ""
                     print(f"{split_name=}")
                     if self.split not in Path(raw_path).stem:
                         print(f"{self.split} is skipping {raw_path}")
@@ -1159,7 +1159,7 @@ class apnet2_module_dataset(Dataset):
             return self.active_data[obj_ind]
         split_name = ""
         if self.spec_type in [2, 5, 6, 7, 9, None]:
-            split_name = f"_{self.split}"
+            split_name = f"_{self.split}" if self.split != 'all' else ""
         datapath = osp.join(
             self.processed_dir, f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
         )
@@ -1405,8 +1405,7 @@ class apnet3_module_dataset(Dataset):
             # predictions up front to avoid a large memory footprint
             split_name = ""
             if self.spec_type in [2, 5, 6, 7]:
-                split_name = f"_{self.split}"
-                print(f"{split_name=}")
+                split_name = f"_{self.split}" if self.split != 'all' else ""
                 if self.split not in Path(raw_path).stem:
                     print(f"{self.split} is skipping {raw_path}")
                     continue
@@ -1644,7 +1643,7 @@ class apnet3_module_dataset(Dataset):
             return self.active_data[obj_ind]
         split_name = ""
         if self.spec_type in [2, 5, 6, 7, 9, None]:
-            split_name = f"_{self.split}"
+            split_name = f"_{self.split}" if self.split != 'all' else ""
         datapath = osp.join(
             self.processed_dir, f"dimer_ap3{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
         )

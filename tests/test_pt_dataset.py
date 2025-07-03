@@ -147,6 +147,7 @@ def test_apnet2_dataset_size_prebatched():
         skip_processed=False,
         skip_compile=True,
         print_level=2,
+        random_seed=None,
     )
     print()
     print(ds)
@@ -254,6 +255,7 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules():
         print_level=2,
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
+        random_seed=None,
     )
     print()
     print(ds)
@@ -309,6 +311,7 @@ def test_apnet2_dataset_size_qcel_molecules_in_memory():
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
         in_memory=True,
+        random_seed=None,
     )
     print(ds.training_batch_size)
     print(ds)
@@ -362,6 +365,7 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory():
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
         in_memory=True,
+        random_seed=None,
     )
     print(ds)
     train_loader = APNet2_DataLoader(
@@ -507,6 +511,7 @@ def test_apnet2_train_qcel_molecules_in_memory_transfer():
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
         in_memory=True,
+        random_seed=None,
     )
     ap2 = APNet2Model().set_pretrained_model(model_id=0)
     v_0 = ap2.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
@@ -595,6 +600,7 @@ def test_apnet2_train_qcel_molecules_in_memory():
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
         in_memory=True,
+        random_seed=None,
     )
     ap2.train(
         ds,
@@ -640,6 +646,7 @@ def test_apnet2_dataset_size_prebatched_train_spec8():
         skip_compile=True,
         # split="test",
         print_level=2,
+        random_seed=None,
     )
     print()
     print(ds)
@@ -679,6 +686,7 @@ def test_apnet2_dataset_size_prebatched_train_spec9():
         skip_compile=True,
         split="train",
         print_level=2,
+        random_seed=None,
     )
     print()
     print(ds)

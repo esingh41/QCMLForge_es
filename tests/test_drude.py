@@ -81,6 +81,7 @@ data_dir = os.path.join(os.path.dirname(__file__), "drude_test_data/")
 # atomic polarizabilities, cannot just use simple equations to map from one
 # model to another. Energies will be bad
 
+
 @pytest.mark.parametrize(
     "molecule,ref_uind",
     [
@@ -93,7 +94,10 @@ def test_water_drude(
     molecule,  # name of molecule
     ref_uind,  # kJ/mol
 ):
-    ref_data = torch.load(data_dir + molecule + ".pt")
+    ref_data = torch.load(
+        data_dir + molecule + ".pt",
+        weights_only=False,
+    )
     for key in ref_data:
         ref_data[key] = torch.tensor(ref_data[key])
     U_ind = apnet_pt.classical_induction.compute_drude_oscillator_U_ind(

@@ -1391,7 +1391,7 @@ units angstrom
             scheduler.step()
 
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
-        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
         return total_loss, total_MAE_t
 
     # @torch.inference_mode()
@@ -1414,7 +1414,7 @@ units angstrom
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
-        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
         return total_loss, total_MAE_t
 
     ########################################################################
