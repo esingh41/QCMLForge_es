@@ -657,7 +657,6 @@ class APNet2Model:
     pre-computed and passed as input to the model.
 """
             )
-        self.atom_model.to(device)
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
@@ -704,7 +703,11 @@ class APNet2Model:
         if r_cut != self.model.r_cut:
             print(f"Changing r_cut from {self.model.r_cut} to {r_cut}")
             self.model.r_cut = r_cut
+
+        self.device = device
+        self.atom_model.to(device)
         self.model.to(device)
+
         split_dbs = [2, 5, 6, 7]
         ds_qcel_split_db = (
             ds_qcel_molecules is not None
@@ -804,8 +807,6 @@ class APNet2Model:
                 self.dataset[0] = self.dataset[0][:ds_max_size]
                 self.dataset[1] = self.dataset[1][:ds_max_size]
         print(f"{self.dataset=}")
-        self.model.to(device)
-        self.device = device
         self.batch_size = None
         self.shuffle = False
         self.model_save_path = None
@@ -988,6 +989,7 @@ class APNet2Model:
                 dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
                     dimer_ls
                 )
+        dimer_batch.to(self.device)
         return dimer_batch
     
     def set_return_hidden_states(self, value=True):
@@ -1232,11 +1234,11 @@ class APNet2Model:
                     predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
                     pairwise_energies.extend(
                         self._assemble_pairs(
-                            dimer_batch,
-                            E_sr_dimer,
-                            E_sr,
-                            E_elst_sr,
-                            E_elst_lr,
+                            dimer_batch.cpu(),
+                            E_sr_dimer.cpu(),
+                            E_sr.cpu(),
+                            E_elst_sr.cpu(),
+                            E_elst_lr.cpu(),
                         )
                     )
                 elif return_elst:
@@ -1725,7 +1727,7 @@ units angstrom
     ):
         # (1) Compile Model
         rank_device = self.device
-        self.model.to(rank_device)
+        # self.model.to(rank_device)
         batch = self.example_input()
         batch.to(rank_device)
         self.model(**batch)
@@ -1875,6 +1877,8 @@ units angstrom
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
         self.model = best_model
+        self.model.to(rank_device)
+        return
 
     def train(
         self,

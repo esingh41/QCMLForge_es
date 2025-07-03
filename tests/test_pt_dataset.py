@@ -422,6 +422,7 @@ def test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory():
         collate_fn=apnet2_collate_update_prebatched,
     )
     cnt = 0
+    print("train_loader")
     for i in train_loader:
         print(i)
         cnt += i.y.shape[0]
@@ -1300,8 +1301,9 @@ def test_am_dimer_multipole_ds():
 
 
 if __name__ == "__main__":
-    test_apnet2_train_qcel_molecules_in_memory()
-    test_apnet2_dataset_size_prebatched_train_spec8()
+    # test_apnet2_train_qcel_molecules_in_memory()
+    test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory()
+    # test_apnet2_dataset_size_prebatched_train_spec8()
     # test_apnet2_dataset_size_prebatched()
     # test_dapnet2_dataset_size_prebatched()
     # test_dapnet2_train_qcel_molecules_in_memory_transfer()

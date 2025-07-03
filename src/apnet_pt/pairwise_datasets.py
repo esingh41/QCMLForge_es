@@ -640,6 +640,7 @@ def apnet2_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
             quadB=quadB,
             hlistB=hlistB,
         )
+        data = data.cpu()
         dimer_data.append(data)
     return dimer_data
 
@@ -1068,6 +1069,7 @@ class apnet2_module_dataset(Dataset):
                     quadB=quadB,
                     hlistB=hlistB,
                 )
+                data = data.cpu()
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
 
@@ -1570,6 +1572,7 @@ class apnet3_module_dataset(Dataset):
                         alpha_0_B=alpha_0_B,
                         hlistB=hlistB,
                     )
+                    data = data.cpu()
                     if self.pre_filter is not None and not self.pre_filter(data):
                         continue
 
