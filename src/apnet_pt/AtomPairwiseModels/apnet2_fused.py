@@ -2,20 +2,15 @@ import torch
 import torch.nn as nn
 # from torch_scatter import scatter
 from torch_geometric.utils import scatter
-from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
-from .. import atomic_datasets
-from .. import pairwise_datasets
+from ..AtomModels.ap2_atom_model import AtomMPNN
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
     ap2_fused_collate_update,
     ap2_fused_collate_update_no_target,
-    pairwise_edges,
-    pairwise_edges_im,
     qcel_dimer_to_fused_data,
 )
 from .. import constants
@@ -383,7 +378,10 @@ class APNet2_AM_MPNN(nn.Module):
             total_charge=batch.total_charge_A,
             natom_per_mol=batch.natom_per_mol_A,
         )
-        qA = qA.unsqueeze(-1)
+        if len(qA.size()) == 0:
+            qA = qA.unsqueeze(0).unsqueeze(0)
+        elif len(qA.size()) == 1:
+            qA = qA.unsqueeze(-1)
         qB, muB, quadB, _ = self.atom_model(
             x=ZB,
             edge_index=torch.vstack((e_BB_source, e_BB_target)),
@@ -392,7 +390,10 @@ class APNet2_AM_MPNN(nn.Module):
             total_charge=batch.total_charge_B,
             natom_per_mol=batch.natom_per_mol_B,
         )
-        qB = qB.unsqueeze(-1)
+        if len(qB.size()) == 0:
+            qB = qB.unsqueeze(0).unsqueeze(0)
+        elif len(qB.size()) == 1:
+            qB = qB.unsqueeze(-1)
 
         ################################################################
         ### predict SAPT components via intramonomer message passing ###
