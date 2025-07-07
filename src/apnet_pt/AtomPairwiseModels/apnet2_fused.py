@@ -269,7 +269,10 @@ class APNet2_AM_MPNN(nn.Module):
         if nedge == 0:
             # No intramolecular edges
             return torch.zeros(
-                0, self.n_embed * 4 * self.n_rbf + self.n_embed * 4 + self.n_rbf
+                0,
+                self.n_embed * 4 * self.n_rbf + self.n_embed * 4 + self.n_rbf,
+                device=h0.device,
+                dtype=h0.dtype,
             )
 
         h0_source = h0.index_select(0, e_source)
@@ -344,15 +347,13 @@ class APNet2_AM_MPNN(nn.Module):
         e_BB_source = batch.e_BB_source
         e_BB_target = batch.e_BB_target
         # counts
-        natomA = torch.tensor(ZA.size(0), dtype=torch.long)
-        natomB = torch.tensor(ZB.size(0), dtype=torch.long)
-        ndimer = torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+        natomA = ZA.size(0)
+        natomB = ZB.size(0)
+        ndimer = batch.total_charge_A.size(0)
 
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
         dR_lr, dR_lr_xyz = self.get_distances(RA, RB, e_ABlr_source, e_ABlr_target)
-        # TODO: need to handle single atoms correctly without self edge because
-        # this goes to zero causing nans later...
         dRA, dRA_xyz = self.get_distances(RA, RA, e_AA_source, e_AA_target)
         dRB, dRB_xyz = self.get_distances(RB, RB, e_BB_source, e_BB_target)
 
@@ -410,11 +411,6 @@ class APNet2_AM_MPNN(nn.Module):
             mB_ij = self.get_messages(
                 hB_list[0], hB_list[-1], rbfB, e_BB_source, e_BB_target
             )
-            if mA_ij is None or mB_ij is None:
-                # Single-atom corner case; skip
-                hA_list.append(hA_list[-1])
-                hB_list.append(hB_list[-1])
-                continue
 
             #################
             ### invariant ###
@@ -463,50 +459,20 @@ class APNet2_AM_MPNN(nn.Module):
         hAB = self.get_pair(hA, hB, qA, qB, rbf_sr, e_ABsr_source, e_ABsr_target)
         hBA = self.get_pair(hB, hA, qB, qA, rbf_sr, e_ABsr_target, e_ABsr_source)
 
-        # project the directional atomic hidden states along the interatomic axis
-        hA_dir = torch.cat(hA_dir_list, dim=-1)
-        hB_dir = torch.cat(hB_dir_list, dim=-1)
-        # hA_dir = torch.cat(hA_dir_list, dim=-1) if len(hA_dir_list) > 0 else None
-        # hB_dir = torch.cat(hB_dir_list, dim=-1) if len(hB_dir_list) > 0 else None
-        # if (hA_dir is not None) and (hB_dir is not None):
-        #     hA_dir_s = hA_dir.index_select(0, e_ABsr_source)
-        #     hB_dir_t = hB_dir.index_select(0, e_ABsr_target)
-        #
-        #     # Dot with ± unit vector
-        #     hA_dir_blah = torch.einsum("axf,ax->af", hA_dir_s, dR_sr_unit)
-        #     hB_dir_blah = torch.einsum("axf,ax->af", hB_dir_t, -dR_sr_unit)
-        #     # Concatenate
-        #     hAB = torch.cat([hAB, hA_dir_blah, hB_dir_blah], dim=1)
-        #     hBA = torch.cat([hBA, hB_dir_blah, hA_dir_blah], dim=1)
+        if self.n_message > 0:
+            # project the directional atomic hidden states along the interatomic axis
+            hA_dir = torch.cat(hA_dir_list, dim=-1)
+            hB_dir = torch.cat(hB_dir_list, dim=-1)
 
-        hA_dir_source = hA_dir.index_select(0, e_ABsr_source)
-        hB_dir_target = hB_dir.index_select(0, e_ABsr_target)
+            hA_dir_source = hA_dir.index_select(0, e_ABsr_source)
+            hB_dir_target = hB_dir.index_select(0, e_ABsr_target)
 
-        hA_dir_blah = torch.einsum("axf,ax->af", hA_dir_source, dR_sr_unit)
-        hB_dir_blah = torch.einsum("axf,ax->af", hB_dir_target, -dR_sr_unit)
+            hA_dir_blah = torch.einsum("axf,ax->af", hA_dir_source, dR_sr_unit)
+            hB_dir_blah = torch.einsum("axf,ax->af", hB_dir_target, -dR_sr_unit)
 
-        hAB = torch.cat([hAB, hA_dir_blah, hB_dir_blah], dim=1)
-        hBA = torch.cat([hBA, hB_dir_blah, hA_dir_blah], dim=1)
+            hAB = torch.cat([hAB, hA_dir_blah, hB_dir_blah], dim=1)
+            hBA = torch.cat([hBA, hB_dir_blah, hA_dir_blah], dim=1)
 
-        # run atom-pair features through a dense net to predict SAPT components
-        # EAB_sr = torch.cat(
-        #     [
-        #         self.readout_layer_elst(hAB),
-        #         self.readout_layer_exch(hAB),
-        #         self.readout_layer_indu(hAB),
-        #         self.readout_layer_disp(hAB),
-        #     ],
-        #     dim=1,
-        # )
-        # EBA_sr = torch.cat(
-        #     [
-        #         self.readout_layer_elst(hBA),
-        #         self.readout_layer_exch(hBA),
-        #         self.readout_layer_indu(hBA),
-        #         self.readout_layer_disp(hBA),
-        #     ],
-        #     dim=1,
-        # )
         EAB_sr = self.readouts(hAB)
         EBA_sr = self.readouts(hBA)
 
@@ -535,11 +501,6 @@ class APNet2_AM_MPNN(nn.Module):
             dR_sr_xyz,
         )
 
-        E_elst_sr_dimer = scatter(
-            E_elst_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer
-        )
-        E_elst_sr_dimer = E_elst_sr_dimer.unsqueeze(-1)
-
         E_elst_lr = self.mtp_elst(
             qA,
             muA,
@@ -552,44 +513,22 @@ class APNet2_AM_MPNN(nn.Module):
             dR_lr,
             dR_lr_xyz,
         )
-        E_elst_lr_dimer = scatter(
-            E_elst_lr, dimer_ind_lr, dim=0, reduce="add", dim_size=ndimer
-        )
-        E_elst_lr_dimer = E_elst_lr_dimer.unsqueeze(-1)
 
-        # Example shapes for clarity:
-        # E_elst_sr_dimer : shape [N_sr, C]  (some # of rows, e.g. 4 columns)
-        # E_elst_lr_dimer : shape [N_lr, C]
-        # ndimer          : desired # of rows (N_sr, N_lr <= ndimer)
-
-        # 1) Expand E_elst_sr_dimer up to ndimer rows if needed
-        N_sr, num_cols = E_elst_sr_dimer.shape
-        sr_expanded = E_elst_sr_dimer.new_zeros((ndimer, num_cols))
-        sr_expanded[:N_sr] = E_elst_sr_dimer
-        E_elst_sr_dimer = sr_expanded
-
-        # 2) Expand E_elst_lr_dimer similarly
-        N_lr, num_cols = E_elst_lr_dimer.shape
-        lr_expanded = E_elst_lr_dimer.new_zeros((ndimer, num_cols))
-        lr_expanded[:N_lr] = E_elst_lr_dimer
-        E_elst_lr_dimer = lr_expanded
-
-        # 3) Sum them
-        E_elst_dimer = E_elst_sr_dimer + E_elst_lr_dimer
+        E_elst_all = torch.cat([E_elst_sr, E_elst_lr])
+        dimer_indices_all = torch.cat([dimer_ind, dimer_ind_lr])
+        E_elst_dimer = scatter(E_elst_all, dimer_indices_all, dim=0, reduce="add", dim_size=ndimer)
+        E_elst_dimer = E_elst_dimer.unsqueeze(-1)
 
         # 4) Finally, pad columns by 3 if you want to go from shape [ndimer, 4] to [ndimer, 7]
-        rows, cols = E_elst_dimer.shape
-        padded = E_elst_dimer.new_zeros((rows, cols + 3))
-        padded[:, :cols] = E_elst_dimer
-        E_elst_dimer = padded
+        E_elst_dimer = torch.nn.functional.pad(E_elst_dimer, (0, 3))
         # E_sr_dimer[:, 0] = 0.0
         E_output = E_sr_dimer + E_elst_dimer
         if self.return_hidden_states:
             return (
                 E_output,
                 E_sr_dimer,
-                E_elst_sr_dimer,
-                E_elst_lr_dimer,
+                E_elst_sr,
+                E_elst_lr,
                 hAB,
                 hBA,
                 cutoff,
@@ -840,7 +779,7 @@ class APNet2_AM_Model:
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
         # torch._dynamo.config.capture_scalar_outputs = True
-        self.model = torch.compile(self.model, dynamic=True)
+        self.model = torch.compile(self.model, dynamic=True, fullgraph=True)
         return
 
 

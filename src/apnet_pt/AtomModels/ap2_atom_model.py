@@ -283,116 +283,83 @@ class AtomMPNN(MessagePassing):
         Z = x
         natom = Z.size(0)
 
-        h_list_0 = [self.embed_layer(Z)]
+        h_list = [self.embed_layer(Z)]
 
         # Initial guesses
         charge = self.guess_layer(Z)
-
         dipole = torch.zeros(natom, 3, dtype=torch.float32, device=Z.device)
         qpole = torch.zeros(natom, 3, 3, dtype=torch.float32, device=Z.device)
 
-        if edge_index.size(1) == 0:
-            # need h_list to have the same number of dimensions as the number of message passing layers
-            h_list = [h_list_0[0] for i in range(self.n_message + 1)]
-            h_list = torch.stack(h_list, dim=1)
-            molecule_ind.requires_grad_(False)
-            molecule_ind = molecule_ind.long()
-            total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
-            total_charge_pred = total_charge_pred.squeeze()
-            total_charge_err = total_charge_pred - total_charge
-            charge_err = torch.repeat_interleave(
-                total_charge_err / natom_per_mol.float(), natom_per_mol
-            ).unsqueeze(1)
-            charge = charge - charge_err
-            return charge, dipole, qpole, h_list
-        
-        # 1) Identify which molecules have more than one atom
-        mol_ind = torch.where(natom_per_mol != 1)[0]
-        keep_mask = (molecule_ind.unsqueeze(1) == mol_ind).any(dim=1)
-        filtered_charge = charge[keep_mask]
-        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms.
-        h_list = [h_list_0[0][keep_mask]]
+        if edge_index.size(1) > 0:
+            e_source, e_target = edge_index[0], edge_index[1]
+            #  [edges]
+            dR, dR_xyz = get_distances(R, R, e_source, e_target)
 
-        # Now we need to filter the edge_index to only include edges between
-        # atoms in molecules with >= 2 atoms.
-        e_source = edge_index[0]
-        e_target = edge_index[1]
-        edge_keep = keep_mask[e_source] & keep_mask[e_target]
-        e_source = e_source[edge_keep]
-        e_target = e_target[edge_keep]
-        idx_map = torch.cumsum(keep_mask, dim=0) - 1  # shape [N], each kept atom -> new index
-        idx_map = idx_map.long()                     # ensure integer
-        e_source = idx_map[e_source]
-        e_target = idx_map[e_target]
+            # [edges x 3]
+            dr_unit = dR_xyz / dR.unsqueeze(1)
+            rbf = self.distance_layer(dR)
 
-        R = R[keep_mask, :]
+            for i in range(self.n_message):
+                #####################
+                ### charge update ###
+                #####################
 
-        #  [edges]
-        dR, dR_xyz = get_distances(R, R, e_source, e_target)
+                # [edges x message_embedding_dim]
+                m_ij = self.get_messages(h_list[0], h_list[-1], rbf, e_source, e_target)
 
-        # [edges x 3]
-        dr_unit = dR_xyz / dR.unsqueeze(1)
-        rbf = self.distance_layer(dR)
+                # [atoms x message_embedding_dim]
+                m_i = scatter(m_ij, e_source, dim=0, reduce="sum", dim_size=natom)
 
-        for i in range(self.n_message):
-            #####################
-            ### charge update ###
-            #####################
+                # [atomx x hidden_dim]
+                h_next = self.charge_update_layers[i](m_i)
+                h_list.append(h_next)
+                charge_update = self.charge_readout_layers[i](h_list[i + 1])
+                charge += charge_update
 
-            # [edges x message_embedding_dim]
-            m_ij = self.get_messages(h_list[0], h_list[-1], rbf, e_source, e_target)
+                #####################
+                ### dipole update ###
+                #####################
 
-            # [atoms x message_embedding_dim]
-            # m_i = unsorted_segment_sum_2d(m_ij, e_source, natom)
-            # write unsorted_segment_sum_2d using scatter
-            m_i = scatter(m_ij, e_source, dim=0, reduce="sum")
+                # [edges x n_embed]
+                m_ij_dipole = self.dipole_update_layers[i](m_ij)
+                # [edges x 3 x n_embed]
+                m_ij_dipole = torch.einsum("ex,em->exm", dr_unit, m_ij_dipole)
+                # [atoms x 3 x n_embed]
+                m_i_dipole = unsorted_segment_sum_3d(m_ij_dipole, e_source, natom)
+                # [atoms x 3 x 1]
+                d_dipole = self.dipole_readout_layers[i](m_i_dipole)
+                # [atoms x 3]
+                d_dipole = d_dipole.view(natom, 3)
+                dipole += d_dipole
 
-            # [atomx x hidden_dim]
-            h_next = self.charge_update_layers[i](m_i)
-            h_list.append(h_next)
-            charge_update = self.charge_readout_layers[i](h_list[i + 1])
-            filtered_charge += charge_update
+                #########################
+                ### quadrupole update ###
+                #########################
 
-            #####################
-            ### dipole update ###
-            #####################
+                # [edges x n_embed]
+                m_ij_qpole1 = self.qpole1_update_layers[i](m_ij)
+                # [edges x 3 x n_embed]
+                m_ij_qpole1 = torch.einsum("ex,em->exm", dr_unit, m_ij_qpole1)
+                # [atoms x 3 x n_embed]
+                m_i_qpole1 = unsorted_segment_sum_3d(m_ij_qpole1, e_source, natom)
 
-            # [edges x n_embed]
-            m_ij_dipole = self.dipole_update_layers[i](m_ij)
-            # [edges x 3 x n_embed]
-            m_ij_dipole = torch.einsum("ex,em->exm", dr_unit, m_ij_dipole)
-            # [atoms x 3 x n_embed]
-            m_i_dipole = unsorted_segment_sum_3d(m_ij_dipole, e_source, natom)
-            # [atoms x 3 x 1]
-            d_dipole = self.dipole_readout_layers[i](m_i_dipole)
-            # [atoms x 3]
-            d_dipole = d_dipole.view(natom, 3)
-            dipole += d_dipole
+                # [edges x n_embed]
+                m_ij_qpole2 = self.qpole2_update_layers[i](m_ij)
+                # [edges x 3 x n_embed]
+                m_ij_qpole2 = torch.einsum("ex,em->exm", dr_unit, m_ij_qpole2)
+                # [atoms x 3 x n_embed]
+                m_i_qpole2 = unsorted_segment_sum_3d(m_ij_qpole2, e_source, natom)
+                d_qpole = torch.einsum("axf,ayf->axyf", m_i_qpole1, m_i_qpole2)
+                d_qpole = d_qpole + d_qpole.permute(0, 2, 1, 3)
+                # Paper states 0.5 factor is applied to the sum
+                # d_qpole = 0.5 * (d_qpole + d_qpole.permute(0, 2, 1, 3))
+                d_qpole = self.qpole_readout_layers[i](d_qpole)
+                d_qpole = d_qpole.view(natom, 3, 3)
+                qpole += d_qpole
 
-            #########################
-            ### quadrupole update ###
-            #########################
-
-            # [edges x n_embed]
-            m_ij_qpole1 = self.qpole1_update_layers[i](m_ij)
-            # [edges x 3 x n_embed]
-            m_ij_qpole1 = torch.einsum("ex,em->exm", dr_unit, m_ij_qpole1)
-            # [atoms x 3 x n_embed]
-            m_i_qpole1 = unsorted_segment_sum_3d(m_ij_qpole1, e_source, natom)
-
-            # [edges x n_embed]
-            m_ij_qpole2 = self.qpole2_update_layers[i](m_ij)
-            # [edges x 3 x n_embed]
-            m_ij_qpole2 = torch.einsum("ex,em->exm", dr_unit, m_ij_qpole2)
-            # [atoms x 3 x n_embed]
-            m_i_qpole2 = unsorted_segment_sum_3d(m_ij_qpole2, e_source, natom)
-            d_qpole = torch.einsum("axf,ayf->axyf", m_i_qpole1, m_i_qpole2)
-            d_qpole = d_qpole + d_qpole.permute(0, 2, 1, 3)
-            # Paper states 0.5 factor is applied to the sum
-            # d_qpole = 0.5 * (d_qpole + d_qpole.permute(0, 2, 1, 3))
-            d_qpole = self.qpole_readout_layers[i](d_qpole)
-            d_qpole = d_qpole.view(natom, 3, 3)
-            qpole += d_qpole
+        # If there are no edges, h_list needs to be the right size for the return
+        while len(h_list) < self.n_message + 1:
+            h_list.append(h_list[-1])
 
         ####################################
         ### enforce traceless quadrupole ###
@@ -404,11 +371,9 @@ class AtomMPNN(MessagePassing):
         ### enforce charge conservation ###
         ###################################
 
-        charge[keep_mask] = filtered_charge
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
         total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
-        # return charge, dipole, qpole, h_list
 
         total_charge_pred = total_charge_pred.squeeze()
         total_charge_err = total_charge_pred - total_charge

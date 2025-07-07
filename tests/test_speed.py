@@ -131,7 +131,9 @@ def main():
         in_memory=True,
         random_seed=None,
     )
-
+    apnet_pt.torch_util.set_weights_to_value(ap2.model, 0.01)
+    # torch.compile(ap2.model, fullgraph=True, dynamic=True)
+    ap2.compile_model()
     def train():
         apnet_pt.torch_util.set_weights_to_value(ap2.model, 0.01)
         ap2.train(
