@@ -127,7 +127,7 @@ def test_ap2_fused_train_qcel_molecules_in_memory():
     batch_size = 2
     atomic_batch_size = 4
     datapoint_storage_n_objects = 6
-    qcel_molecules = [mol_element] * 16
+    qcel_molecules = [mol_element] * 16 
     qcel_molecules.extend([mol_dimer] * 15)
     energy_labels = [[1.0] * 4 for _ in range(len(qcel_molecules))]
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel().set_pretrained_model(model_id=0)
