@@ -1,11 +1,9 @@
 import torch
 import torch.nn as nn
-# from torch_scatter import scatter
-from torch_geometric.utils import scatter
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap2_atom_model import AtomMPNN
+from ..AtomModels.ap2_atom_model import AtomMPNN, unsorted_segment_sum_3d, unsorted_segment_sum_2d, unsorted_segment_sum_1d
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
@@ -417,8 +415,8 @@ class APNet2_AM_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0, reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0, reduce="sum", dim_size=natomB)
+            mA_i = unsorted_segment_sum_2d(mA_ij, e_AA_source, natomA)
+            mB_i = unsorted_segment_sum_2d(mB_ij, e_BB_source, natomB)
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
@@ -440,11 +438,11 @@ class APNet2_AM_MPNN(nn.Module):
             # NOTE: this summation must be linear to guarantee equivariance.
             #       because of this constraint, we applied a dense net before
             #       the summation, not after
-            hA_dir = scatter(
-                mA_ij_dir, e_AA_source, dim=0, reduce="sum", dim_size=natomA
+            hA_dir = unsorted_segment_sum_3d(
+                mA_ij_dir, e_AA_source, natomA
             )
-            hB_dir = scatter(
-                mB_ij_dir, e_BB_source, dim=0, reduce="sum", dim_size=natomB
+            hB_dir = unsorted_segment_sum_3d(
+                mB_ij_dir, e_BB_source, natomB
             )
             hA_dir_list.append(hA_dir)
             hB_dir_list.append(hB_dir)
@@ -482,7 +480,7 @@ class APNet2_AM_MPNN(nn.Module):
         E_sr *= cutoff
         # cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
         # E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
+        E_sr_dimer = unsorted_segment_sum_2d(E_sr, dimer_ind, ndimer)
 
         ####################################################
         ### predict multipole electrostatic interactions ###
@@ -516,7 +514,7 @@ class APNet2_AM_MPNN(nn.Module):
 
         E_elst_all = torch.cat([E_elst_sr, E_elst_lr])
         dimer_indices_all = torch.cat([dimer_ind, dimer_ind_lr])
-        E_elst_dimer = scatter(E_elst_all, dimer_indices_all, dim=0, reduce="add", dim_size=ndimer)
+        E_elst_dimer = unsorted_segment_sum_1d(E_elst_all, dimer_indices_all, ndimer)
         E_elst_dimer = E_elst_dimer.unsqueeze(-1)
 
         # 4) Finally, pad columns by 3 if you want to go from shape [ndimer, 4] to [ndimer, 7]
@@ -777,7 +775,7 @@ class APNet2_AM_Model:
         self.model.to(self.device)
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
-        torch._dynamo.config.capture_scalar_outputs = False
+        torch._dynamo.config.capture_scalar_outputs = True
         # torch._dynamo.config.capture_scalar_outputs = True
         self.model = torch.compile(self.model, dynamic=True, fullgraph=True)
         return

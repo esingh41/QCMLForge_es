@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 # from torch_scatter import scatter
-from torch_geometric.utils import scatter
 from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings
@@ -29,6 +28,22 @@ max_Z = 118  # largest atomic number
 
 # file_dir = os.path.dirname(os.path.realpath(__file__))
 
+
+def unsorted_segment_sum_1d(data, segment_ids, num_segments):
+    """
+    Computes the sum along segments of a tensor. This function supports 1D data.
+
+    Parameters:
+    - data: Tensor of shape (N,)
+    - segment_ids: Tensor of shape (N,)
+    - num_segments: int, Number of unique segments
+
+    Returns:
+    - Tensor of sum along segments of shape (num_segments,)
+    """
+    result = torch.zeros(num_segments, dtype=data.dtype, device=data.device)
+    result.scatter_add_(0, segment_ids, data)
+    return result
 
 def unsorted_segment_sum_2d(data, segment_ids, num_segments):
     """
@@ -308,7 +323,7 @@ class AtomMPNN(MessagePassing):
                 m_ij = self.get_messages(h_list[0], h_list[-1], rbf, e_source, e_target)
 
                 # [atoms x message_embedding_dim]
-                m_i = scatter(m_ij, e_source, dim=0, reduce="sum", dim_size=natom)
+                m_i = unsorted_segment_sum_2d(m_ij, e_source, natom)
 
                 # [atomx x hidden_dim]
                 h_next = self.charge_update_layers[i](m_i)
@@ -373,13 +388,11 @@ class AtomMPNN(MessagePassing):
 
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
-        total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+        total_charge_pred = unsorted_segment_sum_2d(charge, molecule_ind, total_charge.size(0))
 
         total_charge_pred = total_charge_pred.squeeze()
         total_charge_err = total_charge_pred - total_charge
-        charge_err = torch.repeat_interleave(
-            total_charge_err / natom_per_mol.float(), natom_per_mol
-        ).unsqueeze(1)
+        charge_err = (total_charge_err / natom_per_mol.float()).gather(0, molecule_ind)
         charge = charge - charge_err
         charge = charge.squeeze()
         h_list = torch.stack(h_list, dim=1)
