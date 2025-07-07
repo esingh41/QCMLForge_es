@@ -31,6 +31,16 @@ mol_dimer = qcel.models.Molecule.from_data("""
 1   2.641145101   -0.449872874   -0.744894473
 """)
 
+mol_element = qcel.models.Molecule.from_data("""
+1 1
+11   -0.902196054   -0.106060256   0.009942262
+--
+0 1
+8   2.268880784   0.026340101   0.000508029
+1   2.645502399   -0.412039965   0.766632411
+1   2.641145101   -0.449872874   -0.744894473
+""")
+
 mol3 = qcel.models.Molecule.from_data(
     """
     1 1
@@ -117,7 +127,8 @@ def test_ap2_fused_train_qcel_molecules_in_memory():
     batch_size = 2
     atomic_batch_size = 4
     datapoint_storage_n_objects = 6
-    qcel_molecules = [mol_dimer] * 31
+    qcel_molecules = [mol_element] * 16
+    qcel_molecules.extend([mol_dimer] * 15)
     energy_labels = [[1.0] * 4 for _ in range(len(qcel_molecules))]
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel().set_pretrained_model(model_id=0)
     ap2 = APNet2_AM_Model()
@@ -190,6 +201,6 @@ def test_ap2_fused_architecture():
 
 
 if __name__ == "__main__":
-    test_ap2_fused_dataset_size()
-    test_ap2_fused_architecture()
+    # test_ap2_fused_dataset_size()
+    # test_ap2_fused_architecture()
     test_ap2_fused_train_qcel_molecules_in_memory()

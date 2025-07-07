@@ -378,10 +378,7 @@ class APNet2_AM_MPNN(nn.Module):
             total_charge=batch.total_charge_A,
             natom_per_mol=batch.natom_per_mol_A,
         )
-        if len(qA.size()) == 0:
-            qA = qA.unsqueeze(0).unsqueeze(0)
-        elif len(qA.size()) == 1:
-            qA = qA.unsqueeze(-1)
+        qA = qA.reshape(-1, 1)
         qB, muB, quadB, _ = self.atom_model(
             x=ZB,
             edge_index=torch.vstack((e_BB_source, e_BB_target)),
@@ -390,10 +387,7 @@ class APNet2_AM_MPNN(nn.Module):
             total_charge=batch.total_charge_B,
             natom_per_mol=batch.natom_per_mol_B,
         )
-        if len(qB.size()) == 0:
-            qB = qB.unsqueeze(0).unsqueeze(0)
-        elif len(qB.size()) == 1:
-            qB = qB.unsqueeze(-1)
+        qB = qB.reshape(-1, 1)
 
         ################################################################
         ### predict SAPT components via intramonomer message passing ###

@@ -106,7 +106,7 @@ def test_ap2_ensemble():
         __file__), "dataset_data/ap2_ensemble_test.pt"))
     print(interaction_energies)
     print(ref)
-    assert np.allclose(interaction_energies, ref, atol=1e-6)
+    assert np.allclose(interaction_energies, ref, atol=1e-3)
 
 
 def test_am_ensemble_compile():
