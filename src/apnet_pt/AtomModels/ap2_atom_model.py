@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter
+# from torch_scatter import scatter
+from torch_geometric.utils import scatter
 from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings
@@ -294,7 +295,16 @@ class AtomMPNN(MessagePassing):
             # need h_list to have the same number of dimensions as the number of message passing layers
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
             h_list = torch.stack(h_list, dim=1)
-            return charge.squeeze(), dipole, qpole, h_list
+            molecule_ind.requires_grad_(False)
+            molecule_ind = molecule_ind.long()
+            total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+            total_charge_pred = total_charge_pred.squeeze()
+            total_charge_err = total_charge_pred - total_charge
+            charge_err = torch.repeat_interleave(
+                total_charge_err / natom_per_mol.float(), natom_per_mol
+            ).unsqueeze(1)
+            charge = charge - charge_err
+            return charge, dipole, qpole, h_list
         
         # 1) Identify which molecules have more than one atom
         mol_ind = torch.where(natom_per_mol != 1)[0]

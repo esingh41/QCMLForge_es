@@ -29,7 +29,7 @@ def qcel_to_dimerdata(dimer):
     try:
         ZA = np.array([constants.elem_to_z[za] for za in ZA])
         ZB = np.array([constants.elem_to_z[zb] for zb in ZB])
-    except (Exception):
+    except Exception:
         return None
 
     RA = dimer.geometry[dimer.fragments[0]] * constants.au2ang
@@ -79,11 +79,11 @@ def dimerdata_to_qcel(RA, RB, ZA, ZB, aQA, aQB):
 
     blockA = f"{tQA} {1}\n"
     for ia in range(nA):
-        blockA += f"{constants.z_to_elem[ZA[ia]]} {RA[ia,0]} {RA[ia,1]} {RA[ia,2]}\n"
+        blockA += f"{constants.z_to_elem[ZA[ia]]} {RA[ia, 0]} {RA[ia, 1]} {RA[ia, 2]}\n"
 
     blockB = f"{tQB} {1}\n"
     for ib in range(nB):
-        blockB += f"{constants.z_to_elem[ZB[ib]]} {RB[ib,0]} {RB[ib,1]} {RB[ib,2]}\n"
+        blockB += f"{constants.z_to_elem[ZB[ib]]} {RB[ib, 0]} {RB[ib, 1]} {RB[ib, 2]}\n"
 
     dimer = blockA + "--\n" + blockB + "no_com\nno_reorient\nunits angstrom"
     dimer = qcel.models.Molecule.from_data(dimer)
@@ -101,7 +101,7 @@ def monomerdata_to_qcel(R, Z, aQ):
 
     block = f"{tQ} {1}\n"
     for i in range(n):
-        block += f"{constants.z_to_elem[Z[i]]} {R[i,0]} {R[i,1]} {R[i,2]}\n"
+        block += f"{constants.z_to_elem[Z[i]]} {R[i, 0]} {R[i, 1]} {R[i, 2]}\n"
 
     monomer = block + "no_com\nno_reorient\nunits angstrom"
     monomer = qcel.models.Molecule.from_data(monomer)
@@ -197,12 +197,8 @@ def load_dimer_dataset(
         df = df.sample(frac=1, random_state=random_seed_shuffle).reset_index(drop=True)
     allowed_elements = constants.z_to_elem.keys()
     len_df_start = len(df)
-    df = df[
-        df["ZA"].apply(lambda x: all([z in allowed_elements for z in x]))
-    ].copy()
-    df = df[
-        df["ZB"].apply(lambda x: all([z in allowed_elements for z in x]))
-    ].copy()
+    df = df[df["ZA"].apply(lambda x: all([z in allowed_elements for z in x]))].copy()
+    df = df[df["ZB"].apply(lambda x: all([z in allowed_elements for z in x]))].copy()
     len_df_end = len(df)
     if len_df_start != len_df_end:
         print(f"  Removed {len_df_start - len_df_end} rows with invalid elements")
@@ -276,7 +272,6 @@ def load_atomic_module_graph_dataset(
         return v
 
     if edge_function == "Bessel":
-
         # @jit(nopython=True, parallel=True)
         def vec_func(R_ij):
             edge_feature_vector = np.zeros((len(R_ij), len(R_ij)), dtype=np.float64)
@@ -449,7 +444,13 @@ def load_monomer_dataset(
             pass
 
     if hirshfeld_props:
-        return monomers, cartesian_multipoles, total_charge, volume_ratios, valence_widths
+        return (
+            monomers,
+            cartesian_multipoles,
+            total_charge,
+            volume_ratios,
+            valence_widths,
+        )
 
     return monomers, cartesian_multipoles, total_charge
 

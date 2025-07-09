@@ -853,9 +853,9 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched():
         os.remove(i)
     for i in glob(f"{data_path}/processed_delta/targets_Elst_aug_to_Exch_aug.pt"):
         os.remove(i)
-    assert ds_labels * ds.batch_size - 1 == cnt, (
-        f"Expected {ds_labels * ds.batch_size - 1} points, but got {cnt} points"
-    )
+    assert ds_labels * ds.batch_size - 1 == cnt, f"Expected {
+        ds_labels * ds.batch_size - 1
+    } points, but got {cnt} points"
 
 
 def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
@@ -1302,7 +1302,8 @@ def test_am_dimer_multipole_ds():
 
 if __name__ == "__main__":
     # test_apnet2_train_qcel_molecules_in_memory()
-    test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory()
+    test_apnet2_train_qcel_molecules_in_memory()
+    # test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory()
     # test_apnet2_dataset_size_prebatched_train_spec8()
     # test_apnet2_dataset_size_prebatched()
     # test_dapnet2_dataset_size_prebatched()
@@ -1310,4 +1311,3 @@ if __name__ == "__main__":
     # test_apnet2_model_train()
     # test_ap3_model_train()
     pass
-

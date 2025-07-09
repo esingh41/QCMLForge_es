@@ -16,6 +16,13 @@ H 0.260455 0.000000 -0.872893
 """)
 
 
+
+mon_element = qcel.models.Molecule.from_data("""
+1 1
+11   -0.902196054   -0.106060256   0.009942262
+""")
+
+
 def set_weights_to_value(model, value=0.9):
     """Sets all weights and biases in the model to a specific value."""
     with torch.no_grad():  # Disable gradient tracking
@@ -239,7 +246,22 @@ def test_am_architecture():
     assert allclose_sigfig(hlist, hidden_list_v, sigfigs=3), f"{hlist - hidden_list_v=}"
 
 
+def test_am_element():
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    qcel_mols = [mon_element] * 2
+    qcel_mols.extend([mol_water] * 2)
+    v = atom_model.predict_qcel_mols(
+        qcel_mols, batch_size=4
+    )
+    return
+
+
 if __name__ == "__main__":
     # test_am_hirshfeld()
     # test_am()
-    test_am_architecture()
+    # test_am_architecture()
+    test_am_element()
