@@ -199,3 +199,7 @@ build.sh
 tests/test_data_path/processed_delta/dimer_dap2_ap2_spec_8_0.pt
 tests/test_data_path/processed_delta/dimer_dap2_ap2_spec_8_1.pt
 tmp.sh
+models/testing
+tests/test_data_path/raw/tmp.txt
+tests/test_data_path/processed
+tests/test_data_path/processed_delta

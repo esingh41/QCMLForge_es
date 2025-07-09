@@ -22,7 +22,7 @@ import os
 import numpy as np
 import pytest
 from glob import glob
-import qcelemental
+import qcelemental as qcel
 import torch
 import pandas as pd
 from pprint import pprint as pp
@@ -36,7 +36,7 @@ am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
 am_hf_path = f"{current_file_path}/../src/apnet_pt/models/am_hf_ensemble/am_0.pt"
 
 
-mol_mon = qcelemental.models.Molecule.from_data("""0 1
+mol_mon = qcel.models.Molecule.from_data("""0 1
 16  -0.8795  -2.0832  -0.5531
 7   -0.2959  -1.8177   1.0312
 7    0.5447  -0.7201   1.0401
@@ -47,7 +47,7 @@ mol_mon = qcelemental.models.Molecule.from_data("""0 1
 units angstrom
 """)
 
-mol_dimer = qcelemental.models.Molecule.from_data("""
+mol_dimer = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714
@@ -59,7 +59,7 @@ mol_dimer = qcelemental.models.Molecule.from_data("""
 1   2.641145101   -0.449872874   -0.744894473
 """)
 
-mol_dimer2 = qcelemental.models.Molecule.from_data("""
+mol_dimer2 = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714
@@ -71,7 +71,7 @@ mol_dimer2 = qcelemental.models.Molecule.from_data("""
 1   3.641145101   -0.449872874   -0.744894473
 """)
 
-mol_A = qcelemental.models.Molecule.from_data("""
+mol_A = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714
@@ -147,6 +147,7 @@ def test_apnet2_dataset_size_prebatched():
         skip_processed=False,
         skip_compile=True,
         print_level=2,
+        random_seed=None,
     )
     print()
     print(ds)
@@ -254,6 +255,7 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules():
         print_level=2,
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
+        random_seed=None,
     )
     print()
     print(ds)
@@ -309,6 +311,7 @@ def test_apnet2_dataset_size_qcel_molecules_in_memory():
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
         in_memory=True,
+        random_seed=None,
     )
     print(ds.training_batch_size)
     print(ds)
@@ -362,6 +365,7 @@ def test_apnet2_dataset_size_prebatched_qcel_molecules_in_memory():
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
         in_memory=True,
+        random_seed=None,
     )
     print(ds)
     train_loader = APNet2_DataLoader(
@@ -418,6 +422,7 @@ def test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory():
         collate_fn=apnet2_collate_update_prebatched,
     )
     cnt = 0
+    print("train_loader")
     for i in train_loader:
         print(i)
         cnt += i.y.shape[0]
@@ -507,6 +512,7 @@ def test_apnet2_train_qcel_molecules_in_memory_transfer():
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
         in_memory=True,
+        random_seed=None,
     )
     ap2 = APNet2Model().set_pretrained_model(model_id=0)
     v_0 = ap2.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
@@ -595,6 +601,7 @@ def test_apnet2_train_qcel_molecules_in_memory():
         qcel_molecules=qcel_molecules,
         energy_labels=energy_labels,
         in_memory=True,
+        random_seed=None,
     )
     ap2.train(
         ds,
@@ -640,6 +647,7 @@ def test_apnet2_dataset_size_prebatched_train_spec8():
         skip_compile=True,
         # split="test",
         print_level=2,
+        random_seed=None,
     )
     print()
     print(ds)
@@ -679,6 +687,7 @@ def test_apnet2_dataset_size_prebatched_train_spec9():
         skip_compile=True,
         split="train",
         print_level=2,
+        random_seed=None,
     )
     print()
     print(ds)
@@ -1292,9 +1301,13 @@ def test_am_dimer_multipole_ds():
 
 
 if __name__ == "__main__":
-    test_apnet2_dataset_size_prebatched()
+    # test_apnet2_train_qcel_molecules_in_memory()
+    test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory()
+    # test_apnet2_dataset_size_prebatched_train_spec8()
+    # test_apnet2_dataset_size_prebatched()
     # test_dapnet2_dataset_size_prebatched()
     # test_dapnet2_train_qcel_molecules_in_memory_transfer()
     # test_apnet2_model_train()
     # test_ap3_model_train()
     pass
+

@@ -640,6 +640,7 @@ def apnet2_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
             quadB=quadB,
             hlistB=hlistB,
         )
+        data = data.cpu()
         dimer_data.append(data)
     return dimer_data
 
@@ -671,6 +672,7 @@ class apnet2_module_dataset(Dataset):
         print_level=1,
         qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
         energy_labels: Optional[List[float]] = None,
+        random_seed=42,
     ):
         """
         spec_type definitions:
@@ -706,6 +708,7 @@ class apnet2_module_dataset(Dataset):
             )
             self.prebatched = True
         self.MAX_SIZE = max_size
+        self.random_seed = random_seed
         self.in_memory = in_memory
         self.split = split
         self.r_cut = r_cut
@@ -728,7 +731,14 @@ class apnet2_module_dataset(Dataset):
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
         if atom_model is not None:
-            self.atom_model = atom_model
+            if isinstance(atom_model, AtomModel):
+                self.atom_model = atom_model
+            else:
+                self.atom_model = AtomModel(
+                    ds_root=None,
+                    ignore_database_null=True,
+                )
+                self.atom_model.model = atom_model
             if not skip_compile:
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True)
@@ -745,15 +755,15 @@ class apnet2_module_dataset(Dataset):
             if not skip_compile:
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True)
+        print(
+            f"{root=}, {self.spec_type=}, {self.in_memory=}"
+        )
         super(apnet2_module_dataset, self).__init__(
             root, transform, pre_transform)
         if self.force_reprocess:
             self.force_reprocess = False
             super(apnet2_module_dataset, self).__init__(
                 root, transform, pre_transform)
-        print(
-            f"{self.root=}, {self.spec_type=}, {self.in_memory=}"
-        )
         if self.in_memory:
             self.get = self.get_in_memory
         self.batch_size = batch_size
@@ -783,8 +793,8 @@ class apnet2_module_dataset(Dataset):
             ]
         elif self.spec_type == 7:
             return [
-                "t_train10k.pkl",
-                "t_test2k.pkl",
+                "t_train_100.pkl",
+                "t_test_20.pkl",
             ]
         elif self.spec_type == 8:
             return [
@@ -794,6 +804,11 @@ class apnet2_module_dataset(Dataset):
             return [
                 "t_train_19.pkl",
                 "t_test_19.pkl",
+            ]
+        elif self.spec_type is None:
+            os.system(f"touch {self.raw_dir}/tmp.txt")
+            return [
+                'tmp.txt'
             ]
         else:
             return [
@@ -885,7 +900,7 @@ class apnet2_module_dataset(Dataset):
         RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
         if self.qcel_molecules is not None and self.energy_labels is not None:
             print("Processing directly from provided QCElemental molecules...")
-            split_name = ""
+            split_name = f"_{self.split}" if self.split != 'all' else ""
             
             # Process directly from qcel_mols and energy_labels
             for mol in self.qcel_molecules:
@@ -929,7 +944,7 @@ class apnet2_module_dataset(Dataset):
             for raw_path in self.raw_paths:
                 split_name = ""
                 if self.spec_type in [2, 5, 6, 7, 9]:
-                    split_name = f"_{self.split}"
+                    split_name = f"_{self.split}" if self.split != 'all' else ""
                     print(f"{split_name=}")
                     if self.split not in Path(raw_path).stem:
                         print(f"{self.split} is skipping {raw_path}")
@@ -939,6 +954,7 @@ class apnet2_module_dataset(Dataset):
                 RA, RB, ZA, ZB, TQA, TQB, target = util.load_dimer_dataset(
                     raw_path, self.MAX_SIZE, return_qcel_mols=False, return_qcel_mons=False,
                     columns=["Elst_aug", "Exch_aug", "Ind_aug", "Disp_aug"],
+                    random_seed_shuffle=self.random_seed,
                 )
                 RAs.extend(RA)
                 RBs.extend(RB)
@@ -960,6 +976,7 @@ class apnet2_module_dataset(Dataset):
                     self.processed_dir,
                     f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx // self.points_per_file}.pt",
                 )
+                print(f"{datapath = }")
                 if osp.exists(datapath):
                     idx += 1
                     continue
@@ -974,8 +991,9 @@ class apnet2_module_dataset(Dataset):
                 molA_data.append(monA_data)
                 molB_data.append(monB_data)
                 energies.append(targets[j])
-            # if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
-            if len(molA_data) != self.atomic_batch_size:
+            if len(molA_data) != self.atomic_batch_size and j != len(RAs) - 1:
+            # print(len(molA_data), self.atomic_batch_size)
+            # if len(molA_data) != self.atomic_batch_size:
                 continue
             batch_A = atomic_datasets.atomic_collate_update_no_target(
                 molA_data)
@@ -1051,6 +1069,7 @@ class apnet2_module_dataset(Dataset):
                     quadB=quadB,
                     hlistB=hlistB,
                 )
+                data = data.cpu()
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
 
@@ -1141,8 +1160,8 @@ class apnet2_module_dataset(Dataset):
         if self.active_idx_data == idx_datapath:
             return self.active_data[obj_ind]
         split_name = ""
-        if self.spec_type in [2, 5, 6, 7, 9]:
-            split_name = f"_{self.split}"
+        if self.spec_type in [2, 5, 6, 7, 9, None]:
+            split_name = f"_{self.split}" if self.split != 'all' else ""
         datapath = osp.join(
             self.processed_dir, f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
         )
@@ -1388,8 +1407,7 @@ class apnet3_module_dataset(Dataset):
             # predictions up front to avoid a large memory footprint
             split_name = ""
             if self.spec_type in [2, 5, 6, 7]:
-                split_name = f"_{self.split}"
-                print(f"{split_name=}")
+                split_name = f"_{self.split}" if self.split != 'all' else ""
                 if self.split not in Path(raw_path).stem:
                     print(f"{self.split} is skipping {raw_path}")
                     continue
@@ -1554,6 +1572,7 @@ class apnet3_module_dataset(Dataset):
                         alpha_0_B=alpha_0_B,
                         hlistB=hlistB,
                     )
+                    data = data.cpu()
                     if self.pre_filter is not None and not self.pre_filter(data):
                         continue
 
@@ -1626,8 +1645,8 @@ class apnet3_module_dataset(Dataset):
         if self.active_idx_data == idx_datapath:
             return self.active_data[obj_ind]
         split_name = ""
-        if self.spec_type in [2, 5, 6, 7]:
-            split_name = f"_{self.split}"
+        if self.spec_type in [2, 5, 6, 7, 9, None]:
+            split_name = f"_{self.split}" if self.split != 'all' else ""
         datapath = osp.join(
             self.processed_dir, f"dimer_ap3{split_name}_spec_{self.spec_type}_{idx_datapath}.pt"
         )

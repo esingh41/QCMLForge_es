@@ -2,8 +2,25 @@ from apnet_pt.AtomModels.ap2_atom_model import AtomModel
 from apnet_pt.AtomModels.ap3_atom_model import AtomHirshfeldModel
 import os
 import torch
+import apnet_pt
+import qcelemental as qcel
+import numpy as np
 
 current_file_path = os.path.dirname(os.path.realpath(__file__))
+
+mol_water = qcel.models.Molecule.from_data("""
+0 1
+O 0.000000 0.000000  0.000000
+H 0.758602 0.000000  0.504284
+H 0.260455 0.000000 -0.872893
+""")
+
+
+def set_weights_to_value(model, value=0.9):
+    """Sets all weights and biases in the model to a specific value."""
+    with torch.no_grad():  # Disable gradient tracking
+        for param in model.parameters():
+            param.fill_(value)  # Set all elements to the given value
 
 
 def test_am():
@@ -91,6 +108,7 @@ def test_am_hirshfeld():
     )
     return
 
+
 def test_dimer_multipole_training():
     am = AtomModel(
         use_GPU=False,
@@ -98,6 +116,130 @@ def test_dimer_multipole_training():
     return
 
 
+def allclose_sigfig(a, b, sigfigs=4, equal_nan=False):
+    """
+    Returns True if all elements in arrays `a` and `b` agree to the specified number of significant figures.
+
+    Parameters
+    ----------
+    a, b : array_like
+        Input arrays to compare.
+    sigfigs : int
+        Number of significant figures required to match.
+    equal_nan : bool
+        Whether to consider NaNs equal.
+    """
+    a = np.asarray(a)
+    b = np.asarray(b)
+
+    if a.shape != b.shape:
+        return False
+
+    # Handle NaNs if requested
+    if equal_nan:
+        nan_mask = np.isnan(a) & np.isnan(b)
+    else:
+        nan_mask = np.zeros_like(a, dtype=bool)
+
+    # To avoid division by zero or log10(0), mask out zeros temporarily
+    with np.errstate(divide="ignore", invalid="ignore"):
+        # Compute the order of magnitude of each value
+        magnitude = np.floor(np.log10(np.maximum(np.abs(a), np.abs(b))))
+        scale = 10 ** (magnitude - sigfigs + 1)
+        diff = np.abs(a - b)
+
+    close = (diff <= scale) | nan_mask
+    return np.all(close)
+
+
+def test_am_architecture():
+    tf_charges = np.array([0.28356934, -0.14175415, -0.14175415], dtype=np.float32)
+    tf_dipoles = np.array(
+        [
+            [17.078526, 0.06, -6.0958734],
+            [-17.774773, 0.06, -22.643368],
+            [0.8762475, 0.06, 28.919243],
+        ],
+        dtype=np.float32,
+    )
+    tf_quads = np.array(
+        [
+            [
+                1.9083790e03,
+                5.9999999e-02,
+                -1.1078560e03,
+                -1.1545651e03,
+                5.9999999e-02,
+                -7.5381415e02,
+            ],
+            [
+                4.2554663e02,
+                5.9999999e-02,
+                4.2820825e03,
+                -2.9382349e03,
+                5.9999999e-02,
+                2.5126885e03,
+            ],
+            [
+                -2.9311895e03,
+                5.9999999e-02,
+                2.4915816e02,
+                -2.9382344e03,
+                5.9999999e-02,
+                5.8694233e03,
+            ],
+        ],
+        dtype=np.float32,
+    )
+
+
+    hidden_list_v = [np.array([[0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+           [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+           [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]], dtype=np.float32),
+    np.array([[1.0521429, 1.0521429, 1.0521429, 1.0521429, 1.0521429, 1.0521429,
+            1.0521429, 1.0521429],
+           [1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331,
+            1.0513331, 1.0513331],
+           [1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331,
+            1.0513331, 1.0513331]], dtype=np.float32),
+    np.array([[13.901527, 13.901527, 13.901527, 13.901527, 13.901527, 13.901527,
+            13.901527, 13.901527],
+           [13.890074, 13.890074, 13.890074, 13.890074, 13.890074, 13.890074,
+            13.890074, 13.890074],
+           [13.890074, 13.890074, 13.890074, 13.890074, 13.890074, 13.890074,
+            13.890074, 13.890074]], dtype=np.float32),
+    np.array([[173.86403, 173.86403, 173.86403, 173.86403, 173.86403, 173.86403,
+            173.86403, 173.86403],
+           [173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 ,
+            173.7179 , 173.7179 ],
+           [173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 ,
+            173.7179 , 173.7179 ]], dtype=np.float32)]
+
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    set_weights_to_value(atom_model.model, 0.02)
+    v = atom_model.predict_qcel_mols([mol_water], batch_size=1)
+    charges, dipoles, quads, hlist = v[0]
+    charges = charges.detach().cpu().numpy()
+    dipoles = dipoles.detach().cpu().numpy()
+    hlist = hlist.detach().cpu().numpy()
+    quads = quads.detach().cpu().numpy()
+    quads = quads.reshape(-1, 9)
+    quads = np.array(
+        [quads[i].flatten()[[0, 1, 2, 4, 5, 8]] for i in range(len(quads))]
+    )
+    print(f"{charges=}\n{dipoles=}\n{quads=}")
+    hlist = np.transpose(hlist, (1, 0, 2))
+    assert allclose_sigfig(charges, tf_charges, sigfigs=3)
+    assert allclose_sigfig(dipoles, tf_dipoles, sigfigs=3)
+    assert allclose_sigfig(quads, tf_quads, sigfigs=3)
+    assert allclose_sigfig(hlist, hidden_list_v, sigfigs=3), f"{hlist - hidden_list_v=}"
+
+
 if __name__ == "__main__":
     # test_am_hirshfeld()
-    test_am()
+    # test_am()
+    test_am_architecture()

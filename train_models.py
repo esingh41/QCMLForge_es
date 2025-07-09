@@ -51,9 +51,8 @@ def train_atom_model(
         lr=5e-4,
         split_percent=0.9,
         model_path=model_path,
-        shuffle=False,
+        shuffle=True,
         dataloader_num_workers=7,
-        optimize_for_speed=True,
         world_size=1,
         omp_num_threads_per_process=8,
         random_seed=random_seed,
@@ -153,6 +152,7 @@ def train_pairwise_model(
             ds_skip_process=False,
             ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
             ds_prebatched=True,
+            ds_random_seed=random_seed,
         )
     apnet2.train(
         model_path=model_out,
