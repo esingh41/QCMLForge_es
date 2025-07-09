@@ -30,6 +30,7 @@ mol_dimer = qcel.models.Molecule.from_data("""
 1   2.645502399   -0.412039965   0.766632411
 1   2.641145101   -0.449872874   -0.744894473
 """)
+print(dict(mol_dimer))
 
 mol_element = qcel.models.Molecule.from_data("""
 1 1
