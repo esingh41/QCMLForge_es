@@ -400,7 +400,7 @@ class atomic_module_dataset(Dataset):
     ):
         """ """
         try:
-            assert spec_type in [1, 2, 3, 4]
+            assert spec_type in [1, 2, 3, 4, 6]
         except Exception:
             print(
                 "Currently spec_type must be 1, 2, or 3 for HF/jun-cc-pV(D+d)Z (CMPNN), PBE0/aug-cc-pV(T+D)Z (CMPNN), or HF/jun-cc-pV(D+D)Z (APNET2) respectively. Only 1 and 2 are available for download at the moment."
@@ -454,6 +454,7 @@ class atomic_module_dataset(Dataset):
         # spec_1 = "spec_1" # 'hf/jun-cc-pv_dpd_z' CMPNN
         # spec_2 = "spec_2" # 'pbe0/aug-cc-pv_tpd_z' CMPNN
         # spec_3 = "spec_3" # 'hf/jun-cc-pv_dpd_z' APNET2
+        # spec_4 = "spec_4" # 'pbe0/aug-cc-pvtz' APNET2
         if self.testing:
             return [
                 "testing.pkl",
@@ -469,7 +470,11 @@ class atomic_module_dataset(Dataset):
                 ]
             elif self.spec_type == 4:
                 return [
-                    f"monomers_ap3_spec_1_pbe0.pkl",
+                    "monomers_ap3_spec_1_pbe0.pkl",
+                ]
+            elif self.spec_type == 6:
+                return [
+                    "monomers_apnet2_spec_3_62.pkl",
                 ]
         raise ValueError("spec_type must be 1, 2, or 3!")
         return []

@@ -25,15 +25,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
-
-
-def assemble_RA_RB_lists(
-    RA,
-    RB,
-    dimer_ind
-):
-    return
-
+from apnet_pt.torch_util import set_weights_to_value
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
@@ -131,8 +123,6 @@ def unwrap_model(model):
     return model.module if isinstance(model, DDP) else model
 
 
-# Maybe MessagePassing inheritance is not necessary and slowing down...
-# class APNet2_MPNN(MessagePassing):
 class APNet2_MPNN(nn.Module):
     def __init__(
         self,
@@ -248,32 +238,28 @@ class APNet2_MPNN(nn.Module):
         muA_source = muA.index_select(0, e_ABsr_source)
         muB_source = muB.index_select(0, e_ABsr_target)
 
-        quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_ABsr_source)
-        quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_ABsr_target)
+        # TF implementation uses 3/2 factor for quadrupoles
+        # quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_ABsr_source)
+        # quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_ABsr_target)
+        quadA_source = quadA.index_select(0, e_ABsr_source)
+        quadB_source = quadB.index_select(0, e_ABsr_target)
 
-        E_qq = qA_source * qB_source * oodR
+        E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
+        
+        T1 = torch.einsum('x,xy->xy', oodR ** 3, -1.0 * dR_xyz)
+        qu = torch.einsum('x,xy->xy', qA_source, muB_source) - torch.einsum('x,xy->xy', qB_source, muA_source)
+        E_qu = torch.einsum('xy,xy->x', T1, qu)
 
-        T1 = -1.0 * dR_xyz * (oodR**3).unsqueeze(1)
-        qu = (qA_source.unsqueeze(1) * muB_source) - (
-            qB_source.unsqueeze(1) * muA_source
-        )
-        E_qu = (T1 * qu).sum(dim=1)
+        T2 = 3 * torch.einsum('xy,xz->xyz', dR_xyz, dR_xyz) - torch.einsum('x,x,yz->xyz', dR, dR, delta)
+        T2 = torch.einsum('x,xyz->xyz', oodR ** 5, T2)
 
-        # T2 = 3(dR_xyz x dR_xyz) - dR * delta
-        T2 = 3 * torch.einsum("ij,ik->ijk", dR_xyz, dR_xyz) - torch.einsum(
-            "i,jk->ijk", dR, delta
-        )
-        T2 = T2 * (oodR**5).unsqueeze(1).unsqueeze(2)
+        E_uu = -1.0 * torch.einsum('xy,xz,xyz->x', muA_source, muB_source, T2)
 
-        # E_uu should be close to zero
-        E_uu = -1.0 * torch.einsum("ij,ik,ijk->i", muA_source, muB_source, T2)
-
-        qA_quadB_source = qA_source.unsqueeze(1).unsqueeze(2) * quadB_source
-        qB_quadA_source = qB_source.unsqueeze(1).unsqueeze(2) * quadA_source
-        E_qQ = (T2 * (qA_quadB_source + qB_quadA_source)).sum(dim=(1, 2)) / 3.0
+        qA_quadB_source = torch.einsum('x,xyz->xyz', qA_source, quadB_source)
+        qB_quadA_source = torch.einsum('x,xyz->xyz', qB_source, quadA_source)
+        E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source + qB_quadA_source)  / 3.0
 
         E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu)
-
         return E_elst
 
     def get_messages(self, h0, h, rbf, e_source, e_target):
@@ -510,12 +496,8 @@ class APNet2_MPNN(nn.Module):
 
         cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
         E_sr *= cutoff
-        # When natomsA == 1, this causes nans...
-        # print("Exit")
-        # return torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), hAB, hBA
-        # if ndimer < 1:
-        #     return torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), torch.zeros(ndimer, 4), hAB, hBA
-        # print(E_sr.dtype, dimer_ind.dtype, ndimer.dtype)
+        # cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
+        # E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
                              reduce="add", dim_size=ndimer)
 
@@ -583,6 +565,7 @@ class APNet2_MPNN(nn.Module):
         padded = E_elst_dimer.new_zeros((rows, cols + 3))
         padded[:, :cols] = E_elst_dimer
         E_elst_dimer = padded
+        # E_sr_dimer[:, 0] = 0.0
         E_output = E_sr_dimer + E_elst_dimer
         if self.return_hidden_states:
             return E_output, E_sr_dimer, E_elst_sr_dimer, E_elst_lr_dimer, hAB, hBA, cutoff
@@ -610,10 +593,14 @@ class APNet2Model:
         ds_atomic_batch_size=200,
         ds_force_reprocess=False,
         ds_skip_process=False,
+        ds_skip_compile=False,
         ds_num_devices=1,
         ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
+        ds_random_seed=42,
         print_lvl=0,
+        ds_qcel_molecules=None,
+        ds_energy_labels=None,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -651,6 +638,7 @@ class APNet2Model:
             }
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
+            print("Using provided AtomMPNN model:", atom_model)
             self.atom_model = atom_model
         else:
             print(
@@ -659,7 +647,6 @@ class APNet2Model:
     pre-computed and passed as input to the model.
 """
             )
-        self.atom_model.to(device)
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
@@ -706,15 +693,24 @@ class APNet2Model:
         if r_cut != self.model.r_cut:
             print(f"Changing r_cut from {self.model.r_cut} to {r_cut}")
             self.model.r_cut = r_cut
+
+        self.device = device
+        self.atom_model.to(device)
         self.model.to(device)
+
         split_dbs = [2, 5, 6, 7]
+        ds_qcel_split_db = (
+            ds_qcel_molecules is not None
+            and len(ds_qcel_molecules) == 2
+            and isinstance(ds_qcel_molecules[0], list)
+        )
         self.dataset = dataset
         if (
             not ignore_database_null
             and self.dataset is None
             and self.ds_spec_type not in split_dbs
+            and not ds_qcel_split_db
         ):
-
             def setup_ds(fp=ds_force_reprocess):
                 return apnet2_module_dataset(
                     root=ds_root,
@@ -723,13 +719,18 @@ class APNet2Model:
                     spec_type=ds_spec_type,
                     max_size=ds_max_size,
                     force_reprocess=fp,
-                    atom_model_path=atom_model_pre_trained_path,
+                    atom_model=self.atom_model,
+                    # atom_model_path=atom_model_pre_trained_path,
                     atomic_batch_size=ds_atomic_batch_size,
                     num_devices=ds_num_devices,
                     skip_processed=ds_skip_process,
+                    skip_compile=ds_skip_compile,
+                    random_seed=ds_random_seed,
                     datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                     prebatched=ds_prebatched,
                     print_level=print_lvl,
+                    qcel_molecules=ds_qcel_molecules,
+                    energy_labels=ds_energy_labels,
                 )
 
             self.dataset = setup_ds()
@@ -739,9 +740,12 @@ class APNet2Model:
         elif (
             not ignore_database_null
             and self.dataset is None
-            and self.ds_spec_type in split_dbs
+            and (self.ds_spec_type in split_dbs or ds_qcel_split_db)
         ):
             print("Processing Split dataset...")
+            if ds_qcel_molecules is None:
+                ds_qcel_molecules = [None, None]
+                ds_energy_labels = [None, None]
 
             def setup_ds(fp=ds_force_reprocess):
                 return [
@@ -752,14 +756,18 @@ class APNet2Model:
                         spec_type=ds_spec_type,
                         max_size=ds_max_size,
                         force_reprocess=fp,
-                        atom_model_path=atom_model_pre_trained_path,
+                        atom_model=self.atom_model,
                         atomic_batch_size=ds_atomic_batch_size,
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
+                        skip_compile=ds_skip_compile,
+                        random_seed=ds_random_seed,
                         split="train",
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
+                        qcel_molecules=ds_qcel_molecules[0],
+                        energy_labels=ds_energy_labels[0],
                     ),
                     apnet2_module_dataset(
                         root=ds_root,
@@ -768,14 +776,18 @@ class APNet2Model:
                         spec_type=ds_spec_type,
                         max_size=ds_max_size,
                         force_reprocess=fp,
-                        atom_model_path=atom_model_pre_trained_path,
+                        atom_model=self.atom_model,
                         atomic_batch_size=ds_atomic_batch_size,
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
+                        skip_compile=ds_skip_compile,
+                        random_seed=ds_random_seed,
                         split="test",
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
+                        qcel_molecules=ds_qcel_molecules[1],
+                        energy_labels=ds_energy_labels[1],
                     ),
                 ]
 
@@ -785,8 +797,6 @@ class APNet2Model:
                 self.dataset[0] = self.dataset[0][:ds_max_size]
                 self.dataset[1] = self.dataset[1][:ds_max_size]
         print(f"{self.dataset=}")
-        self.model.to(device)
-        self.device = device
         self.batch_size = None
         self.shuffle = False
         self.model_save_path = None
@@ -808,6 +818,16 @@ class APNet2Model:
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
         self.model = torch.compile(self.model)
+        return
+
+    def set_all_weights_to_value(self, value: float):
+        """
+        Sets the weights of the model to a constant value for debugging.
+        """
+        batch = self.example_input()
+        batch.to(self.device)
+        self.model(**batch)
+        set_weights_to_value(self.model, value)
         return
 
     def set_pretrained_model(self, ap2_model_path=None, am_model_path=None, model_id=None):
@@ -969,6 +989,7 @@ class APNet2Model:
                 dimer_batch = pairwise_datasets.apnet2_collate_update_no_target(
                     dimer_ls
                 )
+        dimer_batch.to(self.device)
         return dimer_batch
     
     def set_return_hidden_states(self, value=True):
@@ -987,7 +1008,6 @@ class APNet2Model:
         indB_to_dimer = []
         indA_to_atom = []
         indB_to_atom = []
-        pair_energies = []
         pair_energies_batch = []
 
         indsA_sr = inp_batch["e_ABsr_source"]
@@ -996,7 +1016,6 @@ class APNet2Model:
         indsB_lr = inp_batch["e_ABlr_target"]
 
         dimer_inds, atoms_per_dimer = torch.unique(inp_batch.dimer_ind, return_counts=True)
-        n_dimers = torch.max(dimer_inds) + 1
         indsA_monomer = inp_batch.indA
         indsB_monomer = inp_batch.indB
 
@@ -1033,6 +1052,54 @@ class APNet2Model:
             pair_energies_batch[i][0, atomA, atomB] += e_elst_lr
         return pair_energies_batch
 
+    def _assemble_mtp_pairs(
+        self,
+        inp_batch,
+        E_elst_sr,
+        E_elst_lr,
+    ):
+        indA_to_dimer = []
+        indB_to_dimer = []
+        indA_to_atom = []
+        indB_to_atom = []
+        pair_energies_batch = []
+
+        indsA_sr = inp_batch["e_ABsr_source"]
+        indsB_sr = inp_batch["e_ABsr_target"]
+        indsA_lr = inp_batch["e_ABlr_source"]
+        indsB_lr = inp_batch["e_ABlr_target"]
+
+        dimer_inds, atoms_per_dimer = torch.unique(inp_batch.dimer_ind, return_counts=True)
+        indsA_monomer = inp_batch.indA
+        indsB_monomer = inp_batch.indB
+
+        for i in dimer_inds:
+            size_A = torch.sum(indsA_monomer == i)
+            size_B = torch.sum(indsB_monomer == i)
+            indA_to_dimer.append(np.full((size_A,), i))
+            indB_to_dimer.append(np.full((size_B,), i))
+            indA_to_atom.append(np.arange(size_A))
+            indB_to_atom.append(np.arange(size_B))
+            pair_energies_batch.append(np.zeros((size_A, size_B)))
+
+        indA_to_dimer = np.concatenate(indA_to_dimer)
+        indB_to_dimer = np.concatenate(indB_to_dimer)
+        indA_to_atom = np.concatenate(indA_to_atom)
+        indB_to_atom = np.concatenate(indB_to_atom)
+        for e_elst_sr, indA, indB in zip(E_elst_sr, indsA_sr, indsB_sr):
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_energies_batch[i][atomA, atomB] += e_elst_sr.numpy()
+        for e_elst_lr, indA, indB in zip(E_elst_lr, indsA_lr, indsB_lr):
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_energies_batch[i][atomA, atomB] += e_elst_lr
+        return pair_energies_batch
+
     @torch.inference_mode()
     def predict_qcel_mols(
         self,
@@ -1042,7 +1109,9 @@ class APNet2Model:
         r_cut_im=None,
         verbose=False,
         return_pairs=False,
+        return_elst=False,
     ):
+        assert not (return_elst and return_pairs), "return_elst and return_pairs are not compatible"
         if r_cut is None:
             r_cut = self.model.r_cut
         if r_cut_im is None:
@@ -1050,7 +1119,7 @@ class APNet2Model:
 
         mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
         predictions = np.zeros((len(mol_data), 4))
-        if return_pairs:
+        if return_pairs or return_elst:
             pairwise_energies = []
         if self.model.return_hidden_states:
             # need to capture output
@@ -1161,14 +1230,23 @@ class APNet2Model:
                     ndimers.append(torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long))
                     predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
                 elif return_pairs:
-                    # assert batch_size == 1, "Currently batch size must be 1 for pairwise energies"
                     E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
                     predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
                     pairwise_energies.extend(
                         self._assemble_pairs(
+                            dimer_batch.cpu(),
+                            E_sr_dimer.cpu(),
+                            E_sr.cpu(),
+                            E_elst_sr.cpu(),
+                            E_elst_lr.cpu(),
+                        )
+                    )
+                elif return_elst:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                    pairwise_energies.extend(
+                        self._assemble_mtp_pairs(
                             dimer_batch,
-                            E_sr_dimer,
-                            E_sr,
                             E_elst_sr,
                             E_elst_lr,
                         )
@@ -1181,12 +1259,16 @@ class APNet2Model:
                 )
         if self.model.return_hidden_states:
             return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
-        if return_pairs:
+        if return_pairs or return_elst:
             return predictions, pairwise_energies
         return predictions
 
-    def example_input(self):
-        mol = qcel.models.Molecule.from_data("""
+    def example_input(self, mol=None,
+        r_cut=5.0,
+        r_cut_im=8.0,
+):
+        if mol is None:
+            mol = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
 1   -1.022193224   0.846775782   -0.011488714
@@ -1198,7 +1280,7 @@ class APNet2Model:
 1   2.641145101   -0.449872874   -0.744894473
 units angstrom
         """)
-        return self._qcel_example_input([mol], batch_size=1)
+        return self._qcel_example_input([mol], batch_size=1, r_cut=r_cut, r_cut_im=r_cut_im)
 
     ########################################################################
     # TRAINING/VALIDATION HELPERS
@@ -1226,7 +1308,8 @@ units angstrom
         comp_errors_t = []
         total_loss = 0.0
         for n, batch in enumerate(dataloader):
-            optimizer.zero_grad(set_to_none=True)  # minor speed-up
+            # optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad()
             batch = batch.to(rank_device, non_blocking=True)
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.eval_fn(
                 batch)
@@ -1239,13 +1322,15 @@ units angstrom
             )
             batch_loss.backward()
             optimizer.step()
+            # print(preds[0][0].item(), batch.y[0].numpy())
+            # print(f"    Loss value: {batch_loss.item()}")
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
         if scheduler is not None:
             scheduler.step()
 
         comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
@@ -1271,7 +1356,7 @@ units angstrom
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
         comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
@@ -1326,7 +1411,7 @@ units angstrom
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
-                    else loss_fn(preds, batch.y)
+                    else loss_fn(preds.flatten(), batch.y.flatten())
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
@@ -1360,7 +1445,7 @@ units angstrom
             if loss_fn is None:
                 batch_loss = torch.mean(torch.square(comp_errors))
             else:
-                batch_loss = loss_fn(preds, batch.y)
+                batch_loss = loss_fn(preds.flatten(), batch.y.flatten())
 
             batch_loss.backward()
             optimizer.step()
@@ -1423,7 +1508,7 @@ units angstrom
                 if loss_fn is None:
                     batch_loss = torch.mean(torch.square(comp_errors))
                 else:
-                    batch_loss = loss_fn(preds, batch.y)
+                    batch_loss = loss_fn(preds.flatten(), batch.y.flatten())
 
                 total_loss += batch_loss.item()
                 total_errors = preds.sum(dim=1) - batch.y.sum(dim=1)
@@ -1642,9 +1727,10 @@ units angstrom
     ):
         # (1) Compile Model
         rank_device = self.device
-        self.model.to(rank_device)
+        # self.model.to(rank_device)
         batch = self.example_input()
         batch.to(rank_device)
+        print(batch)
         self.model(**batch)
         best_model = deepcopy(self.model)
         if not skip_compile:
@@ -1661,6 +1747,7 @@ units angstrom
             dataset=train_dataset,
             batch_size=batch_size,
             shuffle=True,
+            # shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
             collate_fn=collate_fn,
@@ -1682,7 +1769,8 @@ units angstrom
             if lr_decay
             else None
         )
-        criterion = None  # defaults to MSE
+        # criterion = None  # defaults to MSE
+        criterion = torch.nn.MSELoss()
 
         # (4) Set eval functions
         if not transfer_learning:
@@ -1790,6 +1878,8 @@ units angstrom
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
         self.model = best_model
+        self.model.to(rank_device)
+        return
 
     def train(
         self,
@@ -1798,9 +1888,8 @@ units angstrom
         lr=5e-4,
         split_percent=0.9,
         model_path=None,
-        shuffle=False,
+        shuffle=True,
         dataloader_num_workers=4,
-        optimize_for_speed=True,
         world_size=1,
         omp_num_threads_per_process=6,
         lr_decay=None,
@@ -1849,7 +1938,6 @@ units angstrom
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
             batch_size = train_dataset.training_batch_size
-
         self.batch_size = batch_size
         print("~~ Training APNet2Model ~~", flush=True)
         print(
@@ -1875,10 +1963,6 @@ units angstrom
             pin_memory = False
         else:
             pin_memory = False
-
-        # if optimize_for_speed:
-        # torch.jit.enable_onednn_fusion(False)
-        # torch.autograd.set_detect_anomaly(True)
 
         self.shuffle = shuffle
 

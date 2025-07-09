@@ -51,9 +51,8 @@ def train_atom_model(
         lr=5e-4,
         split_percent=0.9,
         model_path=model_path,
-        shuffle=False,
+        shuffle=True,
         dataloader_num_workers=7,
-        optimize_for_speed=True,
         world_size=1,
         omp_num_threads_per_process=8,
         random_seed=random_seed,
@@ -78,11 +77,14 @@ def train_pairwise_model(
     n_embed=8,
     m1="",
     m2="",
+    pre_trained_model_path="./models/dapnet2/ap2_0.pt",
 ):
     ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
+    elif apnet_model_type == "APNet2-fused":
+        APNet = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model
     elif apnet_model_type == "APNet3":
         APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":
@@ -95,7 +97,7 @@ def train_pairwise_model(
             r_cut=r_cut,
             r_cut_im=r_cut_im,
             atom_model_pre_trained_path=am_model_path,
-            pre_trained_model_path="./models/dapnet2/ap2_0.pt",
+            pre_trained_model_path=pre_trained_model_path,
         )
         apnet2_model.model.return_hidden_states = True
     else:
@@ -152,6 +154,7 @@ def train_pairwise_model(
             ds_skip_process=False,
             ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
             ds_prebatched=True,
+            ds_random_seed=random_seed,
         )
     apnet2.train(
         model_path=model_out,
@@ -197,6 +200,12 @@ def main():
         type=str,
         default="./models/ap2_ensemble/ap2_0.pt",
         help="specify where to save output model (default: ./models/ap2_ensemble/ap2_1.pt)"
+    )
+    args.add_argument(
+        "--ap_pretrained_model_path",
+        type=str,
+        default="./models/dapnet2/ap2_0.pt",
+        help="specify a special loaded model. Currently only used for dAP-Net2 training (default: ./models/dapnet2/ap2_0.pt)"
     )
     args.add_argument(
         "--train_am",
@@ -344,6 +353,7 @@ def main():
             n_embed=args.n_embed,
             m1=args.m1,
             m2=args.m2,
+            pre_trained_model_path=args.ap_pretrained_model_path,
         )
     return
 
