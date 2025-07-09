@@ -78,6 +78,7 @@ def train_pairwise_model(
     n_embed=8,
     m1="",
     m2="",
+    pre_trained_model_path="./models/dapnet2/ap2_0.pt",
 ):
     ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
@@ -95,7 +96,7 @@ def train_pairwise_model(
             r_cut=r_cut,
             r_cut_im=r_cut_im,
             atom_model_pre_trained_path=am_model_path,
-            pre_trained_model_path="./models/dapnet2/ap2_0.pt",
+            pre_trained_model_path=pre_trained_model_path,
         )
         apnet2_model.model.return_hidden_states = True
     else:
@@ -197,6 +198,12 @@ def main():
         type=str,
         default="./models/ap2_ensemble/ap2_0.pt",
         help="specify where to save output model (default: ./models/ap2_ensemble/ap2_1.pt)"
+    )
+    args.add_argument(
+        "--ap_pretrained_model_path",
+        type=str,
+        default="./models/dapnet2/ap2_0.pt",
+        help="specify a special loaded model. Currently only used for dAP-Net2 training (default: ./models/dapnet2/ap2_0.pt)"
     )
     args.add_argument(
         "--train_am",
@@ -344,6 +351,7 @@ def main():
             n_embed=args.n_embed,
             m1=args.m1,
             m2=args.m2,
+            pre_trained_model_path=args.ap_pretrained_model_path,
         )
     return
 
