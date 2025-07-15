@@ -5,6 +5,12 @@ from pprint import pprint as pp
 from mcp.server.fastmcp import FastMCP
 import apnet_pt
 
+from pydantic import BaseModel, Field
+
+class PredictDAPNet2ErrorEstimatesOutput(BaseModel):
+    geometry: str
+    energy: float = Field(alias="ERROR ESTIMATE (kcal/mol)")
+
 # Create an MCP server
 mcp = FastMCP("QCMLForge", port=8001)
 
@@ -23,7 +29,7 @@ H 0.758602 0.000000  0.504284
 H 0.260455 0.000000 -0.872893
 units angstrom
     """,
-) -> Dict[str, List[float]]:
+) -> Dict:
     """
         Run a user defined molecule to get machine-learned atomic multipoles
         for evaluating electrostatics and polarization energies. This uses the
@@ -70,7 +76,7 @@ H 3.758602 0.500000  0.504284
 H 3.260455 0.500000 -0.872893
 units angstrom
     """,
-) -> Dict[str, List[float]]:
+) -> Dict:
     """
         Run a user defined molecule to predict machine-learned SAPT0
         interaction energies -- total, electrostatics, exchange, induction, and
@@ -119,7 +125,7 @@ H 3.260455 0.500000 -0.872893
 units angstrom
     """,
     starting_level_of_theory: str = "MP2/aug-cc-pVTZ/CP",
-) -> Dict[str, List[float]]:
+) -> Dict:
     """
             Run a user defined molecule to predict error between the
             starting_level_of_theory and a reference CCSD(T)/CBS/CP reference
@@ -168,3 +174,7 @@ if __name__ == "__main__":
     pp(predict_AM_multipoles_QCMLForge())
     pp(predict_APNet2_IE_QCMLForge())
     pp(predict_dAPNet2_error_estimates_QCMLForge())
+    pp(
+     predict_dAPNet2_error_estimates_QCMLForge(p4_string='0 1\n--\n0 1\nO                     0.000000000000     0.000000000000 0.000000000000\nH                     1.433550020000     0.000000000000 0.952958650000\nH                     0.492188620000     0.000000000000 -1.649528710000\n--\n0 1\nO                     5.669178380000     0.944863060000     0.000000000000\nH                     7.102728390000 0.944863060000     0.952958650000\nH                     6.161366990000 0.944863060000    -1.649528710000\nunits bohr\n', 
+     starting_level_of_theory='MP2/aug-cc-pVTZ/CP')
+    )
