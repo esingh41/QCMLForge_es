@@ -49,9 +49,7 @@ def qcel_to_monomerdata(monomer):
     # this better be a monomer
     if len(monomer.fragments) != 1:
         raise AssertionError(
-            f"A monomer must have exactly 1 molecular fragment, found {
-                len(monomer.fragments)
-            }"
+            f"A monomer must have exactly 1 molecular fragment, found {len(monomer.fragments)}"
         )
 
     Z = monomer.symbols
