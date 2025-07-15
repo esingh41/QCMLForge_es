@@ -190,7 +190,69 @@ def test_ap2_ensemble_predict_pairs():
     return
 
 
+def test_ap2_fused_ensemble():
+    print("Testing AP2 ensemble...")
+    ref = torch.load(
+        os.path.join(os.path.dirname(__file__), "dataset_data/ap2_fused_ensemble_test.pt"),
+        weights_only=False,
+    )
+
+    mols = [mol_dimer for _ in range(3)]
+    interaction_energies = apnet_pt.pretrained_models.apnet2_model_predict(
+        mols,
+        compile=False,
+        batch_size=2,
+        ap2_fused=True,
+    )
+    torch.save(interaction_energies, os.path.join(os.path.dirname(
+        __file__), "dataset_data/ap2_fused_ensemble_test.pt"))
+    assert np.allclose(interaction_energies, ref, atol=1e-5), f"{ref=}\n{interaction_energies = }"
+
+
+def test_ap2_fused_ensemble_predict_pairs():
+    _, pairs, df = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
+        [
+            mol_fsapt,
+            mol_fsapt,
+            mol_fsapt,
+        ],
+        compile=False,
+        batch_size=2,
+        fAs=[{
+            "Methyl1_A": [1, 2, 7, 8],
+            "Methyl2_A": [3, 4, 5, 6],
+        } for _ in range(3)],
+        fBs=[{
+            "Peptide_B": [9, 10, 11, 16, 26],
+            "T-Butyl_B": [12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+        } for _ in range(3)],
+        print_results=True,
+        ap2_fused=True,
+    )
+    print(df)
+    ref = {
+        "Methyl1_A-Peptide_B": {
+            'total': 0.154552,
+            'elst': 0.168963,
+            'exch': -0.003577,
+            'indu': 0.001630,
+            'disp': -0.012463,
+        }
+    }
+    for k, v in ref.items():
+        # get row where fA-fB equals 'Methyl1_A-Peptide_B'
+        row = df[df['fA-fB'] == k]
+        assert np.isclose(row['total'].values[0], v['total'], atol=1e-6)
+        assert np.isclose(row['elst'].values[0], v['elst'], atol=1e-6)
+        assert np.isclose(row['exch'].values[0], v['exch'], atol=1e-6)
+        assert np.isclose(row['indu'].values[0], v['indu'], atol=1e-6)
+        assert np.isclose(row['disp'].values[0], v['disp'], atol=1e-6)
+    return
+
+
 if __name__ == "__main__":
     # test_am_ensemble()
-    test_ap2_ensemble()
+    # test_ap2_ensemble()
     # test_ap2_ensemble_predict_pairs()
+    # test_ap2_fused_ensemble()
+    test_ap2_fused_ensemble_predict_pairs()
