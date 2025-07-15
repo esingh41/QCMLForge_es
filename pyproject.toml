@@ -10,7 +10,7 @@ authors = [
 ]
 description = "Package for creating QC ML models on QCArchive datasets. The AP-Net2 has been re-implemnented in PyTorch with newer versions to come."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
