@@ -6,7 +6,6 @@ channels:
   - defaults
 dependencies:
     # Base depends
-  - python
   - pip
   
   - pydata-sphinx-theme
@@ -23,7 +22,7 @@ dependencies:
   - pip
   - psycopg2=2.9.9
   - pytest=7.4.4
-  - python=3.12.8
+  - python>=3.12
   - pytorch=2.7.0
   - sympy=1.13.3
   - matplotlib==3.10.0
