@@ -204,3 +204,4 @@ tests/test_data_path/raw/tmp.txt
 tests/test_data_path/processed
 tests/test_data_path/processed_delta
 data_0_og
+GEMINI.md
