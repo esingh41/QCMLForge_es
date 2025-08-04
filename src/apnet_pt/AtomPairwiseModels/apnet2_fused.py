@@ -795,13 +795,9 @@ class APNet2_AM_Model:
     def set_pretrained_model(
         self, ap2_model_path=None, am_model_path=None, model_id=None
     ):
-        assert False, "This method has no trained models yet."
         if model_id is not None:
-            am_model_path = resources.files("apnet_pt").joinpath(
-                "models", "am_ensemble", f"am_{model_id}.pt"
-            )
             ap2_model_path = resources.files("apnet_pt").joinpath(
-                "models", "ap2_fused_ensemble", f"ap2_{model_id}.pt"
+                "models", "ap2-fused_ensemble", f"ap2_{model_id}.pt"
             )
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
@@ -815,15 +811,6 @@ class APNet2_AM_Model:
             self.model.load_state_dict(model_state_dict)
         else:
             self.model.load_state_dict(checkpoint["model_state_dict"])
-        checkpoint = torch.load(am_model_path)
-        if "_orig_mod" not in list(self.atom_model.state_dict().keys())[0]:
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
-            self.atom_model.load_state_dict(model_state_dict)
-        else:
-            self.atom_model.load_state_dict(checkpoint["model_state_dict"])
         return self
 
     def _qcel_example_input(
@@ -1419,10 +1406,7 @@ units angstrom
             dt = time.time() - t1
             if rank == 0:
                 print(
-                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{
-                        total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {
-                        exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{
-                        indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{ total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} { exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{ indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
                     flush=True,
                 )
         for epoch in range(n_epochs):

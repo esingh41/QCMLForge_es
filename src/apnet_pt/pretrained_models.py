@@ -99,31 +99,47 @@ def apnet2_model_predict(
     compile: bool = True,
     batch_size: int = 16,
     ensemble_model_dir: str = model_dir,
+    ap2_fused: bool = False,
 ):
-    num_models = 5
-    ap2 = AtomPairwiseModels.apnet2.APNet2Model(
-        # pre_trained_model_path=f"{ensemble_model_dir}ap2_ensemble/ap2_0.pt",
-        # atom_model_pre_trained_path=f"{ensemble_model_dir}am_ensemble/am_0.pt",
-        pre_trained_model_path=resources.files("apnet_pt").joinpath(
-            "models", "ap2_ensemble", "ap2_0.pt"
-        ),
-        atom_model_pre_trained_path=resources.files("apnet_pt").joinpath(
-            "models", "am_ensemble", "am_0.pt"
-        ),
-    )
+    if ap2_fused:
+        num_models = 4
+        additional_models_start = 2
+        ap2 = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model(
+            pre_trained_model_path=resources.files("apnet_pt").joinpath(
+                "models", "ap2-fused_ensemble", "ap2_1.pt"
+            )
+        )
+    else:
+        num_models = 5
+        additional_models_start = 1
+        ap2 = AtomPairwiseModels.apnet2.APNet2Model(
+            pre_trained_model_path=resources.files("apnet_pt").joinpath(
+                "models", "ap2_ensemble", "ap2_0.pt"
+            ),
+            atom_model_pre_trained_path=resources.files("apnet_pt").joinpath(
+                "models", "am_ensemble", "am_0.pt"
+            ),
+        )
     if compile:
         print("Compiling models...")
         ap2.compile_model()
     models = [copy.deepcopy(ap2) for _ in range(num_models)]
-    for i in range(1, num_models):
-        models[i].set_pretrained_model(
-            ap2_model_path=resources.files("apnet_pt").joinpath(
-                "models", "ap2_ensemble", f"ap2_{i}.pt"
-            ),
-            am_model_path=resources.files("apnet_pt").joinpath(
-                "models", "am_ensemble", f"am_{i}.pt"
-            ),
-        )
+    for i in range(additional_models_start, num_models):
+        if ap2_fused:
+            models[i].set_pretrained_model(
+                ap2_model_path=resources.files("apnet_pt").joinpath(
+                    "models", "ap2-fused_ensemble", f"ap2_{i}.pt"
+                )
+            )
+        else:
+            models[i].set_pretrained_model(
+                ap2_model_path=resources.files("apnet_pt").joinpath(
+                    "models", "ap2_ensemble", f"ap2_{i}.pt"
+                ),
+                am_model_path=resources.files("apnet_pt").joinpath(
+                    "models", "am_ensemble", f"am_{i}.pt"
+                ),
+            )
     pred_IEs = np.zeros((len(mols), 5))
     print("Processing mols...")
     for i in range(num_models):
@@ -136,6 +152,7 @@ def apnet2_model_predict(
     pred_IEs /= num_models
     return pred_IEs
 
+
 def apnet2_model_predict_pairs(
     mols: [Molecule],
     compile: bool = True,
@@ -144,6 +161,7 @@ def apnet2_model_predict_pairs(
     fAs: [{str: [int]}] = None,
     fBs: [{str: [int]}] = None,
     print_results: bool = False,
+    ap2_fused: bool = False,
 ):
     """
     Predicts AP2 pairwise energies that correspond to an FSAPT calculation. fA
@@ -151,30 +169,52 @@ def apnet2_model_predict_pairs(
     A and B to sum their contributions. The syntax is identical to the Psi4
     FSAPT updates from https://github.com/psi4/psi4/pull/3222
     """
-    assert fAs is not None, "fAs must be provided. Example: [{'Methyl1_A': [1, 2, 7, 8], 'Methyl2_A': [3, 4, 5, 6]}...]"
-    assert fBs is not None, "fBs must be provided, Example: [{'Peptide_B': [9, 10, 11, 16, 26], 'T-Butyl_B': [12, 13, 14, 15]}...]"
-    num_models = 5
-    ap2 = AtomPairwiseModels.apnet2.APNet2Model(
-        pre_trained_model_path=resources.files("apnet_pt").joinpath(
-            "models", "ap2_ensemble", "ap2_0.pt"
-        ),
-        atom_model_pre_trained_path=resources.files("apnet_pt").joinpath(
-            "models", "am_ensemble", "am_0.pt"
-        ),
+    assert fAs is not None, (
+        "fAs must be provided. Example: [{'Methyl1_A': [1, 2, 7, 8], 'Methyl2_A': [3, 4, 5, 6]}...]"
     )
+    assert fBs is not None, (
+        "fBs must be provided, Example: [{'Peptide_B': [9, 10, 11, 16, 26], 'T-Butyl_B': [12, 13, 14, 15]}...]"
+    )
+    if ap2_fused:
+        # Note: experimental, not finalized
+        additional_models_start = 2
+        num_models = 4
+        ap2 = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model(
+            pre_trained_model_path=resources.files("apnet_pt").joinpath(
+                "models", "ap2-fused_ensemble", "ap2_1.pt"
+            )
+        )
+    else:
+        additional_models_start = 2
+        num_models = 5
+        ap2 = AtomPairwiseModels.apnet2.apnet2model(
+            pre_trained_model_path=resources.files("apnet_pt").joinpath(
+                "models", "ap2_ensemble", "ap2_0.pt"
+            ),
+            atom_model_pre_trained_path=resources.files("apnet_pt").joinpath(
+                "models", "am_ensemble", "am_0.pt"
+            ),
+        )
     if compile:
         print("Compiling models...")
         ap2.compile_model()
     models = [copy.deepcopy(ap2) for _ in range(num_models)]
-    for i in range(1, num_models):
-        models[i].set_pretrained_model(
-            ap2_model_path=resources.files("apnet_pt").joinpath(
-                "models", "ap2_ensemble", f"ap2_{i}.pt"
-            ),
-            am_model_path=resources.files("apnet_pt").joinpath(
-                "models", "am_ensemble", f"am_{i}.pt"
-            ),
-        )
+    for i in range(additional_models_start, num_models):
+        if ap2_fused:
+            models[i].set_pretrained_model(
+                ap2_model_path=resources.files("apnet_pt").joinpath(
+                    "models", "ap2-fused_ensemble", f"ap2_{i}.pt"
+                )
+            )
+        else:
+            models[i].set_pretrained_model(
+                ap2_model_path=resources.files("apnet_pt").joinpath(
+                    "models", "ap2_ensemble", f"ap2_{i}.pt"
+                ),
+                am_model_path=resources.files("apnet_pt").joinpath(
+                    "models", "am_ensemble", f"am_{i}.pt"
+                ),
+            )
     pred_IEs = np.zeros((len(mols), 5))
     print("Processing mols...")
     IEs, pairwise_energies = models[0].predict_qcel_mols(
@@ -202,7 +242,7 @@ def apnet2_model_predict_pairs(
 
     data_dict = {
         # 'mol': [],
-        'fA-fB': [],
+        "fA-fB": [],
         "total": [],
         "elst": [],
         "exch": [],

@@ -236,6 +236,8 @@ def ap2_fused_collate_update_no_target(batch):
     local_e_AA_target = []
     local_e_BB_source = []
     local_e_BB_target = []
+    local_indA = []
+    local_indB = []
     for i, data in enumerate(batch):
         data.dimer_ind = (
             torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
@@ -260,6 +262,11 @@ def ap2_fused_collate_update_no_target(batch):
 
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
+
+        local_indA.append(torch.ones(data.RA.size(0), dtype=data.dimer_ind.dtype) * i)
+        local_indB.append(
+            torch.ones(data.RB.size(0), dtype=data.dimer_ind_lr.dtype) * i
+        )
     molecule_ind_A = torch.cat([data.molecule_ind_A for data in batch], dim=0)
     molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
     natom_per_mol_A = torch.bincount(molecule_ind_A)
@@ -289,6 +296,8 @@ def ap2_fused_collate_update_no_target(batch):
         total_charge_B=torch.tensor(
             [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
         ),
+        indA=torch.cat(local_indA, dim=0),
+        indB=torch.cat(local_indB, dim=0),
     )
     return batched_data
 
