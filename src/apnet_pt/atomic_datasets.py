@@ -27,6 +27,35 @@ from glob import glob
 
 
 def natural_key(text):
+    """Sort strings containing numbers in a natural order.
+
+    This function splits a string into a list of strings and integers, which
+    can be used as a key for sorting, providing a more intuitive, natural
+    ordering for alphanumeric strings.
+
+    Parameters
+    ----------
+    text : str
+        The string to be converted into a natural sorting key.
+
+    Returns
+    -------
+    list
+        A list of strings and integers representing the input text, suitable
+def generate_monomer_multipole_dataset(file):
+    monomers, cartesian_multipoles, _, _ = util.load_monomer_dataset(
+        "mon200.pkl")
+    return
+
+
+        for natural sorting.
+
+    Examples
+    --------
+    >>> sorted(['file1.txt', 'file10.txt', 'file2.txt'], key=natural_key)
+    ['file1.txt', 'file2.txt', 'file10.txt']
+
+    """
     return [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", text)]
 
 
@@ -36,19 +65,58 @@ def distance_matrix(r):
     return v
 
 
-def distance_matrix_torch(r):
+def distance_matrix_torch(r: torch.Tensor) -> torch.Tensor:
+    """Compute the distance matrix for a set of 3D coordinates using PyTorch.
+
+    This function calculates the Euclidean distance between each pair of points
+    in the input tensor of coordinates.
+
+    Parameters
+    ----------
+    r : torch.Tensor
+        A PyTorch tensor of shape (N, 3), where N is the number of points and
+        3 corresponds to the x, y, z coordinates.
+
+    Returns
+    -------
+    torch.Tensor
+        A square PyTorch tensor of shape (N, N) containing the pairwise
+        distances between the points.
+
+    """
     v = torch.sqrt(torch.sum(torch.square(
         r[:, None, :] - r[None, :, :]), axis=-1))
     return v
 
 
-def generate_monomer_multipole_dataset(file):
-    monomers, cartesian_multipoles, _, _ = util.load_monomer_dataset(
-        "mon200.pkl")
-    return
-
-
 def vec_func(R_ij, R_c=5.0, n_bessel=8):
+    """Generate edge features and indices from a distance matrix.
+
+    This function computes edge features based on a Bessel function expansion
+    of interatomic distances and identifies the corresponding edge indices for
+    a graph representation of a molecular system. Edges are created between
+    atoms that are closer than a specified cutoff distance `R_c`.
+
+    Parameters
+    ----------
+    R_ij : np.ndarray
+        A square numpy array of shape (N, N) representing the pairwise
+        distances between N atoms.
+    R_c : float, optional
+        The cutoff distance for creating edges. Defaults to 5.0.
+    n_bessel : int, optional
+        The number of Bessel functions to use for the edge feature expansion.
+        Defaults to 8.
+
+    Returns
+    -------
+    tuple of (np.ndarray, list)
+        - A numpy array of shape (N, N, n_bessel) containing the edge feature
+          vectors.
+        - A list of [i, j], shape (N, 2), pairs representing the indices of
+          the edges.
+
+    """
     edge_feature_vector = np.zeros(
         (len(R_ij), len(R_ij), n_bessel), dtype=np.float32)
     edge_index = []
