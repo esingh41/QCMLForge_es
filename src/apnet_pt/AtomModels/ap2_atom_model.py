@@ -306,11 +306,12 @@ class AtomMPNN(MessagePassing):
             charge = charge - charge_err
             return charge, dipole, qpole, h_list
         
-        # 1) Identify which molecules have more than one atom
-        mol_ind = torch.where(natom_per_mol != 1)[0]
-        keep_mask = (molecule_ind.unsqueeze(1) == mol_ind).any(dim=1)
+        # 1) Filter out atoms that don't have edges
+        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
+        keep_mask = torch.isin(torch.arange(len(molecule_ind), device=molecule_ind.device), atoms_with_edges)
         filtered_charge = charge[keep_mask]
-        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms.
+
+        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms and edges
         h_list = [h_list_0[0][keep_mask]]
 
         # Now we need to filter the edge_index to only include edges between
