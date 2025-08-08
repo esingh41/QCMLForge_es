@@ -36,6 +36,24 @@ def qcel_dimer_to_fused_data(dimer, r_cut=5.0, r_cut_im=8.0, **kwargs):
     )
 
 
+def assert_molecule_featurization_is_valid(atomic_props):
+    if len(atomic_props.molecule_ind) == 1:
+        # single atom molecule should not have edges
+        return
+        
+    edge_index = atomic_props.edge_index
+    atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
+    keep_mask = torch.isin(torch.arange(len(atomic_props.molecule_ind), device=atomic_props.molecule_ind.device), atoms_with_edges)
+    # all valid molecules will have edges
+    if not keep_mask.all():
+        raise ValueError(
+            "Molecule featurization is invalid. "
+            "Some atoms in the molecule do not have edges."
+            f"atomic_props:\n{atomic_props}"
+        )
+    return
+
+
 def dimer_fused_data(
     RA,
     ZA,
@@ -46,10 +64,14 @@ def dimer_fused_data(
     dimer_ind,
     r_cut=5.0,
     r_cut_im=8.0,
+    check_validity=True,
     **kwargs,
 ):
     atomic_props_A = atomic_datasets.create_atomic_data(ZA, RA, TQA, r_cut=r_cut)
     atomic_props_B = atomic_datasets.create_atomic_data(ZB, RB, TQB, r_cut=r_cut)
+    if check_validity:
+        assert_molecule_featurization_is_valid(atomic_props_A)
+        assert_molecule_featurization_is_valid(atomic_props_B)
     e_AA_source, e_AA_target = pairwise_edges(atomic_props_A.R, r_cut)
     e_BB_source, e_BB_target = pairwise_edges(atomic_props_B.R, r_cut)
     e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = pairwise_edges_im(
@@ -522,6 +544,7 @@ class ap2_fused_module_dataset(Dataset):
         qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
         energy_labels: Optional[List[float]] = None,
         random_seed=42,
+        check_monomer_validity=True,
     ):
         """
         spec_type definitions:
@@ -564,6 +587,7 @@ class ap2_fused_module_dataset(Dataset):
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
         self.atomic_batch_size = atomic_batch_size
+        self.check_monomer_validity = check_monomer_validity
         self.batch_size = batch_size
         self.training_batch_size = batch_size
         self.datapoint_storage_n_objects = datapoint_storage_n_objects
@@ -825,6 +849,7 @@ class ap2_fused_module_dataset(Dataset):
                 dimer_ind=i,
                 r_cut=self.r_cut,
                 r_cut_im=self.r_cut_im,
+                check_validity=self.check_monomer_validity,
                 y=y,
             )
             data = data.cpu()

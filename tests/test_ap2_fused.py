@@ -204,4 +204,5 @@ def test_ap2_fused_architecture():
 if __name__ == "__main__":
     # test_ap2_fused_dataset_size()
     # test_ap2_fused_architecture()
-    test_ap2_fused_train_qcel_molecules_in_memory()
+    # test_ap2_fused_train_qcel_molecules_in_memory()
+    test_ap2_fused_dataset_size()
