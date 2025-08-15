@@ -465,8 +465,13 @@ def eval_qcel_dimer_individual_components(
             muB_j = muB[j]
             thetaB_j = thetaB[j]
 
+            # Subtract atomic_number?
+            # rA -= ZA[i]
+            # rB -= ZB[j]
+            # Nuclear attraction?
+
             E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ = eval_interaction_individual_components(
-                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, # ZA[i], ZB[j]
             )
             E_qqs[i, j] = E_qq
             E_qus[i, j] = E_qu
@@ -474,6 +479,7 @@ def eval_qcel_dimer_individual_components(
             E_qQs[i, j] = E_qQ
             E_uQs[i, j] = E_uQ
             E_QQs[i, j] = E_QQ
+            print(i, j, E_qq + E_qu + E_uu + E_qQ + E_uQ + E_QQ)
     total_energy = (
         np.sum(E_qqs)
         + np.sum(E_qus)
@@ -528,7 +534,7 @@ def eval_interaction_individual(
 
 
 def eval_interaction_individual_components(
-    RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False
+    RA, qA, muA, thetaA, RB, qB, muB, thetaB, ZA=None, ZB=None, traceless=False
 ):
     T0, T1, T2, T3, T4 = T_cart(RA, RB)
 
@@ -544,6 +550,7 @@ def eval_interaction_individual_components(
         thetaB[2, 2] -= traceB / 3.0
 
     E_qq = np.sum(T0 * qA * qB)
+    print(E_qq, T0, qA, qB)
     E_qu = np.sum(T1 * (qA * muB - qB * muA))
     E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) * (1.0 / 3.0)
 
@@ -553,6 +560,10 @@ def eval_interaction_individual_components(
     ) * (-1.0 / 3.0)
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * (1.0 / 9.0)
+    if ZA is not None and ZB is not None:
+        E_qq += np.sum(T0 * ZA * qB)
+        E_qq += np.sum(T0 * ZB * qA)
+        E_qq += np.sum(T0 * ZA * ZB)
     return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ
 
 
