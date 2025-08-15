@@ -279,7 +279,7 @@ def test_induced_dipole_bz_meoh():
 
 
 def test_classical_cliff():
-    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes2.pkl"))
+    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl"))
     pprint(df.columns.to_list())
     ap_elst, ap_ind = [], []
     ap_elst_q, ap_elst_q_mu, ap_elst_mu = [], [], []
@@ -345,11 +345,26 @@ def test_classical_cliff():
     df['ap_elst_q'] = ap_elst_q
     df['ap_elst_q_mu'] = ap_elst_q_mu
     df['ap_elst_mu'] = ap_elst_mu
-    print(df[['cliff_elst', "ap_elst", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_no_nZ', "ap_elst", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_no_nZ_q', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_no_nZ_q_mu', "ap_elst_q_mu"]])
-    print(df[['cliff_elst_no_nZ_mu', "ap_elst_mu"]])
+    print(df[['cliff_elst_', "ap_elst", 'SAPT0 ELST ENERGY adz']])
+    # print(df[['cliff_elst_no_nZ', "ap_elst", 'SAPT0 ELST ENERGY adz']])
+    # print(df[['cliff_elst_no_nZ_q', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
+    # print(df[['cliff_elst_no_nZ_q_mu', "ap_elst_q_mu"]])
+    # print(df[['cliff_elst_no_nZ_mu', "ap_elst_mu"]])
+    print(df[['cliff_elst_mu', "ap_elst_mu"]])
+    print(df[['cliff_elst_q_noDamp', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_mu_noDamp', "ap_elst_mu"]])
+    print()
+    print(df[['cliff_elst_q', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_q_mu', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_q_noDamp_noZ', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_q_noZ', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
+    print()
+    print(df[['cliff_elst_q_mu_noDamp', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_q_mu_noDamp_noZ', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_q_mu_noZ', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
+    print()
+    print(df[['cliff_elst_q_noDamp', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_q_mu_noDamp', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
     return
     df['ap_indu'] = ap_ind
     print(df[['cliff_indu', "ap_indu", 'SAPT0 IND ENERGY adz' ]])
