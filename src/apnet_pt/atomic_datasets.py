@@ -476,6 +476,11 @@ class atomic_module_dataset(Dataset):
                 return [
                     "monomers_apnet2_spec_3_62.pkl",
                 ]
+            elif self.spec_type == 7:
+                return [
+                    "neq_damping_train.pkl",
+                    "neq_damping_test.pkl",
+                ]
         raise ValueError("spec_type must be 1, 2, or 3!")
         return []
 
