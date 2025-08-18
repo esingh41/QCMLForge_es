@@ -476,6 +476,7 @@ class atomic_module_dataset(Dataset):
                 return [
                     "monomers_apnet2_spec_3_62.pkl",
                 ]
+            # Must implement split logic...
             elif self.spec_type == 7:
                 return [
                     "neq_damping_train.pkl",
