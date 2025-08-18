@@ -137,12 +137,12 @@ def T_cart(RA, RB):
     T2 = (R**-5) * (3 * np.outer(dR, dR) - R * R * delta)
 
     Rdd = np.multiply.outer(dR, delta)
+    print(Rdd)
     T3 = (
         (R**-7)
-        * -1.0
         * (
-            15 * np.multiply.outer(np.outer(dR, dR), dR)
-            - 3 * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
+            -15 * np.multiply.outer(np.outer(dR, dR), dR)
+            + 3 * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
         )
     )
 
@@ -431,7 +431,7 @@ def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB) -> f
 
 
 def eval_qcel_dimer_individual_components(
-    mol_dimer, qA, muA, thetaA, qB, muB, thetaB
+    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, traceless=True
 ) -> Tuple[
     float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
 ]:
@@ -472,6 +472,7 @@ def eval_qcel_dimer_individual_components(
 
             E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ = eval_interaction_individual_components(
                 rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, # ZA[i], ZB[j]
+                traceless=traceless,
             )
             E_qqs[i, j] = E_qq
             E_qus[i, j] = E_qu
@@ -505,6 +506,8 @@ def eval_interaction_individual(
 
     # Most inputs will already be traceless, but we can ensure this is the case
     if not traceless:
+        # divide by 3 because of traceless Buckingham quadrupoles have T_ij(2)
+        # annihalite the trace
         traceA = np.trace(thetaA)
         thetaA[0, 0] -= traceA / 3.0
         thetaA[1, 1] -= traceA / 3.0
@@ -548,9 +551,9 @@ def eval_interaction_individual_components(
         thetaB[0, 0] -= traceB / 3.0
         thetaB[1, 1] -= traceB / 3.0
         thetaB[2, 2] -= traceB / 3.0
+    print(RA, RB)
 
     E_qq = np.sum(T0 * qA * qB)
-    print(E_qq, T0, qA, qB)
     E_qu = np.sum(T1 * (qA * muB - qB * muA))
     E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) * (1.0 / 3.0)
 
@@ -559,7 +562,7 @@ def eval_interaction_individual_components(
         T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
     ) * (-1.0 / 3.0)
 
-    E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * (1.0 / 9.0)
+    E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) # * (1.0 / 9.0)
     if ZA is not None and ZB is not None:
         E_qq += np.sum(T0 * ZA * qB)
         E_qq += np.sum(T0 * ZB * qA)
@@ -1083,3 +1086,6 @@ def dimer_induced_dipole(
     )
     # E_ind *= constants.h2kcalmol  # * 0.5
     return E_ind
+
+if __name__ == "__main__":
+    T_cart()

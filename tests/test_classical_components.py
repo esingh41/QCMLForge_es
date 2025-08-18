@@ -280,9 +280,10 @@ def test_induced_dipole_bz_meoh():
 
 def test_classical_cliff():
     df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl"))
-    pprint(df.columns.to_list())
+    # pprint(df.columns.to_list())
     ap_elst, ap_ind = [], []
-    ap_elst_q, ap_elst_q_mu, ap_elst_mu = [], [], []
+    ap_elst_q, ap_elst_q_mu, ap_elst_mu, ap_elst_theta = [], [], [], []
+    ap_elst_q_theta, ap_elst_mu_theta = [], []
     r = df.iloc[0]
     for n, r in df.iterrows():
         sapt0_ind = r['SAPT0 IND ENERGY adz']
@@ -313,14 +314,21 @@ def test_classical_cliff():
             qB=qB,
             muB=muB,
             thetaB=thetaB,
+            traceless=False,
         )
         ap_elst.append(total_energy)
         E_qq = E_qqs.sum()
         E_qu = E_qus.sum()
         E_uu = E_uus.sum()
+        E_QQ = E_QQs.sum()
+        E_uQ = E_uQs.sum()
+        E_qQ = E_qQs.sum()
         ap_elst_q.append(E_qq)
         ap_elst_q_mu.append(E_qq + E_qu + E_uu)
         ap_elst_mu.append(E_uu)
+        ap_elst_theta.append(E_QQ)
+        ap_elst_q_theta.append(E_qq + E_qQ + E_QQ)
+        ap_elst_mu_theta.append(E_uu + E_uQ + E_QQ)
         # induction_energy = apnet_pt.multipole.dimer_induced_dipole(
         #     mol,
         #     qA=qA,
@@ -345,36 +353,19 @@ def test_classical_cliff():
     df['ap_elst_q'] = ap_elst_q
     df['ap_elst_q_mu'] = ap_elst_q_mu
     df['ap_elst_mu'] = ap_elst_mu
-    print(df[['cliff_elst_', "ap_elst", 'SAPT0 ELST ENERGY adz']])
-    # print(df[['cliff_elst_no_nZ', "ap_elst", 'SAPT0 ELST ENERGY adz']])
-    # print(df[['cliff_elst_no_nZ_q', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    # print(df[['cliff_elst_no_nZ_q_mu', "ap_elst_q_mu"]])
-    # print(df[['cliff_elst_no_nZ_mu', "ap_elst_mu"]])
-    print(df[['cliff_elst_mu', "ap_elst_mu"]])
-    print(df[['cliff_elst_q_noDamp', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_mu_noDamp', "ap_elst_mu"]])
-    print()
-    print(df[['cliff_elst_q', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_q_mu', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
+    df['ap_elst_theta'] = ap_elst_theta
+    df['ap_elst_q_theta'] = ap_elst_q_theta
+    df['ap_elst_mu_theta'] = ap_elst_mu_theta
+    print(df[['cliff_elst_q_mu_theta_noDamp_noZ', "ap_elst", 'SAPT0 ELST ENERGY adz']])
     print(df[['cliff_elst_q_noDamp_noZ', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_q_noZ', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    print()
-    print(df[['cliff_elst_q_mu_noDamp', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_q_mu_noDamp_noZ', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_q_mu_noZ', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
-    print()
-    print(df[['cliff_elst_q_noDamp', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_q_mu_noDamp', "ap_elst_q_mu", 'SAPT0 ELST ENERGY adz']])
-    return
-    df['ap_indu'] = ap_ind
-    print(df[['cliff_indu', "ap_indu", 'SAPT0 IND ENERGY adz' ]])
-    print(df[['cliff_exch', 'SAPT0 EXCH ENERGY adz']])
-    print(df[['cliff_disp', 'SAPT0 DISP ENERGY adz']])
+    print(df[['cliff_elst_mu_noDamp_noZ', "ap_elst_mu"]])
+    print(df[['cliff_elst_theta_noDamp_noZ', "ap_elst_theta"]])
 
-# [[-8.71797290e-01 -2.01425234e-01  1.27414508e-01 -2.30556614e-15
-#   -4.86321801e+00  1.04982804e-01 -7.68538422e-15  1.04982804e-01
-#   -4.76251248e+00 -3.12505992e-15 -7.68538422e-15 -3.12505992e-15
-#   -5.14598235e+00]
+    print("\nCross terms\n")
+    print(df[['cliff_elst_q_mu_noDamp_noZ', "ap_elst_q_mu"]])
+    print(df[['cliff_elst_mu_theta_noDamp_noZ', "ap_elst_mu_theta"]])
+    print(df[['cliff_elst_q_theta_noDamp_noZ', "ap_elst_q_theta"]])
+
     return
 
 if __name__ == "__main__":
