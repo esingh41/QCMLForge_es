@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+
 # from torch_scatter import scatter
 from torch_geometric.utils import scatter
 import numpy as np
@@ -24,8 +25,75 @@ from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
 
 max_Z = 118
+
+
 def unwrap_model(model):
     return model.module if isinstance(model, DDP) else model
+
+
+def get_distances(RA, RB, e_source, e_target):
+    RA_source = RA.index_select(0, e_source)
+    RB_target = RB.index_select(0, e_target)
+    dR_xyz = RB_target - RA_source
+    dR = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
+    return dR, dR_xyz
+
+
+def mtp_elst_damping(
+    RA,
+    qA,
+    muA,
+    quadA,
+    Ka,
+    RB,
+    qB,
+    muB,
+    quadB,
+    Kb,
+    e_AB_source,
+    e_AB_target,
+    dR_ang,
+    dR_xyz_ang,
+):
+    dR, dR_xyz = get_distances(RA, RB, e_AB_source, e_AB_target)
+    dR = dR_ang / constants.au2ang
+    dR_xyz = dR_xyz_ang / constants.au2ang
+    oodR = 1.0 / dR
+
+    # Identity for 3D
+    delta = torch.eye(3, device=qA.device)
+
+    # Extracting tensor elements
+    qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
+    qB_source = qB.squeeze(-1).index_select(0, e_AB_target)
+
+    muA_source = muA.index_select(0, e_AB_source)
+    muB_source = muB.index_select(0, e_AB_target)
+
+    quadA_source = quadA.index_select(0, e_AB_source)
+    quadB_source = quadB.index_select(0, e_AB_target)
+
+    E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
+
+    T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
+    qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
+        "x,xy->xy", qB_source, muA_source
+    )
+    E_qu = torch.einsum("xy,xy->x", T1, qu)
+
+    T2 = 3 * torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz) - torch.einsum(
+        "x,x,yz->xyz", dR, dR, delta
+    )
+    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+
+    E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2)
+
+    qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
+    qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
+    E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source) / 3.0
+
+    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu)
+    return E_elst
 
 
 class MTP_MTP_NN(nn.Module):
@@ -106,7 +174,10 @@ class MTP_MTP_NN(nn.Module):
         K = self.guess_layer(Z)
 
         atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
-        keep_mask = torch.isin(torch.arange(len(molecule_ind), device=molecule_ind.device), atoms_with_edges)
+        keep_mask = torch.isin(
+            torch.arange(len(molecule_ind), device=molecule_ind.device),
+            atoms_with_edges,
+        )
         K_filtered = K[keep_mask]
         h_list = [h_list_0[0][keep_mask]]
 
@@ -120,7 +191,7 @@ class MTP_MTP_NN(nn.Module):
         return K
 
 
-class APNet2_AM_Model:
+class AM_MTP_MTP_Model:
     def __init__(
         self,
         dataset=None,
@@ -195,9 +266,7 @@ class APNet2_AM_Model:
 """
             )
         if pre_trained_model_path:
-            print(
-                f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
-            )
+            print(f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = MTP_MTP_NN(
                 atom_model=self.atom_model,
@@ -263,7 +332,6 @@ class APNet2_AM_Model:
                     max_size=ds_max_size,
                     force_reprocess=fp,
                     atom_model=self.atom_model,
-                    # atom_model_path=atom_model_pre_trained_path,
                     atomic_batch_size=ds_atomic_batch_size,
                     num_devices=ds_num_devices,
                     skip_processed=ds_skip_process,
@@ -345,7 +413,7 @@ class APNet2_AM_Model:
         self.model.eval()
         for batch in self.dataset:
             batch = batch.to(self.device)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
+            self.model(batch)
         return
 
     def compile_model(self):
@@ -357,7 +425,6 @@ class APNet2_AM_Model:
         self.model = torch.compile(self.model, dynamic=True)
         return
 
-
     def set_all_weights_to_value(self, value: float):
         """
         Sets the weights of the model to a constant value for debugging.
@@ -367,7 +434,6 @@ class APNet2_AM_Model:
         self.model(batch)
         set_weights_to_value(self.model, value)
         return
-
 
     def set_pretrained_model(
         self, ap2_model_path=None, am_model_path=None, model_id=None
@@ -398,9 +464,7 @@ class APNet2_AM_Model:
     ):
         dimer_batch = ap2_fused_collate_update_no_target(
             [
-                qcel_dimer_to_fused_data(
-                    mol, r_cut=r_cut, dimer_ind=n
-                )
+                qcel_dimer_to_fused_data(mol, r_cut=r_cut, dimer_ind=n)
                 for n, mol in enumerate(mols)
             ]
         )
@@ -546,9 +610,7 @@ class APNet2_AM_Model:
             upper_bound = min(i + batch_size, N)
             dimer_batch = ap2_fused_collate_update_no_target(
                 [
-                    qcel_dimer_to_fused_data(
-                        dimer, r_cut=r_cut, dimer_ind=n
-                    )
+                    qcel_dimer_to_fused_data(dimer, r_cut=r_cut, dimer_ind=n)
                     for n, dimer in enumerate(mols[i:upper_bound])
                 ]
             )
@@ -615,7 +677,9 @@ class APNet2_AM_Model:
 units angstrom
         """)
         return self._qcel_example_input(
-            [mol], batch_size=1, r_cut=r_cut,
+            [mol],
+            batch_size=1,
+            r_cut=r_cut,
         )
 
     ########################################################################
@@ -794,7 +858,7 @@ units angstrom
             dt = time.time() - t1
             if rank == 0:
                 print(
-                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{ total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} { exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{ indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
                     flush=True,
                 )
         for epoch in range(n_epochs):
@@ -840,12 +904,11 @@ units angstrom
                 dt = time.time() - t1
                 test_loss = 0.0
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{
-                        total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {
-                        exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{
-                        indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {
-                        test_lowered
-                    }",
+                    f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
+                        total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} {
+                        elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{
+                        exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
+                        disp_MAE_t: > 7.3f}/{disp_MAE_v: < 7.3f} {test_lowered}",
                     flush=True,
                 )
 
@@ -920,8 +983,8 @@ units angstrom
         train_loss, total_MAE_t = t_out
         test_loss, total_MAE_v = v_out
         print(
-            f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {
-                total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+            f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
+                total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}",
             flush=True,
         )
 

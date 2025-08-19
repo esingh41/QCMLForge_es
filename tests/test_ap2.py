@@ -243,6 +243,17 @@ def test_ap2_predict_pairs():
     return
 
 
+def test_mtp_mtp_elst():
+    atom_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_MTP_MTP_Model(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+        ds_spec_type=7,
+    )
+    print(atom_model)
+
+
 if __name__ == "__main__":
-    test_ap2_architecture_tf()
+    test_mtp_mtp_elst()
+    # test_ap2_architecture_tf()
     # test_ap2_predict_pairs()
