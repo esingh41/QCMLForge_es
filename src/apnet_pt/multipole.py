@@ -543,24 +543,29 @@ def eval_interaction_individual_components(
 
     # Most inputs will already be traceless, but we can ensure this is the case
     if not traceless:
+        thetaA = 0.5 * (thetaA + np.swapaxes(thetaA, -1, -2))
         traceA = np.trace(thetaA)
         thetaA[0, 0] -= traceA / 3.0
         thetaA[1, 1] -= traceA / 3.0
         thetaA[2, 2] -= traceA / 3.0
+        thetaB = 0.5 * (thetaB + np.swapaxes(thetaB, -1, -2))
         traceB = np.trace(thetaB)
         thetaB[0, 0] -= traceB / 3.0
         thetaB[1, 1] -= traceB / 3.0
         thetaB[2, 2] -= traceB / 3.0
     print(RA, RB)
 
+    # AP2 code had factors of 1/3, -1/3, 1/9 in qQ, uQ, QQ terms; however,
+    # these make the energies disagree with CLIFF. CLIFF achieves better
+    # agreement with SAPT0 elst, so which is right?
     E_qq = np.sum(T0 * qA * qB)
     E_qu = np.sum(T1 * (qA * muB - qB * muA))
-    E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) * (1.0 / 3.0)
+    E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) # * (1.0 / 3.0)
 
     E_uu = np.sum(T2 * np.outer(muA, muB)) * (-1.0)
     E_uQ = np.sum(
         T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
-    ) * (-1.0 / 3.0)
+    ) * -1.0 # * (-1.0 / 3.0)
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) # * (1.0 / 9.0)
     if ZA is not None and ZB is not None:
