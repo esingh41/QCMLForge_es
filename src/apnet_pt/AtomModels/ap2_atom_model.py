@@ -502,16 +502,50 @@ class AtomModel:
         # self.model.to(device)
         self.device = device
         self.dataset = dataset
+        self.ds_spec_type = ds_spec_type
         mp.set_sharing_strategy("file_system")
-        if not ignore_database_null and self.dataset is None:
-            self.dataset = atomic_module_dataset(
-                root=ds_root,
-                testing=ds_testing,
-                spec_type=ds_spec_type,
-                max_size=ds_max_size,
-                force_reprocess=ds_force_reprocess,
-                in_memory=ds_in_memory,
-            )
+        split_dbs = [7]
+        if not ignore_database_null and self.dataset is None and self.ds_spec_type not in split_dbs:
+            def setup_ds(fp=ds_force_reprocess):
+                self.dataset = atomic_module_dataset(
+                    root=ds_root,
+                    testing=ds_testing,
+                    spec_type=ds_spec_type,
+                    max_size=ds_max_size,
+                    force_reprocess=fp,
+                    in_memory=ds_in_memory,
+                )
+            self.dataset = setup_ds()
+            self.dataset = setup_ds(False)
+        elif (
+            not ignore_database_null
+            and self.dataset is None
+            and self.ds_spec_type in split_dbs
+        ):
+            print("Processing Split dataset...")
+            def setup_ds(fp=ds_force_reprocess):
+                return [
+                    atomic_module_dataset(
+                        root=ds_root,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        split="train",
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    ),
+                    atomic_module_dataset(
+                        root=ds_root,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        split="test",
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    ),
+                ]
+            self.dataset = setup_ds()
+            self.dataset = setup_ds(False)
         # print(f"{self.dataset = }")
         self.rank = None
         self.world_size = None
@@ -1141,17 +1175,33 @@ units angstrom
             raise ValueError("No dataset provided")
         self.train_shuffle = shuffle
 
-        np.random.seed(42)
-        torch.manual_seed(42)
-        random_indices = np.random.permutation(len(self.dataset))
-        train_indices = random_indices[: int(len(self.dataset) * split_percent)]
-        test_indices = random_indices[int(len(self.dataset) * split_percent) :]
         if random_seed:
             np.random.seed(random_seed)
             torch.manual_seed(random_seed)
-            train_indices = np.random.permutation(train_indices)
-        train_dataset = self.dataset[train_indices]
-        test_dataset = self.dataset[test_indices]
+
+        if isinstance(self.dataset, list):
+            train_dataset = self.dataset[0]
+            if shuffle:
+                order_indices = np.random.permutation(len(train_dataset))
+            else:
+                order_indices = [i for i in range(len(train_dataset))]
+            train_dataset = train_dataset[order_indices]
+
+            test_dataset = self.dataset[1]
+            if shuffle:
+                order_indices = np.random.permutation(len(test_dataset))
+            else:
+                order_indices = [i for i in range(len(test_dataset))]
+            test_dataset = test_dataset[order_indices]
+        else:
+            if shuffle:
+                order_indices = np.random.permutation(len(self.dataset))
+            else:
+                order_indices = np.arange(len(self.dataset))
+            train_indices = order_indices[: int(len(self.dataset) * split_percent)]
+            test_indices = order_indices[int(len(self.dataset) * split_percent) :]
+            train_dataset = self.dataset[train_indices]
+            test_dataset = self.dataset[test_indices]
 
         print("~~ Training Atom Model ~~", flush=True)
         print(

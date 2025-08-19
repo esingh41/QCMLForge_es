@@ -393,6 +393,7 @@ class atomic_module_dataset(Dataset):
         r_cut=5.0,
         testing=False,
         spec_type=1,
+        split="all",  # train, test
         max_size=None,
         force_reprocess=False,
         in_memory=True,
@@ -400,13 +401,14 @@ class atomic_module_dataset(Dataset):
     ):
         """ """
         try:
-            assert spec_type in [1, 2, 3, 4, 6]
+            assert spec_type in [1, 2, 3, 4, 6, 7]
         except Exception:
             print(
                 "Currently spec_type must be 1, 2, or 3 for HF/jun-cc-pV(D+d)Z (CMPNN), PBE0/aug-cc-pV(T+D)Z (CMPNN), or HF/jun-cc-pV(D+D)Z (APNET2) respectively. Only 1 and 2 are available for download at the moment."
             )
             raise ValueError
         self.testing = testing
+        self.split = split
         if self.testing and max_size is None:
             self.MAX_SIZE = 200
         else:
@@ -491,7 +493,12 @@ class atomic_module_dataset(Dataset):
         if self.testing:
             return [f"data_{i}.pt" for i in range(self.MAX_SIZE - 1)]
         else:
-            file_cmd = f"{self.root}/processed/data_spec_{self.spec_type}_*.pt"
+            if self.split == "train":
+                file_cmd = f"{self.root}/processed/data_train_spec_{self.spec_type}_*.pt"
+            elif self.split == "test":
+                file_cmd = f"{self.root}/processed/data_test_spec_{self.spec_type}_*.pt"
+            else:
+                file_cmd = f"{self.root}/processed/data_spec_{self.spec_type}_*.pt"
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]
             if len(spec_files) > 0:
@@ -572,6 +579,10 @@ class atomic_module_dataset(Dataset):
     def process(self, r_cut=5.0, edge_index_only=True):
         idx = 0
         for raw_path in self.raw_paths:
+            split_name = ""
+            if self.spec_type in [7]:
+                split_name = f"_{self.split}" if self.split != 'all' else ""
+                print(f"{split_name=}")
             print(f"raw_path: {raw_path}")
             # converting to qcel monomer to crudely validate structure
             monomers, cartesian_multipoles, total_charge = util.load_monomer_dataset(
@@ -607,7 +618,7 @@ class atomic_module_dataset(Dataset):
                     torch.save(
                         data,
                         osp.join(
-                            self.processed_dir, f"data_spec_{self.spec_type}_{idx}.pt"
+                            self.processed_dir, f"data{split_name}_spec_{self.spec_type}_{idx}.pt"
                         ),
                     )
                 if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
@@ -624,9 +635,12 @@ class atomic_module_dataset(Dataset):
                 osp.join(self.processed_dir, f"data_{idx}.pt"), weights_only=False
             )
         else:
+            split_name = ""
+            if self.spec_type in [7]:
+                split_name = f"_{self.split}" if self.split != 'all' else ""
             return torch.load(
                 osp.join(self.processed_dir,
-                         f"data_spec_{self.spec_type}_{idx}.pt"),
+                         f"data{split_name}_spec_{self.spec_type}_{idx}.pt"),
                 weights_only=False,
             )
         return
