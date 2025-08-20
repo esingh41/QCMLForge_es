@@ -114,7 +114,7 @@ class AtomTypeParamNN(nn.Module):
         n_message=3,
         n_neuron=128,
         n_embed=8,
-        param_start_mean=3.5,
+        param_start_mean=3.3,
         param_start_std=0.01,
     ):
         super().__init__()
@@ -204,7 +204,7 @@ class AM_DimerParam_Model:
         n_neuron=128,
         n_embed=8,
         r_cut=5.0,
-        param_start_mean=3.5,
+        param_start_mean=3.3,
         param_start_std=0.01,
         use_GPU=None,
         ignore_database_null=True,
