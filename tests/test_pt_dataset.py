@@ -1,4 +1,5 @@
 from apnet_pt.AtomPairwiseModels.apnet2 import APNet2Model
+import apnet_pt
 from apnet_pt.AtomPairwiseModels.dapnet2 import dAPNet2Model, APNet2_dAPNet2Model
 from apnet_pt import AtomPairwiseModels
 from apnet_pt import atomic_datasets
@@ -1371,10 +1372,34 @@ def test_am_train_test():
     )
     return
 
+def test_mtp_mtp_elst():
+    qcel_molecules = [mol_dimer] * 2
+    energy_labels = [np.array([1.0]) for _ in range(len(qcel_molecules))]
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    am.set_pretrained_model(model_id=0)
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        ignore_database_null=False,
+        use_GPU=False,
+        # ds_spec_type=7,
+        ds_spec_type=None,
+        ds_qcel_molecules=qcel_molecules,
+        ds_energy_labels=energy_labels,
+    )
+    print(param_mod)
+    param_mod.train(
+        n_epochs=1,
+        skip_compile=True,
+    )
 
 if __name__ == "__main__":
+    test_mtp_mtp_elst()
     # test_apnet2_train_qcel_molecules_in_memory()
-    test_apnet2_train_qcel_molecules_in_memory()
+    # test_apnet2_train_qcel_molecules_in_memory()
     # test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory()
     # test_apnet2_dataset_size_prebatched_train_spec8()
     # test_apnet2_dataset_size_prebatched()

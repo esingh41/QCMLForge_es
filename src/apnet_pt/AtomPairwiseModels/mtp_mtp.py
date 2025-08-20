@@ -23,6 +23,7 @@ import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
+from torch_geometric.data import Data
 
 max_Z = 118
 
@@ -96,42 +97,38 @@ def mtp_elst_damping(
     return E_elst
 
 
-class MTP_MTP_NN(nn.Module):
+class NoisyConstantEmbedding(nn.Embedding):
+    def __init__(self, num_embeddings, embedding_dim, mean=3.0, std=0.01):
+        super().__init__(num_embeddings, embedding_dim)
+        with torch.no_grad():
+            self.weight.copy_(mean + std * torch.randn_like(self.weight))
+
+
+class AtomTypeParamNN(nn.Module):
     def __init__(
         self,
         atom_model: AtomMPNN,
         n_message=3,
-        n_rbf=8,
         n_neuron=128,
         n_embed=8,
-        r_cut=5.0,
-        return_hidden_states=False,
+        param_start_mean=3.5,
+        param_start_std=0.01,
     ):
         super().__init__()
         self.atom_model = atom_model
         self.atom_model.requires_grad_(False)
 
         self.n_message = n_message
-        self.n_rbf = n_rbf
         self.n_neuron = n_neuron
         self.n_embed = n_embed
-        self.r_cut = r_cut
-
-        # embed atom types
-        self.embed_layer = nn.Embedding(max_Z + 1, n_embed)
+        self.param_start_mean = param_start_mean
+        self.param_start_std = param_start_std
+        self.guess_layer = NoisyConstantEmbedding(
+            max_Z + 1, 1, mean=self.param_start_mean, std=self.param_start_std
+        )
 
         # readout layers for predicting multipoles from hidden states
         self.damping_elst_readout_layers = nn.ModuleList()
-
-        input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf
-
-        layer_nodes_hidden = [
-            input_layer_size,
-            n_neuron * 2,
-            n_neuron,
-            n_neuron // 2,
-            n_embed,
-        ]
         layer_nodes_readout = [
             n_embed,
             n_neuron * 2,
@@ -145,7 +142,6 @@ class MTP_MTP_NN(nn.Module):
             nn.ReLU(),
             None,
         ]
-
         for i in range(n_message):
             self.damping_elst_readout_layers.append(
                 self._make_layers(layer_nodes_readout, layer_activations)
@@ -161,37 +157,39 @@ class MTP_MTP_NN(nn.Module):
 
     def forward(
         self,
-        x,
-        edge_index,
-        R,
-        molecule_ind,
-        total_charge,
-        natom_per_mol,
+        batch,
     ):
-        # edge_index has shape [(e_source, e_target), n_edges]
+        """
+        Use each h_list to predict a correction to the initial guess, might be
+        overkill for some properties...
+        """
+        x = batch.x
+        edge_index = batch.edge_index
+        molecule_ind = batch.molecule_ind
+        _, _, _, h_list = self.atom_model(
+            batch.x,
+            batch.edge_index,
+            R=batch.R,
+            molecule_ind=batch.molecule_ind,
+            total_charge=batch.total_charge,
+            natom_per_mol=batch.natom_per_mol,
+        )
         Z = x
-        h_list_0 = [self.embed_layer(Z)]
         K = self.guess_layer(Z)
-
         atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
         keep_mask = torch.isin(
             torch.arange(len(molecule_ind), device=molecule_ind.device),
             atoms_with_edges,
         )
         K_filtered = K[keep_mask]
-        h_list = [h_list_0[0][keep_mask]]
-
         for i in range(self.n_message):
-            charge_update = self.damping_elst_readout_layers[i](h_list[i + 1])
-            K_filtered += charge_update
-
+            param_update = self.damping_elst_readout_layers[i](h_list[i + 1])
+            K_filtered += param_update
         K[keep_mask] = K_filtered
-        molecule_ind.requires_grad_(False)
-        molecule_ind = molecule_ind.long()
         return K
 
 
-class AM_MTP_MTP_Model:
+class AM_DimerParam_Model:
     def __init__(
         self,
         dataset=None,
@@ -203,6 +201,8 @@ class AM_MTP_MTP_Model:
         n_neuron=128,
         n_embed=8,
         r_cut=5.0,
+        param_start_mean=3.5,
+        param_start_std=0.01,
         use_GPU=None,
         ignore_database_null=True,
         ds_spec_type=1,
@@ -268,13 +268,13 @@ class AM_MTP_MTP_Model:
         if pre_trained_model_path:
             print(f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = MTP_MTP_NN(
+            self.model = AtomTypeParamNN(
                 atom_model=self.atom_model,
                 n_message=checkpoint["config"]["n_message"],
-                n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
                 n_embed=checkpoint["config"]["n_embed"],
-                r_cut=checkpoint["config"]["r_cut"],
+                param_start_mean=checkpoint["config"]["param_start_mean"],
+                param_start_std=checkpoint["config"]["param_start_std"],
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -282,17 +282,14 @@ class AM_MTP_MTP_Model:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = MTP_MTP_NN(
+            self.model = AtomTypeParamNN(
                 atom_model=self.atom_model,
                 n_message=n_message,
-                n_rbf=n_rbf,
                 n_neuron=n_neuron,
                 n_embed=n_embed,
-                r_cut=r_cut,
+                param_start_mean=param_start_mean,
+                param_start_std=param_start_std,
             )
-        if n_rbf != self.model.n_rbf:
-            print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
-            self.model.n_rbf = n_rbf
         if n_message != self.model.n_message:
             print(f"Changing n_message from {self.model.n_message} to {n_message}")
             self.model.n_message = n_message
@@ -302,9 +299,12 @@ class AM_MTP_MTP_Model:
         if n_embed != self.model.n_embed:
             print(f"Changing n_embed from {self.model.n_embed} to {n_embed}")
             self.model.n_embed = n_embed
-        if r_cut != self.model.r_cut:
-            print(f"Changing r_cut from {self.model.r_cut} to {r_cut}")
-            self.model.r_cut = r_cut
+        if param_start_mean != self.model.param_start_mean:
+            print(f"Changing param_start_mean to {param_start_mean}")
+            self.model.param_start_mean = param_start_mean
+        if param_start_std != self.model.param_start_std:
+            print(f"Changing param_start_std to {param_start_std}")
+            self.model.param_start_std = param_start_std
 
         self.device = device
         self.atom_model.to(device)
@@ -468,12 +468,16 @@ class AM_MTP_MTP_Model:
                 for n, mol in enumerate(mols)
             ]
         )
-        dimer_batch.to(self.device)
-        return dimer_batch
-
-    def set_return_hidden_states(self, value=True):
-        self.model.return_hidden_states = value
-        return self
+        batch = Data(
+            x=dimer_batch.ZA,
+            R=dimer_batch.RA,
+            edge_index=torch.vstack((dimer_batch.e_AA_source, dimer_batch.e_AA_target)),
+            molecule_ind=dimer_batch.molecule_ind_A,
+            total_charge=dimer_batch.total_charge_A,
+            natom_per_mol=dimer_batch.natom_per_mol_A,
+        )
+        batch.to(self.device)
+        return batch
 
     def _assemble_pairs(
         self,
@@ -594,6 +598,10 @@ class AM_MTP_MTP_Model:
         assert not (return_elst and return_pairs), (
             "return_elst and return_pairs are not compatible"
         )
+        raise NotImplementedError(
+            "This method is not implemented for MTP-MTP models. "
+            "Use predict_qcel_mols_elst or predict_qcel_mols_pairs instead."
+        )
         if r_cut is None:
             r_cut = self.model.r_cut
 
@@ -698,7 +706,7 @@ units angstrom
     def __cleanup(self):
         dist.destroy_process_group()
 
-    def __train_batches_single_proc_transfer(
+    def __train_batches_single_proc_elst(
         self, dataloader, loss_fn, optimizer, rank_device, scheduler
     ):
         """
@@ -731,14 +739,35 @@ units angstrom
         return total_loss, total_MAE_t
 
     # @torch.inference_mode()
-    def __evaluate_batches_single_proc_transfer(self, dataloader, loss_fn, rank_device):
+    def __evaluate_batches_single_proc_elst(self, dataloader, loss_fn, rank_device):
         self.model.eval()
         comp_errors_t = []
         total_loss = 0.0
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                E_sr_dimer, _, _, _, _, _ = self.model(batch)
+                K_i = self.model(
+                    Data(
+                        x=batch.ZA,
+                        R=batch.RA,
+                        edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
+                        molecule_ind=batch.molecule_ind_A,
+                        total_charge=batch.total_charge_A,
+                        natom_per_mol=batch.natom_per_mol_A,
+                    )
+                )
+                K_j = self.model(
+                    Data(
+                        x=batch.ZB,
+                        R=batch.RB,
+                        edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
+                        molecule_ind=batch.molecule_ind_B,
+                        total_charge=batch.total_charge_B,
+                        natom_per_mol=batch.natom_per_mol_B,
+                    )
+                )
+                print(f"Batch {n} K_i: {K_i}, K_j: {K_j}")
+                # TODO: write MTP-MTP energy calculation
                 preds = E_sr_dimer.reshape(-1, 4)
                 preds = torch.sum(preds, dim=1)
                 comp_errors = preds - batch.y.squeeze(-1)
@@ -858,7 +887,13 @@ units angstrom
             dt = time.time() - t1
             if rank == 0:
                 print(
-                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{
+                        total_MAE_v:<7.3f
+                    } {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{
+                        exch_MAE_v:<7.3f
+                    } {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{
+                        disp_MAE_v:<7.3f
+                    }",
                     flush=True,
                 )
         for epoch in range(n_epochs):
@@ -890,10 +925,10 @@ units angstrom
                                 "model_state_dict": cpu_model.state_dict(),
                                 "config": {
                                     "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
                                     "n_neuron": cpu_model.n_neuron,
                                     "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
+                                    "param_start_mean": cpu_model.param_start_mean,
+                                    "param_start_std": cpu_model.param_start_std,
                                 },
                             },
                             self.model_save_path,
@@ -905,10 +940,12 @@ units angstrom
                 test_loss = 0.0
                 print(
                     f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
-                        total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} {
-                        elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{
-                        exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
-                        disp_MAE_t: > 7.3f}/{disp_MAE_v: < 7.3f} {test_lowered}",
+                        total_MAE_t: > 7.3f
+                    }/{total_MAE_v: < 7.3f} {elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {
+                        exch_MAE_t: > 7.3f
+                    }/{exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
+                        disp_MAE_t: > 7.3f
+                    }/{disp_MAE_v: < 7.3f} {test_lowered}",
                     flush=True,
                 )
 
@@ -969,8 +1006,8 @@ units angstrom
         criterion = torch.nn.MSELoss()
 
         # (4) Set eval functions
-        __evaluate_batch = self.__evaluate_batches_single_proc_transfer
-        __train_batch = self.__train_batches_single_proc_transfer
+        __evaluate_batch = self.__evaluate_batches_single_proc_elst
+        __train_batch = self.__train_batches_single_proc_elst
         print(
             "                                       Elst",
             flush=True,
@@ -984,7 +1021,8 @@ units angstrom
         test_loss, total_MAE_v = v_out
         print(
             f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
-                total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}",
+                total_MAE_t: > 7.3f
+            }/{total_MAE_v: < 7.3f}",
             flush=True,
         )
 
@@ -1011,10 +1049,10 @@ units angstrom
                             "model_state_dict": cpu_model.state_dict(),
                             "config": {
                                 "n_message": cpu_model.n_message,
-                                "n_rbf": cpu_model.n_rbf,
                                 "n_neuron": cpu_model.n_neuron,
                                 "n_embed": cpu_model.n_embed,
-                                "r_cut": cpu_model.r_cut,
+                                "param_start_mean": cpu_model.param_start_mean,
+                                "param_start_std": cpu_model.param_start_std,
                             },
                         },
                         self.model_save_path,
@@ -1082,7 +1120,7 @@ units angstrom
             test_dataset = self.dataset[test_indices]
             batch_size = train_dataset.training_batch_size
         self.batch_size = batch_size
-        print("~~ Training MTP-MTP-NN ~~", flush=True)
+        print("~~ Training Dimer Param ~~", flush=True)
         print(
             f"    Training on {len(train_dataset)} samples, Testing on {
                 len(test_dataset)
@@ -1092,8 +1130,8 @@ units angstrom
         print(f"  {self.model.n_message=}", flush=True)
         print(f"  {self.model.n_neuron=}", flush=True)
         print(f"  {self.model.n_embed=}", flush=True)
-        print(f"  {self.model.n_rbf=}", flush=True)
-        print(f"  {self.model.r_cut=}", flush=True)
+        print(f"  {self.model.param_start_mean=}", flush=True)
+        print(f"  {self.model.param_start_std=}", flush=True)
         print("\nTraining Hyperparameters:", flush=True)
         print(f"  {n_epochs=}", flush=True)
         print(f"  {lr=}\n", flush=True)

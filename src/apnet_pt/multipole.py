@@ -2,10 +2,13 @@
 Functions for evaluating electrostatics between atom-centered multipoles
 """
 
+from importlib import resources
+import pandas as pd
 import numpy as np
 from . import constants
 import torch
 from typing import Tuple
+import qcelemental as qcel
 
 
 def proc_molden(name):
@@ -134,12 +137,12 @@ def T_cart(RA, RB):
     T2 = (R**-5) * (3 * np.outer(dR, dR) - R * R * delta)
 
     Rdd = np.multiply.outer(dR, delta)
+    print(Rdd)
     T3 = (
         (R**-7)
-        * -1.0
         * (
-            15 * np.multiply.outer(np.outer(dR, dR), dR)
-            - 3 * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
+            -15 * np.multiply.outer(np.outer(dR, dR), dR)
+            + 3 * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
         )
     )
 
@@ -160,6 +163,207 @@ def T_cart(RA, RB):
         )
         + 3 * (R**4) * (dddd + dddd.transpose(0, 2, 1, 3) + dddd.transpose(0, 3, 2, 1))
     )
+
+    return T0, T1, T2, T3, T4
+
+
+def thole_damping(r_ij, alpha_i, alpha_j, a):
+    """Apply Thole damping to interaction tensor"""
+    # Compute damping factor
+    u = r_ij / ((alpha_i * alpha_j) ** (1.0 / 6.0))
+    au3 = a * (u**3)
+    l3 = 1 - np.exp(-au3)
+    l5 = 1 - (1 + au3) * np.exp(-au3)
+    l7 = 1 - (1.0 + au3 + 0.6 * au3**2) * np.exp(-au3)
+    l9 = 1 - (1 + au3 + (18 * au3**2 + 9 * au3**3) / 35) * np.exp(-au3)
+    return au3, l3, l5, l7, l9
+
+
+def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a):
+    dR = RB - RA
+    R = np.linalg.norm(dR)
+
+    delta = np.identity(3)
+
+    au3, l3, l5, l7, l9 = thole_damping(R, alpha_i, alpha_j, a)
+
+    T0 = R**-1
+    T1 = l3 * (R**-3) * (-1.0 * dR)
+    T2 = (R**-5) * (l5 * 3 * np.outer(dR, dR) - l3 * R * R * delta)
+
+    Rdd = np.multiply.outer(dR, delta)
+    T3 = (
+        (R**-7)
+        * -1.0
+        * (
+            l7 * 15 * np.multiply.outer(np.outer(dR, dR), dR)
+            - l5 * 3 * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
+        )
+    )
+
+    RRdd = np.multiply.outer(np.outer(dR, dR), delta)
+    dddd = np.multiply.outer(delta, delta)
+    T4 = (R**-9) * (
+        l9 * 105 * np.multiply.outer(np.outer(dR, dR), np.outer(dR, dR))
+        - l7
+        * 15
+        * R
+        * R
+        * (
+            RRdd
+            + RRdd.transpose(0, 2, 1, 3)
+            + RRdd.transpose(0, 3, 2, 1)
+            + RRdd.transpose(2, 1, 0, 3)
+            + RRdd.transpose(3, 1, 2, 0)
+            + RRdd.transpose(2, 3, 0, 1)
+        )
+        + l5
+        * 3
+        * (R**4)
+        * (dddd + dddd.transpose(0, 2, 1, 3) + dddd.transpose(0, 3, 2, 1))
+    )
+    return T0, T1, T2, T3, T4
+
+
+def T_cart_torch(RA, RB):
+    """
+    Compute the multipole interaction tensors for N_A x N_B atom pairs.
+    Args:
+        RA: Tensor of shape (N_A, 3), positions of set A.
+        RB: Tensor of shape (N_B, 3), positions of set B.
+    Returns:
+        T0: (N_A, N_B)
+        T1: (N_A, N_B, 3)
+        T2: (N_A, N_B, 3, 3)
+        T3: (N_A, N_B, 3, 3, 3)
+        T4: (N_A, N_B, 3, 3, 3, 3)
+    """
+    import torch
+
+    # Get dimensions
+    N_A = RA.shape[0]
+    N_B = RB.shape[0]
+    device = RA.device
+
+    # Reshape for broadcasting: RA [N_A, 1, 3], RB [1, N_B, 3]
+    RA_expanded = RA.unsqueeze(1)  # [N_A, 1, 3]
+    RB_expanded = RB.unsqueeze(0)  # [1, N_B, 3]
+
+    # Compute displacement vectors for all pairs
+    dR = RB_expanded - RA_expanded  # [N_A, N_B, 3]
+
+    # Compute distance for all pairs
+    R_squared = torch.sum(dR**2, dim=2)  # [N_A, N_B]
+    R = torch.sqrt(R_squared)  # [N_A, N_B]
+
+    # Avoid division by zero by adding small epsilon
+    eps = 1e-10
+    R_safe = torch.clamp(R, min=eps)
+
+    # Identity tensor
+    delta = torch.eye(3, device=device)  # [3, 3]
+
+    # T0: Charge-charge interaction tensor [N_A, N_B]
+    T0 = 1.0 / R_safe
+
+    # T1: Charge-dipole interaction tensor [N_A, N_B, 3]
+    # R^-3 * (-dR)
+    R_inv_cubed = 1.0 / (R_safe**3)
+    T1 = -dR * R_inv_cubed.unsqueeze(-1)  # [N_A, N_B, 3]
+
+    # T2: Dipole-dipole interaction tensor [N_A, N_B, 3, 3]
+    R_inv_fifth = 1.0 / (R_safe**5)
+
+    # Compute outer product of dR with itself for all pairs
+    dR_outer = torch.einsum("...i,...j->...ij", dR, dR)  # [N_A, N_B, 3, 3]
+
+    # 3 * (dR ⊗ dR) - R^2 * δ
+    T2_term1 = 3.0 * dR_outer  # [N_A, N_B, 3, 3]
+    T2_term2 = R_squared.unsqueeze(-1).unsqueeze(-1) * delta  # [N_A, N_B, 3, 3]
+    T2 = (T2_term1 - T2_term2) * R_inv_fifth.unsqueeze(-1).unsqueeze(
+        -1
+    )  # [N_A, N_B, 3, 3]
+
+    # T3: Dipole-quadrupole interaction tensor [N_A, N_B, 3, 3, 3]
+    R_inv_seventh = 1.0 / (R_safe**7)
+
+    # Create Rdd tensor: dR_i * δ_jk for all pairs
+    Rdd = torch.einsum("...i,jk->...ijk", dR, delta)  # [N_A, N_B, 3, 3, 3]
+
+    # Create dR_i * dR_j * dR_k tensor
+    dR_outer_outer = torch.einsum(
+        "...i,...j,...k->...ijk", dR, dR, dR
+    )  # [N_A, N_B, 3, 3, 3]
+
+    # Calculate T3
+    T3_term1 = 15.0 * dR_outer_outer  # [N_A, N_B, 3, 3, 3]
+
+    # Sum of permuted Rdd tensors
+    # Rdd has shape [N_A, N_B, 3, 3, 3] with indices [batch_A, batch_B, i, j, k]
+    # We want to permute the last 3 dimensions
+    Rdd_sum = Rdd + Rdd.permute(0, 1, 3, 2, 4) + Rdd.permute(0, 1, 4, 3, 2)
+    T3_term2 = 3.0 * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1) * Rdd_sum
+
+    T3 = (
+        -1.0
+        * (T3_term1 - T3_term2)
+        * R_inv_seventh.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    )
+
+    # T4: Quadrupole-quadrupole interaction tensor [N_A, N_B, 3, 3, 3, 3]
+    R_inv_ninth = 1.0 / (R_safe**9)
+
+    # Create RRdd tensor: dR_i * dR_j * δ_kl
+    # We need to expand delta to match batch dimensions
+    delta_expanded = delta.view(1, 1, 3, 3).expand(N_A, N_B, 3, 3)
+    RRdd = torch.einsum(
+        "...ij,...kl->...ijkl", dR_outer, delta_expanded
+    )  # [N_A, N_B, 3, 3, 3, 3]
+
+    # Create δδ tensor: δ_ij * δ_kl
+    dddd = torch.einsum("ij,kl->ijkl", delta, delta)
+    dddd_expanded = dddd.view(1, 1, 3, 3, 3, 3).expand(N_A, N_B, 3, 3, 3, 3)
+
+    # Create dR_i * dR_j * dR_k * dR_l tensor
+    dR_outer_outer_outer = torch.einsum("...ij,...kl->...ijkl", dR_outer, dR_outer)
+
+    # Calculate T4
+    T4_term1 = 105.0 * dR_outer_outer_outer
+
+    # Sum of permuted RRdd tensors
+    # RRdd has shape [N_A, N_B, 3, 3, 3, 3] with indices [batch_A, batch_B, i, j, k, l]
+    # We need to permute the last 4 dimensions: i, j, k, l
+    RRdd_sum = (
+        RRdd
+        + RRdd.permute(0, 1, 2, 4, 3, 5)  # i,k,j,l
+        + RRdd.permute(0, 1, 2, 5, 4, 3)  # i,l,k,j
+        + RRdd.permute(0, 1, 4, 3, 2, 5)  # k,j,i,l
+        + RRdd.permute(0, 1, 5, 3, 4, 2)  # l,j,k,i
+        + RRdd.permute(0, 1, 4, 5, 2, 3)  # k,l,i,j
+    )
+
+    T4_term2 = (
+        15.0
+        * R_squared.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        * RRdd_sum
+    )
+
+    # Sum of permuted dddd tensors
+    dddd_sum = (
+        dddd_expanded
+        + dddd_expanded.permute(0, 1, 2, 4, 3, 5)  # i,k,j,l
+        + dddd_expanded.permute(0, 1, 2, 5, 4, 3)  # i,l,k,j
+    )
+
+    T4_term3 = (
+        3.0
+        * (R_squared**2).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        * dddd_sum
+    )
+
+    T4 = (T4_term1 - T4_term2 + T4_term3) * R_inv_ninth.unsqueeze(-1).unsqueeze(
+        -1
+    ).unsqueeze(-1).unsqueeze(-1)
 
     return T0, T1, T2, T3, T4
 
@@ -227,7 +431,7 @@ def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB) -> f
 
 
 def eval_qcel_dimer_individual_components(
-    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, ensure_traceless=False,
+    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, traceless=True
 ) -> Tuple[
     float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
 ]:
@@ -261,8 +465,14 @@ def eval_qcel_dimer_individual_components(
             muB_j = muB[j]
             thetaB_j = thetaB[j]
 
+            # Subtract atomic_number?
+            # rA -= ZA[i]
+            # rB -= ZB[j]
+            # Nuclear attraction?
+
             E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ = eval_interaction_individual_components(
-                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, ensure_traceless=ensure_traceless
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, # ZA[i], ZB[j]
+                traceless=traceless,
             )
             E_qqs[i, j] = E_qq
             E_qus[i, j] = E_qu
@@ -270,6 +480,7 @@ def eval_qcel_dimer_individual_components(
             E_qQs[i, j] = E_qQ
             E_uQs[i, j] = E_uQ
             E_QQs[i, j] = E_QQ
+            print(i, j, E_qq + E_qu + E_uu + E_qQ + E_uQ + E_QQ)
     total_energy = (
         np.sum(E_qqs)
         + np.sum(E_qus)
@@ -295,6 +506,8 @@ def eval_interaction_individual(
 
     # Most inputs will already be traceless, but we can ensure this is the case
     if not traceless:
+        # divide by 3 because of traceless Buckingham quadrupoles have T_ij(2)
+        # annihalite the trace
         traceA = np.trace(thetaA)
         thetaA[0, 0] -= traceA / 3.0
         thetaA[1, 1] -= traceA / 3.0
@@ -324,32 +537,146 @@ def eval_interaction_individual(
 
 
 def eval_interaction_individual_components(
-    RA, qA, muA, thetaA, RB, qB, muB, thetaB, ensure_traceless=True
+    RA, qA, muA, thetaA, RB, qB, muB, thetaB, ZA=None, ZB=None, traceless=False
 ):
     T0, T1, T2, T3, T4 = T_cart(RA, RB)
 
     # Most inputs will already be traceless, but we can ensure this is the case
-    if ensure_traceless:
+    if not traceless:
+        thetaA = 0.5 * (thetaA + np.swapaxes(thetaA, -1, -2))
         traceA = np.trace(thetaA)
         thetaA[0, 0] -= traceA / 3.0
         thetaA[1, 1] -= traceA / 3.0
         thetaA[2, 2] -= traceA / 3.0
+        thetaB = 0.5 * (thetaB + np.swapaxes(thetaB, -1, -2))
         traceB = np.trace(thetaB)
         thetaB[0, 0] -= traceB / 3.0
         thetaB[1, 1] -= traceB / 3.0
         thetaB[2, 2] -= traceB / 3.0
+    print(RA, RB)
 
+    # AP2 code had factors of 1/3, -1/3, 1/9 in qQ, uQ, QQ terms; however,
+    # these make the energies disagree with CLIFF. CLIFF achieves better
+    # agreement with SAPT0 elst, so which is right?
     E_qq = np.sum(T0 * qA * qB)
     E_qu = np.sum(T1 * (qA * muB - qB * muA))
-    E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) * (1.0 / 3.0)
+    E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) # * (1.0 / 3.0)
 
     E_uu = np.sum(T2 * np.outer(muA, muB)) * (-1.0)
     E_uQ = np.sum(
         T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
-    ) * (-1.0 / 3.0)
+    ) * -1.0 # * (-1.0 / 3.0)
 
-    E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * (1.0 / 9.0)
+    E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) # * (1.0 / 9.0)
+    if ZA is not None and ZB is not None:
+        E_qq += np.sum(T0 * ZA * qB)
+        E_qq += np.sum(T0 * ZB * qA)
+        E_qq += np.sum(T0 * ZA * ZB)
     return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ
+
+
+def interaction_tensor(coord1, coord2, cell=None):
+    """Return interaction tensor up to quadrupoles between two atom coordinates"""
+    # Indices for MTP moments:
+    # 00  01  02  03  04  05  06  07  08  09  10  11  12
+    #  .,  x,  y,  z, xx, xy, xz, yx, yy, yz, zx, zy, zz
+    if cell:
+        vec = cell.pbc_distance(coord1, coord2)
+    else:
+        vec = coord2 - coord1
+    r = np.linalg.norm(vec)
+    r2 = r**2
+    r4 = r2**2
+    ri = 1.0 / r
+    ri2 = ri**2
+    ri3 = ri**3
+    ri5 = ri**5
+    ri7 = ri**7
+    ri9 = ri**9
+    x = vec[0]
+    y = vec[1]
+    z = vec[2]
+    x2 = x**2
+    y2 = y**2
+    z2 = z**2
+    x4 = x2**2
+    y4 = y2**2
+    z4 = z2**2
+    it = np.zeros((13, 13))
+    # Charge charge
+    it[0, 0] = ri
+    # Charge dipole
+    it[0, 1] = -x * ri3
+    it[0, 2] = -y * ri3
+    it[0, 3] = -z * ri3
+    # Charge quadrupole
+    it[0, 4] = (3 * x2 - r2) * ri5  # xx
+    it[0, 5] = 3 * x * y * ri5  # xy
+    it[0, 6] = 3 * x * z * ri5  # xz
+    it[0, 7] = it[0, 5]  # yx
+    it[0, 8] = (3 * y2 - r2) * ri5  # yy
+    it[0, 9] = 3 * y * z * ri5  # yz
+    it[0, 10] = it[0, 6]  # zx
+    it[0, 11] = it[0, 9]  # zy
+    it[0, 12] = -it[0, 4] - it[0, 8]  # zz
+    # Dipole dipole
+    it[1, 1] = -it[0, 4]  # xx
+    it[1, 2] = -it[0, 5]  # xy
+    it[1, 3] = -it[0, 6]  # xz
+    it[2, 2] = -it[0, 8]  # yy
+    it[2, 3] = -it[0, 9]  # yz
+    it[3, 3] = -it[1, 1] - it[2, 2]  # zz
+    # Dipole quadrupole
+    it[1, 4] = -3 * x * (3 * r2 - 5 * x2) * ri7  # xxx
+    it[1, 5] = it[1, 7] = it[2, 4] = -3 * y * (r2 - 5 * x2) * ri7  # xxy xyx yxx
+    it[1, 6] = it[1, 10] = it[3, 4] = -3 * z * (r2 - 5 * x2) * ri7  # xxz xzx zxx
+    it[1, 8] = it[2, 5] = it[2, 7] = -3 * x * (r2 - 5 * y2) * ri7  # xyy yxy yyx
+    it[1, 9] = it[1, 11] = it[2, 6] = it[2, 10] = it[3, 5] = it[3, 7] = (
+        15 * x * y * z * ri7
+    )  # xyz xzy yxz yzx zxy zyx
+    it[1, 12] = it[3, 6] = it[3, 10] = -it[1, 4] - it[1, 8]  # xzz zxz zzx
+    it[2, 8] = -3 * y * (3 * r2 - 5 * y2) * ri7  # yyy
+    it[2, 9] = it[2, 11] = it[3, 8] = -3 * z * (r2 - 5 * y2) * ri7  # yyz yzy zyy
+    it[2, 12] = it[3, 9] = it[3, 11] = -it[1, 5] - it[2, 8]  # yzz zyz zzy
+    it[3, 12] = -it[1, 6] - it[2, 9]  # zzz
+    # Quadrupole quadrupole
+    it[4, 4] = (105 * x4 - 90 * x2 * r2 + 9 * r4) * ri9  # xxxx
+    it[4, 5] = it[4, 7] = 15 * x * y * (7 * x2 - 3 * r2) * ri9  # xxxy xxyx
+    it[4, 6] = it[4, 10] = 15 * x * z * (7 * x2 - 3 * r2) * ri9  # xxxz xxzx
+    it[4, 8] = it[5, 5] = it[5, 7] = it[7, 7] = (
+        105 * x2 * y2 + 15 * z2 * r2 - 12 * r4
+    ) * ri9  # xxyy xyxy xyyx yxyx
+    it[4, 9] = it[4, 11] = it[5, 6] = it[5, 10] = it[6, 7] = it[7, 10] = (
+        15 * y * z * (7 * x2 - 1 * r2) * ri9
+    )  # xxyz xxzy xyxz xyzx xzyx yxzx
+    it[4, 12] = it[6, 6] = it[6, 10] = it[10, 10] = (
+        -it[4, 4] - it[4, 8]
+    )  # xxzz xzxz xzzx zxzx
+    it[5, 8] = it[7, 8] = 15 * x * y * (7 * y2 - 3 * r2) * ri9  # xyyy yxyy
+    it[5, 9] = it[5, 11] = it[6, 8] = it[7, 9] = it[7, 11] = it[8, 10] = (
+        15 * x * z * (7 * y2 - r2) * ri9
+    )  # xyyz xyzy xzyy yxyz yxzy yyzx
+    it[5, 12] = it[6, 9] = it[6, 11] = it[7, 12] = it[9, 10] = it[10, 11] = (
+        -it[4, 5] - it[5, 8]
+    )  # xyzz xzyz xzzy yxzz yzzx zxzy
+    it[6, 12] = it[10, 12] = -it[4, 6] - it[5, 9]  # xzzz zxzz
+    it[8, 8] = (105 * y4 - 90 * y2 * r2 + 9 * r4) * ri9  # yyyy
+    it[8, 9] = it[8, 11] = 15 * y * z * (7 * y2 - 3 * r2) * ri9  # yyyz yyzy
+    it[8, 12] = it[9, 9] = it[9, 11] = it[11, 11] = (
+        -it[4, 8] - it[8, 8]
+    )  # yyzz yzyz yzzy zyzy
+    it[9, 12] = it[11, 12] = -it[4, 9] - it[8, 9]  # yzzz zyzz
+    it[12, 12] = -it[4, 12] - it[8, 12]  # zzzz
+    # Symmetrize
+    it = it + it.T - np.diag(it.diagonal())
+    # Some coefficients need to be multiplied by -1
+    for i in range(1, 4):
+        for j in range(0, 1):
+            it[i, j] *= -1.0
+    for i in range(4, 13):
+        for j in range(1, 4):
+            it[i, j] *= -1.0
+    return it
 
 
 def eval_interaction(RA, qA, muA, thetaA, RB, qB, muB, thetaB, traceless=False):
@@ -458,6 +785,8 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
     maskB = ZB >= 1
 
     pair_mat = np.zeros((int(np.sum(maskA, axis=0)), int(np.sum(maskB, axis=0))))
+
+    # calculate multipole electrostatics for each atom pair
     for ia in range(len(RA_temp)):
         for ib in range(len(RB_temp)):
             rA = RA_temp[ia]
@@ -487,3 +816,6 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
     Har2Kcalmol = 627.5094737775374055927342256
 
     return total_energy * Har2Kcalmol, pair_mat * Har2Kcalmol
+
+if __name__ == "__main__":
+    T_cart()

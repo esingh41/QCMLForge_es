@@ -418,7 +418,8 @@ class AtomMPNN(MessagePassing):
         ).unsqueeze(1)
         charge = charge - charge_err
         charge = charge.squeeze()
-        h_list = torch.stack(h_list, dim=1)
+        # changed to dim=0 from dim=1 for usage in Param fitting # AMW 8/20/25
+        h_list = torch.stack(h_list, dim=0)
         return charge, dipole, qpole, h_list
 
 
