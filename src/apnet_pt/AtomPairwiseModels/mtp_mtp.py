@@ -41,11 +41,13 @@ def get_distances(RA, RB, e_source, e_target):
 
 
 def mtp_elst_damping(
+    ZA,
     RA,
     qA,
     muA,
     quadA,
     Ka,
+    ZB,
     RB,
     qB,
     muB,
@@ -56,6 +58,7 @@ def mtp_elst_damping(
     dR_ang,
     dR_xyz_ang,
 ):
+    # TODO: implement damping functions and ZaZb, ZaMi, ZbMi terms
     dR, dR_xyz = get_distances(RA, RB, e_AB_source, e_AB_target)
     dR = dR_ang / constants.au2ang
     dR_xyz = dR_xyz_ang / constants.au2ang
@@ -91,7 +94,7 @@ def mtp_elst_damping(
 
     qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
     qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
-    E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source) / 3.0
+    E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source)
 
     E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu)
     return E_elst
