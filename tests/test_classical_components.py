@@ -32,7 +32,9 @@ def test_elst_multipoles():
     ).set_pretrained_model(model_id=0)
     monA = lr_water_dimer.get_fragment(0).copy()
     monB = lr_water_dimer.get_fragment(1).copy()
-    multipoles = atom_model.predict_qcel_mols([monA, monB, monA.copy(), monB.copy()], batch_size=3)
+    multipoles = atom_model.predict_qcel_mols(
+        [monA, monB, monA.copy(), monB.copy()], batch_size=3
+    )
     assert len(multipoles) == 4, f"Expected 4 multipoles, got {len(multipoles)}"
     mtp_A = multipoles[0]
     mtp_B = multipoles[1]
@@ -58,7 +60,9 @@ def test_elst_charge_dipole_qpole():
     ).set_pretrained_model(model_id=0)
     monA = lr_water_dimer.get_fragment(0).copy()
     monB = lr_water_dimer.get_fragment(1).copy()
-    multipoles = atom_model.predict_qcel_mols([monA, monB, monA.copy(), monB.copy()], batch_size=3)
+    multipoles = atom_model.predict_qcel_mols(
+        [monA, monB, monA.copy(), monB.copy()], batch_size=3
+    )
     assert len(multipoles) == 4, f"Expected 4 multipoles, got {len(multipoles)}"
     mtp_A = multipoles[0]
     mtp_B = multipoles[1]
@@ -90,18 +94,22 @@ def test_elst_charge_dipole_qpole_pairwise():
     ).set_pretrained_model(model_id=0)
     monA = lr_water_dimer.get_fragment(0).copy()
     monB = lr_water_dimer.get_fragment(1).copy()
-    multipoles = atom_model.predict_qcel_mols([monA, monB, monA.copy(), monB.copy()], batch_size=3)
+    multipoles = atom_model.predict_qcel_mols(
+        [monA, monB, monA.copy(), monB.copy()], batch_size=3
+    )
     assert len(multipoles) == 4, f"Expected 4 multipoles, got {len(multipoles)}"
     mtp_A = multipoles[0]
     mtp_B = multipoles[1]
-    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
-        mol_dimer=lr_water_dimer,
-        qA=mtp_A[0].numpy(),
-        muA=mtp_A[1].numpy(),
-        thetaA=mtp_A[2].numpy(),
-        qB=mtp_B[0].numpy(),
-        muB=mtp_B[1].numpy(),
-        thetaB=mtp_B[2].numpy(),
+    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+        apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=lr_water_dimer,
+            qA=mtp_A[0].numpy(),
+            muA=mtp_A[1].numpy(),
+            thetaA=mtp_A[2].numpy(),
+            qB=mtp_B[0].numpy(),
+            muB=mtp_B[1].numpy(),
+            thetaB=mtp_B[2].numpy(),
+        )
     )
     print(f"Total energy = {total_energy:.6f} kcal/mol")
     print(f"E_qqs = {E_qqs.sum():.6f} kcal/mol")
@@ -110,7 +118,7 @@ def test_elst_charge_dipole_qpole_pairwise():
     print(f"E_qQs = {E_qQs.sum():.6f} kcal/mol")
     print(f"E_uQs = {E_uQs.sum():.6f} kcal/mol")
     print(f"E_QQs = {E_QQs.sum():.6f} kcal/mol")
-    return 
+    return
 
 
 def test_elst_multipoles_am_hirshfeld():
@@ -123,7 +131,9 @@ def test_elst_multipoles_am_hirshfeld():
     print(atom_model)
     monA = lr_water_dimer.get_fragment(0).copy()
     monB = lr_water_dimer.get_fragment(1).copy()
-    multipoles = atom_model.predict_qcel_mols([monA, monB, monA.copy(), monB.copy()], batch_size=3)
+    multipoles = atom_model.predict_qcel_mols(
+        [monA, monB, monA.copy(), monB.copy()], batch_size=3
+    )
     assert len(multipoles) == 4, f"Expected 4 multipoles, got {len(multipoles)}"
     mtp_A = multipoles[0]
     mtp_B = multipoles[1]
@@ -141,18 +151,19 @@ def test_elst_multipoles_am_hirshfeld():
     assert abs(E_elst - E_ref) < 1e-6, f"Expected {E_ref}, got {E_elst}"
 
 
-
 def test_induced_dipole():
     # check here for CLIFF eval: /home/awallace43/projects/multipoles/cliff_tests
-    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes2.pkl"))
-    print(df[['cliff_elst', 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_exch', 'SAPT0 EXCH ENERGY adz']])
-    print(df[['cliff_indu', 'SAPT0 IND ENERGY adz']])
-    print(df[['cliff_disp', 'SAPT0 DISP ENERGY adz']])
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes2.pkl")
+    )
+    print(df[["cliff_elst", "SAPT0 ELST ENERGY adz"]])
+    print(df[["cliff_exch", "SAPT0 EXCH ENERGY adz"]])
+    print(df[["cliff_indu", "SAPT0 IND ENERGY adz"]])
+    print(df[["cliff_disp", "SAPT0 DISP ENERGY adz"]])
     for n, r in df.iterrows():
-        sapt0_ind = r['SAPT0 IND ENERGY adz']
-        sapt0_elst = r['SAPT0 ELST ENERGY adz']
-        mol = r['qcel_molecule']
+        sapt0_ind = r["SAPT0 IND ENERGY adz"]
+        sapt0_elst = r["SAPT0 ELST ENERGY adz"]
+        mol = r["qcel_molecule"]
         # qm_tools_aw.molecular_visualization.visualize_molecule(
         #     mol,
         #    temp_filename=f"{n}_water_dimer_sapt0_ind.html",
@@ -160,26 +171,30 @@ def test_induced_dipole():
         # Distance between monomers
         monA = mol.get_fragment(0).copy()
         monB = mol.get_fragment(1).copy()
-        dist = np.sqrt(np.sum((monA.geometry[:, None] - monB.geometry)**2, axis=2)).min()
+        dist = np.sqrt(
+            np.sum((monA.geometry[:, None] - monB.geometry) ** 2, axis=2)
+        ).min()
         bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
-        qA = r['q_A pbe0/atz']
-        muA = r['mu_A pbe0/atz']
-        thetaA = r['theta_A pbe0/atz']
-        qB = r['q_B pbe0/atz']
-        muB = r['mu_B pbe0/atz']
-        thetaB = r['theta_B pbe0/atz']
-        vrA = r['vol_ratios_A pbe0/atz']
-        vrB = r['vol_ratios_B pbe0/atz']
-        vwA = r['val_widths_A pbe0/atz']
-        vwB = r['val_widths_B pbe0/atz']
-        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
-            mol_dimer=mol,
-            qA=qA,
-            muA=muA,
-            thetaA=thetaA,
-            qB=qB,
-            muB=muB,
-            thetaB=thetaB,
+        qA = r["q_A pbe0/atz"]
+        muA = r["mu_A pbe0/atz"]
+        thetaA = r["theta_A pbe0/atz"]
+        qB = r["q_B pbe0/atz"]
+        muB = r["mu_B pbe0/atz"]
+        thetaB = r["theta_B pbe0/atz"]
+        vrA = r["vol_ratios_A pbe0/atz"]
+        vrB = r["vol_ratios_B pbe0/atz"]
+        vwA = r["val_widths_A pbe0/atz"]
+        vwB = r["val_widths_B pbe0/atz"]
+        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+            apnet_pt.multipole.eval_qcel_dimer_individual_components(
+                mol_dimer=mol,
+                qA=qA,
+                muA=muA,
+                thetaA=thetaA,
+                qB=qB,
+                muB=muB,
+                thetaB=thetaB,
+            )
         )
         E_qq = E_qqs.sum()
         E_qu = E_qus.sum()
@@ -212,12 +227,15 @@ def test_induced_dipole():
         print(f"Induction energy = {induction_energy:.6f} kcal/mol")
         print(f"CLIFF induction  = {r['cliff_indu']:.6f}")
 
+
 def test_induced_dipole_bz_meoh():
-    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl"))
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
+    )
     for n, r in df.iterrows():
-        sapt0_ind = r['SAPT0 IND ENERGY adz']
-        sapt0_elst = r['SAPT0 ELST ENERGY adz']
-        mol = r['qcel_molecule']
+        sapt0_ind = r["SAPT0 IND ENERGY adz"]
+        sapt0_elst = r["SAPT0 ELST ENERGY adz"]
+        mol = r["qcel_molecule"]
         # qm_tools_aw.molecular_visualization.visualize_molecule(
         #     mol,
         #    temp_filename=f"{n}_water_dimer_sapt0_ind.html",
@@ -225,26 +243,30 @@ def test_induced_dipole_bz_meoh():
         # Distance between monomers
         monA = mol.get_fragment(0).copy()
         monB = mol.get_fragment(1).copy()
-        dist = np.sqrt(np.sum((monA.geometry[:, None] - monB.geometry)**2, axis=2)).min()
+        dist = np.sqrt(
+            np.sum((monA.geometry[:, None] - monB.geometry) ** 2, axis=2)
+        ).min()
         bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
-        qA = r['q_A pbe0/atz']
-        muA = r['mu_A pbe0/atz']
-        thetaA = r['theta_A pbe0/atz']
-        qB = r['q_B pbe0/atz']
-        muB = r['mu_B pbe0/atz']
-        thetaB = r['theta_B pbe0/atz']
-        vrA = r['vol_ratios_A pbe0/atz']
-        vrB = r['vol_ratios_B pbe0/atz']
-        vwA = r['val_widths_A pbe0/atz']
-        vwB = r['val_widths_B pbe0/atz']
-        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
-            mol_dimer=mol,
-            qA=qA,
-            muA=muA,
-            thetaA=thetaA,
-            qB=qB,
-            muB=muB,
-            thetaB=thetaB,
+        qA = r["q_A pbe0/atz"]
+        muA = r["mu_A pbe0/atz"]
+        thetaA = r["theta_A pbe0/atz"]
+        qB = r["q_B pbe0/atz"]
+        muB = r["mu_B pbe0/atz"]
+        thetaB = r["theta_B pbe0/atz"]
+        vrA = r["vol_ratios_A pbe0/atz"]
+        vrB = r["vol_ratios_B pbe0/atz"]
+        vwA = r["val_widths_A pbe0/atz"]
+        vwB = r["val_widths_B pbe0/atz"]
+        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+            apnet_pt.multipole.eval_qcel_dimer_individual_components(
+                mol_dimer=mol,
+                qA=qA,
+                muA=muA,
+                thetaA=thetaA,
+                qB=qB,
+                muB=muB,
+                thetaB=thetaB,
+            )
         )
         E_qq = E_qqs.sum()
         E_qu = E_qus.sum()
@@ -279,42 +301,48 @@ def test_induced_dipole_bz_meoh():
 
 
 def test_classical_cliff():
-    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl"))
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
     # pprint(df.columns.to_list())
     ap_elst, ap_ind = [], []
     ap_elst_q, ap_elst_q_mu, ap_elst_mu, ap_elst_theta = [], [], [], []
     ap_elst_q_theta, ap_elst_mu_theta = [], []
     r = df.iloc[0]
     for n, r in df.iterrows():
-        sapt0_ind = r['SAPT0 IND ENERGY adz']
-        sapt0_elst = r['SAPT0 ELST ENERGY adz']
-        mol = r['qcel_molecule']
+        sapt0_ind = r["SAPT0 IND ENERGY adz"]
+        sapt0_elst = r["SAPT0 ELST ENERGY adz"]
+        mol = r["qcel_molecule"]
         monA = mol.get_fragment(0).copy()
         monB = mol.get_fragment(1).copy()
-        dist = np.sqrt(np.sum((monA.geometry[:, None] - monB.geometry)**2, axis=2)).min()
+        dist = np.sqrt(
+            np.sum((monA.geometry[:, None] - monB.geometry) ** 2, axis=2)
+        ).min()
         bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
-        qA = r['q_A pbe0/atz']
-        muA = r['mu_A pbe0/atz']
-        thetaA = r['theta_A pbe0/atz']
-        qB = r['q_B pbe0/atz']
-        muB = r['mu_B pbe0/atz']
-        thetaB = r['theta_B pbe0/atz']
-        vrA = r['vol_ratios_A pbe0/atz']
-        vrB = r['vol_ratios_B pbe0/atz']
-        vwA = r['val_widths_A pbe0/atz']
-        vwB = r['val_widths_B pbe0/atz']
+        qA = r["q_A pbe0/atz"]
+        muA = r["mu_A pbe0/atz"]
+        thetaA = r["theta_A pbe0/atz"]
+        qB = r["q_B pbe0/atz"]
+        muB = r["mu_B pbe0/atz"]
+        thetaB = r["theta_B pbe0/atz"]
+        vrA = r["vol_ratios_A pbe0/atz"]
+        vrB = r["vol_ratios_B pbe0/atz"]
+        vwA = r["val_widths_A pbe0/atz"]
+        vwB = r["val_widths_B pbe0/atz"]
         print(f"{qA = }")
         print(f"{muA = }")
         print(f"{thetaA = }")
-        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
-            mol_dimer=mol,
-            qA=qA,
-            muA=muA,
-            thetaA=thetaA,
-            qB=qB,
-            muB=muB,
-            thetaB=thetaB,
-            traceless=False,
+        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+            apnet_pt.multipole.eval_qcel_dimer_individual_components(
+                mol_dimer=mol,
+                qA=qA,
+                muA=muA,
+                thetaA=thetaA,
+                qB=qB,
+                muB=muB,
+                thetaB=thetaB,
+                traceless=False,
+            )
         )
         ap_elst.append(total_energy)
         E_qq = E_qqs.sum()
@@ -344,106 +372,277 @@ def test_classical_cliff():
         # )
         # ap_ind.append(induction_energy)
         # break
-    print(apnet_pt.multipole.charge_dipole_qpoles_to_compact_multipoles(
-        charges=qA, dipoles=muA, qpoles=thetaA,
-    ))
+    print(
+        apnet_pt.multipole.charge_dipole_qpoles_to_compact_multipoles(
+            charges=qA,
+            dipoles=muA,
+            qpoles=thetaA,
+        )
+    )
     print(ap_elst)
     # return
-    df['ap_elst'] = ap_elst
-    df['ap_elst_q'] = ap_elst_q
-    df['ap_elst_q_mu'] = ap_elst_q_mu
-    df['ap_elst_mu'] = ap_elst_mu
-    df['ap_elst_theta'] = ap_elst_theta
-    df['ap_elst_q_theta'] = ap_elst_q_theta
-    df['ap_elst_mu_theta'] = ap_elst_mu_theta
-    print(df[['cliff_elst_q_mu_theta', "ap_elst", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_q_mu_theta_noDamp_noZ', "ap_elst", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_q_noDamp_noZ', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_mu_noDamp_noZ', "ap_elst_mu"]])
-    print(df[['cliff_elst_theta_noDamp_noZ', "ap_elst_theta"]])
+    df["ap_elst"] = ap_elst
+    df["ap_elst_q"] = ap_elst_q
+    df["ap_elst_q_mu"] = ap_elst_q_mu
+    df["ap_elst_mu"] = ap_elst_mu
+    df["ap_elst_theta"] = ap_elst_theta
+    df["ap_elst_q_theta"] = ap_elst_q_theta
+    df["ap_elst_mu_theta"] = ap_elst_mu_theta
+    print(df[["cliff_elst_q_mu_theta", "ap_elst", "SAPT0 ELST ENERGY adz"]])
+    print(df[["cliff_elst_q_mu_theta_noDamp_noZ", "ap_elst", "SAPT0 ELST ENERGY adz"]])
+    print(df[["cliff_elst_q_noDamp_noZ", "ap_elst_q", "SAPT0 ELST ENERGY adz"]])
+    print(df[["cliff_elst_mu_noDamp_noZ", "ap_elst_mu"]])
+    print(df[["cliff_elst_theta_noDamp_noZ", "ap_elst_theta"]])
 
     print("\nCross terms\n")
-    print(df[['cliff_elst_q_mu_noDamp_noZ', "ap_elst_q_mu"]])
-    print(df[['cliff_elst_mu_theta_noDamp_noZ', "ap_elst_mu_theta"]])
-    print(df[['cliff_elst_q_theta_noDamp_noZ', "ap_elst_q_theta"]])
+    print(df[["cliff_elst_q_mu_noDamp_noZ", "ap_elst_q_mu"]])
+    print(df[["cliff_elst_mu_theta_noDamp_noZ", "ap_elst_mu_theta"]])
+    print(df[["cliff_elst_q_theta_noDamp_noZ", "ap_elst_q_theta"]])
+    return
+
+
+def test_elst_ameoba():
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    # q-q case
+    (
+        ap_q,
+        E_qqs_q,
+        E_qus_q,
+        E_uus_q,
+        E_qQs_q,
+        E_uQs_q,
+        E_QQs_q,
+        E_ZA_ZBs_q,
+        E_ZA_MBs_q,
+        E_ZB_MAs_q,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=np.zeros_like(muA),
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=np.zeros_like(muB),
+        thetaB=np.zeros_like(thetaB),
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q.sum()
+    E_ZA_MB = E_ZA_MBs_q.sum()
+    E_ZB_MA = E_ZB_MAs_q.sum()
+    cliff_type = "q_noDamp"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q=:.6f} kcal/mol")
+    cliff_elst_q = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q:.6f}, AP q = {ap_q:.6f}")
+    assert abs(cliff_elst_q - ap_q) < 1e-4, (
+        f"Expected {cliff_elst_q}, got {ap_q}"
+    )
+    (
+        ap_q_mu,
+        E_qqs_q_mu,
+        E_qus_q_mu,
+        E_uus_q_mu,
+        E_qQs_q_mu,
+        E_uQs_q_mu,
+        E_QQs_q_mu,
+        E_ZA_ZBs_q_mu,
+        E_ZA_MBs_q_mu,
+        E_ZB_MAs_q_mu,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=muB,
+        thetaB=np.zeros_like(thetaB),
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu.sum()
+    cliff_type = "q_mu_noDamp"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu=:.6f} kcal/mol")
+    cliff_elst_q_mu = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu:.6f}, AP q = {ap_q_mu:.6f}")
+    assert abs(cliff_elst_q_mu - ap_q_mu) < 1e-4, (
+        f"Expected {cliff_elst_q_mu}, got {ap_q_mu}"
+    )
+    (
+        ap_q_mu_theta,
+        E_qqs_q_mu_theta,
+        E_qus_q_mu_theta,
+        E_uus_q_mu_theta,
+        E_qQs_q_mu_theta,
+        E_uQs_q_mu_theta,
+        E_QQs_q_mu_theta,
+        E_ZA_ZBs_q_mu_theta,
+        E_ZA_MBs_q_mu_theta,
+        E_ZB_MAs_q_mu_theta,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        qB=qB,
+        muB=muB,
+        thetaB=thetaB,
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu_theta.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu_theta.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu_theta.sum()
+    cliff_type = "q_mu_theta_noDamp"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu_theta=:.6f} kcal/mol")
+    cliff_elst_q_mu_theta = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu_theta:.6f}, AP q = {ap_q_mu_theta:.6f}")
+    assert abs(cliff_elst_q_mu_theta - ap_q_mu_theta) < 1e-4, (
+        f"Expected {cliff_elst_q_mu_theta}, got {ap_q_mu_theta}"
+    )
     return
 
 
 def test_elst_damping():
-    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl"))
-    # pprint(df.columns.to_list())
-    ap_elst, ap_ind = [], []
-    ap_elst_q, ap_elst_q_mu, ap_elst_mu, ap_elst_theta = [], [], [], []
-    ap_elst_q_theta, ap_elst_mu_theta = [], []
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
     r = df.iloc[0]
-    for n, r in df.iterrows():
-        sapt0_ind = r['SAPT0 IND ENERGY adz']
-        sapt0_elst = r['SAPT0 ELST ENERGY adz']
-        mol = r['qcel_molecule']
-        monA = mol.get_fragment(0).copy()
-        monB = mol.get_fragment(1).copy()
-        dist = np.sqrt(np.sum((monA.geometry[:, None] - monB.geometry)**2, axis=2)).min()
-        bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
-        qA = r['q_A pbe0/atz']
-        muA = r['mu_A pbe0/atz']
-        thetaA = r['theta_A pbe0/atz']
-        qB = r['q_B pbe0/atz']
-        muB = r['mu_B pbe0/atz']
-        thetaB = r['theta_B pbe0/atz']
-        vrA = r['vol_ratios_A pbe0/atz']
-        vrB = r['vol_ratios_B pbe0/atz']
-        vwA = r['val_widths_A pbe0/atz']
-        vwB = r['val_widths_B pbe0/atz']
-        print(f"{qA = }")
-        print(f"{muA = }")
-        print(f"{thetaA = }")
-        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
-            mol_dimer=mol,
-            qA=qA,
-            muA=muA,
-            thetaA=thetaA,
-            qB=qB,
-            muB=muB,
-            thetaB=thetaB,
-            traceless=False,
-        )
-        ap_elst.append(total_energy)
-        E_qq = E_qqs.sum()
-        E_qu = E_qus.sum()
-        E_uu = E_uus.sum()
-        E_QQ = E_QQs.sum()
-        E_uQ = E_uQs.sum()
-        E_qQ = E_qQs.sum()
-        ap_elst_q.append(E_qq)
-        ap_elst_q_mu.append(E_qq + E_qu + E_uu)
-        ap_elst_mu.append(E_uu)
-        ap_elst_theta.append(E_QQ)
-        ap_elst_q_theta.append(E_qq + E_qQ + E_QQ)
-        ap_elst_mu_theta.append(E_uu + E_uQ + E_QQ)
-    print(apnet_pt.multipole.charge_dipole_qpoles_to_compact_multipoles(
-        charges=qA, dipoles=muA, qpoles=thetaA,
-    ))
-    print(ap_elst)
-    # return
-    df['ap_elst'] = ap_elst
-    df['ap_elst_q'] = ap_elst_q
-    df['ap_elst_q_mu'] = ap_elst_q_mu
-    df['ap_elst_mu'] = ap_elst_mu
-    df['ap_elst_theta'] = ap_elst_theta
-    df['ap_elst_q_theta'] = ap_elst_q_theta
-    df['ap_elst_mu_theta'] = ap_elst_mu_theta
-    print(df[['cliff_elst_q_mu_theta_noDamp_noZ', "ap_elst", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_q_noDamp_noZ', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
-    print(df[['cliff_elst_mu_noDamp_noZ', "ap_elst_mu"]])
-    print(df[['cliff_elst_theta_noDamp_noZ', "ap_elst_theta"]])
-
-    print("\nCross terms\n")
-    print(df[['cliff_elst_q_mu_noDamp_noZ', "ap_elst_q_mu"]])
-    print(df[['cliff_elst_mu_theta_noDamp_noZ', "ap_elst_mu_theta"]])
-    print(df[['cliff_elst_q_theta_noDamp_noZ', "ap_elst_q_theta"]])
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    # q-q case
+    (
+        ap_q,
+        E_qqs_q,
+        E_qus_q,
+        E_uus_q,
+        E_qQs_q,
+        E_uQs_q,
+        E_QQs_q,
+        E_ZA_ZBs_q,
+        E_ZA_MBs_q,
+        E_ZB_MAs_q,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=np.zeros_like(muA),
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=np.zeros_like(muB),
+        thetaB=np.zeros_like(thetaB),
+        alphaA=alphaA,
+        alphaB=alphaB,
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q.sum()
+    E_ZA_MB = E_ZA_MBs_q.sum()
+    E_ZB_MA = E_ZB_MAs_q.sum()
+    cliff_type = "q"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q=:.6f} kcal/mol")
+    cliff_elst_q = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q:.6f}, AP q = {ap_q:.6f}")
+    assert abs(cliff_elst_q - ap_q) < 1e-4, (
+        f"Expected {cliff_elst_q}, got {ap_q}"
+    )
+    (
+        ap_q_mu,
+        E_qqs_q_mu,
+        E_qus_q_mu,
+        E_uus_q_mu,
+        E_qQs_q_mu,
+        E_uQs_q_mu,
+        E_QQs_q_mu,
+        E_ZA_ZBs_q_mu,
+        E_ZA_MBs_q_mu,
+        E_ZB_MAs_q_mu,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=muB,
+        thetaB=np.zeros_like(thetaB),
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu.sum()
+    cliff_type = "q_mu"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu=:.6f} kcal/mol")
+    cliff_elst_q_mu = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu:.6f}, AP q = {ap_q_mu:.6f}")
+    assert abs(cliff_elst_q_mu - ap_q_mu) < 1e-4, (
+        f"Expected {cliff_elst_q_mu}, got {ap_q_mu}"
+    )
+    (
+        ap_q_mu_theta,
+        E_qqs_q_mu_theta,
+        E_qus_q_mu_theta,
+        E_uus_q_mu_theta,
+        E_qQs_q_mu_theta,
+        E_uQs_q_mu_theta,
+        E_QQs_q_mu_theta,
+        E_ZA_ZBs_q_mu_theta,
+        E_ZA_MBs_q_mu_theta,
+        E_ZB_MAs_q_mu_theta,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        qB=qB,
+        muB=muB,
+        thetaB=thetaB,
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu_theta.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu_theta.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu_theta.sum()
+    cliff_type = "q_mu_theta"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu_theta=:.6f} kcal/mol")
+    cliff_elst_q_mu_theta = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu_theta:.6f}, AP q = {ap_q_mu_theta:.6f}")
+    assert abs(cliff_elst_q_mu_theta - ap_q_mu_theta) < 1e-4, (
+        f"Expected {cliff_elst_q_mu_theta}, got {ap_q_mu_theta}"
+    )
     return
+
 
 if __name__ == "__main__":
     # test_induced_dipole()
     # test_induced_dipole_bz_meoh()
-    test_classical_cliff()
+    # test_classical_cliff()
+    test_elst_damping()
