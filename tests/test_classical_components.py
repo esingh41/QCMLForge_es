@@ -630,6 +630,53 @@ def test_elst_damping():
     assert abs(cliff_elst_q_mu - ap_q_mu) < 1e-4, (
         f"Expected {cliff_elst_q_mu}, got {ap_q_mu}"
     )
+    (
+        ap_q_mu_theta,
+        E_qqs_q_mu_theta,
+        E_qus_q_mu_theta,
+        E_uus_q_mu_theta,
+        E_qQs_q_mu_theta,
+        E_uQs_q_mu_theta,
+        E_QQs_q_mu_theta,
+        E_ZA_ZBs_q_mu_theta,
+        E_ZA_MBs_q_mu_theta,
+        E_ZB_MAs_q_mu_theta,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        qB=qB,
+        muB=muB,
+        thetaB=thetaB,
+        alphaA=alphaA,
+        alphaB=alphaB,
+        traceless=False,
+        amoeba_eq=True,
+    )
+    MTP_MTP = (
+        np.sum(E_qqs_q_mu_theta)+
+        np.sum(E_qus_q_mu_theta)+
+        np.sum(E_uus_q_mu_theta)+
+        np.sum(E_qQs_q_mu_theta)+
+        np.sum(E_uQs_q_mu_theta)+
+        np.sum(E_QQs_q_mu_theta)
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu_theta.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu_theta.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu_theta.sum()
+    cliff_type = "q_mu_theta"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu_theta=:.6f} kcal/mol")
+    print(f"{E_ZA_ZB=:.6f} + {E_ZA_MB=:.6f} + {E_ZB_MA=:.6f} + {MTP_MTP:.6f}")
+    print(f"Elst: {E_ZA_ZB:.6f} + {E_ZA_MB:.6f} + {E_ZB_MA:.6f} + {MTP_MTP:.6f} = {ap_q_mu_theta:.6f}")
+    print("Elst: 12056.938032 + -12224.225863 + -11858.340758 + 12012.663869 = -12.964720")
+    cliff_elst_q_mu_theta = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu_theta:.6f}, AP q = {ap_q_mu_theta:.6f}")
+    assert abs(cliff_elst_q_mu_theta - ap_q_mu_theta) < 1e-4, (
+        f"Expected {cliff_elst_q_mu_theta}, got {ap_q_mu_theta}"
+    )
     return
 
 
