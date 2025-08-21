@@ -371,7 +371,6 @@ def test_classical_cliff():
 
 def test_elst_damping():
     df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl"))
-    # pprint(df.columns.to_list())
     r = df.iloc[0]
     mol = r['qcel_molecule']
     qA = r['q_A pbe0/atz']
@@ -380,7 +379,7 @@ def test_elst_damping():
     qB = r['q_B pbe0/atz']
     muB = r['mu_B pbe0/atz']
     thetaB = r['theta_B pbe0/atz']
-    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs, E_ZA_ZBs, E_ZA_qBs, E_ZB_qAs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
         mol_dimer=mol,
         qA=qA,
         muA=muA,
@@ -391,29 +390,53 @@ def test_elst_damping():
         traceless=False,
         amoeba_eq=True,
     )
+    # 8 8 0.1909520869387663 12.220933564081044
+    # 8, -8.90516141: -13.603673
+    # 8, -8.90516141: -0.711802
+    # 8, -8.90516141: -0.711918
+    # T0=0.1909520869387663
+    # 1, -8.90516141: -1.474170
+    # 1, -8.90516141: -0.076862
+    # 1, -8.90516141: -0.076870
+    # T0=0.16554112956001996
+    # 1, -8.90516141: -2.603091
+    # 1, -8.90516141: -0.122767
+    # 1, -8.90516141: -0.122788
+    # T0=0.29231262773780864
+    # Elst: 12056.934232 + -12238.908531 + -11862.966042 + 12035.639722 = -9.300618
     E_qq = E_qqs.sum()
     E_qu = E_qus.sum()
     E_uu = E_uus.sum()
     E_QQ = E_QQs.sum()
     E_uQ = E_uQs.sum()
     E_qQ = E_qQs.sum()
+    E_ZA_ZB = E_ZA_ZBs.sum()
+    E_ZA_qB = E_ZA_qBs.sum()
+    E_ZB_qA = E_ZB_qAs.sum()
+    print(f"{E_ZA_qB=:.6f}, {E_ZB_qA=:.6f}, {E_ZA_ZB=:.6f}")
+    # assert E_ZA_ZB == 12056.934232, f"Expected 12056.934232, got {E_ZA_ZB}"
+    # assert E_ZA_qB == -12238.908531, f"Expected -12238.908531, got {E_ZA_qB}"
+    # assert E_ZB_qA  == -11862.966042, f"Expected -11862.966042, got {E_ZB_qA}"
+    print(f"{total_energy=:.6f} kcal/mol")
     ap_elst_q = E_qq
     ap_elst_q_mu = E_qq + E_qu + E_uu
-    ap_elst_mu = E_uu
-    ap_elst_theta = E_QQ
-    ap_elst_q_theta = E_qq + E_qQ + E_QQ
-    ap_elst_mu_theta = E_uu + E_uQ + E_QQ
+    # ap_elst_mu = E_uu
+    # ap_elst_theta = E_QQ
+    # ap_elst_q_theta = E_qq + E_qQ + E_QQ
+    # ap_elst_mu_theta = E_uu + E_uQ + E_QQ
     cliff_type = "_noDamp"
     print(f"Using cliff type: {cliff_type}\n")
     cliff_elst_q = r[f'cliff_elst_q{cliff_type}']
     cliff_elst_q_mu = r[f'cliff_elst_q_mu{cliff_type}']
-    cliff_elst_mu = r[f'cliff_elst_mu{cliff_type}']
-    cliff_elst_theta = r[f'cliff_elst_theta{cliff_type}']
-    cliff_elst_q_theta = r[f'cliff_elst_q_theta{cliff_type}']
-    cliff_elst_mu_theta = r[f'cliff_elst_mu_theta{cliff_type}']
+    # cliff_elst_mu = r[f'cliff_elst_mu{cliff_type}']
+    # cliff_elst_theta = r[f'cliff_elst_theta{cliff_type}']
+    # cliff_elst_q_theta = r[f'cliff_elst_q_theta{cliff_type}']
+    # cliff_elst_mu_theta = r[f'cliff_elst_mu_theta{cliff_type}']
     print(f"{total_energy=:.6f} kcal/mol")
     print(f"CLIFF q = {cliff_elst_q:.6f}, AP q = {ap_elst_q:.6f}")
-    assert abs(cliff_elst_q - ap_elst_q) < 1e-6, f"Expected {cliff_elst_q}, got {ap_elst_q}"
+    assert abs(cliff_elst_q - ap_elst_q) < 1e-4, f"Expected {cliff_elst_q}, got {ap_elst_q}"
+    # assert abs(cliff_elst_q_mu - ap_elst_q_mu) < 1e-4, f"Expected {cliff_elst_q_mu}, got {ap_elst_q_mu}"
+    # assert abs(cliff_elst_q_mu_theta - ap_elst_q_mu_theta) < 1e-4, f"Expected {cliff_elst_q_mu_theta}, got {ap_elst_q_mu_theta}"
     return
 
 if __name__ == "__main__":

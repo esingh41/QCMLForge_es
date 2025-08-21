@@ -452,6 +452,11 @@ def eval_qcel_dimer_individual_components(
         t.copy(),
         t.copy(),
     )
+    E_ZA_qBs, E_ZB_qAs, E_ZA_ZBs = (
+        t.copy(),
+        t.copy(),
+        t.copy(),
+    )
     for i in range(len(ZA)):
         for j in range(len(ZB)):
             rA = RA[i]
@@ -470,7 +475,7 @@ def eval_qcel_dimer_individual_components(
             # Nuclear attraction?
             za_i = ZA[i] if amoeba_eq else None
             zb_j = ZB[j] if amoeba_eq else None
-            E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ = eval_interaction_individual_components(
+            E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_qB, E_ZB_qA = eval_interaction_individual_components(
                 rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, ZA=za_i, ZB=zb_j,
                 traceless=traceless,
             )
@@ -480,6 +485,10 @@ def eval_qcel_dimer_individual_components(
             E_qQs[i, j] = E_qQ
             E_uQs[i, j] = E_uQ
             E_QQs[i, j] = E_QQ
+            if amoeba_eq:
+                E_ZA_ZBs[i, j] = E_ZA_ZB
+                E_ZA_qBs[i, j] = E_ZA_qB
+                E_ZB_qAs[i, j] = E_ZB_qA
     total_energy = (
         np.sum(E_qqs)
         + np.sum(E_qus)
@@ -487,6 +496,9 @@ def eval_qcel_dimer_individual_components(
         + np.sum(E_qQs)
         + np.sum(E_uQs)
         + np.sum(E_QQs)
+        + np.sum(E_ZA_qBs)
+        + np.sum(E_ZB_qAs)
+        + np.sum(E_ZA_ZBs)
     )
     total_energy *= constants.h2kcalmol
     E_qqs *= constants.h2kcalmol
@@ -495,7 +507,10 @@ def eval_qcel_dimer_individual_components(
     E_qQs *= constants.h2kcalmol
     E_uQs *= constants.h2kcalmol
     E_QQs *= constants.h2kcalmol
-    return total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs
+    E_ZA_qBs *= constants.h2kcalmol
+    E_ZB_qAs *= constants.h2kcalmol
+    E_ZA_ZBs *= constants.h2kcalmol
+    return total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs, E_ZA_ZBs, E_ZA_qBs, E_ZB_qAs
 
 
 def eval_interaction_individual(
@@ -539,6 +554,12 @@ def eval_interaction_individual_components(
     RA, qA, muA, thetaA, RB, qB, muB, thetaB, ZA=None, ZB=None, traceless=False
 ):
     T0, T1, T2, T3, T4 = T_cart(RA, RB)
+    E_ZA_qB = None
+    E_ZB_qA = None
+    E_ZA_ZB = None
+    if ZA is not None and ZB is not None:
+        qA -= ZA
+        qB -= ZB
 
     # Most inputs will already be traceless, but we can ensure this is the case
     if not traceless:
@@ -567,10 +588,21 @@ def eval_interaction_individual_components(
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) # * (1.0 / 9.0)
     if ZA is not None and ZB is not None:
-        E_qq += np.sum(T0 * ZA * qB)
-        E_qq += np.sum(T0 * ZB * qA)
-        E_qq += np.sum(T0 * ZA * ZB)
-    return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ
+        ZA = int(ZA)
+        ZB = int(ZB)
+        qB = float(qB)
+        qA = float(qA)
+        T0 = float(T0)
+        E_ZA_qB = T0 * ZA * qB
+        E_ZB_qA = T0 * ZB * qA
+        E_ZA_ZB = T0 * ZA * ZB
+        # ZA ZB O-O
+        print(f"\n{ZA=}, {ZB=}, {T0}: {E_ZA_ZB=:.4f}")
+        print(f"{ZA=}, {qB=}: {E_ZA_qB=:.4f}")
+        print(f"{ZB=}, {qA=}: {E_ZB_qA=:.4f}")
+        print(f"{T0=}\n")
+        E_qq += E_ZA_qB + E_ZB_qA + E_ZA_ZB
+    return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_qB, E_ZB_qA
 
 
 def interaction_tensor(coord1, coord2, cell=None):
