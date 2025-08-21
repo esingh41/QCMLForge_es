@@ -137,7 +137,6 @@ def T_cart(RA, RB):
     T2 = (R**-5) * (3 * np.outer(dR, dR) - R * R * delta)
 
     Rdd = np.multiply.outer(dR, delta)
-    print(Rdd)
     T3 = (
         (R**-7)
         * (
@@ -431,7 +430,7 @@ def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB) -> f
 
 
 def eval_qcel_dimer_individual_components(
-    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, traceless=True
+    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, traceless=True, amoeba_eq=False
 ) -> Tuple[
     float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
 ]:
@@ -469,9 +468,10 @@ def eval_qcel_dimer_individual_components(
             # rA -= ZA[i]
             # rB -= ZB[j]
             # Nuclear attraction?
-
+            za_i = ZA[i] if amoeba_eq else None
+            zb_j = ZB[j] if amoeba_eq else None
             E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ = eval_interaction_individual_components(
-                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, # ZA[i], ZB[j]
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, ZA=za_i, ZB=zb_j,
                 traceless=traceless,
             )
             E_qqs[i, j] = E_qq
@@ -480,7 +480,6 @@ def eval_qcel_dimer_individual_components(
             E_qQs[i, j] = E_qQ
             E_uQs[i, j] = E_uQ
             E_QQs[i, j] = E_QQ
-            print(i, j, E_qq + E_qu + E_uu + E_qQ + E_uQ + E_QQ)
     total_energy = (
         np.sum(E_qqs)
         + np.sum(E_qus)
@@ -553,7 +552,6 @@ def eval_interaction_individual_components(
         thetaB[0, 0] -= traceB / 3.0
         thetaB[1, 1] -= traceB / 3.0
         thetaB[2, 2] -= traceB / 3.0
-    print(RA, RB)
 
     # AP2 code had factors of 1/3, -1/3, 1/9 in qQ, uQ, QQ terms; however,
     # these make the energies disagree with CLIFF. CLIFF achieves better
@@ -771,10 +769,6 @@ def eval_dimer2(RA, RB, ZA, ZB, QA, QB):
 
 
 def eval_dimer(RA, RB, ZA, ZB, QA, QB):
-    # print()
-    # print(RA.shape, ZA.shape, QA.shape)
-    # print(RB.shape, ZB.shape, QB.shape)
-
     # Keep R in a.u. (molden convention)
     RA_temp = RA * 1.88973
     RB_temp = RB * 1.88973
