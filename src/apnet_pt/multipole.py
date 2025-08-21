@@ -126,15 +126,35 @@ def charge_dipole_qpoles_to_compact_multipoles(charges, dipoles, qpoles):
     return multipoles
 
 
-def T_cart(RA, RB):
+def T_cart_Z_MTP(RA, RB, alpha_j=None):
+    lam_1, lam_3, lam_5 = (1.0, 1.0, 1.0)
+    if alpha_j is not None:
+        lam_1, lam_3, lam_5 = elst_damping_z_mtp(alpha_j, np.linalg.norm(RA - RB))
+
     dR = RB - RA
     R = np.linalg.norm(dR)
 
     delta = np.identity(3)
 
-    T0 = R**-1
+    T0 = R**-1 * lam_1
     T1 = (R**-3) * (-1.0 * dR)
-    T2 = (R**-5) * (3 * np.outer(dR, dR) - R * R * delta)
+    T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
+    return T0, T1, T2
+
+
+def T_cart(RA, RB, alpha_i, alpha_j=None):
+    lam_1, lam_3, lam_5, lam_7, lam_9 = (1.0, 1.0, 1.0, 1.0, 1.0)
+    if alpha_i is not None and alpha_j is not None:
+        lam_1, lam_3, lam_5, lam_7, lam_9 = elst_damping_mtp_mtp(alpha_i, alpha_j, np.linalg.norm(RA - RB))
+
+    dR = RB - RA
+    R = np.linalg.norm(dR)
+
+    delta = np.identity(3)
+
+    T0 = R**-1 * lam_1
+    T1 = (R**-3) * (-1.0 * dR)
+    T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
 
     Rdd = np.multiply.outer(dR, delta)
     T3 = (
@@ -176,6 +196,102 @@ def thole_damping(r_ij, alpha_i, alpha_j, a):
     l7 = 1 - (1.0 + au3 + 0.6 * au3**2) * np.exp(-au3)
     l9 = 1 - (1 + au3 + (18 * au3**2 + 9 * au3**3) / 35) * np.exp(-au3)
     return au3, l3, l5, l7, l9
+
+def elst_damping_mtp_mtp(alpha_i, alpha_j, r):
+    """
+    # MTP-MTP interaction from CLIFF
+    # Get the lambdas
+    lam1 = 1.0
+    lam3 = 1.0
+    lam5 = 1.0
+    lam7 = 1.0
+    lam9 = 1.0
+
+    if abs(alpha1 - alpha2) > 1e-6:
+        A = a2_2 / (a2_2 - a1_2)
+        B = a1_2 / (a1_2 - a2_2)
+
+        
+        lam1 -= A*e1r
+        lam1 -= B*e2r
+
+        lam3 -= (1.0 + alpha1*r)*A*e1r 
+        lam3 -= (1.0 + alpha2*r)*B*e2r
+
+        lam5 -= (1.0 + alpha1*r + (1.0/3.0)*a1_2*r2)*A*e1r
+        lam5 -= (1.0 + alpha2*r + (1.0/3.0)*a2_2*r2)*B*e2r
+
+        lam7 -= (1.0 + alpha1*r + (2.0/5.0)*a1_2*r2 + (1.0/15.0)*a1_3*r3)*A*e1r
+        lam7 -= (1.0 + alpha2*r + (2.0/5.0)*a2_2*r2 + (1.0/15.0)*a2_3*r3)*B*e2r
+
+        lam9 -= (1.0 + alpha1*r + (3.0/7.0)*a1_2*r2 + (2.0/21.0)*a1_3*r3 + (1.0/105.0)*a1_4*r4)*A*e1r
+        lam9 -= (1.0 + alpha2*r + (3.0/7.0)*a2_2*r2 + (2.0/21.0)*a2_3*r3 + (1.0/105.0)*a2_4*r4)*B*e2r
+
+    else:
+        # assume alpha1 == alpha2
+    
+        lam1 -= (1.0 + 0.5*alpha1*r)*e1r
+        lam3 -= (1.0 + alpha1*r + 0.5*a1_2*r2)*e1r
+        lam5 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
+        lam7 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (1.0/30.0)*a1_4*r4)*e1r
+        lam9 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (4.0/105.0)*a1_4*r4 + (1.0/210.0)*a1_4*alpha1*r5)*e1r
+    """
+    r2 = r**2
+    r3 = r2*r
+    r4 = r2**2
+    r5 = r4*r
+    a1_2 = alpha_i*alpha_i
+    a2_2 = alpha_j*alpha_j
+    a1_3 = a1_2*alpha_i
+    a2_3 = a2_2*alpha_j
+    a1_4 = a1_3*alpha_i
+    a2_4 = a2_3*alpha_j
+    e1r = np.exp(-1.0 * alpha_i * r)
+    e2r = np.exp(-1.0 * alpha_j * r)
+    lam1, lam3, lam5, lam7, lam9 = (1.0, 1.0, 1.0, 1.0, 1.0)
+    if abs(alpha_i - alpha_j) > 1e-6:
+        A = a2_2 / (a2_2 - a1_2)
+        B = a1_2 / (a1_2 - a2_2)
+        lam1 -= A*e1r
+        lam1 -= B*e2r
+        lam3 -= (1.0 + alpha_i*r)*A*e1r
+        lam3 -= (1.0 + alpha_j*r)*B*e2r
+
+        lam5 -= (1.0 + alpha_i*r + (1.0/3.0)*a1_2*r2)*A*e1r
+        lam5 -= (1.0 + alpha_j*r + (1.0/3.0)*a2_2*r2)*B*e2r
+
+        lam7 -= (1.0 + alpha_i*r + (2.0/5.0)*a1_2*r2 + (1.0/15.0)*a1_3*r3)*A*e1r
+        lam7 -= (1.0 + alpha_j*r + (2.0/5.0)*a2_2*r2 + (1.0/15.0)*a2_3*r3)*B*e2r
+
+        lam9 -= (1.0 + alpha_i*r + (3.0/7.0)*a1_2*r2 + (2.0/21.0)*a1_3*r3 + (1.0/105.0)*a1_4*r4)*A*e1r
+        lam9 -= (1.0 + alpha_j*r + (3.0/7.0)*a2_2*r2 + (2.0/21.0)*a2_3*r3 + (1.0/105.0)*a2_4*r4)*B*e2r
+
+    else:
+        lam1 -= (1.0 + 0.5*alpha_i*r)*e1r
+        lam3 -= (1.0 + alpha_i*r + 0.5*a1_2*r2)*e1r
+        lam5 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
+        lam7 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (1.0/30.0)*a1_4*r4)*e1r
+        lam9 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (4.0/105.0)*a1_4*r4 + (1.0/210.0)*a1_4*alpha_i*r5)*e1r
+    return lam1, lam3, lam5, lam7, lam9
+
+
+def elst_damping_z_mtp(alpha_j, r):
+    """
+    # Z-MTP interaction from CLIFF
+    lam_1 = 1.0 - np.exp(-1.0 * np.multiply(alpha2,r))
+    lam_3 = 1.0 - (1.0 + np.multiply(alpha2,r)) * np.exp(-1.0*np.multiply(alpha2,r)) 
+    lam_5 = 1.0 - (1.0 + np.multiply(alpha2,r) + (1.0/3.0)*np.multiply(np.square(alpha2),r2)) * np.exp(-1.0*np.multiply(alpha2,r))
+    # TODO: remove the damping by setting all lam* = 1.0
+    if damping == False:
+        lam_1 = 1.0
+        lam_3 = 1.0
+        lam_5 = 1.0
+    """
+    # Z-MTP interaction from CLIFF
+    lam_1 = 1.0 - np.exp(-1.0 * np.multiply(alpha_j,r))
+    lam_3 = 1.0 - (1.0 + np.multiply(alpha_j,r)) * np.exp(-1.0*np.multiply(alpha_j,r)) 
+    lam_5 = 1.0 - (1.0 + np.multiply(alpha_j,r) + (1.0/3.0)*np.multiply(np.square(alpha_j), r**2)) * np.exp(-1.0*np.multiply(alpha_j,r))
+    return lam_1, lam_3, lam_5
 
 
 def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a):
@@ -430,7 +546,7 @@ def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB) -> f
 
 
 def eval_qcel_dimer_individual_components(
-    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, traceless=True, amoeba_eq=False
+    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, alphaA=None, alphaB=None, traceless=True, amoeba_eq=False
 ) -> Tuple[
     float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
 ]:
@@ -468,15 +584,13 @@ def eval_qcel_dimer_individual_components(
             qB_j = qB[j]
             muB_j = muB[j]
             thetaB_j = thetaB[j]
-
-            # Subtract atomic_number?
-            # rA -= ZA[i]
-            # rB -= ZB[j]
-            # Nuclear attraction?
+            a_i = alphaA[i] if alphaA is not None and alphaB is not None else None
+            a_j = alphaB[j] if alphaA is not None and alphaB is not None else None
             za_i = ZA[i] if amoeba_eq else None
             zb_j = ZB[j] if amoeba_eq else None
             E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA = eval_interaction_individual_components(
                 rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, ZA=za_i, ZB=zb_j,
+                alpha_i=a_i, alpha_j=a_j,
                 traceless=traceless,
             )
             E_qqs[i, j] = E_qq
@@ -551,13 +665,24 @@ def eval_interaction_individual(
 
 
 def eval_interaction_individual_components(
-    RA, qA, muA, thetaA, RB, qB, muB, thetaB, ZA=None, ZB=None, traceless=False, match_cliff=True
+    RA, qA, muA, thetaA, RB, qB, muB, thetaB, ZA=None, ZB=None,
+    alpha_i=None, alpha_j=None,
+    traceless=False, match_cliff=True
 ):
+    """
+    if alpha_i and alpha_j are provided, Thole damping is applied.
+
+    if amoeba_eq is True, evaulate 4 elst terms instead of just MTP-MTP. Note
+    the charge term has Z subtracted from qA and qB, so it is not the same as
+    the MTP-MTP charge term, but these values will ultimately agree if damping
+    is disabled. Need extra flexibility for Z-MTP and MTP-MTP terms when
+    damping.
+    """
     if not match_cliff:
         c_qQ, c_uQ, c_QQ = (1.0 / 3.0), (1.0 / 3.0), (1.0 / 9.0)
     else:
         c_qQ, c_uQ, c_QQ = 1.0, 1.0, 1.0
-    T0, T1, T2, T3, T4 = T_cart(RA, RB)
+    T0, T1, T2, T3, T4 = T_cart(RA, RB, alpha_i, alpha_j)
     E_ZA_MB = None
     E_ZB_MA = None
     E_ZA_ZB = None
@@ -594,14 +719,18 @@ def eval_interaction_individual_components(
     if ZA is not None and ZB is not None:
         # Nuclear attraction terms
         E_ZA_ZB = T0 * ZA * ZB
-        # Nuclear - charge
+
+        # Only update to specific T's if damping
+        if alpha_i is not None and alpha_j is not None:
+            T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
+        # A: Nuclear - charge, Nuclear - dipole, Nuclear - theta
         E_ZA_MB = T0 * ZA * qB
-        E_ZB_MA = T0 * ZB * qA
-        # Nuclear - dipole
         E_ZA_MB += np.sum(T1 * ZA * muB)
-        E_ZB_MA += np.sum(-T1 * ZB * muA)
-        # Nuclear - quadrupole, should c_qQ be applied here?
         E_ZA_MB += np.sum(T2 * ZA * thetaB * c_qQ)
+        if alpha_i is not None and alpha_j is not None:
+            T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
+        E_ZB_MA = T0 * ZB * qA
+        E_ZB_MA += np.sum(-T1 * ZB * muA)
         E_ZB_MA += np.sum(T2 * ZB * thetaA * c_qQ)
 
     return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA

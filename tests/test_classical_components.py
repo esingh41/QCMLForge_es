@@ -401,7 +401,7 @@ def test_classical_cliff():
     return
 
 
-def test_elst_damping():
+def test_elst_ameoba():
     df = pd.read_pickle(
         file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
@@ -508,6 +508,128 @@ def test_elst_damping():
     E_ZA_MB = E_ZA_MBs_q_mu_theta.sum()
     E_ZB_MA = E_ZB_MAs_q_mu_theta.sum()
     cliff_type = "q_mu_theta_noDamp"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu_theta=:.6f} kcal/mol")
+    cliff_elst_q_mu_theta = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu_theta:.6f}, AP q = {ap_q_mu_theta:.6f}")
+    assert abs(cliff_elst_q_mu_theta - ap_q_mu_theta) < 1e-4, (
+        f"Expected {cliff_elst_q_mu_theta}, got {ap_q_mu_theta}"
+    )
+    return
+
+
+def test_elst_damping():
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    # q-q case
+    (
+        ap_q,
+        E_qqs_q,
+        E_qus_q,
+        E_uus_q,
+        E_qQs_q,
+        E_uQs_q,
+        E_QQs_q,
+        E_ZA_ZBs_q,
+        E_ZA_MBs_q,
+        E_ZB_MAs_q,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=np.zeros_like(muA),
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=np.zeros_like(muB),
+        thetaB=np.zeros_like(thetaB),
+        alphaA=alphaA,
+        alphaB=alphaB,
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q.sum()
+    E_ZA_MB = E_ZA_MBs_q.sum()
+    E_ZB_MA = E_ZB_MAs_q.sum()
+    cliff_type = "q"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q=:.6f} kcal/mol")
+    cliff_elst_q = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q:.6f}, AP q = {ap_q:.6f}")
+    assert abs(cliff_elst_q - ap_q) < 1e-4, (
+        f"Expected {cliff_elst_q}, got {ap_q}"
+    )
+    (
+        ap_q_mu,
+        E_qqs_q_mu,
+        E_qus_q_mu,
+        E_uus_q_mu,
+        E_qQs_q_mu,
+        E_uQs_q_mu,
+        E_QQs_q_mu,
+        E_ZA_ZBs_q_mu,
+        E_ZA_MBs_q_mu,
+        E_ZB_MAs_q_mu,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=muB,
+        thetaB=np.zeros_like(thetaB),
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu.sum()
+    cliff_type = "q_mu"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu=:.6f} kcal/mol")
+    cliff_elst_q_mu = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu:.6f}, AP q = {ap_q_mu:.6f}")
+    assert abs(cliff_elst_q_mu - ap_q_mu) < 1e-4, (
+        f"Expected {cliff_elst_q_mu}, got {ap_q_mu}"
+    )
+    (
+        ap_q_mu_theta,
+        E_qqs_q_mu_theta,
+        E_qus_q_mu_theta,
+        E_uus_q_mu_theta,
+        E_qQs_q_mu_theta,
+        E_uQs_q_mu_theta,
+        E_QQs_q_mu_theta,
+        E_ZA_ZBs_q_mu_theta,
+        E_ZA_MBs_q_mu_theta,
+        E_ZB_MAs_q_mu_theta,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        qB=qB,
+        muB=muB,
+        thetaB=thetaB,
+        traceless=False,
+        amoeba_eq=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu_theta.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu_theta.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu_theta.sum()
+    cliff_type = "q_mu_theta"
     print(f"Using cliff type: {cliff_type}\n")
     print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
     print(f"{ap_q_mu_theta=:.6f} kcal/mol")
