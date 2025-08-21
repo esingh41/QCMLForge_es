@@ -356,6 +356,7 @@ def test_classical_cliff():
     df['ap_elst_theta'] = ap_elst_theta
     df['ap_elst_q_theta'] = ap_elst_q_theta
     df['ap_elst_mu_theta'] = ap_elst_mu_theta
+    print(df[['cliff_elst_q_mu_theta', "ap_elst", 'SAPT0 ELST ENERGY adz']])
     print(df[['cliff_elst_q_mu_theta_noDamp_noZ', "ap_elst", 'SAPT0 ELST ENERGY adz']])
     print(df[['cliff_elst_q_noDamp_noZ', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
     print(df[['cliff_elst_mu_noDamp_noZ', "ap_elst_mu"]])
