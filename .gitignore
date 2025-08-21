@@ -196,3 +196,10 @@ models/ap2_test.pt
 models/ap2_test_r_cut_im.pt
 dist
 build.sh
+tests/test_data_path/processed/data_spec*
+tmp.sh
+GEMINI.md
+OpenCode.md
+.opencode
+tests/test_data_path/raw/tmp.txt
+models/testing/
