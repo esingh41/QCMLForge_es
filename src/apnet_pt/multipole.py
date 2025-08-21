@@ -128,16 +128,30 @@ def charge_dipole_qpoles_to_compact_multipoles(charges, dipoles, qpoles):
 
 def T_cart_Z_MTP(RA, RB, alpha_j=None):
     lam_1, lam_3, lam_5 = (1.0, 1.0, 1.0)
-    if alpha_j is not None:
-        lam_1, lam_3, lam_5 = elst_damping_z_mtp(alpha_j, np.linalg.norm(RA - RB))
 
     dR = RB - RA
     R = np.linalg.norm(dR)
 
+    if alpha_j is not None:
+        lam_1, lam_3, lam_5 = elst_damping_z_mtp(alpha_j, R)
+
+    print()
+    print(f"{lam_1=}")
+    print(f"{lam_3=}")
+    print(f"{lam_5=}")
+    """
+[5.23691392 6.1524798  6.15149873],
+lam_1=array([0.99997837, 0.99996192, 0.99996186])
+lam_3=array([0.99974603, 0.99957443, 0.9995738 ])
+lam_5=array([0.99891413, 0.99826007, 0.99825773])
+
+    """
+
     delta = np.identity(3)
 
     T0 = R**-1 * lam_1
-    T1 = (R**-3) * (-1.0 * dR)
+    # print(f"{R:.6f}, {lam_1=:.8f}, {T0=:.8f}")
+    T1 = (R**-3) * (-1.0 * dR) * lam_3
     T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
     return T0, T1, T2
 
@@ -718,50 +732,48 @@ def eval_interaction_individual_components(
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * c_QQ # * (1.0 / 9.0)
     """
+q_mu
 ZA-ZB
-8 8 0.190952 12.220938
-8 1 0.162536 1.300289
-8 1 0.162562 1.300496
-1 8 0.165541 1.324330
-1 1 0.140409 0.140409
-1 1 0.140422 0.140422
-1 8 0.292313 2.338502
-1 1 0.224266 0.224266
-1 1 0.224303 0.224303
+8 8 0.19095216 12.22093793
+8 1 0.16253609 1.30028871
+8 1 0.16256201 1.30049608
+1 8 0.16554119 1.32432951
+1 1 0.14040889 0.14040889
+1 1 0.14042195 0.14042195
+1 8 0.29231273 2.33850186
+1 1 0.22426564 0.22426564
+1 1 0.22430324 0.22430324
 ZA-MB
-  Z*q: -13.603384, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.711775, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.711891, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -1.474165, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.076862, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.076869, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -2.600758, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.122690, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.122711, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -13.60338385, Z*mu: 0.04002783, Z*theta: 0.00000000
+  Z*q: -0.71177466, Z*mu: -0.00179446, Z*theta: 0.00000000
+  Z*q: -0.71189083, Z*mu: -0.00179104, Z*theta: 0.00000000
+  Z*q: -1.47416487, Z*mu: 0.00500052, Z*theta: 0.00000000
+  Z*q: -0.07686180, Z*mu: -0.00015570, Z*theta: 0.00000000
+  Z*q: -0.07686924, Z*mu: -0.00015547, Z*theta: 0.00000000
+  Z*q: -2.60075784, Z*mu: 0.01221299, Z*theta: 0.00000000
+  Z*q: -0.12269015, Z*mu: -0.00055956, Z*theta: 0.00000000
+  Z*q: -0.12271109, Z*mu: -0.00055906, Z*theta: 0.00000000
 ZB-MA
-  Z*q: -13.599817, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.725442, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -1.280214, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -1.447026, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.076916, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.123127, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -1.447257, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.076923, Z*mu: 0.000000, Z*theta: 0.000000
-  Z*q: -0.123148, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -13.59981718, Z*mu: -0.03695603, Z*theta: 0.00000000
+  Z*q: -0.72544235, Z*mu: -0.00596415, Z*theta: 0.00000000
+  Z*q: -1.28021441, Z*mu: 0.01778713, Z*theta: 0.00000000
+  Z*q: -1.44702582, Z*mu: -0.00251122, Z*theta: 0.00000000
+  Z*q: -0.07691623, Z*mu: -0.00054367, Z*theta: 0.00000000
+  Z*q: -0.12312702, Z*mu: 0.00136705, Z*theta: 0.00000000
+  Z*q: -1.44725659, Z*mu: -0.00251069, Z*theta: 0.00000000
+  Z*q: -0.07692339, Z*mu: -0.00054379, Z*theta: 0.00000000
+  Z*q: -0.12314757, Z*mu: 0.00136752, Z*theta: 0.00000000
 MTP-MTP
-8-8: 15.136812 = 15.136812 + 0.000000 + 0.000000
-8-1: 0.792050 = 0.792050 + 0.000000 + 0.000000
-8-1: 0.792179 = 0.792179 + 0.000000 + 0.000000
-1-8: 0.807460 = 0.807460 + 0.000000 + 0.000000
-7.122056, lam1=0.99994722
-1-1: 0.042103 = 0.042103 + 0.000000 + 0.000000
-7.121394, lam1=0.99994717
-1-1: 0.042108 = 0.042108 + 0.000000 + 0.000000
-3.420994, lam1=0.99169159
-1-8: 1.418173 = 1.418173 + 0.000000 + 0.000000
-4.458998, lam1=0.99706199
-1-1: 0.067246 = 0.067246 + 0.000000 + 0.000000
-4.458250, lam1=0.99705874
+8-8: 15.132937 = 15.136812 + -0.003875 + 0.000000
+8-1: 0.795429 = 0.792050 + 0.003380 + 0.000000
+8-1: 0.795555 = 0.792179 + 0.003376 + 0.000000
+1-8: 0.811320 = 0.807460 + 0.003860 + 0.000000
+1-1: 0.042488 = 0.042103 + 0.000384 + 0.000000
+1-1: 0.042492 = 0.042108 + 0.000384 + 0.000000
+1-8: 1.392681 = 1.418173 + -0.025492 + 0.000000
+1-1: 0.066804 = 0.067246 + -0.000442 + 0.000000
+1-1: 0.066815 = 0.067257 + -0.000443 + 0.000000
+Elst: 12056.938032 + -12204.355385 + -11877.736773 + 12014.622387 = -10.531739
     """
 
     # MTP-MTP
@@ -772,23 +784,25 @@ MTP-MTP
         # Nuclear attraction terms
         T0, _, _ = T_cart_Z_MTP(RA, RB, None)
         E_ZA_ZB = T0 * ZA * ZB
-        print(f"{ZA} {ZB} {T0:.6f} {E_ZA_ZB: .6f}")
+        # print(f"{ZA} {ZB} {T0:.8f} {E_ZA_ZB: .8f}")
 
         # Only update to specific T's if damping
         if alpha_i is not None and alpha_j is not None:
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
         # A: Nuclear - charge, Nuclear - dipole, Nuclear - theta
-        E_ZA_MB = T0 * ZA * qB
-        E_ZA_MB += np.sum(T1 * ZA * muB)
-        E_ZA_MB += np.sum(T2 * ZA * thetaB * c_qQ)
-        # print(f"  Z*q: {E_ZA_MB: .6f}, Z*mu: {np.sum(T1 * ZA * muB): .6f}, Z*theta: {np.sum(T2 * ZA * thetaB * c_qQ): .6f}")
+        E_ZA_qB = T0 * ZA * qB
+        E_ZA_uB = np.sum(T1 * ZA * muB)
+        E_ZA_QB = np.sum(T2 * ZA * thetaB * c_qQ)
+        E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
+        print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
         if alpha_i is not None:
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_i)
         # B: Nuclear - charge, Nuclear - dipole, Nuclear - theta
-        E_ZB_MA = T0 * ZB * qA
-        E_ZB_MA += np.sum(-T1 * ZB * muA)
-        E_ZB_MA += np.sum(T2 * ZB * thetaA * c_qQ)
-        # print(f"  Z*q: {E_ZB_MA: .6f}, Z*mu: {np.sum(-T1 * ZB * muA): .6f}, Z*theta: {np.sum(T2 * ZB * thetaA * c_qQ): .6f}")
+        E_ZB_qA = T0 * ZB * qA
+        E_ZB_uA = np.sum(-T1 * ZB * muA)
+        E_ZB_QA = np.sum(T2 * ZB * thetaA * c_qQ)
+        E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA
+        # print(f"  Z*q: {E_ZB_MA: .8f}, Z*mu: {np.sum(-T1 * ZB * muA): .8f}, Z*theta: {np.sum(T2 * ZB * thetaA * c_qQ): .8f}")
 
     return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA
 
