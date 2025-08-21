@@ -716,6 +716,42 @@ def eval_interaction_individual_components(
     ) * -1.0 * c_uQ # * (-1.0 / 3.0)
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * c_QQ # * (1.0 / 9.0)
+    """
+ZA-MB
+  Z*q: -13.603379, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.711774, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.711891, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -1.474164, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.076862, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.076869, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -2.600757, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.122690, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.122711, Z*mu: 0.000000, Z*theta: 0.000000
+ZB-MA
+  Z*q: -13.599812, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.725442, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -1.280214, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -1.447025, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.076916, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.123127, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -1.447256, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.076923, Z*mu: 0.000000, Z*theta: 0.000000
+  Z*q: -0.123148, Z*mu: 0.000000, Z*theta: 0.000000
+MTP-MTP
+8-8: 15.136807 = 15.136807 + 0.000000 + 0.000000
+8-1: 0.792049 = 0.792049 + 0.000000 + 0.000000
+8-1: 0.792178 = 0.792178 + 0.000000 + 0.000000
+1-8: 0.807460 = 0.807460 + 0.000000 + 0.000000
+1-1: 0.042103 = 0.042103 + 0.000000 + 0.000000
+1-1: 0.042108 = 0.042108 + 0.000000 + 0.000000
+1-8: 1.418172 = 1.418172 + 0.000000 + 0.000000
+1-1: 0.067246 = 0.067246 + 0.000000 + 0.000000
+1-1: 0.067257 = 0.067257 + 0.000000 + 0.000000
+Elst: 12056.933728 + -12237.123349 + -11859.843597 + 12026.458095 = -13.575123
+    """
+    # print(f" Z*q: {E_qq: .6f} = {E_qq:.6f} + {E_qu + E_uu:.6f} + {E_qQ + E_uQ + E_QQ:.6f}")
+
+
     if ZA is not None and ZB is not None:
         # Nuclear attraction terms
         E_ZA_ZB = T0 * ZA * ZB
@@ -727,11 +763,14 @@ def eval_interaction_individual_components(
         E_ZA_MB = T0 * ZA * qB
         E_ZA_MB += np.sum(T1 * ZA * muB)
         E_ZA_MB += np.sum(T2 * ZA * thetaB * c_qQ)
-        if alpha_i is not None and alpha_j is not None:
-            T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
+        # print(f"  Z*q: {E_ZA_MB: .6f}, Z*mu: {np.sum(T1 * ZA * muB): .6f}, Z*theta: {np.sum(T2 * ZA * thetaB * c_qQ): .6f}")
+        if alpha_i is not None:
+            T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_i)
+        # B: Nuclear - charge, Nuclear - dipole, Nuclear - theta
         E_ZB_MA = T0 * ZB * qA
         E_ZB_MA += np.sum(-T1 * ZB * muA)
         E_ZB_MA += np.sum(T2 * ZB * thetaA * c_qQ)
+        print(f"  Z*q: {E_ZB_MA: .6f}, Z*mu: {np.sum(-T1 * ZB * muA): .6f}, Z*theta: {np.sum(T2 * ZB * thetaA * c_qQ): .6f}")
 
     return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA
 
