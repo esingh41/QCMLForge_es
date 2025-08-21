@@ -561,6 +561,12 @@ def test_elst_damping():
     E_ZA_ZB = E_ZA_ZBs_q.sum()
     E_ZA_MB = E_ZA_MBs_q.sum()
     E_ZB_MA = E_ZB_MAs_q.sum()
+    h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
+    a2b = qcel.constants.conversion_factor("angstrom", "bohr")
+    b2a = qcel.constants.conversion_factor("bohr", "angstrom")
+    # print(h2kcalmol)
+    # print(a2b)
+    # print(b2a)
     cliff_type = "q"
     print(f"Using cliff type: {cliff_type}\n")
     print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
