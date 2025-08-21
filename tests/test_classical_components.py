@@ -366,7 +366,81 @@ def test_classical_cliff():
     print(df[['cliff_elst_q_mu_noDamp_noZ', "ap_elst_q_mu"]])
     print(df[['cliff_elst_mu_theta_noDamp_noZ', "ap_elst_mu_theta"]])
     print(df[['cliff_elst_q_theta_noDamp_noZ', "ap_elst_q_theta"]])
+    return
 
+
+def test_elst_damping():
+    df = pd.read_pickle(file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl"))
+    # pprint(df.columns.to_list())
+    ap_elst, ap_ind = [], []
+    ap_elst_q, ap_elst_q_mu, ap_elst_mu, ap_elst_theta = [], [], [], []
+    ap_elst_q_theta, ap_elst_mu_theta = [], []
+    r = df.iloc[0]
+    for n, r in df.iterrows():
+        sapt0_ind = r['SAPT0 IND ENERGY adz']
+        sapt0_elst = r['SAPT0 ELST ENERGY adz']
+        mol = r['qcel_molecule']
+        monA = mol.get_fragment(0).copy()
+        monB = mol.get_fragment(1).copy()
+        dist = np.sqrt(np.sum((monA.geometry[:, None] - monB.geometry)**2, axis=2)).min()
+        bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
+        qA = r['q_A pbe0/atz']
+        muA = r['mu_A pbe0/atz']
+        thetaA = r['theta_A pbe0/atz']
+        qB = r['q_B pbe0/atz']
+        muB = r['mu_B pbe0/atz']
+        thetaB = r['theta_B pbe0/atz']
+        vrA = r['vol_ratios_A pbe0/atz']
+        vrB = r['vol_ratios_B pbe0/atz']
+        vwA = r['val_widths_A pbe0/atz']
+        vwB = r['val_widths_B pbe0/atz']
+        print(f"{qA = }")
+        print(f"{muA = }")
+        print(f"{thetaA = }")
+        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=mol,
+            qA=qA,
+            muA=muA,
+            thetaA=thetaA,
+            qB=qB,
+            muB=muB,
+            thetaB=thetaB,
+            traceless=False,
+        )
+        ap_elst.append(total_energy)
+        E_qq = E_qqs.sum()
+        E_qu = E_qus.sum()
+        E_uu = E_uus.sum()
+        E_QQ = E_QQs.sum()
+        E_uQ = E_uQs.sum()
+        E_qQ = E_qQs.sum()
+        ap_elst_q.append(E_qq)
+        ap_elst_q_mu.append(E_qq + E_qu + E_uu)
+        ap_elst_mu.append(E_uu)
+        ap_elst_theta.append(E_QQ)
+        ap_elst_q_theta.append(E_qq + E_qQ + E_QQ)
+        ap_elst_mu_theta.append(E_uu + E_uQ + E_QQ)
+    print(apnet_pt.multipole.charge_dipole_qpoles_to_compact_multipoles(
+        charges=qA, dipoles=muA, qpoles=thetaA,
+    ))
+    print(ap_elst)
+    # return
+    df['ap_elst'] = ap_elst
+    df['ap_elst_q'] = ap_elst_q
+    df['ap_elst_q_mu'] = ap_elst_q_mu
+    df['ap_elst_mu'] = ap_elst_mu
+    df['ap_elst_theta'] = ap_elst_theta
+    df['ap_elst_q_theta'] = ap_elst_q_theta
+    df['ap_elst_mu_theta'] = ap_elst_mu_theta
+    print(df[['cliff_elst_q_mu_theta_noDamp_noZ', "ap_elst", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_q_noDamp_noZ', "ap_elst_q", 'SAPT0 ELST ENERGY adz']])
+    print(df[['cliff_elst_mu_noDamp_noZ', "ap_elst_mu"]])
+    print(df[['cliff_elst_theta_noDamp_noZ', "ap_elst_theta"]])
+
+    print("\nCross terms\n")
+    print(df[['cliff_elst_q_mu_noDamp_noZ', "ap_elst_q_mu"]])
+    print(df[['cliff_elst_mu_theta_noDamp_noZ', "ap_elst_mu_theta"]])
+    print(df[['cliff_elst_q_theta_noDamp_noZ', "ap_elst_q_theta"]])
     return
 
 if __name__ == "__main__":
