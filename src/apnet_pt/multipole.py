@@ -592,52 +592,17 @@ def eval_interaction_individual_components(
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * c_QQ # * (1.0 / 9.0)
     if ZA is not None and ZB is not None:
-        ZA = int(ZA)
-        ZB = int(ZB)
-        qB = float(qB)
-        qA = float(qA)
-        T0 = float(T0)
-        # Correct
+        # Nuclear attraction terms
         E_ZA_ZB = T0 * ZA * ZB
-        # print(f"{ZA=} {ZB=} {T0:.6f} {E_ZA_ZB:.6f}")
-
+        # Nuclear - charge
         E_ZA_MB = T0 * ZA * qB
         E_ZB_MA = T0 * ZB * qA
-        # ZA * qA and ZB * qB are correct
-
-        """
-ZA-MB
-  Z*q: -13.603673, Z*mu: 0.040038, Z*theta: -0.021110
-  Z*q: -0.711802, Z*mu: -0.001795, Z*theta: -0.000352
-  Z*q: -0.711918, Z*mu: -0.001792, Z*theta: -0.000353
-  Z*q: -1.474170, Z*mu: 0.005001, Z*theta: -0.000978
-  Z*q: -0.076862, Z*mu: -0.000156, Z*theta: -0.000009
-  Z*q: -0.076870, Z*mu: -0.000155, Z*theta: -0.000009
-  Z*q: -2.603091, Z*mu: 0.012301, Z*theta: -0.008933
-  Z*q: -0.122767, Z*mu: -0.000563, Z*theta: -0.000072
-  Z*q: -0.122788, Z*mu: -0.000562, Z*theta: -0.000072
-ZB-MA
-  Z*q: -13.600107, Z*mu: -0.036965, Z*theta: 0.023062
-  Z*q: -0.725475, Z*mu: -0.005967, Z*theta: 0.000842
-  Z*q: -1.284696, Z*mu: 0.018210, Z*theta: 0.003050
-  Z*q: -1.447030, Z*mu: -0.002511, Z*theta: 0.001869
-  Z*q: -0.076917, Z*mu: -0.000544, Z*theta: 0.000059
-  Z*q: -0.123204, Z*mu: 0.001374, Z*theta: 0.000158
-  Z*q: -1.447261, Z*mu: -0.002511, Z*theta: 0.001870
-  Z*q: -0.076924, Z*mu: -0.000544, Z*theta: 0.000059
-  Z*q: -0.123225, Z*mu: 0.001375, Z*theta: 0.000158
-        """
-        E_ZA_mu = T1 * ZA * muB
-        E_ZB_mu = -T1 * ZB * muA
-        E_ZA_MB += np.sum(E_ZA_mu)
-        E_ZB_MA += np.sum(E_ZB_mu)
-
-        E_ZA_theta = T2 * ZA * thetaB * c_qQ  # * (1.0 / 3.0)
-        E_ZB_theta = T2 * ZB * thetaA * c_qQ  # * (1.0 / 3.0)
-        # print(f"Z_A; Z*theta: {np.sum(E_ZA_theta):.6f}")
-        print(f"Z_B; Z*theta: {np.sum(E_ZB_theta):.6f}")
-        E_ZA_MB += np.sum(E_ZA_theta)
-        E_ZB_MA += np.sum(E_ZB_theta)
+        # Nuclear - dipole
+        E_ZA_MB += np.sum(T1 * ZA * muB)
+        E_ZB_MA += np.sum(-T1 * ZB * muA)
+        # Nuclear - quadrupole, should c_qQ be applied here?
+        E_ZA_MB += np.sum(T2 * ZA * thetaB * c_qQ)
+        E_ZB_MA += np.sum(T2 * ZB * thetaA * c_qQ)
 
     return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA
 

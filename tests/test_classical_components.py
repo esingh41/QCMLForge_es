@@ -436,34 +436,9 @@ def test_elst_damping():
         traceless=False,
         amoeba_eq=True,
     )
-# ZA-ZB
-# 8 8 0.1909520869387663 12.220933564081044
-# ZA-MB
-# 8, 8, q=-8.9052, 0.1910: -13.603673
-# 8, 1, q=-0.5474, 0.1625: -0.711802
-# 8, 1, q=-0.5474, 0.1626: -0.711918
-# 1, 8, q=-8.9052, 0.1655: -1.474170
-# 1, 1, q=-0.5474, 0.1404: -0.076862
-# 1, 1, q=-0.5474, 0.1404: -0.076870
-# 1, 8, q=-8.9052, 0.2923: -2.603091
-# 1, 1, q=-0.5474, 0.2243: -0.122767
-# 1, 1, q=-0.5474, 0.2243: -0.122788
-# ZB-MA
-# 8, 8, q=-8.9028, 0.1910: -13.600107
-# 8, 1, q=-0.5478, 0.1655: -0.725475
-# 8, 1, q=-0.5494, 0.2923: -1.284696
-# 1, 8, q=-8.9028, 0.1625: -1.447030
-# 1, 1, q=-0.5478, 0.1404: -0.076917
-# 1, 1, q=-0.5494, 0.2243: -0.123204
-# 1, 8, q=-8.9028, 0.1626: -1.447261
-# 1, 1, q=-0.5478, 0.1404: -0.076924
-# 1, 1, q=-0.5494, 0.2243: -0.123225
-# Elst: 12056.934232 + -12238.908531 + -11862.966042 + 12035.639722 = -9.300618
     E_ZA_ZB = E_ZA_ZBs_q.sum()
     E_ZA_MB = E_ZA_MBs_q.sum()
     E_ZB_MA = E_ZB_MAs_q.sum()
-    h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
-    print(f"{h2kcalmol= }")
     cliff_type = "q_noDamp"
     print(f"Using cliff type: {cliff_type}\n")
     print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
@@ -473,9 +448,6 @@ def test_elst_damping():
     assert abs(cliff_elst_q - ap_q) < 1e-4, (
         f"Expected {cliff_elst_q}, got {ap_q}"
     )
-    # assert abs(cliff_elst_q_mu - ap_elst_q_mu) < 1e-4, f"Expected {cliff_elst_q_mu}, got {ap_elst_q_mu}"
-    # assert abs(cliff_elst_q_mu_theta - ap_elst_q_mu_theta) < 1e-4, f"Expected {cliff_elst_q_mu_theta}, got {ap_elst_q_mu_theta}"
-
     (
         ap_q_mu,
         E_qqs_q_mu,
@@ -498,43 +470,9 @@ def test_elst_damping():
         traceless=False,
         amoeba_eq=True,
     )
-# q_mu
-# ZA-ZB
-# 8 8 0.190952 12.220934
-# 8 1 0.162536 1.300288
-# 8 1 0.162562 1.300496
-# 1 8 0.165541 1.324329
-# 1 1 0.140409 0.140409
-# 1 1 0.140422 0.140422
-# 1 8 0.292313 2.338501
-# 1 1 0.224266 0.224266
-# 1 1 0.224303 0.224303
-# ZA-MB
-# 8, 8, q=-8.9052, 0.1910: -13.563635
-# 8, 1, q=-0.5474, 0.1625: -0.713597
-# 8, 1, q=-0.5474, 0.1626: -0.713710
-# 1, 8, q=-8.9052, 0.1655: -1.469170
-# 1, 1, q=-0.5474, 0.1404: -0.077018
-# 1, 1, q=-0.5474, 0.1404: -0.077025
-# 1, 8, q=-8.9052, 0.2923: -2.590790
-# 1, 1, q=-0.5474, 0.2243: -0.123330
-# 1, 1, q=-0.5474, 0.2243: -0.123350
-# ZB-MA
-# 8, 8, q=-8.9028, 0.1910: -13.637072
-# 8, 1, q=-0.5478, 0.1655: -0.731442
-# 8, 1, q=-0.5494, 0.2923: -1.266486
-# 1, 8, q=-8.9028, 0.1625: -1.449541
-# 1, 1, q=-0.5478, 0.1404: -0.077461
-# 1, 1, q=-0.5494, 0.2243: -0.121830
-# 1, 8, q=-8.9028, 0.1626: -1.449772
-# 1, 1, q=-0.5478, 0.1404: -0.077468
-# 1, 1, q=-0.5494, 0.2243: -0.121850
-# Elst: 12056.933728 + -12206.078346 + -11880.587941 + 12022.908414 = -6.824146
     E_ZA_ZB = E_ZA_ZBs_q_mu.sum()
     E_ZA_MB = E_ZA_MBs_q_mu.sum()
     E_ZB_MA = E_ZB_MAs_q_mu.sum()
-    h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
-    print(f"{h2kcalmol= }")
     cliff_type = "q_mu_noDamp"
     print(f"Using cliff type: {cliff_type}\n")
     print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
@@ -569,8 +507,6 @@ def test_elst_damping():
     E_ZA_ZB = E_ZA_ZBs_q_mu_theta.sum()
     E_ZA_MB = E_ZA_MBs_q_mu_theta.sum()
     E_ZB_MA = E_ZB_MAs_q_mu_theta.sum()
-    h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
-    print(f"{h2kcalmol= }")
     cliff_type = "q_mu_theta_noDamp"
     print(f"Using cliff type: {cliff_type}\n")
     print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
