@@ -15,8 +15,6 @@ H 0.758602 0.000000  0.504284
 H 0.260455 0.000000 -0.872893
 """)
 
-
-
 mon_element = qcel.models.Molecule.from_data("""
 1 1
 11   -0.902196054   -0.106060256   0.009942262
@@ -198,29 +196,80 @@ def test_am_architecture():
         ],
         dtype=np.float32,
     )
-
-
-    hidden_list_v = [np.array([[0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
-           [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
-           [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]], dtype=np.float32),
-    np.array([[1.0521429, 1.0521429, 1.0521429, 1.0521429, 1.0521429, 1.0521429,
-            1.0521429, 1.0521429],
-           [1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331,
-            1.0513331, 1.0513331],
-           [1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331, 1.0513331,
-            1.0513331, 1.0513331]], dtype=np.float32),
-    np.array([[13.901527, 13.901527, 13.901527, 13.901527, 13.901527, 13.901527,
-            13.901527, 13.901527],
-           [13.890074, 13.890074, 13.890074, 13.890074, 13.890074, 13.890074,
-            13.890074, 13.890074],
-           [13.890074, 13.890074, 13.890074, 13.890074, 13.890074, 13.890074,
-            13.890074, 13.890074]], dtype=np.float32),
-    np.array([[173.86403, 173.86403, 173.86403, 173.86403, 173.86403, 173.86403,
-            173.86403, 173.86403],
-           [173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 ,
-            173.7179 , 173.7179 ],
-           [173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 , 173.7179 ,
-            173.7179 , 173.7179 ]], dtype=np.float32)]
+    hidden_list_v = np.array(
+        [
+            [
+                [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+                [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+                [0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+            ],
+            [
+                [
+                    1.0521426,
+                    1.0521426,
+                    1.0521426,
+                    1.0521426,
+                    1.0521426,
+                    1.0521426,
+                    1.0521426,
+                    1.0521426,
+                ],
+                [
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                ],
+                [
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                    1.05133,
+                ],
+            ],
+            [
+                [
+                    13.901543,
+                    13.901543,
+                    13.901543,
+                    13.901543,
+                    13.901543,
+                    13.901543,
+                    13.901543,
+                    13.901543,
+                ],
+                [
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                ],
+                [
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                    13.89004,
+                ],
+            ],
+        ],
+        dtype=np.float32,
+    )
 
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
@@ -239,11 +288,12 @@ def test_am_architecture():
         [quads[i].flatten()[[0, 1, 2, 4, 5, 8]] for i in range(len(quads))]
     )
     print(f"{charges=}\n{dipoles=}\n{quads=}")
-    hlist = np.transpose(hlist, (1, 0, 2))
+    print(f"{hlist=}")
     assert allclose_sigfig(charges, tf_charges, sigfigs=3)
     assert allclose_sigfig(dipoles, tf_dipoles, sigfigs=3)
     assert allclose_sigfig(quads, tf_quads, sigfigs=3)
-    assert allclose_sigfig(hlist, hidden_list_v, sigfigs=3), f"{hlist - hidden_list_v=}"
+    assert allclose_sigfig(hlist, hidden_list_v, sigfigs=3), f"{
+        hlist - hidden_list_v=}"
 
 
 def test_am_element():
@@ -254,9 +304,7 @@ def test_am_element():
     ).set_pretrained_model(model_id=0)
     qcel_mols = [mon_element] * 2
     qcel_mols.extend([mol_water] * 2)
-    v = atom_model.predict_qcel_mols(
-        qcel_mols, batch_size=4
-    )
+    v = atom_model.predict_qcel_mols(qcel_mols, batch_size=4)
     return
 
 
@@ -264,4 +312,5 @@ if __name__ == "__main__":
     # test_am_hirshfeld()
     # test_am()
     # test_am_architecture()
-    test_am_element()
+    # test_am_element()
+    test_am_architecture()

@@ -126,34 +126,117 @@ def charge_dipole_qpoles_to_compact_multipoles(charges, dipoles, qpoles):
     return multipoles
 
 
-def T_cart(RA, RB):
+def T_cart_Z_MTP(RA, RB, alpha_j=None):
+    lam_1, lam_3, lam_5 = (1.0, 1.0, 1.0)
+
     dR = RB - RA
     R = np.linalg.norm(dR)
 
+    if alpha_j is not None:
+        lam_1, lam_3, lam_5 = elst_damping_z_mtp(alpha_j, R)
+
+    # print(f"{lam_1:.8f}")
+    # print(f"{lam_3:.8f}")
+    # print(f"{lam_5:.8f}")
+    """
+[5.23691392 6.1524798  6.15149873],
+lam_1=array([0.99997837, 0.99996192, 0.99996186])
+lam_3=array([0.99974603, 0.99957443, 0.9995738 ])
+lam_5=array([0.99891413, 0.99826007, 0.99825773])
+
+it[:,1] = [-0.03643653 -0.02552135 -0.02549818]
+    """
+
     delta = np.identity(3)
 
-    T0 = R**-1
-    T1 = (R**-3) * (-1.0 * dR)
-    T2 = (R**-5) * (3 * np.outer(dR, dR) - R * R * delta)
+    T0 = R**-1 * lam_1
+    # print(f"{R:.6f}, {lam_1=:.8f}, {T0=:.8f}")
+    T1 = (R**-3) * (-1.0 * dR) * lam_3
+    # print(f"{lam_3 = }")
+    # print(f"{T1 = }")
+    T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
+    return T0, T1, T2
+
+
+def T_cart(RA, RB, alpha_i=None, alpha_j=None):
+    lam_1, lam_3, lam_5, lam_7, lam_9 = (1.0, 1.0, 1.0, 1.0, 1.0)
+
+    dR = RB - RA
+    R = np.linalg.norm(dR)
+    if alpha_i is not None and alpha_j is not None:
+        lam_1, lam_3, lam_5, lam_7, lam_9 = elst_damping_mtp_mtp(alpha_i, alpha_j, R)
+    # print(f"{R:.6f}, {lam_1=:.8f}")
+
+    # print(f"{R:.6f},{lam_1=:.8f}, {lam_3=:.8f}\n {lam_5=:.8f}, {lam_7=:.8f}, {lam_9=:.8f}")
+    delta = np.identity(3)
+
+    # print(f"{R:.6f},{lam_3=:.8f} {lam_5=:.8f}")
+    # E_qq
+    T0 = R**-1 * lam_1
+    # E_qu
+    T1 = (R**-3) * (-1.0 * dR) * lam_3
+    # E_uu, E_qQ
+    T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
 
     Rdd = np.multiply.outer(dR, delta)
-    print(Rdd)
+    # E_uQ
+    # lam_5_const = np.identity(3) * 6 + np.ones((3, 3)) * 3
+    lam_5_const = np.ones((3, 3, 3)) * 3
+    # lam_5_const[0, 0, 0] *= 3
+    # lam_5_const[1, 1, 1] *= 3
+    # lam_5_const[2, 2, 2] *= 3
+    lam_5_const *= lam_5
+    # lam_5_const = np.identity(3) * -6 + np.ones((3, 3)) * 9
+    # print(lam_5_const)
+    # print(Rdd.shape)
+    # print(Rdd)
+    # print(Rdd * lam_5_const)
+    # print(np.ones_like(Rdd) * lam_5_const)
+    # lam_5_const = 1
+    """
+    undamped T3:
+T3:
+undamped T3 cliff:
+[[-7.95496337e-03 -4.82909142e-04  5.15420225e-05] 
+ [-4.82909142e-04  3.96843347e-03  1.95373020e-06] 
+ [ 5.15420225e-05  1.95373020e-06  3.98652990e-03] 
+ [-4.82909142e-04  3.96843347e-03  1.95373020e-06] 
+ [ 3.96843347e-03  3.62047858e-04 -1.28412503e-05] 
+ [ 1.95373020e-06 -1.28412503e-05  1.20861284e-04] 
+ [ 5.15420225e-05  1.95373020e-06  3.98652990e-03] 
+ [ 1.95373020e-06 -1.28412503e-05  1.20861284e-04] 
+ [ 3.98652990e-03  1.20861284e-04 -3.87007722e-05]]    
+
+ damped T3 cliff:
+[[-7.71632368e-03 -4.74231116e-04  5.06157965e-05] 
+ [-4.74231116e-04  3.94491880e-03  1.92331462e-06] 
+ [ 5.06157965e-05  1.92331462e-06  3.77140488e-03] 
+ [-4.74231116e-04  3.94491880e-03  1.92331462e-06] 
+ [ 3.94491880e-03  3.59891867e-04 -1.27651604e-05] 
+ [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04] 
+ [ 5.06157965e-05  1.92331462e-06  3.77140488e-03] 
+ [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04] 
+ [ 3.77140488e-03  1.14339249e-04 -3.78506361e-05]]      
+    """
     T3 = (
         (R**-7)
         * (
-            -15 * np.multiply.outer(np.outer(dR, dR), dR)
-            + 3 * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
+            -15 * lam_7 * np.multiply.outer(np.outer(dR, dR), dR)
+            + lam_5_const * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
         )
     )
+    # print("T3:\nq", T3)
+    print("T3:")
+    print(T3)
+    # print(-T3.transpose(1, 0, 2))
+    # print(-T3.transpose(0, 1, 2))
 
     RRdd = np.multiply.outer(np.outer(dR, dR), delta)
     dddd = np.multiply.outer(delta, delta)
+    # Used for E_QQ
     T4 = (R**-9) * (
-        105 * np.multiply.outer(np.outer(dR, dR), np.outer(dR, dR))
-        - 15
-        * R
-        * R
-        * (
+        105 * lam_9 * np.multiply.outer(np.outer(dR, dR), np.outer(dR, dR))
+        - 15 * lam_7 * R * R * (
             RRdd
             + RRdd.transpose(0, 2, 1, 3)
             + RRdd.transpose(0, 3, 2, 1)
@@ -161,7 +244,7 @@ def T_cart(RA, RB):
             + RRdd.transpose(3, 1, 2, 0)
             + RRdd.transpose(2, 3, 0, 1)
         )
-        + 3 * (R**4) * (dddd + dddd.transpose(0, 2, 1, 3) + dddd.transpose(0, 3, 2, 1))
+        + 3 * lam_5 * (R**4) * (dddd + dddd.transpose(0, 2, 1, 3) + dddd.transpose(0, 3, 2, 1))
     )
 
     return T0, T1, T2, T3, T4
@@ -177,6 +260,102 @@ def thole_damping(r_ij, alpha_i, alpha_j, a):
     l7 = 1 - (1.0 + au3 + 0.6 * au3**2) * np.exp(-au3)
     l9 = 1 - (1 + au3 + (18 * au3**2 + 9 * au3**3) / 35) * np.exp(-au3)
     return au3, l3, l5, l7, l9
+
+def elst_damping_mtp_mtp(alpha_i, alpha_j, r):
+    """
+    # MTP-MTP interaction from CLIFF
+    # Get the lambdas
+    lam1 = 1.0
+    lam3 = 1.0
+    lam5 = 1.0
+    lam7 = 1.0
+    lam9 = 1.0
+
+    if abs(alpha1 - alpha2) > 1e-6:
+        A = a2_2 / (a2_2 - a1_2)
+        B = a1_2 / (a1_2 - a2_2)
+
+        
+        lam1 -= A*e1r
+        lam1 -= B*e2r
+
+        lam3 -= (1.0 + alpha1*r)*A*e1r 
+        lam3 -= (1.0 + alpha2*r)*B*e2r
+
+        lam5 -= (1.0 + alpha1*r + (1.0/3.0)*a1_2*r2)*A*e1r
+        lam5 -= (1.0 + alpha2*r + (1.0/3.0)*a2_2*r2)*B*e2r
+
+        lam7 -= (1.0 + alpha1*r + (2.0/5.0)*a1_2*r2 + (1.0/15.0)*a1_3*r3)*A*e1r
+        lam7 -= (1.0 + alpha2*r + (2.0/5.0)*a2_2*r2 + (1.0/15.0)*a2_3*r3)*B*e2r
+
+        lam9 -= (1.0 + alpha1*r + (3.0/7.0)*a1_2*r2 + (2.0/21.0)*a1_3*r3 + (1.0/105.0)*a1_4*r4)*A*e1r
+        lam9 -= (1.0 + alpha2*r + (3.0/7.0)*a2_2*r2 + (2.0/21.0)*a2_3*r3 + (1.0/105.0)*a2_4*r4)*B*e2r
+
+    else:
+        # assume alpha1 == alpha2
+    
+        lam1 -= (1.0 + 0.5*alpha1*r)*e1r
+        lam3 -= (1.0 + alpha1*r + 0.5*a1_2*r2)*e1r
+        lam5 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
+        lam7 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (1.0/30.0)*a1_4*r4)*e1r
+        lam9 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (4.0/105.0)*a1_4*r4 + (1.0/210.0)*a1_4*alpha1*r5)*e1r
+    """
+    r2 = r**2
+    r3 = r2*r
+    r4 = r2**2
+    r5 = r4*r
+    a1_2 = alpha_i*alpha_i
+    a2_2 = alpha_j*alpha_j
+    a1_3 = a1_2*alpha_i
+    a2_3 = a2_2*alpha_j
+    a1_4 = a1_3*alpha_i
+    a2_4 = a2_3*alpha_j
+    e1r = np.exp(-1.0 * alpha_i * r)
+    e2r = np.exp(-1.0 * alpha_j * r)
+    lam1, lam3, lam5, lam7, lam9 = (1.0, 1.0, 1.0, 1.0, 1.0)
+    if abs(alpha_i - alpha_j) > 1e-6:
+        A = a2_2 / (a2_2 - a1_2)
+        B = a1_2 / (a1_2 - a2_2)
+        lam1 -= A*e1r
+        lam1 -= B*e2r
+        lam3 -= (1.0 + alpha_i*r)*A*e1r
+        lam3 -= (1.0 + alpha_j*r)*B*e2r
+
+        lam5 -= (1.0 + alpha_i*r + (1.0/3.0)*a1_2*r2)*A*e1r
+        lam5 -= (1.0 + alpha_j*r + (1.0/3.0)*a2_2*r2)*B*e2r
+
+        lam7 -= (1.0 + alpha_i*r + (2.0/5.0)*a1_2*r2 + (1.0/15.0)*a1_3*r3)*A*e1r
+        lam7 -= (1.0 + alpha_j*r + (2.0/5.0)*a2_2*r2 + (1.0/15.0)*a2_3*r3)*B*e2r
+
+        lam9 -= (1.0 + alpha_i*r + (3.0/7.0)*a1_2*r2 + (2.0/21.0)*a1_3*r3 + (1.0/105.0)*a1_4*r4)*A*e1r
+        lam9 -= (1.0 + alpha_j*r + (3.0/7.0)*a2_2*r2 + (2.0/21.0)*a2_3*r3 + (1.0/105.0)*a2_4*r4)*B*e2r
+
+    else:
+        lam1 -= (1.0 + 0.5*alpha_i*r)*e1r
+        lam3 -= (1.0 + alpha_i*r + 0.5*a1_2*r2)*e1r
+        lam5 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
+        lam7 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (1.0/30.0)*a1_4*r4)*e1r
+        lam9 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (4.0/105.0)*a1_4*r4 + (1.0/210.0)*a1_4*alpha_i*r5)*e1r
+    return lam1, lam3, lam5, lam7, lam9
+
+
+def elst_damping_z_mtp(alpha_j, r):
+    """
+    # Z-MTP interaction from CLIFF
+    lam_1 = 1.0 - np.exp(-1.0 * np.multiply(alpha2,r))
+    lam_3 = 1.0 - (1.0 + np.multiply(alpha2,r)) * np.exp(-1.0*np.multiply(alpha2,r)) 
+    lam_5 = 1.0 - (1.0 + np.multiply(alpha2,r) + (1.0/3.0)*np.multiply(np.square(alpha2),r2)) * np.exp(-1.0*np.multiply(alpha2,r))
+    # TODO: remove the damping by setting all lam* = 1.0
+    if damping == False:
+        lam_1 = 1.0
+        lam_3 = 1.0
+        lam_5 = 1.0
+    """
+    # Z-MTP interaction from CLIFF
+    lam_1 = 1.0 - np.exp(-1.0 * np.multiply(alpha_j,r))
+    lam_3 = 1.0 - (1.0 + np.multiply(alpha_j,r)) * np.exp(-1.0*np.multiply(alpha_j,r)) 
+    lam_5 = 1.0 - (1.0 + np.multiply(alpha_j,r) + (1.0/3.0)*np.multiply(np.square(alpha_j), r**2)) * np.exp(-1.0*np.multiply(alpha_j,r))
+    return lam_1, lam_3, lam_5
 
 
 def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a):
@@ -398,7 +577,7 @@ def eval_qcel_dimer(mol_dimer, qA, muA, thetaA, qB, muB, thetaB):
     return total_energy * constants.h2kcalmol
 
 
-def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB) -> float:
+def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB, match_cliff=False) -> float:
     """
     Evaluate the electrostatic interaction energy between two molecules using
     their multipole moments. Dimensionalities of qA should be [N], muA should
@@ -431,7 +610,7 @@ def eval_qcel_dimer_individual(mol_dimer, qA, muA, thetaA, qB, muB, thetaB) -> f
 
 
 def eval_qcel_dimer_individual_components(
-    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, traceless=True
+    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, alphaA=None, alphaB=None, traceless=True, amoeba_eq=False, match_cliff=True
 ) -> Tuple[
     float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
 ]:
@@ -439,6 +618,11 @@ def eval_qcel_dimer_individual_components(
     Evaluate the electrostatic interaction energy between two molecules using
     their multipole moments. Dimensionalities of qA should be [N], muA should
     be [N, 3], and thetaA should be [N, 3, 3]. Same for qB, muB, and thetaB.
+
+    NOTE: the mu-Q and Q-Q damping terms do not agree with the CLIFF
+    implementation. If damping is disabled or only care about the q-q, q-u,
+    u-u, and q-Q terms then this function can be used. AP2 only uses these q-q,
+    q-u, u-u, and q-Q terms, so this implementation is sufficient for AP2.
     """
     RA = mol_dimer.get_fragment(0).geometry
     RB = mol_dimer.get_fragment(1).geometry
@@ -449,6 +633,11 @@ def eval_qcel_dimer_individual_components(
         t.copy(),
         t.copy(),
         t.copy(),
+        t.copy(),
+        t.copy(),
+        t.copy(),
+    )
+    E_ZA_MBs, E_ZB_MAs, E_ZA_ZBs = (
         t.copy(),
         t.copy(),
         t.copy(),
@@ -464,15 +653,15 @@ def eval_qcel_dimer_individual_components(
             qB_j = qB[j]
             muB_j = muB[j]
             thetaB_j = thetaB[j]
-
-            # Subtract atomic_number?
-            # rA -= ZA[i]
-            # rB -= ZB[j]
-            # Nuclear attraction?
-
-            E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ = eval_interaction_individual_components(
-                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, # ZA[i], ZB[j]
+            a_i = alphaA[i] if alphaA is not None and alphaB is not None else None
+            a_j = alphaB[j] if alphaA is not None and alphaB is not None else None
+            za_i = ZA[i] if amoeba_eq else None
+            zb_j = ZB[j] if amoeba_eq else None
+            E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA = eval_interaction_individual_components(
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j, ZA=za_i, ZB=zb_j,
+                alpha_i=a_i, alpha_j=a_j,
                 traceless=traceless,
+                match_cliff=match_cliff,
             )
             E_qqs[i, j] = E_qq
             E_qus[i, j] = E_qu
@@ -480,7 +669,10 @@ def eval_qcel_dimer_individual_components(
             E_qQs[i, j] = E_qQ
             E_uQs[i, j] = E_uQ
             E_QQs[i, j] = E_QQ
-            print(i, j, E_qq + E_qu + E_uu + E_qQ + E_uQ + E_QQ)
+            if amoeba_eq:
+                E_ZA_ZBs[i, j] = E_ZA_ZB
+                E_ZA_MBs[i, j] = E_ZA_MB
+                E_ZB_MAs[i, j] = E_ZB_MA
     total_energy = (
         np.sum(E_qqs)
         + np.sum(E_qus)
@@ -488,6 +680,9 @@ def eval_qcel_dimer_individual_components(
         + np.sum(E_qQs)
         + np.sum(E_uQs)
         + np.sum(E_QQs)
+        + np.sum(E_ZA_MBs)
+        + np.sum(E_ZB_MAs)
+        + np.sum(E_ZA_ZBs)
     )
     total_energy *= constants.h2kcalmol
     E_qqs *= constants.h2kcalmol
@@ -496,7 +691,10 @@ def eval_qcel_dimer_individual_components(
     E_qQs *= constants.h2kcalmol
     E_uQs *= constants.h2kcalmol
     E_QQs *= constants.h2kcalmol
-    return total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs
+    E_ZA_MBs *= constants.h2kcalmol
+    E_ZB_MAs *= constants.h2kcalmol
+    E_ZA_ZBs *= constants.h2kcalmol
+    return total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs, E_ZA_ZBs, E_ZA_MBs, E_ZB_MAs
 
 
 def eval_interaction_individual(
@@ -537,9 +735,30 @@ def eval_interaction_individual(
 
 
 def eval_interaction_individual_components(
-    RA, qA, muA, thetaA, RB, qB, muB, thetaB, ZA=None, ZB=None, traceless=False
+    RA, qA, muA, thetaA, RB, qB, muB, thetaB, ZA=None, ZB=None,
+    alpha_i=None, alpha_j=None,
+    traceless=False, match_cliff=False
 ):
-    T0, T1, T2, T3, T4 = T_cart(RA, RB)
+    """
+    if alpha_i and alpha_j are provided, Thole damping is applied.
+
+    if amoeba_eq is True, evaulate 4 elst terms instead of just MTP-MTP. Note
+    the charge term has Z subtracted from qA and qB, so it is not the same as
+    the MTP-MTP charge term, but these values will ultimately agree if damping
+    is disabled. Need extra flexibility for Z-MTP and MTP-MTP terms when
+    damping.
+    """
+    if not match_cliff:
+        c_qQ, c_uQ, c_QQ = (1.0 / 3.0), (1.0 / 3.0), (1.0 / 9.0)
+    else:
+        c_qQ, c_uQ, c_QQ = 1.0, 1.0, 1.0
+    T0, T1, T2, T3, T4 = T_cart(RA, RB, alpha_i, alpha_j)
+    E_ZA_MB = None
+    E_ZB_MA = None
+    E_ZA_ZB = None
+    if ZA is not None and ZB is not None:
+        qA -= ZA
+        qB -= ZB
 
     # Most inputs will already be traceless, but we can ensure this is the case
     if not traceless:
@@ -553,26 +772,147 @@ def eval_interaction_individual_components(
         thetaB[0, 0] -= traceB / 3.0
         thetaB[1, 1] -= traceB / 3.0
         thetaB[2, 2] -= traceB / 3.0
-    print(RA, RB)
 
     # AP2 code had factors of 1/3, -1/3, 1/9 in qQ, uQ, QQ terms; however,
     # these make the energies disagree with CLIFF. CLIFF achieves better
     # agreement with SAPT0 elst, so which is right?
     E_qq = np.sum(T0 * qA * qB)
     E_qu = np.sum(T1 * (qA * muB - qB * muA))
-    E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) # * (1.0 / 3.0)
+    E_qQ = np.sum(T2 * (qA * thetaB + qB * thetaA)) * c_qQ  # * (1.0 / 3.0)
 
     E_uu = np.sum(T2 * np.outer(muA, muB)) * (-1.0)
     E_uQ = np.sum(
         T3 * (np.multiply.outer(muA, thetaB) - np.multiply.outer(muB, thetaA))
-    ) * -1.0 # * (-1.0 / 3.0)
+    ) * -1.0 * c_uQ # * (-1.0 / 3.0)
 
-    E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) # * (1.0 / 9.0)
+    E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * c_QQ # * (1.0 / 9.0)
+    """
+ZA-ZB
+8 8 0.19095216 12.22093793
+8 1 0.16253609 1.30028871
+8 1 0.16256201 1.30049608
+1 8 0.16554119 1.32432951
+1 1 0.14040889 0.14040889
+1 1 0.14042195 0.14042195
+1 8 0.29231273 2.33850186
+1 1 0.22426564 0.22426564
+1 1 0.22430324 0.22430324
+ZA-MB
+  Z*q: -13.60338385, Z*mu: 0.04002783, Z*theta: -0.02108684
+  Z*q: -0.71177466, Z*mu: -0.00179446, Z*theta: -0.00035156
+  Z*q: -0.71189083, Z*mu: -0.00179104, Z*theta: -0.00035197
+  Z*q: -1.47416487, Z*mu: 0.00500052, Z*theta: -0.00097779
+  Z*q: -0.07686180, Z*mu: -0.00015570, Z*theta: -0.00000937
+  Z*q: -0.07686924, Z*mu: -0.00015547, Z*theta: -0.00000938
+  Z*q: -2.60075784, Z*mu: 0.01221299, Z*theta: -0.00873778
+  Z*q: -0.12269015, Z*mu: -0.00055956, Z*theta: -0.00007041
+  Z*q: -0.12271109, Z*mu: -0.00055906, Z*theta: -0.00007051
+ZB-MA
+  Z*q: -13.59981718, Z*mu: -0.03695603, Z*theta: 0.02303718
+  Z*q: -0.72544235, Z*mu: -0.00596415, Z*theta: 0.00084076
+  Z*q: -1.28021441, Z*mu: 0.01778713, Z*theta: 0.00286522
+  Z*q: -1.44702582, Z*mu: -0.00251122, Z*theta: 0.00186877
+  Z*q: -0.07691623, Z*mu: -0.00054367, Z*theta: 0.00005876
+  Z*q: -0.12312702, Z*mu: 0.00136705, Z*theta: 0.00015513
+  Z*q: -1.44725659, Z*mu: -0.00251069, Z*theta: 0.00186976
+  Z*q: -0.07692339, Z*mu: -0.00054379, Z*theta: 0.00005877
+  Z*q: -0.12314757, Z*mu: 0.00136752, Z*theta: 0.00015518
+MTP-MTP
+8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
+8-1: 0.794777 = 0.792050 + 0.003380 + -0.000653
+8-1: 0.794902 = 0.792179 + 0.003376 + -0.000653
+1-8: 0.810941 = 0.807460 + 0.003860 + -0.000379
+1-1: 0.042461 = 0.042103 + 0.000384 + -0.000027
+1-1: 0.042465 = 0.042108 + 0.000384 + -0.000027
+1-8: 1.393806 = 1.418173 + -0.025492 + 0.001125
+1-1: 0.066756 = 0.067246 + -0.000442 + -0.000048
+1-1: 0.066767 = 0.067257 + -0.000443 + -0.000048
+Elst: 12056.938032 + -12224.225863 + -11858.340758 + 12012.663869 = -12.964720
+
+MTP-MTP
+5.236914, lam1=0.99986220, lam3=0.99849818
+ lam5=0.99403030, lam7=0.98443204, lam9=0.96833249
+8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
+6.152480, lam1=0.99989728, lam3=0.99886701
+ lam5=0.99543562, lam7=0.98792539, lam9=0.97507437
+8-1: 0.794777 = 0.792050 + 0.003380 + -0.000653
+6.151499, lam1=0.99989711, lam3=0.99886537
+ lam5=0.99542963, lam7=0.98791104, lam9=0.97504752
+8-1: 0.794902 = 0.792179 + 0.003376 + -0.000653
+6.040793, lam1=0.99987677, lam3=0.99866414
+ lam5=0.99470222, lam7=0.98618291, lam9=0.97183915
+1-8: 0.810941 = 0.807460 + 0.003860 + -0.000379
+7.122056, lam1=0.99994722, lam3=0.99937064
+ lam5=0.99728388, lam7=0.99236768, lam9=0.98339250
+1-1: 0.042461 = 0.042103 + 0.000384 + -0.000027
+7.121394, lam1=0.99994717, lam3=0.99937006
+ lam5=0.99728159, lam7=0.99236184, lam9=0.98338093
+1-1: 0.042465 = 0.042108 + 0.000384 + -0.000027
+3.420994, lam1=0.99169159, lam3=0.94694657
+ lam5=0.86785321, lam7=0.76996490, lam9=0.66912774
+1-8: 1.393806 = 1.418173 + -0.025492 + 0.001125
+4.458998, lam1=0.99706199, lam3=0.97770563
+ lam5=0.93580352, lam7=0.87399866, lam9=0.80005434
+1-1: 0.066756 = 0.067246 + -0.000442 + -0.000048
+4.458250, lam1=0.99705874, lam3=0.97768455
+ lam5=0.93575170, lam7=0.87391187, lam9=0.79993664
+1-1: 0.066767 = 0.067257 + -0.000443 + -0.000048
+Elst: 12056.938032 + -12224.225863 + -11858.340758 + 12012.663869 = -12.964720
+
+MTP-MTP
+T2 = [ 1.37917502e-02  6.28902335e-04 -6.71242175e-05  6.28902335e-04
+ -6.93311268e-03 -2.03503280e-06 -6.71242175e-05 -2.03503280e-06
+ -6.95196217e-03]
+T3 = [[-7.71632368e-03 -4.74231116e-04  5.06157965e-05]
+ [-4.74231116e-04  3.94491880e-03  1.92331462e-06]
+ [ 5.06157965e-05  1.92331462e-06  3.77140488e-03]
+ [-4.74231116e-04  3.94491880e-03  1.92331462e-06]
+ [ 3.94491880e-03  3.59891867e-04 -1.27651604e-05]
+ [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04]
+ [ 5.06157965e-05  1.92331462e-06  3.77140488e-03]
+ [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04]
+ [ 3.77140488e-03  1.14339249e-04 -3.78506361e-05]]
+8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
+
+q-Q =  -0.0021665167478815903
+mu-Q 0.00012523309182835613
+Q-Q -0.0003702415256548531
+8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
+MTP-MTP                                                                                                                                                                                        
+    """
+
+    # MTP-MTP
+    # print(f"{ZA}-{ZB}: {E_qq: .6f} = {E_qq + E_qu + E_uu + E_qQ + E_uQ + E_QQ: .6f} + {E_qu: .6f} + {E_uu: .6f} + {E_qQ: .6f} + {E_uQ: .6f} + {E_QQ: .6f}")
+    print(f"q-Q =", E_qQ)
+    print(f"mu-Q =", E_uQ)
+    print(f"Q-Q =", E_QQ)
+
+
     if ZA is not None and ZB is not None:
-        E_qq += np.sum(T0 * ZA * qB)
-        E_qq += np.sum(T0 * ZB * qA)
-        E_qq += np.sum(T0 * ZA * ZB)
-    return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ
+        # Nuclear attraction terms
+        T0, _, _ = T_cart_Z_MTP(RA, RB, None)
+        E_ZA_ZB = T0 * ZA * ZB
+        # print(f"{ZA} {ZB} {T0:.8f} {E_ZA_ZB: .8f}")
+
+        # Only update to specific T's if damping
+        if alpha_i is not None and alpha_j is not None:
+            T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
+        # A: Nuclear - charge, Nuclear - dipole, Nuclear - theta
+        E_ZA_qB = T0 * ZA * qB
+        E_ZA_uB = np.sum(T1 * ZA * muB)
+        E_ZA_QB = np.sum(T2 * ZA * thetaB * c_qQ)
+        E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
+        print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
+        if alpha_i is not None:
+            T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_i)
+        # B: Nuclear - charge, Nuclear - dipole, Nuclear - theta
+        E_ZB_qA = T0 * ZB * qA
+        E_ZB_uA = np.sum(-T1 * ZB * muA)
+        E_ZB_QA = np.sum(T2 * ZB * thetaA * c_qQ)
+        E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA
+        # print(f"  Z*q: {E_ZB_MA: .8f}, Z*mu: {np.sum(-T1 * ZB * muA): .8f}, Z*theta: {np.sum(T2 * ZB * thetaA * c_qQ): .8f}")
+
+    return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA
 
 
 def interaction_tensor(coord1, coord2, cell=None):
@@ -771,10 +1111,6 @@ def eval_dimer2(RA, RB, ZA, ZB, QA, QB):
 
 
 def eval_dimer(RA, RB, ZA, ZB, QA, QB):
-    # print()
-    # print(RA.shape, ZA.shape, QA.shape)
-    # print(RB.shape, ZB.shape, QB.shape)
-
     # Keep R in a.u. (molden convention)
     RA_temp = RA * 1.88973
     RB_temp = RB * 1.88973
@@ -816,6 +1152,281 @@ def eval_dimer(RA, RB, ZA, ZB, QA, QB):
     Har2Kcalmol = 627.5094737775374055927342256
 
     return total_energy * Har2Kcalmol, pair_mat * Har2Kcalmol
+
+
+libmbd_vwd_params = pd.read_csv(
+    # osp.join(current_file_path, "data", "vdw-params.csv"),
+    resources.files(
+        "apnet_pt",
+    ).joinpath("data", "vdw-params.csv"),
+    header=0,
+    index_col=0,
+    sep=",",
+    nrows=102,
+)
+free_atom_polarizabilities = {
+    # el: v for el, v in zip(libmbd_vwd_params['Z'], libmbd_vwd_params['alpha_0(TS)'])
+    el: v
+    for el, v in zip(libmbd_vwd_params["Z"], libmbd_vwd_params["alpha_0(BG)"])
+}
+
+
+def dimer_induced_dipole(
+    qcel_dimer: qcel.models.Molecule,
+    qA: np.ndarray,
+    muA: np.ndarray,
+    thetaA: np.ndarray,
+    qB: np.ndarray,
+    muB: np.ndarray,
+    thetaB: np.ndarray,
+    hirshfeld_volume_ratio_A: np.ndarray,
+    hirshfeld_volume_ratio_B: np.ndarray,
+    valence_widths_A: np.ndarray,
+    valence_widths_B: np.ndarray,
+    max_iterations: int = 200,
+    convergence_threshold: float = 1e-8,
+    # CLIFF omega parameter = 0.7 for fewer iterations
+    omega: float = 0.7,
+    # CLIFF Thole damping parameter = 0.39
+    thole_damping_param: float = 0.39,
+) -> float:
+    """
+    Calculate the induced dipole interaction energy between two molecules using
+    their multipole moments and Hirshfeld volume ratios. Follow classical
+    induction model from this paper:
+    https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
+    """
+    print()
+
+    # Get molecular fragments
+    molA = qcel_dimer.get_fragment(0)
+    molB = qcel_dimer.get_fragment(1)
+    alpha_0_A = np.array([free_atom_polarizabilities[i] for i in molA.atomic_numbers])
+    alpha_0_B = np.array([free_atom_polarizabilities[i] for i in molB.atomic_numbers])
+    hirshfeld_volume_ratio_A = hirshfeld_volume_ratio_A.flatten()
+    hirshfeld_volume_ratio_B = hirshfeld_volume_ratio_B.flatten()
+
+    # Get atomic positions (in bohr)
+    RA = molA.geometry
+    RB = molB.geometry
+    np.set_printoptions(precision=6, suppress=True, floatmode="fixed")
+
+    # Calculate atomic polarizabilities using Hirshfeld volume ratios
+    alpha_A = alpha_0_A * hirshfeld_volume_ratio_A
+    alpha_B = alpha_0_B * hirshfeld_volume_ratio_B
+
+    # Combine all atoms and properties
+    R_all = np.vstack([RA, RB])
+    alpha_all = np.vstack([alpha_A.reshape(-1, 1), alpha_B.reshape(-1, 1)]).flatten()
+    q_all = np.concatenate([qA, qB]).flatten()
+    mu_all = np.concatenate([muA, muB])
+    theta_all = np.concatenate([thetaA, thetaB])
+
+    n_atoms_A = len(RA)
+    n_atoms_B = len(RB)
+    n_atoms_total = n_atoms_A + n_atoms_B
+
+    # Interaction tensor between M_i*T_ij*M_j
+    T_abij = np.zeros((n_atoms_total, n_atoms_total, 13, 13))
+    M = np.zeros((n_atoms_total, 13))
+    M[:, 0] = q_all  # Charge
+    M[:, 1:4] = mu_all  # Dipole
+    M[:, 4:13] = theta_all.reshape(n_atoms_total, 9)  # Quadrupole (flattened)
+
+    # Multipoles on molecule A
+    M_A = M[:n_atoms_A, :]
+    # Multipoles on molecule B
+    M_B = M[n_atoms_A:, :]
+
+    # Initialize interaction tensors
+    for i in range(n_atoms_total):
+        for j in range(n_atoms_total):
+            if i == j:
+                T_abij[i, j, :, :] = np.zeros((13, 13))
+                continue
+            T0, T1, T2, T3, T4 = T_cart_Thole_damping(
+                R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
+            )
+            # Added constants to agree with eval_interaction terms
+            # T_abij[i, j, 0, 0] = T0
+            # T_abij[i, j, 1:4, 0] = -1.0 * T1
+            # T_abij[i, j, 0, 1:4] = T1.T
+            # T_abij[i, j, 1:4, 1:4] = T2
+            # T_abij[i, j, 1:4, 4:13] = -1 / 3 * T3.reshape(3, 9)
+            # T_abij[i, j, 4:13, 1:4] = 1 / 3 * T3.T.reshape(9, 3)
+            # T_abij[i, j, 4:13, 4:13] = 1.0 / 9.0 * T4.reshape(9, 9)
+            # T_abij[i, j, 0, 4:13] = 1 / 3 * T2.reshape(9)
+            # T_abij[i, j, 4:13, 0] = 1 / 3 * T2.reshape(9)
+
+            T_abij[i, j, 0, 0] = T0
+            T_abij[i, j, 1:4, 0] = T1
+            T_abij[i, j, 0, 1:4] = T1
+            T_abij[i, j, 1:4, 1:4] = T2
+            T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
+            T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
+            T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
+            T_abij[i, j, 0, 4:13] =  T2.reshape(9)
+            T_abij[i, j, 4:13, 0] =  T2.reshape(9)
+
+    E_qq = float(
+        (
+            np.einsum(
+                "ai,abij,bj->",
+                M_A[:, 0:1],
+                T_abij[:n_atoms_A, n_atoms_A:, 0:1, 0:1],
+                M_B[:, 0:1],
+            )
+        )
+        * constants.h2kcalmol
+    )
+    print(f"{E_qq=:.6f}")
+    E_qu = float(
+        (
+            np.einsum(
+                "a,abj,bj->",
+                M_A[:, 0],
+                T_abij[:n_atoms_A, n_atoms_A:, 0, 1:4],
+                M_B[:, 1:4],
+            )
+            - np.einsum(
+                "ai,abi,b->",
+                M_A[:, 1:4],
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0],
+                M_B[:, 0],
+            )
+        )
+        * constants.h2kcalmol
+    )
+    print(f"{E_qu=:.6f}")
+    E_uu = float(
+        -1.0 * (
+            np.einsum(
+                "ai,abij,bj->",
+                M_A[:, 1:4],
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+                M_B[:, 1:4],
+            )
+        )
+        * constants.h2kcalmol
+    )
+    print(f"{E_uu=:.6f}")
+    E_qQ = float(
+        1/3*(
+            np.einsum(
+                "ai,abij,bj->",
+                M_A[:, 0:1],
+                T_abij[:n_atoms_A, n_atoms_A:, 0:1, 4:],
+                M_B[:, 4:],
+            )
+            + np.einsum(
+                "ai,abij,bj->",
+                M_A[:, 4:],
+                T_abij[:n_atoms_A, n_atoms_A:, 4:, 0:1],
+                M_B[:, 0:1],
+            )
+        )
+        * constants.h2kcalmol
+    )
+    print(f"{E_qQ=:.6f}")
+    E_uQ = float(
+        1/3*(
+            np.einsum(
+                "ai,abij,bj->",
+                M_A[:, 1:4],
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 4:],
+                M_B[:, 4:],
+            )
+            + np.einsum(
+                "ai,abij,bj->",
+                M_A[:, 4:],
+                T_abij[:n_atoms_A, n_atoms_A:, 4:, 1:4],
+                M_B[:, 1:4],
+            )
+        )
+        * constants.h2kcalmol
+    )
+    print(f"{E_uQ=:.6f}")
+    mu_induced_0 = np.zeros((n_atoms_total, 3))
+    mu_induced_0_A = mu_induced_0[:n_atoms_A, :]
+    mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
+    mu_induced_0_A[:, :] = np.einsum(
+        "a,abij,bj->ai", alpha_A, T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B
+    )
+    mu_induced_0_B[:, :] = np.einsum(
+        "b,baij,ai->bj", alpha_B, T_abij[n_atoms_A:, :n_atoms_A, :, 1:4], M_A
+    )
+    # Self-consistent induced dipole iterations
+    mu_induced = mu_induced_0.copy()
+    M_induced_0 = M.copy()
+    M_induced_0[:n_atoms_A, 1:4] = mu_induced_0_A
+    M_induced_0[n_atoms_A:, 1:4] = mu_induced_0_B
+    M_A_induced_0 = M_induced_0[:n_atoms_A, :]
+    M_B_induced_0 = M_induced_0[n_atoms_A:, :]
+    M_induced = M.copy()
+    for iteration in range(max_iterations):
+        mu_induced_old = mu_induced.copy()
+        mu_sum = np.zeros_like(mu_induced)
+        for i in range(n_atoms_total):
+            mu_sum[i] = alpha_all[i] * np.einsum(
+                "nij,nj->i",
+                T_abij[i, :, 1:4, 1:4],
+                M_induced[:, 1:4],
+            )
+        # print(f"{mu_sum[0, :] = }")
+        mu_sum += mu_induced_0
+        mu_induced = (1 - omega) * mu_induced_old + omega * (mu_sum)
+        M_induced[:, 1:4] = mu_induced
+        # print(f"{mu_induced[0, :] = }")
+        # break
+        # Check convergence
+        delta = np.linalg.norm(mu_induced - mu_induced_old)
+        if delta < convergence_threshold:
+            print(f"   Converged after {iteration + 1} iterations.")
+            break
+    mu_induced_A = mu_induced[:n_atoms_A, :]
+    mu_induced_B = mu_induced[n_atoms_A:, :]
+    print("mu:")
+    print(mu_all)
+    print("mu(0):")
+    print(mu_induced_0)
+    print("mu(n):")
+    print(mu_induced)
+    # diff
+    print(f"Change in induced dipoles over {iteration = }:")
+    print(mu_induced_0 - mu_induced_old)
+
+    # Calculate induction energy
+    E_ind = 0.0
+    E_0_ind = (
+        float(
+            np.einsum(
+                "abji,bi,aj->",
+                T_abij[:n_atoms_A, n_atoms_A:, :, 1:4],
+                mu_induced_0_B,
+                M_A_induced_0,
+            )
+            - np.einsum(
+                "abij,ai,bj->",
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, :],
+                mu_induced_0_A,
+                M_B_induced_0,
+            )
+        )
+        * constants.h2kcalmol
+    )
+    print(f"{E_0_ind = }")
+    E_ind_BA = np.einsum(
+            "bi,baij,aj->", mu_induced_B, T_abij[n_atoms_A:, :n_atoms_A, 1:4, :], M_A
+    ) * constants.h2kcalmol
+    E_ind_AB = np.einsum(
+            "ai,baij,bj->", mu_induced_A, T_abij[n_atoms_A:, :n_atoms_A, 1:4, :], M_B
+    ) * constants.h2kcalmol
+    print(f" {E_ind_AB = :.6f}\n {E_ind_BA = :.6f}")
+    E_ind = float(
+        E_ind_AB - E_ind_BA
+    )
+    # E_ind *= constants.h2kcalmol  # * 0.5
+    return E_ind
 
 if __name__ == "__main__":
     T_cart()
