@@ -180,14 +180,56 @@ def T_cart(RA, RB, alpha_i, alpha_j=None):
 
     Rdd = np.multiply.outer(dR, delta)
     # E_uQ
+    # lam_5_const = np.identity(3) * 6 + np.ones((3, 3)) * 3
+    lam_5_const = np.ones((3, 3, 3)) * 3
+    # lam_5_const[0, 0, 0] *= 3
+    # lam_5_const[1, 1, 1] *= 3
+    # lam_5_const[2, 2, 2] *= 3
+    lam_5_const *= lam_5
+    # lam_5_const = np.identity(3) * -6 + np.ones((3, 3)) * 9
+    # print(lam_5_const)
+    # print(Rdd.shape)
+    # print(Rdd)
+    # print(Rdd * lam_5_const)
+    # print(np.ones_like(Rdd) * lam_5_const)
+    # lam_5_const = 1
+    """
+    undamped T3:
+T3:
+undamped T3 cliff:
+[[-7.95496337e-03 -4.82909142e-04  5.15420225e-05] 
+ [-4.82909142e-04  3.96843347e-03  1.95373020e-06] 
+ [ 5.15420225e-05  1.95373020e-06  3.98652990e-03] 
+ [-4.82909142e-04  3.96843347e-03  1.95373020e-06] 
+ [ 3.96843347e-03  3.62047858e-04 -1.28412503e-05] 
+ [ 1.95373020e-06 -1.28412503e-05  1.20861284e-04] 
+ [ 5.15420225e-05  1.95373020e-06  3.98652990e-03] 
+ [ 1.95373020e-06 -1.28412503e-05  1.20861284e-04] 
+ [ 3.98652990e-03  1.20861284e-04 -3.87007722e-05]]    
+
+ damped T3 cliff:
+[[-7.71632368e-03 -4.74231116e-04  5.06157965e-05] 
+ [-4.74231116e-04  3.94491880e-03  1.92331462e-06] 
+ [ 5.06157965e-05  1.92331462e-06  3.77140488e-03] 
+ [-4.74231116e-04  3.94491880e-03  1.92331462e-06] 
+ [ 3.94491880e-03  3.59891867e-04 -1.27651604e-05] 
+ [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04] 
+ [ 5.06157965e-05  1.92331462e-06  3.77140488e-03] 
+ [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04] 
+ [ 3.77140488e-03  1.14339249e-04 -3.78506361e-05]]      
+    """
     T3 = (
         (R**-7)
         * (
             -15 * lam_7 * np.multiply.outer(np.outer(dR, dR), dR)
-            + 3 * lam_5 * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
+            + lam_5_const * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
         )
     )
-    # print(f"{T3 = }")
+    # print("T3:\n", T3)
+    print("T3:")
+    print(T3)
+    # print(-T3.transpose(1, 0, 2))
+    # print(-T3.transpose(0, 1, 2))
 
     RRdd = np.multiply.outer(np.outer(dR, dR), delta)
     dddd = np.multiply.outer(delta, delta)
@@ -830,6 +872,7 @@ q-Q =  -0.0021665167478815903
 mu-Q 0.00012523309182835613
 Q-Q -0.0003702415256548531
 8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
+MTP-MTP                                                                                                                                                                                        
     """
 
     # MTP-MTP
