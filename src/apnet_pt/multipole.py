@@ -179,6 +179,9 @@ def T_cart(RA, RB, alpha_i, alpha_j=None):
     T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
 
     Rdd = np.multiply.outer(dR, delta)
+    print(Rdd)
+    print(Rdd.transpose(1, 0, 2))
+    print(Rdd.transpose(2, 0, 1))
     # E_uQ
     # lam_5_const = np.identity(3) * 6 + np.ones((3, 3)) * 3
     lam_5_const = np.ones((3, 3, 3)) * 3
