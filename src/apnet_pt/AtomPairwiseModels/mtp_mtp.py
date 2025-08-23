@@ -117,7 +117,7 @@ class AtomTypeParamNN(nn.Module):
         for i in range(self.n_message):
             param_update = self.damping_elst_readout_layers[i](h_list[i + 1])
             K_filtered += param_update
-        K[keep_mask] = torch.relu(K_filtered) + 1e-6
+        K[keep_mask] = torch.relu(K_filtered) + 1.00001
         return charge, dipole, qpole, h_list, K.squeeze(-1)
 
 
@@ -512,6 +512,7 @@ class AM_DimerParam_Model:
                 return ap2_fused_module_dataset(
                     root=ds_root,
                     r_cut=r_cut,
+                    r_cut_im=torch.inf,
                     spec_type=ds_spec_type,
                     max_size=ds_max_size,
                     force_reprocess=fp,
@@ -546,6 +547,7 @@ class AM_DimerParam_Model:
                     ap2_fused_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
+                        r_cut_im=torch.inf,
                         spec_type=ds_spec_type,
                         max_size=ds_max_size,
                         force_reprocess=fp,
@@ -564,6 +566,7 @@ class AM_DimerParam_Model:
                     ap2_fused_module_dataset(
                         root=ds_root,
                         r_cut=r_cut,
+                        r_cut_im=torch.inf,
                         spec_type=ds_spec_type,
                         max_size=ds_max_size,
                         force_reprocess=fp,
@@ -928,7 +931,6 @@ units angstrom
                     natom_per_mol=batch.natom_per_mol_B,
                 )
             )
-            # print(f"{K_i = }")
             preds = mtp_elst_damping(
                 ZA=batch.ZA,
                 RA=batch.RA,
@@ -949,6 +951,7 @@ units angstrom
             preds = scatter(
                 preds, batch.dimer_ind, dim=0, reduce="add", dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
             )
+            # print(f"{K_i = }\n{K_j = }\n{preds = }")
             comp_errors = preds - ref
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
@@ -1392,7 +1395,9 @@ units angstrom
         omp_num_threads_per_process=6,
         random_seed=42,
         skip_compile=False,
+        lr_decay=None,
     ):
+        print("NOTE: lr_decay is not implemented.")
         if dataset is not None:
             self.dataset = dataset
         elif dataset is not None:

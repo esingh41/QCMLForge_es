@@ -78,6 +78,8 @@ def train_pairwise_model(
     m1="",
     m2="",
     pre_trained_model_path="./models/dapnet2/ap2_0.pt",
+    param_start_mean=1.5,
+    param_start_std=0.1,
 ):
     ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
@@ -85,6 +87,8 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.apnet2.APNet2Model
     elif apnet_model_type == "APNet2-fused":
         APNet = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model
+    elif apnet_model_type == "AM-DimerParam":
+        APNet = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model
     elif apnet_model_type == "APNet3":
         APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":
@@ -136,6 +140,26 @@ def train_pairwise_model(
             ds_prebatched=True,
             ds_m1=m1,
             ds_m2=m2,
+        )
+    elif apnet_model_type.startswith("AM-DimerParam"):
+        apnet2 = APNet(
+            atom_model_pre_trained_path=am_model_path,
+            pre_trained_model_path=pretrained_model,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            ds_spec_type=spec_type,
+            ds_root=data_dir,
+            ignore_database_null=False,
+            ds_atomic_batch_size=ds_atomic_batch_size,
+            ds_num_devices=1,
+            ds_skip_process=False,
+            ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+            ds_prebatched=True,
+            ds_random_seed=random_seed,
+            param_start_mean=param_start_mean,
+            param_start_std=param_start_std,
         )
     else:
         apnet2 = APNet(
@@ -217,7 +241,7 @@ def main():
         "--train_apnet",
         type=str,
         default="",
-        help="Train APNet Model: (APNet2, APNet3, dAPNet2)"
+        help="Train APNet Model: (APNet2, APNet3, dAPNet2, APNet2-fused, AM-DimerParam)"
     )
     args.add_argument(
         "--random_seed",
@@ -322,6 +346,18 @@ def main():
         default=8,
         help="specify AP n_embed (default: 8)"
     )
+    args.add_argument(
+        "--param_start_mean",
+        type=int,
+        default=2.0,
+        help="specify AM-DimerParam Embedding Start Mean (default: 2.0)"
+    )
+    args.add_argument(
+        "--param_start_std",
+        type=int,
+        default=0.1,
+        help="specify AM-DimerParam Embedding Start std (default: 0.1)"
+    )
     args = args.parse_args()
     pprint(args)
     set_all_seeds(args.random_seed)
@@ -354,6 +390,8 @@ def main():
             m1=args.m1,
             m2=args.m2,
             pre_trained_model_path=args.ap_pretrained_model_path,
+            param_start_mean=args.param_start_mean,
+            param_start_std=args.param_start_std,
         )
     return
 

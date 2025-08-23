@@ -1391,7 +1391,9 @@ def test_mtp_mtp_elst_qcel_mols():
         ds_spec_type=None,
         ds_qcel_molecules=qcel_molecules,
         ds_energy_labels=energy_labels,
-        n_neuron=128,
+        param_start_mean=2.0,
+        param_start_std=0.1,
+        n_neuron=16,
     )
     print(param_mod)
     param_mod.train(
@@ -1416,17 +1418,45 @@ def test_mtp_mtp_elst_dataset():
         ds_spec_type=7,
         use_GPU=False,
         ds_root=data_path,
+        param_start_mean=1.5,
+        param_start_std=0.1,
         n_neuron=32,
     )
     param_mod.train(
-        n_epochs=500,
+        # n_epochs=500,
+        n_epochs=150,
+        skip_compile=True,
+        lr=5e-4,
+    )
+
+
+def test_ap2_elst_dataset():
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    am.set_pretrained_model(model_id=0)
+    param_mod = apnet_pt.AtomPairwiseModels.apnet2_fused.APNet2_AM_Model(
+        atom_model=am.model,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        ds_spec_type=7,
+        use_GPU=False,
+        ds_root=data_path,
+        n_neuron=32,
+    )
+    param_mod.train(
+        # n_epochs=500,
+        n_epochs=150,
         skip_compile=True,
         lr=5e-4,
     )
 
 if __name__ == "__main__":
-    test_mtp_mtp_elst_qcel_mols()
+    # test_mtp_mtp_elst_qcel_mols()
     test_mtp_mtp_elst_dataset()
+    # test_ap2_elst_dataset()
     # test_mtp_mtp_elst_dataset()
     # test_apnet2_train_qcel_molecules_in_memory()
     # test_apnet2_train_qcel_molecules_in_memory()
