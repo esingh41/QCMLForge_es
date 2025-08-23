@@ -40,6 +40,112 @@ def get_distances(RA, RB, e_source, e_target):
     return dR, dR_xyz
 
 
+def elst_damping_mtp_mtp(alpha_i: float, alpha_j: float, r: float):
+    """
+    # MTP-MTP interaction
+
+    TODO: update this function to take in torch tensors instead of floats.
+    Optimize operations to make code more performant.
+
+    convert function to take in torch tensors and optimally create lam1, lam3, and lam5 tensors
+    """
+    r2 = r**2
+    r3 = r2*r
+    r4 = r2**2
+    r5 = r4*r
+    a1_2 = alpha_i*alpha_i
+    a2_2 = alpha_j*alpha_j
+    a1_3 = a1_2*alpha_i
+    a2_3 = a2_2*alpha_j
+    a1_4 = a1_3*alpha_i
+    a2_4 = a2_3*alpha_j
+    e1r = np.exp(-1.0 * alpha_i * r)
+    e2r = np.exp(-1.0 * alpha_j * r)
+    lam1, lam3, lam5, lam7, lam9 = (1.0, 1.0, 1.0, 1.0, 1.0)
+    if abs(alpha_i - alpha_j) > 1e-6:
+        A = a2_2 / (a2_2 - a1_2)
+        B = a1_2 / (a1_2 - a2_2)
+        lam1 -= A*e1r
+        lam1 -= B*e2r
+        lam3 -= (1.0 + alpha_i*r)*A*e1r
+        lam3 -= (1.0 + alpha_j*r)*B*e2r
+
+        lam5 -= (1.0 + alpha_i*r + (1.0/3.0)*a1_2*r2)*A*e1r
+        lam5 -= (1.0 + alpha_j*r + (1.0/3.0)*a2_2*r2)*B*e2r
+    else:
+        lam1 -= (1.0 + 0.5*alpha_i*r)*e1r
+        lam3 -= (1.0 + alpha_i*r + 0.5*a1_2*r2)*e1r
+        lam5 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
+
+    return lam1, lam3, lam5
+
+
+def elst_damping_mtp_mtp_torch(
+        alpha_i: torch.tensor, alpha_j:
+        torch.tensor,
+        r: torch.tensor
+):
+    """
+    # MTP-MTP interaction
+
+    TODO: update this function to take in torch tensors instead of floats.
+    Optimize operations to make code more performant.
+
+    convert function to take in torch tensors and optimally create lam1, lam3, and lam5 tensors
+    """
+    # need to have alpha_i repeated for each atom in j and vice versa
+    nA = alpha_i.shape[0]
+    nB = alpha_j.shape[0]
+    # print(f"{alpha_i=}")
+    # print(f"{alpha_j=}")
+    alpha_i = alpha_i.view(-1, 1).repeat(1, nB).flatten()
+    alpha_j = alpha_j.view(1, -1).repeat(nA, 1).flatten()
+    # print(f"{alpha_i=}")
+    # print(f"{alpha_j=}")
+    r2 = r**2
+    r3 = r2*r
+    r4 = r2**2
+    r5 = r4*r
+    a1_2 = alpha_i*alpha_i
+    a2_2 = alpha_j*alpha_j
+    a1_3 = a1_2*alpha_i
+    a2_3 = a2_2*alpha_j
+    a1_4 = a1_3*alpha_i
+    a2_4 = a2_3*alpha_j
+    lam1 = torch.ones_like(r)
+    lam3 = torch.ones_like(r)
+    lam5 = torch.ones_like(r)
+    e1r = torch.exp(-1.0 * alpha_i * r)
+    e2r = torch.exp(-1.0 * alpha_j * r)
+
+    diff = torch.abs(alpha_i - alpha_j) > 1e-6
+    A = torch.where(diff, a2_2 / (a2_2 - a1_2), torch.zeros_like(r))
+    B = torch.where(diff, a1_2 / (a1_2 - a2_2), torch.zeros_like(r))
+    print(f"{e1r=}")
+    print(f"{A=}")
+    print(f"{B=}")
+    print(f"{diff=}")
+    lam1 = torch.where(
+        diff,
+        1 - A*e1r - B*e2r,
+        1 - (1.0 + 0.5*alpha_i*r)*e1r
+    )
+    lam3 = torch.where(
+        diff,
+        1 - (1.0 + alpha_i*r)*A*e1r - (1.0 + alpha_j*r)*B*e2r,
+        1 - (1.0 + alpha_i*r + 0.5*a1_2*r2)*e1r
+    )
+    lam5 = torch.where(
+        diff,
+        1 - (1.0 + alpha_i*r + (1.0/3.0)*a1_2*r2)*A*e1r - (1.0 + alpha_j*r + (1.0/3.0)*a2_2*r2)*B*e2r,
+        1 - (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
+    )
+    print(f"{lam1=}")
+    lam3 = lam3.unsqueeze(1).repeat(1, 3)
+    # print(f"{lam3=}")
+    return lam1, lam3, lam5
+
+
 def mtp_elst_damping(
     ZA,
     RA,
@@ -58,11 +164,14 @@ def mtp_elst_damping(
     dR_ang,
     dR_xyz_ang,
 ):
-    # TODO: implement damping functions and ZaZb, ZaMi, ZbMi terms
+    # print(dR_ang)
+    # print(lam1, lam3, lam5)
     dR, dR_xyz = get_distances(RA, RB, e_AB_source, e_AB_target)
     dR = dR_ang / constants.au2ang
     dR_xyz = dR_xyz_ang / constants.au2ang
     oodR = 1.0 / dR
+
+    lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(Ka, Kb, dR)
 
     # Identity for 3D
     delta = torch.eye(3, device=qA.device)
@@ -76,18 +185,22 @@ def mtp_elst_damping(
 
     quadA_source = quadA.index_select(0, e_AB_source)
     quadB_source = quadB.index_select(0, e_AB_target)
+    T0 = oodR * lam1
+    print(f"{oodR=}")
+    print(f"{T0=}")
+    E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR) * lam1
 
-    E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
-
-    T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
+    T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz) * lam3
+    # print(f"{T1=}")
+    # print(f"{lam3=}")
     qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
         "x,xy->xy", qB_source, muA_source
     )
     E_qu = torch.einsum("xy,xy->x", T1, qu)
 
-    T2 = 3 * torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz) - torch.einsum(
+    T2 = 3 * torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz) * lam5 - torch.einsum(
         "x,x,yz->xyz", dR, dR, delta
-    )
+    ) * lam3
     T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
 
     E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2)
@@ -269,7 +382,8 @@ class AM_DimerParam_Model:
 """
             )
         if pre_trained_model_path:
-            print(f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
+            print(
+                f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = AtomTypeParamNN(
                 atom_model=self.atom_model,
@@ -294,10 +408,12 @@ class AM_DimerParam_Model:
                 param_start_std=param_start_std,
             )
         if n_message != self.model.n_message:
-            print(f"Changing n_message from {self.model.n_message} to {n_message}")
+            print(
+                f"Changing n_message from {self.model.n_message} to {n_message}")
             self.model.n_message = n_message
         if n_neuron != self.model.n_neuron:
-            print(f"Changing n_neuron from {self.model.n_neuron} to {n_neuron}")
+            print(
+                f"Changing n_neuron from {self.model.n_neuron} to {n_neuron}")
             self.model.n_neuron = n_neuron
         if n_embed != self.model.n_embed:
             print(f"Changing n_embed from {self.model.n_embed} to {n_embed}")
@@ -474,7 +590,8 @@ class AM_DimerParam_Model:
         batch = Data(
             x=dimer_batch.ZA,
             R=dimer_batch.RA,
-            edge_index=torch.vstack((dimer_batch.e_AA_source, dimer_batch.e_AA_target)),
+            edge_index=torch.vstack(
+                (dimer_batch.e_AA_source, dimer_batch.e_AA_target)),
             molecule_ind=dimer_batch.molecule_ind_A,
             total_charge=dimer_batch.total_charge_A,
             natom_per_mol=dimer_batch.natom_per_mol_A,
@@ -634,12 +751,13 @@ class AM_DimerParam_Model:
                 cutoffs.append(cutoff)
                 dimer_inds.append(dimer_batch.dimer_ind)
                 ndimers.append(
-                    torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long)
+                    torch.tensor(dimer_batch.total_charge_A.size(
+                        0), dtype=torch.long)
                 )
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
+                predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
             elif return_pairs:
                 E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
+                predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
                 pairwise_energies.extend(
                     self._assemble_pairs(
                         dimer_batch.cpu(),
@@ -651,7 +769,7 @@ class AM_DimerParam_Model:
                 )
             elif return_elst:
                 E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
+                predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
                 pairwise_energies.extend(
                     self._assemble_mtp_pairs(
                         dimer_batch,
@@ -660,7 +778,7 @@ class AM_DimerParam_Model:
                     )
                 )
             else:
-                predictions[i : i + batch_size] = preds[0].cpu().numpy()
+                predictions[i: i + batch_size] = preds[0].cpu().numpy()
         if verbose:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if self.model.return_hidden_states:
@@ -721,7 +839,8 @@ units angstrom
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(
+                batch)
             preds = E_sr_dimer.reshape(-1, 4)
             preds = torch.sum(preds, dim=1)
             comp_errors = preds - batch.y.squeeze(-1)
@@ -753,7 +872,8 @@ units angstrom
                     Data(
                         x=batch.ZA,
                         R=batch.RA,
-                        edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
+                        edge_index=torch.vstack(
+                            (batch.e_AA_source, batch.e_AA_target)),
                         molecule_ind=batch.molecule_ind_A,
                         total_charge=batch.total_charge_A,
                         natom_per_mol=batch.natom_per_mol_A,
@@ -763,7 +883,8 @@ units angstrom
                     Data(
                         x=batch.ZB,
                         R=batch.RB,
-                        edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
+                        edge_index=torch.vstack(
+                            (batch.e_BB_source, batch.e_BB_target)),
                         molecule_ind=batch.molecule_ind_B,
                         total_charge=batch.total_charge_B,
                         natom_per_mol=batch.natom_per_mol_B,
@@ -882,20 +1003,22 @@ units angstrom
         t1 = time.time()
         with torch.no_grad():
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-                self.__evaluate_batches(rank, train_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank, train_loader, criterion, rank_device)
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(rank, test_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank, test_loader, criterion, rank_device)
             )
             dt = time.time() - t1
             if rank == 0:
                 print(
-                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{
-                        total_MAE_v:<7.3f
-                    } {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{
-                        exch_MAE_v:<7.3f
-                    } {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{
-                        disp_MAE_v:<7.3f
+                    f"  (Pre-training)({dt: < 7.2f} sec)  MAE: {total_MAE_t: > 7.3f}/{
+                        total_MAE_v: < 7.3f
+                    } {elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{
+                        exch_MAE_v: < 7.3f
+                    } {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {disp_MAE_t: > 7.3f}/{
+                        disp_MAE_v: < 7.3f
                     }",
                     flush=True,
                 )
@@ -913,7 +1036,8 @@ units angstrom
                 )
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(rank, test_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank, test_loader, criterion, rank_device)
             )
 
             if rank == 0:
@@ -1117,8 +1241,10 @@ units angstrom
                 order_indices = np.random.permutation(len(self.dataset))
             else:
                 order_indices = np.arange(len(self.dataset))
-            train_indices = order_indices[: int(len(self.dataset) * split_percent)]
-            test_indices = order_indices[int(len(self.dataset) * split_percent) :]
+            train_indices = order_indices[: int(
+                len(self.dataset) * split_percent)]
+            test_indices = order_indices[int(
+                len(self.dataset) * split_percent):]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
             batch_size = train_dataset.training_batch_size

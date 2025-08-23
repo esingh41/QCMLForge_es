@@ -24,7 +24,7 @@ units bohr
 file_dir = os.path.dirname(os.path.abspath(__file__))
 
 
-def test_elst_multipoles():
+def test_elst_multipoles_AP2():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
@@ -50,6 +50,102 @@ def test_elst_multipoles():
     print(f"E_elst = {E_elst:.6f} kcal/mol")
     E_ref = -0.853646
     assert abs(E_elst - E_ref) < 1e-6, f"Expected {E_ref}, got {E_elst}"
+
+
+def test_elst_multipoles_MTP_torch():
+    import torch
+
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    (
+        ap_q_mu,
+        E_qqs_q_mu,
+        E_qus_q_mu,
+        E_uus_q_mu,
+        E_qQs_q_mu,
+        E_uQs_q_mu,
+        E_QQs_q_mu,
+        E_ZA_ZBs_q_mu,
+        E_ZA_MBs_q_mu,
+        E_ZB_MAs_q_mu,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        qB=qB,
+        muB=muB,
+        thetaB=thetaB,
+        alphaA=alphaA,
+        alphaB=alphaB,
+        traceless=False,
+        amoeba_eq=True,
+        match_cliff=True,
+    )
+    ref_elst = (
+        np.sum(E_qqs_q_mu)
+        + np.sum(E_qus_q_mu)
+        + np.sum(E_uus_q_mu)
+        + np.sum(E_qQs_q_mu)
+        + np.sum(E_ZA_ZBs_q_mu)
+        + np.sum(E_ZA_MBs_q_mu)
+        + np.sum(E_ZB_MAs_q_mu)
+    )
+    print(f"Ref elst = {ref_elst:.6f} kcal/mol")
+    # mtp_elst_damping torch
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+    dimer_batch.Ka = torch.tensor(alphaA, dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(alphaB, dtype=torch.float32)
+    RA = dimer_batch.RA
+    RB = dimer_batch.RB
+    dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
+    dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
+    dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
+
+    dR, dR_xyz = apnet_pt.AtomPairwiseModels.mtp_mtp.get_distances(
+        RA, RB, dimer_batch.e_ABsr_source, dimer_batch.e_ABsr_target
+    )
+    torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+        dR_ang=dR,
+        dR_xyz_ang=dR_xyz,
+    )
+    print(torch_elst)
+    print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
+    return
 
 
 def test_elst_charge_dipole_qpole():
@@ -196,9 +292,7 @@ def test_elst_ameoba():
     print(f"{ap_q=:.6f} kcal/mol")
     cliff_elst_q = r[f"cliff_elst_{cliff_type}"]
     print(f"CLIFF q = {cliff_elst_q:.6f}, AP q = {ap_q:.6f}")
-    assert abs(cliff_elst_q - ap_q) < 1e-4, (
-        f"Expected {cliff_elst_q}, got {ap_q}"
-    )
+    assert abs(cliff_elst_q - ap_q) < 1e-4, f"Expected {cliff_elst_q}, got {ap_q}"
     (
         ap_q_mu,
         E_qqs_q_mu,
@@ -313,12 +407,12 @@ def test_elst_damping():
         match_cliff=True,
     )
     MTP_MTP = (
-        np.sum(E_qqs_q)+
-        np.sum(E_qus_q)+
-        np.sum(E_uus_q)+
-        np.sum(E_qQs_q)+
-        np.sum(E_uQs_q)+
-        np.sum(E_QQs_q)
+        np.sum(E_qqs_q)
+        + np.sum(E_qus_q)
+        + np.sum(E_uus_q)
+        + np.sum(E_qQs_q)
+        + np.sum(E_uQs_q)
+        + np.sum(E_QQs_q)
     )
     E_ZA_ZB = E_ZA_ZBs_q.sum()
     E_ZA_MB = E_ZA_MBs_q.sum()
@@ -332,9 +426,7 @@ def test_elst_damping():
     print(f"{ap_q=:.6f} kcal/mol")
     cliff_elst_q = r[f"cliff_elst_{cliff_type}"]
     print(f"CLIFF q = {cliff_elst_q:.6f}, AP q = {ap_q:.6f}")
-    assert abs(cliff_elst_q - ap_q) < 1e-4, (
-        f"Expected {cliff_elst_q}, got {ap_q}"
-    )
+    assert abs(cliff_elst_q - ap_q) < 1e-4, f"Expected {cliff_elst_q}, got {ap_q}"
     (
         ap_q_mu,
         E_qqs_q_mu,
@@ -363,12 +455,12 @@ def test_elst_damping():
         match_cliff=True,
     )
     MTP_MTP = (
-        np.sum(E_qqs_q_mu)+
-        np.sum(E_qus_q_mu)+
-        np.sum(E_uus_q_mu)+
-        np.sum(E_qQs_q_mu)+
-        np.sum(E_uQs_q_mu)+
-        np.sum(E_QQs_q_mu)
+        np.sum(E_qqs_q_mu)
+        + np.sum(E_qus_q_mu)
+        + np.sum(E_uus_q_mu)
+        + np.sum(E_qQs_q_mu)
+        + np.sum(E_uQs_q_mu)
+        + np.sum(E_QQs_q_mu)
     )
     E_ZA_ZB = E_ZA_ZBs_q_mu.sum()
     E_ZA_MB = E_ZA_MBs_q_mu.sum()
@@ -378,8 +470,12 @@ def test_elst_damping():
     print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
     print(f"{ap_q_mu=:.6f} kcal/mol")
     print(f"{E_ZA_ZB=:.6f} + {E_ZA_MB=:.6f} + {E_ZB_MA=:.6f} + {MTP_MTP:.6f}")
-    print(f"Elst: {E_ZA_ZB:.6f} + {E_ZA_MB:.6f} + {E_ZB_MA:.6f} + {MTP_MTP:.6f} = {ap_q_mu:.6f}")
-    print("Elst: 12056.938032 + -12204.355385 + -11877.736773 + 12014.622387 = -10.531739")
+    print(
+        f"Elst: {E_ZA_ZB:.6f} + {E_ZA_MB:.6f} + {E_ZB_MA:.6f} + {MTP_MTP:.6f} = {ap_q_mu:.6f}"
+    )
+    print(
+        "Elst: 12056.938032 + -12204.355385 + -11877.736773 + 12014.622387 = -10.531739"
+    )
     cliff_elst_q_mu = r[f"cliff_elst_{cliff_type}"]
     print(f"CLIFF q = {cliff_elst_q_mu:.6f}, AP q = {ap_q_mu:.6f}")
     assert abs(cliff_elst_q_mu - ap_q_mu) < 1e-4, (
@@ -389,8 +485,9 @@ def test_elst_damping():
 
 
 if __name__ == "__main__":
-    test_elst_charge_dipole_qpole()
-    test_elst_multipoles()
+    # test_elst_charge_dipole_qpole()
+    # test_elst_multipoles()
     # test_classical_cliff()
-    test_elst_ameoba()
+    # test_elst_ameoba()
     # test_elst_damping()
+    test_elst_multipoles_MTP_torch()

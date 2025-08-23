@@ -150,7 +150,7 @@ it[:,1] = [-0.03643653 -0.02552135 -0.02549818]
     delta = np.identity(3)
 
     T0 = R**-1 * lam_1
-    # print(f"{R:.6f}, {lam_1=:.8f}, {T0=:.8f}")
+    print(f"{R**-1:.4f}, {lam_1=:.4f}, {T0=:.4f}")
     T1 = (R**-3) * (-1.0 * dR) * lam_3
     # print(f"{lam_3 = }")
     # print(f"{T1 = }")
@@ -174,7 +174,13 @@ def T_cart(RA, RB, alpha_i=None, alpha_j=None):
     # E_qq
     T0 = R**-1 * lam_1
     # E_qu
+    T1 = (R**-3) * (-1.0 * dR)
+    # print(f"{float(lam_1)=:.4f}")
+    # print(f"{float(T0)   =:.4f}")
+    # print(f"{T1 = }")
+    # print(f"{float(lam_3)=:.4f}")
     T1 = (R**-3) * (-1.0 * dR) * lam_3
+    # print(f"{T1 = }")
     # E_uu, E_qQ
     T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
 
@@ -226,8 +232,8 @@ undamped T3 cliff:
         )
     )
     # print("T3:\nq", T3)
-    print("T3:")
-    print(T3)
+    # print("T3:")
+    # print(T3)
     # print(-T3.transpose(1, 0, 2))
     # print(-T3.transpose(0, 1, 2))
 
@@ -315,6 +321,7 @@ def elst_damping_mtp_mtp(alpha_i, alpha_j, r):
     lam1, lam3, lam5, lam7, lam9 = (1.0, 1.0, 1.0, 1.0, 1.0)
     if abs(alpha_i - alpha_j) > 1e-6:
         A = a2_2 / (a2_2 - a1_2)
+        # print(f"{A=:.4f}")
         B = a1_2 / (a1_2 - a2_2)
         lam1 -= A*e1r
         lam1 -= B*e2r
@@ -331,6 +338,7 @@ def elst_damping_mtp_mtp(alpha_i, alpha_j, r):
         lam9 -= (1.0 + alpha_j*r + (3.0/7.0)*a2_2*r2 + (2.0/21.0)*a2_3*r3 + (1.0/105.0)*a2_4*r4)*B*e2r
 
     else:
+        # print("A = 0.0")
         lam1 -= (1.0 + 0.5*alpha_i*r)*e1r
         lam3 -= (1.0 + alpha_i*r + 0.5*a1_2*r2)*e1r
         lam5 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
@@ -883,9 +891,9 @@ MTP-MTP
 
     # MTP-MTP
     # print(f"{ZA}-{ZB}: {E_qq: .6f} = {E_qq + E_qu + E_uu + E_qQ + E_uQ + E_QQ: .6f} + {E_qu: .6f} + {E_uu: .6f} + {E_qQ: .6f} + {E_uQ: .6f} + {E_QQ: .6f}")
-    print(f"q-Q =", E_qQ)
-    print(f"mu-Q =", E_uQ)
-    print(f"Q-Q =", E_QQ)
+    # print(f"q-Q =", E_qQ)
+    # print(f"mu-Q =", E_uQ)
+    # print(f"Q-Q =", E_QQ)
 
 
     if ZA is not None and ZB is not None:
@@ -902,7 +910,7 @@ MTP-MTP
         E_ZA_uB = np.sum(T1 * ZA * muB)
         E_ZA_QB = np.sum(T2 * ZA * thetaB * c_qQ)
         E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
-        print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
+        # print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
         if alpha_i is not None:
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_i)
         # B: Nuclear - charge, Nuclear - dipole, Nuclear - theta
@@ -1196,7 +1204,6 @@ def dimer_induced_dipole(
     induction model from this paper:
     https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
     """
-    print()
 
     # Get molecular fragments
     molA = qcel_dimer.get_fragment(0)
