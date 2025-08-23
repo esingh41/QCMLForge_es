@@ -109,17 +109,17 @@ def elst_damping_Z_mtp_torch(
 ):
     """
     # Z-MTP interaction
-    lam_1 = 1.0 - np.exp(-1.0 * np.multiply(alpha_j,r))
-    lam_3 = 1.0 - (1.0 + np.multiply(alpha_j,r)) * np.exp(-1.0*np.multiply(alpha_j,r)) 
-    lam_5 = 1.0 - (1.0 + np.multiply(alpha_j,r) + (1.0/3.0)*np.multiply(np.square(alpha_j), r**2)) * np.exp(-1.0*np.multiply(alpha_j,r))
     """
     # need to have alpha_i repeated for each atom in j and vice versa
     alpha_i = alpha_i.index_select(0, e_source)
     alpha_j = alpha_j.index_select(0, e_target)
-    lam1 = 1.0 - np.exp(-1.0 * np.multiply(alpha_j,r))
-    lam3 = 1.0 - (1.0 + np.multiply(alpha_j,r)) * np.exp(-1.0*np.multiply(alpha_j,r)) 
-    lam5 = 1.0 - (1.0 + np.multiply(alpha_j,r) + (1.0/3.0)*np.multiply(np.square(alpha_j), r**2)) * np.exp(-1.0*np.multiply(alpha_j,r))
-    return lam1, lam3, lam5
+    lam1_j = 1.0 - np.exp(-1.0 * np.multiply(alpha_j,r))
+    lam3_j = 1.0 - (1.0 + np.multiply(alpha_j,r)) * np.exp(-1.0*np.multiply(alpha_j,r)) 
+    lam5_j = 1.0 - (1.0 + np.multiply(alpha_j,r) + (1.0/3.0)*np.multiply(np.square(alpha_j), r**2)) * np.exp(-1.0*np.multiply(alpha_j,r))
+    lam1_i = 1.0 - np.exp(-1.0 * np.multiply(alpha_i,r))
+    lam3_i = 1.0 - (1.0 + np.multiply(alpha_i,r)) * np.exp(-1.0*np.multiply(alpha_i,r)) 
+    lam5_i = 1.0 - (1.0 + np.multiply(alpha_i,r) + (1.0/3.0)*np.multiply(np.square(alpha_i), r**2)) * np.exp(-1.0*np.multiply(alpha_i,r))
+    return lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i
 
 
 def mtp_elst(
@@ -243,7 +243,7 @@ def mtp_elst_damping(
     qB -= ZB
 
     lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
-    lam1_ZM, lam3_ZM, lam5_ZM = elst_damping_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
+    lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = elst_damping_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
 
     # Identity for 3D
     delta = torch.eye(3, device=qA.device)
@@ -282,19 +282,20 @@ def mtp_elst_damping(
 
     # TODO Z-M damping
     # ZA-MB
-    E_ZA_qB = torch.einsum("x,x,x,x->x", ZA_q, qB_source, oodR, lam1_ZM)
-    print(f"{lam1_ZM=}")
+    E_ZA_qB = torch.einsum("x,x,x,x->x", ZA_q, qB_source, oodR, lam1_ZA_MB)
     E_ZA_uB = torch.einsum('xy,x,xy->x', T1, ZA_q, muB_source)
     E_ZA_QB = torch.einsum('xyz,x,xyz->x', T2, ZA_q, quadB_source) / Q_const
     E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
     # print(f"{ZA_q=}\n{qB_source=}\n{oodR=}")
     # print(f"{E_ZA_MB=}")
     # ZB-MA
-    E_ZB_qA = torch.einsum("x,x,x,x->x", ZB_q, qA_source, oodR, lam1_ZM)
-    # E_ZB_qA = torch.einsum("x,x,x->x", ZB_q, qA_source, oodR)
+    E_ZB_qA = torch.einsum("x,x,x,x->x", ZB_q, qA_source, oodR, lam1_ZB_MA)
     E_ZB_uA = torch.einsum('xy,x,xy->x', -T1, ZB_q, muA_source)
     E_ZB_QA = torch.einsum('xyz,x,xyz->x', T2, ZB_q, quadA_source) / Q_const
     E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA
+    print(E_ZB_MA)
+    print(torch.sum(E_ZB_MA))
+    print(torch.sum(E_ZB_MA) * 627.5094737775374)
     # print(f"{E_ZB_MA=}")
 
     MTP_MTP = torch.sum(E_qq + E_qu + E_qQ + E_uu)

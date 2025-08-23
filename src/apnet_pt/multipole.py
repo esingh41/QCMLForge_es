@@ -135,7 +135,7 @@ def T_cart_Z_MTP(RA, RB, alpha_j=None):
     if alpha_j is not None:
         lam_1, lam_3, lam_5 = elst_damping_z_mtp(alpha_j, R)
 
-    print(f"{lam_1=:.4f}")
+    # print(f"{lam_1=:.4f}")
     # print(f"{lam_3:.8f}")
     # print(f"{lam_5:.8f}")
     """
@@ -692,8 +692,10 @@ def eval_qcel_dimer_individual_components(
         + np.sum(E_ZB_MAs)
         + np.sum(E_ZA_ZBs)
     )
-    # print(f"{E_ZA_MBs.flatten() = }")
-    # print(f"{E_ZB_MAs.flatten() = }")
+    # print(f"{E_ZA_MBs.flatten() }")
+    print(f"{E_ZB_MAs.flatten() }")
+    print(f"{np.sum(E_ZB_MAs.flatten())}")
+    print(f"{np.sum(E_ZB_MAs.flatten()) * 627.5094737775374 }")
     total_energy *= constants.h2kcalmol
     E_qqs *= constants.h2kcalmol
     E_qus *= constants.h2kcalmol
@@ -909,7 +911,7 @@ MTP-MTP
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
         # A: Nuclear - charge, Nuclear - dipole, Nuclear - theta
         E_ZA_qB = T0 * ZA * qB
-        # print(f"{ZA} {qB} {T0:.4f} {E_ZA_qB: .4f}")
+        # print(f"{ZA} {qB:.4f} {T0:.4f} {E_ZA_qB: .4f}")
         E_ZA_uB = np.sum(T1 * ZA * muB)
         E_ZA_QB = np.sum(T2 * ZA * thetaB * c_qQ)
         E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
@@ -918,6 +920,7 @@ MTP-MTP
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_i)
         # B: Nuclear - charge, Nuclear - dipole, Nuclear - theta
         E_ZB_qA = T0 * ZB * qA
+        print(f"{ZB} {qA:.6f} {T0:.6f} {E_ZB_qA:.6f}")
         E_ZB_uA = np.sum(-T1 * ZB * muA)
         E_ZB_QA = np.sum(T2 * ZB * thetaA * c_qQ)
         E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA

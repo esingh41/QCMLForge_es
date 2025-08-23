@@ -244,6 +244,7 @@ def test_elst_multipoles_MTP_torch_damping():
     dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
     # dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
     # dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
+    torch.set_printoptions(precision=6)
 
     dR, dR_xyz = apnet_pt.AtomPairwiseModels.mtp_mtp.get_distances(
         RA, RB, dimer_batch.e_ABsr_source, dimer_batch.e_ABsr_target
@@ -617,5 +618,5 @@ if __name__ == "__main__":
     # test_elst_ameoba()
     # test_elst_damping()
     # test_elst_multipoles_MTP_torch()
-    test_elst_multipoles_MTP_torch_no_damping()
+    # test_elst_multipoles_MTP_torch_no_damping()
     test_elst_multipoles_MTP_torch_damping()
