@@ -1374,7 +1374,8 @@ def test_am_train_test():
 
 def test_mtp_mtp_elst():
     qcel_molecules = [mol_dimer] * 2
-    energy_labels = [np.array([1.0]) for _ in range(len(qcel_molecules))]
+    energy_labels = [np.array([-10.779292828139122] * 4) for _ in range(len(qcel_molecules))]
+    print(energy_labels)
     am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
@@ -1384,16 +1385,17 @@ def test_mtp_mtp_elst():
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ignore_database_null=False,
+        ds_force_reprocess=True,
         use_GPU=False,
-        # ds_spec_type=7,
         ds_spec_type=None,
         ds_qcel_molecules=qcel_molecules,
         ds_energy_labels=energy_labels,
     )
     print(param_mod)
     param_mod.train(
-        n_epochs=1,
+        n_epochs=25,
         skip_compile=True,
+        lr=2e-3
     )
 
 if __name__ == "__main__":

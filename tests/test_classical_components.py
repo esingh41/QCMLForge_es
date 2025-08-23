@@ -59,6 +59,7 @@ def test_elst_multipoles_MTP_torch_no_damping():
         file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
+    # print(r['SAPT0 ELST ENERGY adz'])
     mol = r["qcel_molecule"]
     qA = r["q_A pbe0/atz"]
     muA = r["mu_A pbe0/atz"]
@@ -132,9 +133,6 @@ def test_elst_multipoles_MTP_torch_no_damping():
     dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
     dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
 
-    dR, dR_xyz = apnet_pt.AtomPairwiseModels.mtp_mtp.get_distances(
-        RA, RB, dimer_batch.e_ABsr_source, dimer_batch.e_ABsr_target
-    )
     torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst(
         ZA=dimer_batch.ZA,
         RA=dimer_batch.RA,
@@ -150,8 +148,6 @@ def test_elst_multipoles_MTP_torch_no_damping():
         Kb=dimer_batch.Kb,
         e_AB_source=dimer_batch.e_ABsr_source,
         e_AB_target=dimer_batch.e_ABsr_target,
-        dR_ang=dR,
-        dR_xyz_ang=dR_xyz,
         # Q_const=1.0, # Agree with CLIFF
     )
     print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
@@ -247,9 +243,6 @@ def test_elst_multipoles_MTP_torch_damping():
     dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
     dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
 
-    dR, dR_xyz = apnet_pt.AtomPairwiseModels.mtp_mtp.get_distances(
-        RA, RB, dimer_batch.e_ABsr_source, dimer_batch.e_ABsr_target
-    )
     torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
         ZA=dimer_batch.ZA,
         RA=dimer_batch.RA,
@@ -265,8 +258,6 @@ def test_elst_multipoles_MTP_torch_damping():
         Kb=dimer_batch.Kb,
         e_AB_source=dimer_batch.e_ABsr_source,
         e_AB_target=dimer_batch.e_ABsr_target,
-        dR_ang=dR,
-        dR_xyz_ang=dR_xyz,
         # Q_const=1.0, # Agree with CLIFF
     )
     print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
