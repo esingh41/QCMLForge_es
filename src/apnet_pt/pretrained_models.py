@@ -187,7 +187,7 @@ def apnet2_model_predict_pairs(
     else:
         additional_models_start = 2
         num_models = 5
-        ap2 = AtomPairwiseModels.apnet2.apnet2model(
+        ap2 = AtomPairwiseModels.apnet2.APNet2Model(
             pre_trained_model_path=resources.files("apnet_pt").joinpath(
                 "models", "ap2_ensemble", "ap2_0.pt"
             ),

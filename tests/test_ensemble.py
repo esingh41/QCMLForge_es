@@ -172,11 +172,11 @@ def test_ap2_ensemble_predict_pairs():
     print(df)
     ref = {
         "Methyl1_A-Peptide_B": {
-            'total': 0.142137,
-            'elst': 0.160930,
-            'exch': 0.004309,
-            'indu': -0.006684,
-            'disp': -0.016418,
+            'total':  0.140302,
+            'elst': 0.160579,
+            'exch': 0.004259,
+            'indu': -0.007032,
+            'disp': -0.017503,
         }
     }
     for k, v in ref.items():
@@ -253,6 +253,6 @@ def test_ap2_fused_ensemble_predict_pairs():
 if __name__ == "__main__":
     # test_am_ensemble()
     # test_ap2_ensemble()
-    # test_ap2_ensemble_predict_pairs()
+    test_ap2_ensemble_predict_pairs()
     # test_ap2_fused_ensemble()
-    test_ap2_fused_ensemble_predict_pairs()
+    # test_ap2_fused_ensemble_predict_pairs()

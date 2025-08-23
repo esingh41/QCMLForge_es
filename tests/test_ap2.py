@@ -2,6 +2,7 @@ import apnet_pt
 import numpy as np
 import qcelemental as qcel
 import torch
+import os
 
 mol_water = qcel.models.Molecule.from_data("""
 0 1
@@ -237,10 +238,13 @@ def test_ap2_predict_pairs():
                     disp_sum += pairs[3, iA - 1, iB - 1 - nA]
             total_sum = elst_sum + exch_sum + indu_sum + disp_sum
             print(
-                f"{kA} {kB}:\n  TOTAL: {total_sum:.6f}, ELST: {elst_sum:.6f}, EXCH: {exch_sum:.6f}, INDU: {indu_sum:.6f}, DISP: {disp_sum:.6f}"
+                f"{kA} {kB}:\n  TOTAL: {total_sum:.6f}, ELST: {elst_sum:.6f}, EXCH: {
+                    exch_sum:.6f
+                }, INDU: {indu_sum:.6f}, DISP: {disp_sum:.6f}"
             )
     print(IEs)
     return
+
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 from apnet_pt.AtomPairwiseModels.apnet2 import APNet2Model
+import apnet_pt
 from apnet_pt.AtomPairwiseModels.dapnet2 import dAPNet2Model, APNet2_dAPNet2Model
 from apnet_pt import AtomPairwiseModels
 from apnet_pt import atomic_datasets
@@ -1232,6 +1233,42 @@ def test_atomhirshfeld_model_train():
     return
 
 
+def test_atomhirshfeld_model_train():
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        optimize_for_speed=False,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+    return
+
+
 @pytest.mark.skip(reason="Skip this test for large ap3 dataset")
 def test_ap3_model_train():
     world_size = 1
@@ -1300,9 +1337,129 @@ def test_am_dimer_multipole_ds():
     return
 
 
+def test_am_train_test():
+    ds = atomic_datasets.atomic_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=7,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomModels.ap2_atom_model.AtomModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        optimize_for_speed=False,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+    return
+
+def test_mtp_mtp_elst_qcel_mols():
+    qcel_molecules = [mol_dimer] * 4
+    energy_labels = [np.array([-10.779292828139122, 0, 0, 0]) for _ in range(len(qcel_molecules))]
+    print(energy_labels)
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    am.set_pretrained_model(model_id=0)
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        use_GPU=False,
+        ds_spec_type=None,
+        ds_qcel_molecules=qcel_molecules,
+        ds_energy_labels=energy_labels,
+        param_start_mean=2.0,
+        param_start_std=0.1,
+        n_neuron=16,
+    )
+    print(param_mod)
+    param_mod.train(
+        n_epochs=25,
+        skip_compile=True,
+        lr=5e-4,
+        split_percent=0.5,
+    )
+
+
+def test_mtp_mtp_elst_dataset():
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    am.set_pretrained_model(model_id=0)
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        ds_spec_type=7,
+        use_GPU=False,
+        ds_root=data_path,
+        param_start_mean=1.5,
+        param_start_std=0.1,
+        n_neuron=32,
+    )
+    param_mod.train(
+        # n_epochs=500,
+        n_epochs=5,
+        skip_compile=True,
+        lr=5e-4,
+    )
+
+
+def test_ap2_elst_dataset():
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    am.set_pretrained_model(model_id=0)
+    param_mod = apnet_pt.AtomPairwiseModels.apnet2_fused.APNet2_AM_Model(
+        atom_model=am.model,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        ds_spec_type=7,
+        use_GPU=False,
+        ds_root=data_path,
+        n_neuron=32,
+    )
+    param_mod.train(
+        # n_epochs=500,
+        n_epochs=150,
+        skip_compile=True,
+        lr=5e-4,
+    )
+
 if __name__ == "__main__":
+    # test_mtp_mtp_elst_qcel_mols()
+    test_mtp_mtp_elst_dataset()
+    # test_ap2_elst_dataset()
+    # test_mtp_mtp_elst_dataset()
     # test_apnet2_train_qcel_molecules_in_memory()
-    test_apnet2_train_qcel_molecules_in_memory()
+    # test_apnet2_train_qcel_molecules_in_memory()
     # test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory()
     # test_apnet2_dataset_size_prebatched_train_spec8()
     # test_apnet2_dataset_size_prebatched()

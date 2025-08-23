@@ -1,11 +1,13 @@
 import pytest
 import apnet_pt
-import torch
 import qcelemental as qcel
 import os
+import pandas as pd
+from pprint import pprint
 import numpy as np
 
-lr_water_dimer = qcel.models.Molecule.from_data("""0 1
+lr_water_dimer = qcel.models.Molecule.from_data("""
+0 1
 --
 0 1
 O                    -1.326958230000    -0.105938530000     0.018788150000
@@ -19,74 +21,10 @@ H                     8.792148880000    -0.879960520000    -1.416549430000
 units bohr
 """)
 
-sr_lr_water_dimer = qcel.models.Molecule.from_data("""0 1
---
-0 1
-O                    -1.326958230000    -0.105938530000     0.018788150000
-H                    -1.931665240000     1.600174320000    -0.021710520000
-H                     0.486644280000     0.079598090000     0.009862480000
---
-0 1
-O                     3.088671270000     0.019951580000    -0.007942850000
-H                     3.800382980000    -0.808466680000     1.439822410000
-H                     3.792148880000    -0.879960520000    -1.416549430000
-O                     12.088671270000     0.019951580000    -0.007942850000
-H                     12.800382980000    -0.808466680000     1.439822410000
-H                     12.792148880000    -0.879960520000    -1.416549430000
-units bohr
-""")
-
-sr_lr_water_dimer2 = qcel.models.Molecule.from_data("""0 1
---
-0 1
-O                    -1.326958230000    -0.105938530000     0.018788150000
-H                    -1.931665240000     1.600174320000    -0.021710520000
-H                     0.486644280000     0.079598090000     0.009862480000
---
-0 1
-O                     3.088671270000     0.019951580000    -0.007942850000
-H                     3.800382980000    -0.808466680000     1.439822410000
-H                     3.792148880000    -0.879960520000    -1.416549430000
-O                     10.088671270000     0.019951580000    -0.007942850000
-H                     10.800382980000    -0.808466680000     1.439822410000
-H                     10.792148880000    -0.879960520000    -1.416549430000
-units bohr
-""")
-
 file_dir = os.path.dirname(os.path.abspath(__file__))
 
-mol_dimer_big = qcel.models.Molecule.from_data(
-    """
-    1 1
-    C       0.0545060001    -0.1631290019   -1.1141539812
-    C       -0.9692260027   -1.0918780565   0.6940879822
-    C       0.3839910030    0.5769280195    -0.0021170001
-    C       1.3586950302    1.7358809710    0.0758149996
-    N       -0.1661809981   -0.0093130004   1.0584640503
-    N       -0.8175240159   -1.0993789434   -0.7090409994
-    H       0.3965460062    -0.1201139987   -2.1653149128
-    H       -1.5147459507   -1.6961929798   1.3000769615
-    H       0.7564010024    2.6179349422    0.4376020133
-    H       2.2080008984    1.5715960264    0.7005280256
-    H       1.7567750216    2.0432629585    -0.9004560113
-    H       -0.1571149975   0.2784340084    1.9974440336
-    H       -1.2523859739   -1.9090379477   -1.2904200554
-    --
-    -1 1
-    C       -5.6793351173   2.6897408962    7.4496979713
-    C       -4.5188479424   3.5724110603    6.9706201553
-    N       -6.1935510635   1.6698499918    6.8358440399
-    N       -6.2523350716   2.9488639832    8.6100416183
-    N       -7.1709971428   1.1798499823    7.7206158638
-    N       -7.2111191750   1.9820170403    8.7515516281
-    H       -4.9275932312   4.5184249878    6.4953727722
-    H       -3.8300020695   3.8421258926    7.6719899178
-    H       -4.1228170395   3.0444390774    6.1303391457
-    units angstrom"""
-)
 
-
-def test_elst_multipoles():
+def test_elst_multipoles_AP2():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
         ignore_database_null=True,
@@ -112,6 +50,219 @@ def test_elst_multipoles():
     print(f"E_elst = {E_elst:.6f} kcal/mol")
     E_ref = -0.853646
     assert abs(E_elst - E_ref) < 1e-6, f"Expected {E_ref}, got {E_elst}"
+
+
+def test_elst_multipoles_MTP_torch_no_damping():
+    import torch
+
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    r = df.iloc[0]
+    # print(r['SAPT0 ELST ENERGY adz'])
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    (
+        ref_elst_q,
+        E_qqs_q,
+        E_qus_q,
+        E_uus_q,
+        E_qQs_q,
+        E_uQs_q,
+        E_QQs_q,
+        E_ZA_ZBs_q,
+        E_ZA_MBs_q,
+        E_ZB_MAs_q,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        qB=qB,
+        muB=muB,
+        thetaA=thetaA,
+        thetaB=thetaB,
+        # thetaA=np.zeros_like(thetaA),
+        # thetaB=np.zeros_like(thetaB),
+        alphaA=None,
+        alphaB=None,
+        traceless=False,
+        amoeba_eq=True,
+        match_cliff=False,
+    )
+    MTP_MTP = (
+        np.sum(E_qqs_q)
+        + np.sum(E_qus_q)
+        + np.sum(E_uus_q)
+        + np.sum(E_qQs_q)
+    )
+    E_ZA_ZB = E_ZA_ZBs_q.sum()
+    E_ZA_MB = E_ZA_MBs_q.sum()
+    E_ZB_MA = E_ZB_MAs_q.sum()
+    ref_elst_q = MTP_MTP + E_ZA_ZB + E_ZA_MB + E_ZB_MA
+    print(f"E_ZA_ZB = {E_ZA_ZB:.4f}")
+    print(f"E_ZA_MB = {E_ZA_MB:.4f}")
+    print(f"E_ZB_MA = {E_ZB_MA:.4f}")
+    print(f"MTP_MTP = {MTP_MTP:.4f}")
+    print(f"{ref_elst_q=:.6f} kcal/mol")
+
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+    dimer_batch.Ka = torch.tensor(alphaA, dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(alphaB, dtype=torch.float32)
+    RA = dimer_batch.RA
+    RB = dimer_batch.RB
+    dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
+    dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
+
+    dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
+    dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
+    dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
+
+    torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+        # Q_const=1.0, # Agree with CLIFF
+    )
+    print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
+    assert abs(ref_elst_q - torch.sum(torch_elst).item()) < 1e-2, (
+        f"Expected {ref_elst_q}, got {torch.sum(torch_elst).item()}"
+    )
+    return
+
+def test_elst_multipoles_MTP_torch_damping():
+    import torch
+
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    np.set_printoptions(precision=6)
+    torch.set_printoptions(precision=6)
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    (
+        ref_elst_q,
+        E_qqs_q,
+        E_qus_q,
+        E_uus_q,
+        E_qQs_q,
+        E_uQs_q,
+        E_QQs_q,
+        E_ZA_ZBs_q,
+        E_ZA_MBs_q,
+        E_ZB_MAs_q,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        qB=qB,
+        muA=muA,
+        muB=muB,
+        # muA=np.zeros_like(muA),
+        # muB=np.zeros_like(muB),
+        thetaA=thetaA,
+        thetaB=thetaB,
+        # thetaA=np.zeros_like(thetaA),
+        # thetaB=np.zeros_like(thetaB),
+        alphaA=alphaA,
+        alphaB=alphaB,
+        traceless=False,
+        amoeba_eq=True,
+        match_cliff=False,
+    )
+    MTP_MTP = (
+        np.sum(E_qqs_q)
+        + np.sum(E_qus_q)
+        + np.sum(E_uus_q)
+        + np.sum(E_qQs_q)
+    )
+    E_ZA_ZB = E_ZA_ZBs_q.sum()
+    E_ZA_MB = E_ZA_MBs_q.sum()
+    E_ZB_MA = E_ZB_MAs_q.sum()
+    ref_elst_q = MTP_MTP + E_ZA_ZB + E_ZA_MB + E_ZB_MA
+    print(f"E_ZA_ZB = {E_ZA_ZB:.4f}")
+    print(f"E_ZA_MB = {E_ZA_MB:.4f}")
+    print(f"E_ZB_MA = {E_ZB_MA:.4f}")
+    print(f"MTP_MTP = {MTP_MTP:.4f}")
+    print(f"{ref_elst_q=:.6f} kcal/mol")
+
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+    dimer_batch.Ka = torch.tensor(alphaA, dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(alphaB, dtype=torch.float32)
+    RA = dimer_batch.RA
+    RB = dimer_batch.RB
+    dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
+
+    dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
+    # dimer_batch.muA = torch.zeros_like(torch.tensor(muA, dtype=torch.float32))
+    # dimer_batch.muB = torch.zeros_like(torch.tensor(muB, dtype=torch.float32))
+
+    # dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
+    # dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
+    dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
+
+    torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+        # Q_const=1.0, # Agree with CLIFF
+    )
+    print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
+    assert abs(ref_elst_q - torch.sum(torch_elst).item()) < 1e-2, (
+        f"Expected {ref_elst_q}, got {torch.sum(torch_elst).item()}"
+    )
+    return
 
 
 def test_elst_charge_dipole_qpole():
@@ -162,7 +313,7 @@ def test_elst_charge_dipole_qpole_pairwise():
     assert len(multipoles) == 4, f"Expected 4 multipoles, got {len(multipoles)}"
     mtp_A = multipoles[0]
     mtp_B = multipoles[1]
-    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs, _, _, _ = (
         apnet_pt.multipole.eval_qcel_dimer_individual_components(
             mol_dimer=lr_water_dimer,
             qA=mtp_A[0].numpy(),
@@ -213,135 +364,249 @@ def test_elst_multipoles_am_hirshfeld():
     assert abs(E_elst - E_ref) < 1e-6, f"Expected {E_ref}, got {E_elst}"
 
 
-def test_ap2_elst_multipoles():
-    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
-        ds_root=None,
-        ignore_database_null=True,
-        use_GPU=False,
-    ).set_pretrained_model(model_id=0)
+def test_elst_ameoba():
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    # q-q case
+    (
+        ap_q,
+        E_qqs_q,
+        E_qus_q,
+        E_uus_q,
+        E_qQs_q,
+        E_uQs_q,
+        E_QQs_q,
+        E_ZA_ZBs_q,
+        E_ZA_MBs_q,
+        E_ZB_MAs_q,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=np.zeros_like(muA),
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=np.zeros_like(muB),
+        thetaB=np.zeros_like(thetaB),
+        traceless=False,
+        amoeba_eq=True,
+        match_cliff=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q.sum()
+    E_ZA_MB = E_ZA_MBs_q.sum()
+    E_ZB_MA = E_ZB_MAs_q.sum()
+    cliff_type = "q_noDamp"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q=:.6f} kcal/mol")
+    cliff_elst_q = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q:.6f}, AP q = {ap_q:.6f}")
+    assert abs(cliff_elst_q - ap_q) < 1e-4, f"Expected {cliff_elst_q}, got {ap_q}"
+    (
+        ap_q_mu,
+        E_qqs_q_mu,
+        E_qus_q_mu,
+        E_uus_q_mu,
+        E_qQs_q_mu,
+        E_uQs_q_mu,
+        E_QQs_q_mu,
+        E_ZA_ZBs_q_mu,
+        E_ZA_MBs_q_mu,
+        E_ZB_MAs_q_mu,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=muB,
+        thetaB=np.zeros_like(thetaB),
+        traceless=False,
+        amoeba_eq=True,
+        match_cliff=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu.sum()
+    cliff_type = "q_mu_noDamp"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu=:.6f} kcal/mol")
+    cliff_elst_q_mu = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu:.6f}, AP q = {ap_q_mu:.6f}")
+    assert abs(cliff_elst_q_mu - ap_q_mu) < 1e-4, (
+        f"Expected {cliff_elst_q_mu}, got {ap_q_mu}"
+    )
+    (
+        ap_q_mu_theta,
+        E_qqs_q_mu_theta,
+        E_qus_q_mu_theta,
+        E_uus_q_mu_theta,
+        E_qQs_q_mu_theta,
+        E_uQs_q_mu_theta,
+        E_QQs_q_mu_theta,
+        E_ZA_ZBs_q_mu_theta,
+        E_ZA_MBs_q_mu_theta,
+        E_ZB_MAs_q_mu_theta,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        qB=qB,
+        muB=muB,
+        thetaB=thetaB,
+        traceless=False,
+        amoeba_eq=True,
+        match_cliff=True,
+    )
+    E_ZA_ZB = E_ZA_ZBs_q_mu_theta.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu_theta.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu_theta.sum()
+    cliff_type = "q_mu_theta_noDamp"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu_theta=:.6f} kcal/mol")
+    cliff_elst_q_mu_theta = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu_theta:.6f}, AP q = {ap_q_mu_theta:.6f}")
+    assert abs(cliff_elst_q_mu_theta - ap_q_mu_theta) < 1e-4, (
+        f"Expected {cliff_elst_q_mu_theta}, got {ap_q_mu_theta}"
+    )
+    return
 
-    ap2 = apnet_pt.APNet2Model(
-        ds_root=None,
-        ignore_database_null=True,
-        use_GPU=False,
-        atom_model=am.model,
+
+def test_elst_damping():
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
-    mol_dimer = sr_lr_water_dimer
-    batch = ap2.example_input(mol_dimer, r_cut=5.0, r_cut_im=5.0)
-    print(batch)
-    dR_sr, dR_sr_xyz = ap2.model.get_distances(
-        batch.RA, batch.RB, batch.e_ABsr_source, batch.e_ABsr_target
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    # q-q case
+    (
+        ap_q,
+        E_qqs_q,
+        E_qus_q,
+        E_uus_q,
+        E_qQs_q,
+        E_uQs_q,
+        E_QQs_q,
+        E_ZA_ZBs_q,
+        E_ZA_MBs_q,
+        E_ZB_MAs_q,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        muA=np.zeros_like(muA),
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        muB=np.zeros_like(muB),
+        thetaB=np.zeros_like(thetaB),
+        alphaA=alphaA,
+        alphaB=alphaB,
+        traceless=False,
+        amoeba_eq=True,
+        match_cliff=True,
     )
-    dR_lr, dR_lr_xyz = ap2.model.get_distances(
-        batch.RA, batch.RB, batch.e_ABlr_source, batch.e_ABlr_target
+    MTP_MTP = (
+        np.sum(E_qqs_q)
+        + np.sum(E_qus_q)
+        + np.sum(E_uus_q)
+        + np.sum(E_qQs_q)
+        + np.sum(E_uQs_q)
+        + np.sum(E_QQs_q)
     )
-    Elst_sr = ap2.model.mtp_elst(
-        qA=batch.qA,
-        muA=batch.muA,
-        quadA=batch.quadA,
-        qB=batch.qB,
-        muB=batch.muB,
-        quadB=batch.quadB,
-        e_ABsr_source=batch.e_ABsr_source,
-        e_ABsr_target=batch.e_ABsr_target,
-        dR_ang=dR_sr,
-        dR_xyz_ang=dR_sr_xyz,
+    E_ZA_ZB = E_ZA_ZBs_q.sum()
+    E_ZA_MB = E_ZA_MBs_q.sum()
+    E_ZB_MA = E_ZB_MAs_q.sum()
+    # print(h2kcalmol)
+    # print(a2b)
+    # print(b2a)
+    cliff_type = "q"
+    print(f"Using cliff type: {cliff_type}\n")
+    # print("Elst: 12056.938032 + -12237.127718 + -11859.847832 + 12026.462390 = -13.575127")
+    print(f"{ap_q=:.6f} kcal/mol")
+    cliff_elst_q = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q:.6f}, AP q = {ap_q:.6f}")
+    assert abs(cliff_elst_q - ap_q) < 1e-4, f"Expected {cliff_elst_q}, got {ap_q}"
+    (
+        ap_q_mu,
+        E_qqs_q_mu,
+        E_qus_q_mu,
+        E_uus_q_mu,
+        E_qQs_q_mu,
+        E_uQs_q_mu,
+        E_QQs_q_mu,
+        E_ZA_ZBs_q_mu,
+        E_ZA_MBs_q_mu,
+        E_ZB_MAs_q_mu,
+    ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+        mol_dimer=mol,
+        qA=qA,
+        # muA=np.zeros_like(muA),
+        muA=muA,
+        thetaA=np.zeros_like(thetaA),
+        qB=qB,
+        # muB=np.zeros_like(muB),
+        muB=muB,
+        thetaB=np.zeros_like(thetaB),
+        alphaA=alphaA,
+        alphaB=alphaB,
+        traceless=False,
+        amoeba_eq=True,
+        match_cliff=True,
     )
-    Elst_lr = ap2.model.mtp_elst(
-        qA=batch.qA,
-        muA=batch.muA,
-        quadA=batch.quadA,
-        qB=batch.qB,
-        muB=batch.muB,
-        quadB=batch.quadB,
-        e_ABsr_source=batch.e_ABlr_source,
-        e_ABsr_target=batch.e_ABlr_target,
-        dR_ang=dR_lr,
-        dR_xyz_ang=dR_lr_xyz,
+    MTP_MTP = (
+        np.sum(E_qqs_q_mu)
+        + np.sum(E_qus_q_mu)
+        + np.sum(E_uus_q_mu)
+        + np.sum(E_qQs_q_mu)
+        + np.sum(E_uQs_q_mu)
+        + np.sum(E_QQs_q_mu)
     )
-    print(f"Elst_sr = {torch.sum(Elst_sr):.6f} kcal/mol")
-    print(f"Elst_lr = {torch.sum(Elst_lr):.6f} kcal/mol")
-    Elst = torch.sum(Elst_sr) + torch.sum(Elst_lr)
-    print(f"Elst = {Elst:.6f} kcal/mol")
-    # Reference value from
-    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
-        apnet_pt.multipole.eval_qcel_dimer_individual_components(
-            mol_dimer=mol_dimer,
-            qA=batch.qA.numpy(),
-            muA=batch.muA.numpy(),
-            thetaA=batch.quadA.numpy(),
-            qB=batch.qB.numpy(),
-            muB=batch.muB.numpy(),
-            thetaB=batch.quadB.numpy(),
-        )
-    )
-    # Eqq, Equ, and Euu agree. E_qQ disagrees when quadA and quadB are scaled by 2/3
+    E_ZA_ZB = E_ZA_ZBs_q_mu.sum()
+    E_ZA_MB = E_ZA_MBs_q_mu.sum()
+    E_ZB_MA = E_ZB_MAs_q_mu.sum()
+    cliff_type = "q_mu"
+    print(f"Using cliff type: {cliff_type}\n")
+    print(f"{E_ZA_ZB=:.6f}, {E_ZA_MB=:.6f}, {E_ZB_MA=:.6f}")
+    print(f"{ap_q_mu=:.6f} kcal/mol")
+    print(f"{E_ZA_ZB=:.6f} + {E_ZA_MB=:.6f} + {E_ZB_MA=:.6f} + {MTP_MTP:.6f}")
     print(
-        f"{E_qqs.sum()=:.6f}\n{E_qus.sum()=:.6f}\n{E_qQs.sum()=:.6f}\n{E_uus.sum()=:.8f}"
+        f"Elst: {E_ZA_ZB:.6f} + {E_ZA_MB:.6f} + {E_ZB_MA:.6f} + {MTP_MTP:.6f} = {ap_q_mu:.6f}"
     )
-    print(f"Total energy = {total_energy:.6f} kcal/mol")
-    E_ref = np.sum([E_qqs.sum(), E_qus.sum(), E_uus.sum(), E_qQs.sum()])
-    print(f"E_ref = {E_ref:.6f} kcal/mol")
-    assert abs(Elst - E_ref) < 1e-4, f"Expected {E_ref}, got {Elst}"
-
-
-def set_weights_to_value(model, value=0.9):
-    """Sets all weights and biases in the model to a specific value."""
-    with torch.no_grad():  # Disable gradient tracking
-        for param in model.parameters():
-            param.fill_(value)  # Set all elements to the given value
-
-
-def test_ap2_elst_sr_lr():
-    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
-        ds_root=None,
-        ignore_database_null=True,
-        use_GPU=False,
-    ).set_pretrained_model(model_id=0)
-
-    ap2 = apnet_pt.APNet2Model(
-        ds_root=None,
-        ignore_database_null=True,
-        use_GPU=False,
-        atom_model=am.model,
-        r_cut_im=2.0,
-    )
-    batch = ap2.example_input()
-    ap2.model(**batch)
-    set_weights_to_value(ap2.model, 0.0)
-    print("\n   Weights set to 0.0\n")
-    mol_dimer = sr_lr_water_dimer
-    preds = ap2.predict_qcel_mols([mol_dimer, sr_lr_water_dimer2 ], batch_size=2)
-    print(f"{preds = }")
-    batch = ap2.example_input(mol_dimer, r_cut=5.0, r_cut_im=5.0)
-    print(batch)
-    Elst = preds[0][0]
-    print(f"Elst         = {Elst:.6f} kcal/mol")
-    # Reference value from
-    total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
-        apnet_pt.multipole.eval_qcel_dimer_individual_components(
-            mol_dimer=mol_dimer,
-            qA=batch.qA.numpy(),
-            muA=batch.muA.numpy(),
-            thetaA=batch.quadA.numpy(),
-            qB=batch.qB.numpy(),
-            muB=batch.muB.numpy(),
-            thetaB=batch.quadB.numpy(),
-        )
-    )
-    # Eqq, Equ, and Euu agree. E_qQ disagrees when quadA and quadB are scaled by 2/3
     print(
-        f"{E_qqs.sum()=:.6f}\n{E_qus.sum()=:.6f}\n{E_qQs.sum()=:.6f}\n{E_uus.sum()=:.8f}"
+        "Elst: 12056.938032 + -12204.355385 + -11877.736773 + 12014.622387 = -10.531739"
     )
-    print(f"Total energy = {total_energy:.6f} kcal/mol")
-    E_ref = np.sum([E_qqs.sum(), E_qus.sum(), E_uus.sum(), E_qQs.sum()])
-    print(f"E_ref = {E_ref:.6f} kcal/mol")
-    assert abs(Elst - E_ref) < 1e-4, f"Expected {E_ref}, got {Elst}"
+    cliff_elst_q_mu = r[f"cliff_elst_{cliff_type}"]
+    print(f"CLIFF q = {cliff_elst_q_mu:.6f}, AP q = {ap_q_mu:.6f}")
+    assert abs(cliff_elst_q_mu - ap_q_mu) < 1e-4, (
+        f"Expected {cliff_elst_q_mu}, got {ap_q_mu}"
+    )
+    return
 
 
 if __name__ == "__main__":
-    # test_elst_multipoles()
-    # test_elst_multipoles_am_hirshfeld()
     # test_elst_charge_dipole_qpole()
-    test_ap2_elst_multipoles()
-    test_ap2_elst_sr_lr()
+    # test_elst_multipoles()
+    # test_classical_cliff()
+    # test_elst_ameoba()
+    # test_elst_damping()
+    # test_elst_multipoles_MTP_torch()
+    # test_elst_multipoles_MTP_torch_no_damping()
+    test_elst_multipoles_MTP_torch_damping()
