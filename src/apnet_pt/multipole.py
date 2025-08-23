@@ -135,7 +135,7 @@ def T_cart_Z_MTP(RA, RB, alpha_j=None):
     if alpha_j is not None:
         lam_1, lam_3, lam_5 = elst_damping_z_mtp(alpha_j, R)
 
-    # print(f"{lam_1:.8f}")
+    print(f"{lam_1=:.4f}")
     # print(f"{lam_3:.8f}")
     # print(f"{lam_5:.8f}")
     """
@@ -909,11 +909,11 @@ MTP-MTP
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
         # A: Nuclear - charge, Nuclear - dipole, Nuclear - theta
         E_ZA_qB = T0 * ZA * qB
-        print(f"{ZA} {qB} {T0:.4f} {E_ZA_qB: .4f}")
+        # print(f"{ZA} {qB} {T0:.4f} {E_ZA_qB: .4f}")
         E_ZA_uB = np.sum(T1 * ZA * muB)
         E_ZA_QB = np.sum(T2 * ZA * thetaB * c_qQ)
         E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
-        print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
+        # print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
         if alpha_i is not None:
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_i)
         # B: Nuclear - charge, Nuclear - dipole, Nuclear - theta

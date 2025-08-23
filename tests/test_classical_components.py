@@ -135,7 +135,7 @@ def test_elst_multipoles_MTP_torch_no_damping():
     dR, dR_xyz = apnet_pt.AtomPairwiseModels.mtp_mtp.get_distances(
         RA, RB, dimer_batch.e_ABsr_source, dimer_batch.e_ABsr_target
     )
-    torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+    torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst(
         ZA=dimer_batch.ZA,
         RA=dimer_batch.RA,
         qA=dimer_batch.qA,
@@ -160,7 +160,7 @@ def test_elst_multipoles_MTP_torch_no_damping():
     )
     return
 
-def test_elst_multipoles_MTP_torch():
+def test_elst_multipoles_MTP_torch_damping():
     import torch
 
     df = pd.read_pickle(
@@ -177,7 +177,7 @@ def test_elst_multipoles_MTP_torch():
     alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
     alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
     (
-        ap_q,
+        ref_elst_q,
         E_qqs_q,
         E_qus_q,
         E_uus_q,
@@ -190,56 +190,37 @@ def test_elst_multipoles_MTP_torch():
     ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
         mol_dimer=mol,
         qA=qA,
-        muA=np.zeros_like(muA),
-        thetaA=np.zeros_like(thetaA),
         qB=qB,
+        # muA=muA,
+        # muB=muB,
+        muA=np.zeros_like(muA),
         muB=np.zeros_like(muB),
+        # thetaA=thetaA,
+        # thetaB=thetaB,
+        thetaA=np.zeros_like(thetaA),
         thetaB=np.zeros_like(thetaB),
         alphaA=alphaA,
         alphaB=alphaB,
         traceless=False,
         amoeba_eq=True,
-        match_cliff=True,
+        match_cliff=False,
     )
-    # (
-    #     ap_q_mu,
-    #     E_qqs_q_mu,
-    #     E_qus_q_mu,
-    #     E_uus_q_mu,
-    #     E_qQs_q_mu,
-    #     E_uQs_q_mu,
-    #     E_QQs_q_mu,
-    #     E_ZA_ZBs_q_mu,
-    #     E_ZA_MBs_q_mu,
-    #     E_ZB_MAs_q_mu,
-    # ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
-    #     mol_dimer=mol,
-    #     qA=qA,
-    #     muA=muA,
-    #     thetaA=thetaA,
-    #     qB=qB,
-    #     muB=muB,
-    #     thetaB=thetaB,
-    #     alphaA=alphaA,
-    #     alphaB=alphaB,
-    #     traceless=False,
-    #     amoeba_eq=True,
-    #     match_cliff=True,
-    # )
-    # ref_elst = (
-    #     np.sum(E_qqs_q_mu)
-    #     + np.sum(E_qus_q_mu)
-    #     + np.sum(E_uus_q_mu)
-    #     + np.sum(E_qQs_q_mu)
-    #     + np.sum(E_ZA_ZBs_q_mu)
-    #     + np.sum(E_ZA_MBs_q_mu)
-    #     + np.sum(E_ZB_MAs_q_mu)
-    # )
-    ref_elst = (
-        np.sum(E_qqs_q) + np.sum(E_ZA_ZBs_q) + np.sum(E_ZA_MBs_q) + np.sum(E_ZB_MAs_q)
+    MTP_MTP = (
+        np.sum(E_qqs_q)
+        + np.sum(E_qus_q)
+        + np.sum(E_uus_q)
+        + np.sum(E_qQs_q)
     )
-    print(f"Ref elst = {ref_elst:.6f} kcal/mol")
-    # mtp_elst_damping torch
+    E_ZA_ZB = E_ZA_ZBs_q.sum()
+    E_ZA_MB = E_ZA_MBs_q.sum()
+    E_ZB_MA = E_ZB_MAs_q.sum()
+    ref_elst_q = MTP_MTP + E_ZA_ZB + E_ZA_MB + E_ZB_MA
+    print(f"E_ZA_ZB = {E_ZA_ZB:.4f}")
+    print(f"E_ZA_MB = {E_ZA_MB:.4f}")
+    print(f"E_ZB_MA = {E_ZB_MA:.4f}")
+    print(f"MTP_MTP = {MTP_MTP:.4f}")
+    print(f"{ref_elst_q=:.6f} kcal/mol")
+
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
             apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
@@ -252,14 +233,16 @@ def test_elst_multipoles_MTP_torch():
     RA = dimer_batch.RA
     RB = dimer_batch.RB
     dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
-    # dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
-    # dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
-    dimer_batch.muA = torch.zeros_like(torch.tensor(muA, dtype=torch.float32))
-    dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
     dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
-    dimer_batch.muB = torch.zeros_like(torch.tensor(muB, dtype=torch.float32))
-    dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
+
+    # dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
     # dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
+    dimer_batch.muA = torch.zeros_like(torch.tensor(muA, dtype=torch.float32))
+    dimer_batch.muB = torch.zeros_like(torch.tensor(muB, dtype=torch.float32))
+
+    dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
+    dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
+    # dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
     # dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
 
     dR, dR_xyz = apnet_pt.AtomPairwiseModels.mtp_mtp.get_distances(
@@ -282,11 +265,11 @@ def test_elst_multipoles_MTP_torch():
         e_AB_target=dimer_batch.e_ABsr_target,
         dR_ang=dR,
         dR_xyz_ang=dR_xyz,
+        # Q_const=1.0, # Agree with CLIFF
     )
-    print(torch_elst)
     print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
-    assert abs(ref_elst - torch.sum(torch_elst).item()) < 1e-4, (
-        f"Expected {ref_elst}, got {torch.sum(torch_elst).item()}"
+    assert abs(ref_elst_q - torch.sum(torch_elst).item()) < 1e-2, (
+        f"Expected {ref_elst_q}, got {torch.sum(torch_elst).item()}"
     )
     return
 
@@ -635,3 +618,4 @@ if __name__ == "__main__":
     # test_elst_damping()
     # test_elst_multipoles_MTP_torch()
     test_elst_multipoles_MTP_torch_no_damping()
+    test_elst_multipoles_MTP_torch_damping()

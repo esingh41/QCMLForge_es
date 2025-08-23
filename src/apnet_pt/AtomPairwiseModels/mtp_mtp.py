@@ -100,6 +100,115 @@ def elst_damping_mtp_mtp_torch(
     return lam1, lam3, lam5
 
 
+def elst_damping_Z_mtp_torch(
+        alpha_i: torch.tensor,
+        alpha_j: torch.tensor,
+        r: torch.tensor,
+        e_source: torch.tensor,
+        e_target: torch.tensor,
+):
+    """
+    # Z-MTP interaction
+    lam_1 = 1.0 - np.exp(-1.0 * np.multiply(alpha_j,r))
+    lam_3 = 1.0 - (1.0 + np.multiply(alpha_j,r)) * np.exp(-1.0*np.multiply(alpha_j,r)) 
+    lam_5 = 1.0 - (1.0 + np.multiply(alpha_j,r) + (1.0/3.0)*np.multiply(np.square(alpha_j), r**2)) * np.exp(-1.0*np.multiply(alpha_j,r))
+    """
+    # need to have alpha_i repeated for each atom in j and vice versa
+    alpha_i = alpha_i.index_select(0, e_source)
+    alpha_j = alpha_j.index_select(0, e_target)
+    lam1 = 1.0 - np.exp(-1.0 * np.multiply(alpha_j,r))
+    lam3 = 1.0 - (1.0 + np.multiply(alpha_j,r)) * np.exp(-1.0*np.multiply(alpha_j,r)) 
+    lam5 = 1.0 - (1.0 + np.multiply(alpha_j,r) + (1.0/3.0)*np.multiply(np.square(alpha_j), r**2)) * np.exp(-1.0*np.multiply(alpha_j,r))
+    return lam1, lam3, lam5
+
+
+def mtp_elst(
+    ZA,
+    RA,
+    qA,
+    muA,
+    quadA,
+    Ka,
+    ZB,
+    RB,
+    qB,
+    muB,
+    quadB,
+    Kb,
+    e_AB_source,
+    e_AB_target,
+    dR_ang,
+    dR_xyz_ang,
+    Q_const=3.0, # set to 1.0 to agree with CLIFF
+):
+    dR, dR_xyz = get_distances(RA, RB, e_AB_source, e_AB_target)
+    dR = dR_ang / constants.au2ang
+    dR_xyz = dR_xyz_ang / constants.au2ang
+    oodR = 1.0 / dR
+
+    ZA_q = ZA.index_select(0, e_AB_source)
+    ZB_q = ZB.index_select(0, e_AB_target)
+    qA -= ZA
+    qB -= ZB
+
+    # Identity for 3D
+    delta = torch.eye(3, device=qA.device)
+
+    # Extracting tensor elements
+    qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
+    qB_source = qB.squeeze(-1).index_select(0, e_AB_target)
+
+    muA_source = muA.index_select(0, e_AB_source)
+    muB_source = muB.index_select(0, e_AB_target)
+
+    # TF implementation uses 3/2 factor for quadrupoles
+    # quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_AB_source)
+    # quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_AB_target)
+    quadA_source = quadA.index_select(0, e_AB_source)
+    quadB_source = quadB.index_select(0, e_AB_target)
+
+    E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
+    
+    T1 = torch.einsum('x,xy->xy', oodR ** 3, -1.0 * dR_xyz)
+    qu = torch.einsum('x,xy->xy', qA_source, muB_source) - torch.einsum('x,xy->xy', qB_source, muA_source)
+    E_qu = torch.einsum('xy,xy->x', T1, qu)
+
+    T2 = 3 * torch.einsum('xy,xz->xyz', dR_xyz, dR_xyz) - torch.einsum('x,x,yz->xyz', dR, dR, delta)
+    T2 = torch.einsum('x,xyz->xyz', oodR ** 5, T2)
+
+    E_uu = -1.0 * torch.einsum('xy,xz,xyz->x', muA_source, muB_source, T2)
+
+    qA_quadB_source = torch.einsum('x,xyz->xyz', qA_source, quadB_source)
+    qB_quadA_source = torch.einsum('x,xyz->xyz', qB_source, quadA_source)
+    E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source + qB_quadA_source)  / Q_const
+
+
+    # ZA-ZB
+    E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
+
+    # TODO Z-M damping
+    # ZA-MB
+    E_ZA_qB = torch.einsum("x,x,x->x", ZA_q, qB_source, oodR)
+    E_ZA_uB = torch.einsum('xy,x,xy->x', T1, ZA_q, muB_source)
+    E_ZA_QB = torch.einsum('xyz,x,xyz->x', T2, ZA_q, quadB_source) / Q_const
+    E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
+    # ZB-MA
+    E_ZB_qA = torch.einsum("x,x,x->x", ZB_q, qA_source, oodR)
+    # E_ZB_qA = torch.einsum("x,x,x->x", ZB_q, qA_source, oodR)
+    E_ZB_uA = torch.einsum('xy,x,xy->x', -T1, ZB_q, muA_source)
+    E_ZB_QA = torch.einsum('xyz,x,xyz->x', T2, ZB_q, quadA_source) / Q_const
+    E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA
+
+    MTP_MTP = torch.sum(E_qq + E_qu + E_qQ + E_uu)
+    print(f"E_ZA_ZB: {torch.sum(E_ZA_ZB) * 627.5094737775374:.4f}")
+    print(f"E_ZA_MB: {torch.sum(E_ZA_MB) * 627.5094737775374:.4f}")
+    print(f"E_ZB_MA: {torch.sum(E_ZB_MA) * 627.5094737775374:.4f}")
+    print(f"MTP-MTP: {MTP_MTP * 627.5094737775374:.4f}")
+    print(f"Total  : {(MTP_MTP + torch.sum(E_ZA_ZB + E_ZA_MB + E_ZB_MA)) * 627.5094737775374:.4f}")
+
+    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
+    return E_elst
+
 def mtp_elst_damping(
     ZA,
     RA,
@@ -134,6 +243,7 @@ def mtp_elst_damping(
     qB -= ZB
 
     lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
+    lam1_ZM, lam3_ZM, lam5_ZM = elst_damping_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
 
     # Identity for 3D
     delta = torch.eye(3, device=qA.device)
@@ -151,7 +261,7 @@ def mtp_elst_damping(
     quadA_source = quadA.index_select(0, e_AB_source)
     quadB_source = quadB.index_select(0, e_AB_target)
 
-    E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
+    E_qq = torch.einsum("x,x,x,x->x", qA_source, qB_source, oodR, lam1)
     
     T1 = torch.einsum('x,xy->xy', oodR ** 3, -1.0 * dR_xyz)
     qu = torch.einsum('x,xy->xy', qA_source, muB_source) - torch.einsum('x,xy->xy', qB_source, muA_source)
@@ -166,18 +276,22 @@ def mtp_elst_damping(
     qB_quadA_source = torch.einsum('x,xyz->xyz', qB_source, quadA_source)
     E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source + qB_quadA_source)  / Q_const
 
+
     # ZA-ZB
     E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
 
+    # TODO Z-M damping
     # ZA-MB
-    E_ZA_qB = torch.einsum("x,x,x->x", ZA_q, qB_source, oodR)
+    E_ZA_qB = torch.einsum("x,x,x,x->x", ZA_q, qB_source, oodR, lam1_ZM)
+    print(f"{lam1_ZM=}")
     E_ZA_uB = torch.einsum('xy,x,xy->x', T1, ZA_q, muB_source)
     E_ZA_QB = torch.einsum('xyz,x,xyz->x', T2, ZA_q, quadB_source) / Q_const
     E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
     # print(f"{ZA_q=}\n{qB_source=}\n{oodR=}")
     # print(f"{E_ZA_MB=}")
     # ZB-MA
-    E_ZB_qA = torch.einsum("x,x,x->x", ZB_q, qA_source, oodR)
+    E_ZB_qA = torch.einsum("x,x,x,x->x", ZB_q, qA_source, oodR, lam1_ZM)
+    # E_ZB_qA = torch.einsum("x,x,x->x", ZB_q, qA_source, oodR)
     E_ZB_uA = torch.einsum('xy,x,xy->x', -T1, ZB_q, muA_source)
     E_ZB_QA = torch.einsum('xyz,x,xyz->x', T2, ZB_q, quadA_source) / Q_const
     E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA
@@ -188,7 +302,7 @@ def mtp_elst_damping(
     print(f"E_ZA_MB: {torch.sum(E_ZA_MB) * 627.5094737775374:.4f}")
     print(f"E_ZB_MA: {torch.sum(E_ZB_MA) * 627.5094737775374:.4f}")
     print(f"MTP-MTP: {MTP_MTP * 627.5094737775374:.4f}")
-    print(f"Total  : {(MTP_MTP + torch.sum(E_ZA_ZB + E_ZA_MB + E_ZB_MA))* 627.5094737775374:.4f}")
+    print(f"Total  : {(MTP_MTP + torch.sum(E_ZA_ZB + E_ZA_MB + E_ZB_MA)) * 627.5094737775374:.4f}")
 
     E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
     return E_elst
