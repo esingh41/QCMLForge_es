@@ -1384,18 +1384,20 @@ def test_mtp_mtp_elst_qcel_mols():
     am.set_pretrained_model(model_id=0)
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
+        ds_root=data_path,
         ignore_database_null=False,
         ds_force_reprocess=True,
         use_GPU=False,
         ds_spec_type=None,
         ds_qcel_molecules=qcel_molecules,
         ds_energy_labels=energy_labels,
+        n_neuron=128,
     )
     print(param_mod)
     param_mod.train(
         n_epochs=25,
         skip_compile=True,
-        lr=5e-6,
+        lr=5e-4,
         split_percent=0.5,
     )
 
@@ -1413,16 +1415,19 @@ def test_mtp_mtp_elst_dataset():
         ds_force_reprocess=True,
         ds_spec_type=7,
         use_GPU=False,
+        ds_root=data_path,
+        n_neuron=32,
     )
     param_mod.train(
-        n_epochs=25,
+        n_epochs=500,
         skip_compile=True,
-        lr=5e-6,
-        split_percent=0.5,
+        lr=5e-4,
     )
 
 if __name__ == "__main__":
+    test_mtp_mtp_elst_qcel_mols()
     test_mtp_mtp_elst_dataset()
+    # test_mtp_mtp_elst_dataset()
     # test_apnet2_train_qcel_molecules_in_memory()
     # test_apnet2_train_qcel_molecules_in_memory()
     # test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory()

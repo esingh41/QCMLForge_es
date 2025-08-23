@@ -139,13 +139,11 @@ def test_elst_multipoles_MTP_torch_no_damping():
         qA=dimer_batch.qA,
         muA=dimer_batch.muA,
         quadA=dimer_batch.quadA,
-        Ka=dimer_batch.Ka,
         ZB=dimer_batch.ZB,
         RB=dimer_batch.RB,
         qB=dimer_batch.qB,
         muB=dimer_batch.muB,
         quadB=dimer_batch.quadB,
-        Kb=dimer_batch.Kb,
         e_AB_source=dimer_batch.e_ABsr_source,
         e_AB_target=dimer_batch.e_ABsr_target,
         # Q_const=1.0, # Agree with CLIFF

@@ -82,6 +82,7 @@ class AtomTypeParamNN(nn.Module):
         layers = []
         for i in range(len(layer_nodes) - 1):
             layers.append(nn.Linear(layer_nodes[i], layer_nodes[i + 1]))
+            # layers[-1].weight.data.normal_(1.0, 0.1)
             if activations[i] is not None:
                 layers.append(activations[i])
         return nn.Sequential(*layers)
@@ -116,7 +117,7 @@ class AtomTypeParamNN(nn.Module):
         for i in range(self.n_message):
             param_update = self.damping_elst_readout_layers[i](h_list[i + 1])
             K_filtered += param_update
-        K[keep_mask] = K_filtered
+        K[keep_mask] = torch.relu(K_filtered) + 1e-6
         return charge, dipole, qpole, h_list, K.squeeze(-1)
 
 
@@ -214,13 +215,11 @@ def mtp_elst(
     qA,
     muA,
     quadA,
-    Ka,
     ZB,
     RB,
     qB,
     muB,
     quadB,
-    Kb,
     e_AB_source,
     e_AB_target,
     Q_const=3.0,  # set to 1.0 to agree with CLIFF
@@ -383,7 +382,7 @@ class AM_DimerParam_Model:
         n_neuron=128,
         n_embed=8,
         r_cut=5.0,
-        param_start_mean=2.0,
+        param_start_mean=1.7,
         param_start_std=0.01,
         use_GPU=None,
         ignore_database_null=True,
@@ -929,6 +928,7 @@ units angstrom
                     natom_per_mol=batch.natom_per_mol_B,
                 )
             )
+            # print(f"{K_i = }")
             preds = mtp_elst_damping(
                 ZA=batch.ZA,
                 RA=batch.RA,
@@ -1009,6 +1009,65 @@ units angstrom
                     muB=muB,
                     quadB=thetaB,
                     Kb=K_j,
+                    e_AB_source=batch.e_ABsr_source,
+                    e_AB_target=batch.e_ABsr_target,
+                )
+                ref = batch.y[:, 0]
+                preds = scatter(
+                    preds, batch.dimer_ind, dim=0, reduce="add", dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+                )
+                comp_errors = preds - ref
+                batch_loss = (
+                    torch.mean(torch.square(comp_errors))
+                    if (loss_fn is None)
+                    else loss_fn(preds, ref)
+                )
+                total_loss += batch_loss.item()
+                comp_errors_t.append(comp_errors.detach().cpu())
+        comp_errors_t = torch.cat(comp_errors_t, dim=0)
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        return total_loss, total_MAE_t
+
+    def __evaluate_batches_single_proc_elst_no_damping(self, dataloader, loss_fn, rank_device):
+        self.model.eval()
+        comp_errors_t = []
+        total_loss = 0.0
+        with torch.no_grad():
+            for n, batch in enumerate(dataloader):
+                batch = batch.to(rank_device, non_blocking=True)
+                qA, muA, thetaA, _, _ = self.model(
+                    Data(
+                        x=batch.ZA,
+                        R=batch.RA,
+                        edge_index=torch.vstack(
+                            (batch.e_AA_source, batch.e_AA_target)),
+                        molecule_ind=batch.molecule_ind_A,
+                        total_charge=batch.total_charge_A,
+                        natom_per_mol=batch.natom_per_mol_A,
+                    )
+                )
+                qB, muB, thetaB, _, _ = self.model(
+                    Data(
+                        x=batch.ZB,
+                        R=batch.RB,
+                        edge_index=torch.vstack(
+                            (batch.e_BB_source, batch.e_BB_target)),
+                        molecule_ind=batch.molecule_ind_B,
+                        total_charge=batch.total_charge_B,
+                        natom_per_mol=batch.natom_per_mol_B,
+                    )
+                )
+                preds = mtp_elst(
+                    ZA=batch.ZA,
+                    RA=batch.RA,
+                    qA=qA,
+                    muA=muA,
+                    quadA=thetaA,
+                    ZB=batch.ZB,
+                    RB=batch.RB,
+                    qB=qB,
+                    muB=muB,
+                    quadB=thetaB,
                     e_AB_source=batch.e_ABsr_source,
                     e_AB_target=batch.e_ABsr_target,
                 )
@@ -1261,10 +1320,17 @@ units angstrom
         t0 = time.time()
         t_out = __evaluate_batch(train_loader, criterion, rank_device)
         v_out = __evaluate_batch(test_loader, criterion, rank_device)
+        _, no_damping_MAE_t = self.__evaluate_batches_single_proc_elst_no_damping(train_loader, criterion, rank_device)
+        _, no_damping_MAE_v = self.__evaluate_batches_single_proc_elst_no_damping(test_loader, criterion, rank_device)
         train_loss, total_MAE_t = t_out
         test_loss, total_MAE_v = v_out
         print(
-            f"  (Pre-training)({time.time() - t0: < 7.2f}s)"
+            f" (No Damping)  ({time.time() - t0: < 7.2f}s)"
+            f" MAE: {no_damping_MAE_t : > 7.3f}/{no_damping_MAE_v : < 7.3f}",
+            flush=True,
+        )
+        print(
+            f" (Pre-training)({time.time() - t0: < 7.2f}s)"
             f" MAE: {total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}",
             flush=True,
         )
