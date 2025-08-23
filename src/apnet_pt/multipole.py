@@ -174,13 +174,12 @@ def T_cart(RA, RB, alpha_i=None, alpha_j=None):
     # E_qq
     T0 = R**-1 * lam_1
     # E_qu
-    T1 = (R**-3) * (-1.0 * dR)
     # print(f"{float(lam_1)=:.4f}")
     # print(f"{float(T0)   =:.4f}")
     # print(f"{T1 = }")
     # print(f"{float(lam_3)=:.4f}")
     T1 = (R**-3) * (-1.0 * dR) * lam_3
-    # print(f"{T1 = }")
+    print(f"{T1 = }")
     # E_uu, E_qQ
     T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
 
