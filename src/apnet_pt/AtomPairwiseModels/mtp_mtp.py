@@ -117,6 +117,7 @@ def mtp_elst_damping(
     e_AB_target,
     dR_ang,
     dR_xyz_ang,
+    Q_const=3.0, # set to 1.0 to agree with CLIFF
 ):
     # print(dR_ang)
     # print(lam1, lam3, lam5)
@@ -163,7 +164,7 @@ def mtp_elst_damping(
 
     qA_quadB_source = torch.einsum('x,xyz->xyz', qA_source, quadB_source)
     qB_quadA_source = torch.einsum('x,xyz->xyz', qB_source, quadA_source)
-    E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source + qB_quadA_source)  / 3.0
+    E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source + qB_quadA_source)  / Q_const
 
     # ZA-ZB
     E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
@@ -171,13 +172,15 @@ def mtp_elst_damping(
     # ZA-MB
     E_ZA_qB = torch.einsum("x,x,x->x", ZA_q, qB_source, oodR)
     E_ZA_uB = torch.einsum('xy,x,xy->x', T1, ZA_q, muB_source)
-    E_ZA_MB = E_ZA_qB + E_ZA_uB
+    E_ZA_QB = torch.einsum('xyz,x,xyz->x', T2, ZA_q, quadB_source) / Q_const
+    E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
     # print(f"{ZA_q=}\n{qB_source=}\n{oodR=}")
     # print(f"{E_ZA_MB=}")
     # ZB-MA
     E_ZB_qA = torch.einsum("x,x,x->x", ZB_q, qA_source, oodR)
     E_ZB_uA = torch.einsum('xy,x,xy->x', -T1, ZB_q, muA_source)
-    E_ZB_MA = E_ZB_qA + E_ZB_uA
+    E_ZB_QA = torch.einsum('xyz,x,xyz->x', T2, ZB_q, quadA_source) / Q_const
+    E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA
     # print(f"{E_ZB_MA=}")
 
     MTP_MTP = torch.sum(E_qq + E_qu + E_qQ + E_uu)
