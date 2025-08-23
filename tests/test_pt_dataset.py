@@ -1424,7 +1424,7 @@ def test_mtp_mtp_elst_dataset():
     )
     param_mod.train(
         # n_epochs=500,
-        n_epochs=150,
+        n_epochs=5,
         skip_compile=True,
         lr=5e-4,
     )

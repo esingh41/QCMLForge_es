@@ -608,5 +608,5 @@ if __name__ == "__main__":
     # test_elst_ameoba()
     # test_elst_damping()
     # test_elst_multipoles_MTP_torch()
-    test_elst_multipoles_MTP_torch_no_damping()
+    # test_elst_multipoles_MTP_torch_no_damping()
     test_elst_multipoles_MTP_torch_damping()

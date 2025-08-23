@@ -117,7 +117,7 @@ class AtomTypeParamNN(nn.Module):
         for i in range(self.n_message):
             param_update = self.damping_elst_readout_layers[i](h_list[i + 1])
             K_filtered += param_update
-        K[keep_mask] = torch.relu(K_filtered) + 1.00001
+        K[keep_mask] = torch.relu(K_filtered) # + 1.00001
         return charge, dipole, qpole, h_list, K.squeeze(-1)
 
 
@@ -1378,6 +1378,9 @@ units angstrom
             )
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
+            if torch.isnan(total_MAE_t) or torch.isnan(total_MAE_v):
+                print("NaN detected, stopping training")
+                break
         self.model = best_model
         self.model.to(rank_device)
         return
