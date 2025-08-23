@@ -1372,9 +1372,9 @@ def test_am_train_test():
     )
     return
 
-def test_mtp_mtp_elst():
-    qcel_molecules = [mol_dimer] * 2
-    energy_labels = [np.array([-10.779292828139122] * 4) for _ in range(len(qcel_molecules))]
+def test_mtp_mtp_elst_qcel_mols():
+    qcel_molecules = [mol_dimer] * 4
+    energy_labels = [np.array([-10.779292828139122, 0, 0, 0]) for _ in range(len(qcel_molecules))]
     print(energy_labels)
     am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
@@ -1395,11 +1395,34 @@ def test_mtp_mtp_elst():
     param_mod.train(
         n_epochs=25,
         skip_compile=True,
-        lr=2e-3
+        lr=5e-6,
+        split_percent=0.5,
+    )
+
+
+def test_mtp_mtp_elst_dataset():
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    am.set_pretrained_model(model_id=0)
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        ds_spec_type=7,
+        use_GPU=False,
+    )
+    param_mod.train(
+        n_epochs=25,
+        skip_compile=True,
+        lr=5e-6,
+        split_percent=0.5,
     )
 
 if __name__ == "__main__":
-    test_mtp_mtp_elst()
+    test_mtp_mtp_elst_dataset()
     # test_apnet2_train_qcel_molecules_in_memory()
     # test_apnet2_train_qcel_molecules_in_memory()
     # test_dapnet2_dataset_size_prebatched_qcel_molecules_in_memory()

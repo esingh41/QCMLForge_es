@@ -929,7 +929,6 @@ units angstrom
                     natom_per_mol=batch.natom_per_mol_B,
                 )
             )
-            print(f"{K_i=}\n{K_j=}")
             preds = mtp_elst_damping(
                 ZA=batch.ZA,
                 RA=batch.RA,
@@ -947,13 +946,17 @@ units angstrom
                 e_AB_target=batch.e_ABsr_target,
             )
             ref = batch.y[:, 0]
-            comp_errors = preds.sum() - ref
-            print(f"{comp_errors=}")
+            preds = scatter(
+                preds, batch.dimer_ind, dim=0, reduce="add", dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+            )
+            comp_errors = preds - ref
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
-                else loss_fn(preds.flatten(), ref)
+                else loss_fn(preds, ref)
             )
+            batch_loss.backward()
+            optimizer.step()
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
         if scheduler is not None:
@@ -1010,11 +1013,14 @@ units angstrom
                     e_AB_target=batch.e_ABsr_target,
                 )
                 ref = batch.y[:, 0]
-                comp_errors = preds.sum() - ref
+                preds = scatter(
+                    preds, batch.dimer_ind, dim=0, reduce="add", dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+                )
+                comp_errors = preds - ref
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
-                    else loss_fn(preds.flatten(), ref)
+                    else loss_fn(preds, ref)
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
@@ -1182,13 +1188,8 @@ units angstrom
                 dt = time.time() - t1
                 test_loss = 0.0
                 print(
-                    f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
-                        total_MAE_t: > 7.3f
-                    }/{total_MAE_v: < 7.3f} {elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {
-                        exch_MAE_t: > 7.3f
-                    }/{exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
-                        disp_MAE_t: > 7.3f
-                    }/{disp_MAE_v: < 7.3f} {test_lowered}",
+                    f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  "
+                    "MAE: { total_MAE_t: > 7.3f }/{total_MAE_v: < 7.3f} {elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} { exch_MAE_t: > 7.3f }/{exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} { disp_MAE_t: > 7.3f }/{disp_MAE_v: < 7.3f} {test_lowered}",
                     flush=True,
                 )
 
@@ -1263,9 +1264,8 @@ units angstrom
         train_loss, total_MAE_t = t_out
         test_loss, total_MAE_v = v_out
         print(
-            f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
-                total_MAE_t: > 7.3f
-            }/{total_MAE_v: < 7.3f}",
+            f"  (Pre-training)({time.time() - t0: < 7.2f}s)"
+            f" MAE: {total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}",
             flush=True,
         )
 
