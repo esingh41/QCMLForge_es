@@ -197,10 +197,10 @@ def test_elst_multipoles_MTP_torch_damping():
         muB=muB,
         # muA=np.zeros_like(muA),
         # muB=np.zeros_like(muB),
-        # thetaA=thetaA,
-        # thetaB=thetaB,
-        thetaA=np.zeros_like(thetaA),
-        thetaB=np.zeros_like(thetaB),
+        thetaA=thetaA,
+        thetaB=thetaB,
+        # thetaA=np.zeros_like(thetaA),
+        # thetaB=np.zeros_like(thetaB),
         alphaA=alphaA,
         alphaB=alphaB,
         traceless=False,
@@ -242,10 +242,10 @@ def test_elst_multipoles_MTP_torch_damping():
     # dimer_batch.muA = torch.zeros_like(torch.tensor(muA, dtype=torch.float32))
     # dimer_batch.muB = torch.zeros_like(torch.tensor(muB, dtype=torch.float32))
 
-    dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
-    dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
-    # dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
-    # dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
+    # dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
+    # dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
+    dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
 
     dR, dR_xyz = apnet_pt.AtomPairwiseModels.mtp_mtp.get_distances(
         RA, RB, dimer_batch.e_ABsr_source, dimer_batch.e_ABsr_target
