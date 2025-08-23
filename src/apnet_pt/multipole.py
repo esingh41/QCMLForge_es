@@ -135,25 +135,9 @@ def T_cart_Z_MTP(RA, RB, alpha_j=None):
     if alpha_j is not None:
         lam_1, lam_3, lam_5 = elst_damping_z_mtp(alpha_j, R)
 
-    # print(f"{lam_1=:.4f}")
-    # print(f"{lam_3:.8f}")
-    # print(f"{lam_5:.8f}")
-    """
-[5.23691392 6.1524798  6.15149873],
-lam_1=array([0.99997837, 0.99996192, 0.99996186])
-lam_3=array([0.99974603, 0.99957443, 0.9995738 ])
-lam_5=array([0.99891413, 0.99826007, 0.99825773])
-
-it[:,1] = [-0.03643653 -0.02552135 -0.02549818]
-    """
-
     delta = np.identity(3)
-
     T0 = R**-1 * lam_1
-    # print(f"{R**-1:.4f}, {lam_1=:.4f}, {T0=:.4f}")
     T1 = (R**-3) * (-1.0 * dR) * lam_3
-    # print(f"{lam_3 = }")
-    # print(f"{T1 = }")
     T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
     return T0, T1, T2
 
@@ -165,64 +149,16 @@ def T_cart(RA, RB, alpha_i=None, alpha_j=None):
     R = np.linalg.norm(dR)
     if alpha_i is not None and alpha_j is not None:
         lam_1, lam_3, lam_5, lam_7, lam_9 = elst_damping_mtp_mtp(alpha_i, alpha_j, R)
-    # print(f"{R:.6f}, {lam_1=:.8f}")
-
-    # print(f"{R:.6f},{lam_1=:.8f}, {lam_3=:.8f}\n {lam_5=:.8f}, {lam_7=:.8f}, {lam_9=:.8f}")
     delta = np.identity(3)
-
-    # print(f"{R:.6f},{lam_3=:.8f} {lam_5=:.8f}")
     # E_qq
     T0 = R**-1 * lam_1
     # E_qu
-    # print(f"{float(lam_1)=:.4f}")
-    # print(f"{float(T0)   =:.4f}")
-    # print(f"{T1 = }")
-    # print(f"{float(lam_3)=:.4f}")
     T1 = (R**-3) * (-1.0 * dR) * lam_3
-    print(f"{T1 = }")
-    # E_uu, E_qQ
     T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
 
     Rdd = np.multiply.outer(dR, delta)
-    # E_uQ
-    # lam_5_const = np.identity(3) * 6 + np.ones((3, 3)) * 3
     lam_5_const = np.ones((3, 3, 3)) * 3
-    # lam_5_const[0, 0, 0] *= 3
-    # lam_5_const[1, 1, 1] *= 3
-    # lam_5_const[2, 2, 2] *= 3
     lam_5_const *= lam_5
-    # lam_5_const = np.identity(3) * -6 + np.ones((3, 3)) * 9
-    # print(lam_5_const)
-    # print(Rdd.shape)
-    # print(Rdd)
-    # print(Rdd * lam_5_const)
-    # print(np.ones_like(Rdd) * lam_5_const)
-    # lam_5_const = 1
-    """
-    undamped T3:
-T3:
-undamped T3 cliff:
-[[-7.95496337e-03 -4.82909142e-04  5.15420225e-05] 
- [-4.82909142e-04  3.96843347e-03  1.95373020e-06] 
- [ 5.15420225e-05  1.95373020e-06  3.98652990e-03] 
- [-4.82909142e-04  3.96843347e-03  1.95373020e-06] 
- [ 3.96843347e-03  3.62047858e-04 -1.28412503e-05] 
- [ 1.95373020e-06 -1.28412503e-05  1.20861284e-04] 
- [ 5.15420225e-05  1.95373020e-06  3.98652990e-03] 
- [ 1.95373020e-06 -1.28412503e-05  1.20861284e-04] 
- [ 3.98652990e-03  1.20861284e-04 -3.87007722e-05]]    
-
- damped T3 cliff:
-[[-7.71632368e-03 -4.74231116e-04  5.06157965e-05] 
- [-4.74231116e-04  3.94491880e-03  1.92331462e-06] 
- [ 5.06157965e-05  1.92331462e-06  3.77140488e-03] 
- [-4.74231116e-04  3.94491880e-03  1.92331462e-06] 
- [ 3.94491880e-03  3.59891867e-04 -1.27651604e-05] 
- [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04] 
- [ 5.06157965e-05  1.92331462e-06  3.77140488e-03] 
- [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04] 
- [ 3.77140488e-03  1.14339249e-04 -3.78506361e-05]]      
-    """
     T3 = (
         (R**-7)
         * (
@@ -230,12 +166,6 @@ undamped T3 cliff:
             + lam_5_const * R * R * (Rdd + Rdd.transpose(1, 0, 2) + Rdd.transpose(2, 0, 1))
         )
     )
-    # print("T3:\nq", T3)
-    # print("T3:")
-    # print(T3)
-    # print(-T3.transpose(1, 0, 2))
-    # print(-T3.transpose(0, 1, 2))
-
     RRdd = np.multiply.outer(np.outer(dR, dR), delta)
     dddd = np.multiply.outer(delta, delta)
     # Used for E_QQ
@@ -269,41 +199,6 @@ def thole_damping(r_ij, alpha_i, alpha_j, a):
 def elst_damping_mtp_mtp(alpha_i, alpha_j, r):
     """
     # MTP-MTP interaction from CLIFF
-    # Get the lambdas
-    lam1 = 1.0
-    lam3 = 1.0
-    lam5 = 1.0
-    lam7 = 1.0
-    lam9 = 1.0
-
-    if abs(alpha1 - alpha2) > 1e-6:
-        A = a2_2 / (a2_2 - a1_2)
-        B = a1_2 / (a1_2 - a2_2)
-
-        
-        lam1 -= A*e1r
-        lam1 -= B*e2r
-
-        lam3 -= (1.0 + alpha1*r)*A*e1r 
-        lam3 -= (1.0 + alpha2*r)*B*e2r
-
-        lam5 -= (1.0 + alpha1*r + (1.0/3.0)*a1_2*r2)*A*e1r
-        lam5 -= (1.0 + alpha2*r + (1.0/3.0)*a2_2*r2)*B*e2r
-
-        lam7 -= (1.0 + alpha1*r + (2.0/5.0)*a1_2*r2 + (1.0/15.0)*a1_3*r3)*A*e1r
-        lam7 -= (1.0 + alpha2*r + (2.0/5.0)*a2_2*r2 + (1.0/15.0)*a2_3*r3)*B*e2r
-
-        lam9 -= (1.0 + alpha1*r + (3.0/7.0)*a1_2*r2 + (2.0/21.0)*a1_3*r3 + (1.0/105.0)*a1_4*r4)*A*e1r
-        lam9 -= (1.0 + alpha2*r + (3.0/7.0)*a2_2*r2 + (2.0/21.0)*a2_3*r3 + (1.0/105.0)*a2_4*r4)*B*e2r
-
-    else:
-        # assume alpha1 == alpha2
-    
-        lam1 -= (1.0 + 0.5*alpha1*r)*e1r
-        lam3 -= (1.0 + alpha1*r + 0.5*a1_2*r2)*e1r
-        lam5 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
-        lam7 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (1.0/30.0)*a1_4*r4)*e1r
-        lam9 -= (1.0 + alpha1*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3 + (4.0/105.0)*a1_4*r4 + (1.0/210.0)*a1_4*alpha1*r5)*e1r
     """
     r2 = r**2
     r3 = r2*r
@@ -320,7 +215,6 @@ def elst_damping_mtp_mtp(alpha_i, alpha_j, r):
     lam1, lam3, lam5, lam7, lam9 = (1.0, 1.0, 1.0, 1.0, 1.0)
     if abs(alpha_i - alpha_j) > 1e-6:
         A = a2_2 / (a2_2 - a1_2)
-        # print(f"{A=:.4f}")
         B = a1_2 / (a1_2 - a2_2)
         lam1 -= A*e1r
         lam1 -= B*e2r
@@ -337,7 +231,6 @@ def elst_damping_mtp_mtp(alpha_i, alpha_j, r):
         lam9 -= (1.0 + alpha_j*r + (3.0/7.0)*a2_2*r2 + (2.0/21.0)*a2_3*r3 + (1.0/105.0)*a2_4*r4)*B*e2r
 
     else:
-        # print("A = 0.0")
         lam1 -= (1.0 + 0.5*alpha_i*r)*e1r
         lam3 -= (1.0 + alpha_i*r + 0.5*a1_2*r2)*e1r
         lam5 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
@@ -691,10 +584,6 @@ def eval_qcel_dimer_individual_components(
         + np.sum(E_ZB_MAs)
         + np.sum(E_ZA_ZBs)
     )
-    # print(f"{E_ZA_MBs.flatten() }")
-    print(f"{E_ZB_MAs.flatten() }")
-    print(f"{np.sum(E_ZB_MAs.flatten())}")
-    print(f"{np.sum(E_ZB_MAs.flatten()) * 627.5094737775374 }")
     total_energy *= constants.h2kcalmol
     E_qqs *= constants.h2kcalmol
     E_qus *= constants.h2kcalmol
@@ -797,133 +686,25 @@ def eval_interaction_individual_components(
     ) * -1.0 * c_uQ # * (-1.0 / 3.0)
 
     E_QQ = np.sum(T4 * np.multiply.outer(thetaA, thetaB)) * c_QQ # * (1.0 / 9.0)
-    """
-ZA-ZB
-8 8 0.19095216 12.22093793
-8 1 0.16253609 1.30028871
-8 1 0.16256201 1.30049608
-1 8 0.16554119 1.32432951
-1 1 0.14040889 0.14040889
-1 1 0.14042195 0.14042195
-1 8 0.29231273 2.33850186
-1 1 0.22426564 0.22426564
-1 1 0.22430324 0.22430324
-ZA-MB
-  Z*q: -13.60338385, Z*mu: 0.04002783, Z*theta: -0.02108684
-  Z*q: -0.71177466, Z*mu: -0.00179446, Z*theta: -0.00035156
-  Z*q: -0.71189083, Z*mu: -0.00179104, Z*theta: -0.00035197
-  Z*q: -1.47416487, Z*mu: 0.00500052, Z*theta: -0.00097779
-  Z*q: -0.07686180, Z*mu: -0.00015570, Z*theta: -0.00000937
-  Z*q: -0.07686924, Z*mu: -0.00015547, Z*theta: -0.00000938
-  Z*q: -2.60075784, Z*mu: 0.01221299, Z*theta: -0.00873778
-  Z*q: -0.12269015, Z*mu: -0.00055956, Z*theta: -0.00007041
-  Z*q: -0.12271109, Z*mu: -0.00055906, Z*theta: -0.00007051
-ZB-MA
-  Z*q: -13.59981718, Z*mu: -0.03695603, Z*theta: 0.02303718
-  Z*q: -0.72544235, Z*mu: -0.00596415, Z*theta: 0.00084076
-  Z*q: -1.28021441, Z*mu: 0.01778713, Z*theta: 0.00286522
-  Z*q: -1.44702582, Z*mu: -0.00251122, Z*theta: 0.00186877
-  Z*q: -0.07691623, Z*mu: -0.00054367, Z*theta: 0.00005876
-  Z*q: -0.12312702, Z*mu: 0.00136705, Z*theta: 0.00015513
-  Z*q: -1.44725659, Z*mu: -0.00251069, Z*theta: 0.00186976
-  Z*q: -0.07692339, Z*mu: -0.00054379, Z*theta: 0.00005877
-  Z*q: -0.12314757, Z*mu: 0.00136752, Z*theta: 0.00015518
-MTP-MTP
-8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
-8-1: 0.794777 = 0.792050 + 0.003380 + -0.000653
-8-1: 0.794902 = 0.792179 + 0.003376 + -0.000653
-1-8: 0.810941 = 0.807460 + 0.003860 + -0.000379
-1-1: 0.042461 = 0.042103 + 0.000384 + -0.000027
-1-1: 0.042465 = 0.042108 + 0.000384 + -0.000027
-1-8: 1.393806 = 1.418173 + -0.025492 + 0.001125
-1-1: 0.066756 = 0.067246 + -0.000442 + -0.000048
-1-1: 0.066767 = 0.067257 + -0.000443 + -0.000048
-Elst: 12056.938032 + -12224.225863 + -11858.340758 + 12012.663869 = -12.964720
-
-MTP-MTP
-5.236914, lam1=0.99986220, lam3=0.99849818
- lam5=0.99403030, lam7=0.98443204, lam9=0.96833249
-8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
-6.152480, lam1=0.99989728, lam3=0.99886701
- lam5=0.99543562, lam7=0.98792539, lam9=0.97507437
-8-1: 0.794777 = 0.792050 + 0.003380 + -0.000653
-6.151499, lam1=0.99989711, lam3=0.99886537
- lam5=0.99542963, lam7=0.98791104, lam9=0.97504752
-8-1: 0.794902 = 0.792179 + 0.003376 + -0.000653
-6.040793, lam1=0.99987677, lam3=0.99866414
- lam5=0.99470222, lam7=0.98618291, lam9=0.97183915
-1-8: 0.810941 = 0.807460 + 0.003860 + -0.000379
-7.122056, lam1=0.99994722, lam3=0.99937064
- lam5=0.99728388, lam7=0.99236768, lam9=0.98339250
-1-1: 0.042461 = 0.042103 + 0.000384 + -0.000027
-7.121394, lam1=0.99994717, lam3=0.99937006
- lam5=0.99728159, lam7=0.99236184, lam9=0.98338093
-1-1: 0.042465 = 0.042108 + 0.000384 + -0.000027
-3.420994, lam1=0.99169159, lam3=0.94694657
- lam5=0.86785321, lam7=0.76996490, lam9=0.66912774
-1-8: 1.393806 = 1.418173 + -0.025492 + 0.001125
-4.458998, lam1=0.99706199, lam3=0.97770563
- lam5=0.93580352, lam7=0.87399866, lam9=0.80005434
-1-1: 0.066756 = 0.067246 + -0.000442 + -0.000048
-4.458250, lam1=0.99705874, lam3=0.97768455
- lam5=0.93575170, lam7=0.87391187, lam9=0.79993664
-1-1: 0.066767 = 0.067257 + -0.000443 + -0.000048
-Elst: 12056.938032 + -12224.225863 + -11858.340758 + 12012.663869 = -12.964720
-
-MTP-MTP
-T2 = [ 1.37917502e-02  6.28902335e-04 -6.71242175e-05  6.28902335e-04
- -6.93311268e-03 -2.03503280e-06 -6.71242175e-05 -2.03503280e-06
- -6.95196217e-03]
-T3 = [[-7.71632368e-03 -4.74231116e-04  5.06157965e-05]
- [-4.74231116e-04  3.94491880e-03  1.92331462e-06]
- [ 5.06157965e-05  1.92331462e-06  3.77140488e-03]
- [-4.74231116e-04  3.94491880e-03  1.92331462e-06]
- [ 3.94491880e-03  3.59891867e-04 -1.27651604e-05]
- [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04]
- [ 5.06157965e-05  1.92331462e-06  3.77140488e-03]
- [ 1.92331462e-06 -1.27651604e-05  1.14339249e-04]
- [ 3.77140488e-03  1.14339249e-04 -3.78506361e-05]]
-8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
-
-q-Q =  -0.0021665167478815903
-mu-Q 0.00012523309182835613
-Q-Q -0.0003702415256548531
-8-8: 15.130525 = 15.136812 + -0.003875 + -0.002412
-MTP-MTP                                                                                                                                                                                        
-    """
-
-    # MTP-MTP
-    # print(f"{ZA}-{ZB}: {E_qq: .6f} = {E_qq + E_qu + E_uu + E_qQ + E_uQ + E_QQ: .6f} + {E_qu: .6f} + {E_uu: .6f} + {E_qQ: .6f} + {E_uQ: .6f} + {E_QQ: .6f}")
-    # print(f"q-Q =", E_qQ)
-    # print(f"mu-Q =", E_uQ)
-    # print(f"Q-Q =", E_QQ)
-
-
     if ZA is not None and ZB is not None:
         # Nuclear attraction terms
         T0, _, _ = T_cart_Z_MTP(RA, RB, None)
         E_ZA_ZB = T0 * ZA * ZB
-        # print(f"{ZA} {ZB} {T0:.8f} {E_ZA_ZB: .8f}")
-
         # Only update to specific T's if damping
         if alpha_i is not None and alpha_j is not None:
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
         # A: Nuclear - charge, Nuclear - dipole, Nuclear - theta
         E_ZA_qB = T0 * ZA * qB
-        # print(f"{ZA} {qB:.4f} {T0:.4f} {E_ZA_qB: .4f}")
         E_ZA_uB = np.sum(T1 * ZA * muB)
         E_ZA_QB = np.sum(T2 * ZA * thetaB * c_qQ)
         E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
-        # print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
         if alpha_i is not None:
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_i)
         # B: Nuclear - charge, Nuclear - dipole, Nuclear - theta
         E_ZB_qA = T0 * ZB * qA
-        print(f"{ZB} {qA:.6f} {T0:.6f} {E_ZB_qA:.6f}")
         E_ZB_uA = np.sum(-T1 * ZB * muA)
         E_ZB_QA = np.sum(T2 * ZB * thetaA * c_qQ)
         E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA
-        # print(f"  Z*q: {E_ZB_MA: .8f}, Z*mu: {np.sum(-T1 * ZB * muA): .8f}, Z*theta: {np.sum(T2 * ZB * thetaA * c_qQ): .8f}")
 
     return E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA
 
