@@ -150,7 +150,7 @@ it[:,1] = [-0.03643653 -0.02552135 -0.02549818]
     delta = np.identity(3)
 
     T0 = R**-1 * lam_1
-    print(f"{R**-1:.4f}, {lam_1=:.4f}, {T0=:.4f}")
+    # print(f"{R**-1:.4f}, {lam_1=:.4f}, {T0=:.4f}")
     T1 = (R**-3) * (-1.0 * dR) * lam_3
     # print(f"{lam_3 = }")
     # print(f"{T1 = }")
@@ -692,6 +692,8 @@ def eval_qcel_dimer_individual_components(
         + np.sum(E_ZB_MAs)
         + np.sum(E_ZA_ZBs)
     )
+    # print(f"{E_ZA_MBs.flatten() = }")
+    # print(f"{E_ZB_MAs.flatten() = }")
     total_energy *= constants.h2kcalmol
     E_qqs *= constants.h2kcalmol
     E_qus *= constants.h2kcalmol
@@ -907,10 +909,11 @@ MTP-MTP
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_j)
         # A: Nuclear - charge, Nuclear - dipole, Nuclear - theta
         E_ZA_qB = T0 * ZA * qB
+        print(f"{ZA} {qB} {T0:.4f} {E_ZA_qB: .4f}")
         E_ZA_uB = np.sum(T1 * ZA * muB)
         E_ZA_QB = np.sum(T2 * ZA * thetaB * c_qQ)
         E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
-        # print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
+        print(f"  Z*q: {E_ZA_qB: .8f}, Z*mu: {E_ZA_uB: .8f}, Z*theta: {E_ZA_QB: .8f}")
         if alpha_i is not None:
             T0, T1, T2 = T_cart_Z_MTP(RA, RB, alpha_i)
         # B: Nuclear - charge, Nuclear - dipole, Nuclear - theta

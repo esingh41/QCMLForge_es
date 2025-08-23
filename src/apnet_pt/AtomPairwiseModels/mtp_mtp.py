@@ -39,51 +39,12 @@ def get_distances(RA, RB, e_source, e_target):
     dR = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
     return dR, dR_xyz
 
-
-def elst_damping_mtp_mtp(alpha_i: float, alpha_j: float, r: float):
-    """
-    # MTP-MTP interaction
-
-    TODO: update this function to take in torch tensors instead of floats.
-    Optimize operations to make code more performant.
-
-    convert function to take in torch tensors and optimally create lam1, lam3, and lam5 tensors
-    """
-    r2 = r**2
-    r3 = r2*r
-    r4 = r2**2
-    r5 = r4*r
-    a1_2 = alpha_i*alpha_i
-    a2_2 = alpha_j*alpha_j
-    a1_3 = a1_2*alpha_i
-    a2_3 = a2_2*alpha_j
-    a1_4 = a1_3*alpha_i
-    a2_4 = a2_3*alpha_j
-    e1r = np.exp(-1.0 * alpha_i * r)
-    e2r = np.exp(-1.0 * alpha_j * r)
-    lam1, lam3, lam5, lam7, lam9 = (1.0, 1.0, 1.0, 1.0, 1.0)
-    if abs(alpha_i - alpha_j) > 1e-6:
-        A = a2_2 / (a2_2 - a1_2)
-        B = a1_2 / (a1_2 - a2_2)
-        lam1 -= A*e1r
-        lam1 -= B*e2r
-        lam3 -= (1.0 + alpha_i*r)*A*e1r
-        lam3 -= (1.0 + alpha_j*r)*B*e2r
-
-        lam5 -= (1.0 + alpha_i*r + (1.0/3.0)*a1_2*r2)*A*e1r
-        lam5 -= (1.0 + alpha_j*r + (1.0/3.0)*a2_2*r2)*B*e2r
-    else:
-        lam1 -= (1.0 + 0.5*alpha_i*r)*e1r
-        lam3 -= (1.0 + alpha_i*r + 0.5*a1_2*r2)*e1r
-        lam5 -= (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
-
-    return lam1, lam3, lam5
-
-
 def elst_damping_mtp_mtp_torch(
-        alpha_i: torch.tensor, alpha_j:
-        torch.tensor,
-        r: torch.tensor
+        alpha_i: torch.tensor,
+        alpha_j: torch.tensor,
+        r: torch.tensor,
+        e_source: torch.tensor,
+        e_target: torch.tensor,
 ):
     """
     # MTP-MTP interaction
@@ -94,14 +55,8 @@ def elst_damping_mtp_mtp_torch(
     convert function to take in torch tensors and optimally create lam1, lam3, and lam5 tensors
     """
     # need to have alpha_i repeated for each atom in j and vice versa
-    nA = alpha_i.shape[0]
-    nB = alpha_j.shape[0]
-    # print(f"{alpha_i=}")
-    # print(f"{alpha_j=}")
-    alpha_i = alpha_i.view(-1, 1).repeat(1, nB).flatten()
-    alpha_j = alpha_j.view(1, -1).repeat(nA, 1).flatten()
-    # print(f"{alpha_i=}")
-    # print(f"{alpha_j=}")
+    alpha_i = alpha_i.index_select(0, e_source)
+    alpha_j = alpha_j.index_select(0, e_target)
     r2 = r**2
     r3 = r2*r
     r4 = r2**2
@@ -121,10 +76,10 @@ def elst_damping_mtp_mtp_torch(
     diff = torch.abs(alpha_i - alpha_j) > 1e-6
     A = torch.where(diff, a2_2 / (a2_2 - a1_2), torch.zeros_like(r))
     B = torch.where(diff, a1_2 / (a1_2 - a2_2), torch.zeros_like(r))
-    print(f"{e1r=}")
-    print(f"{A=}")
-    print(f"{B=}")
-    print(f"{diff=}")
+    # print(f"{e1r=}")
+    # print(f"{A=}")
+    # print(f"{B=}")
+    # print(f"{diff=}")
     lam1 = torch.where(
         diff,
         1 - A*e1r - B*e2r,
@@ -137,11 +92,10 @@ def elst_damping_mtp_mtp_torch(
     )
     lam5 = torch.where(
         diff,
-        1 - (1.0 + alpha_i*r + (1.0/3.0)*a1_2*r2)*A*e1r - (1.0 + alpha_j*r + (1.0/3.0)*a2_2*r2)*B*e2r,
+        1 - (1.0 + alpha_i*r + (1.0/3.0)*a1_2*r2)*A*e1r -
+        (1.0 + alpha_j*r + (1.0/3.0)*a2_2*r2)*B*e2r,
         1 - (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
     )
-    print(f"{lam1=}")
-    lam3 = lam3.unsqueeze(1).repeat(1, 3)
     # print(f"{lam3=}")
     return lam1, lam3, lam5
 
@@ -166,12 +120,19 @@ def mtp_elst_damping(
 ):
     # print(dR_ang)
     # print(lam1, lam3, lam5)
+    # print(f"{RA=}")
+    # print(f"{RB=}")
     dR, dR_xyz = get_distances(RA, RB, e_AB_source, e_AB_target)
     dR = dR_ang / constants.au2ang
     dR_xyz = dR_xyz_ang / constants.au2ang
     oodR = 1.0 / dR
 
-    lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(Ka, Kb, dR)
+    ZA_q = ZA.index_select(0, e_AB_source)
+    ZB_q = ZB.index_select(0, e_AB_target)
+    qA -= ZA
+    qB -= ZB
+
+    lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
 
     # Identity for 3D
     delta = torch.eye(3, device=qA.device)
@@ -183,33 +144,50 @@ def mtp_elst_damping(
     muA_source = muA.index_select(0, e_AB_source)
     muB_source = muB.index_select(0, e_AB_target)
 
+    # TF implementation uses 3/2 factor for quadrupoles
+    # quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_AB_source)
+    # quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_AB_target)
     quadA_source = quadA.index_select(0, e_AB_source)
     quadB_source = quadB.index_select(0, e_AB_target)
-    T0 = oodR * lam1
-    print(f"{oodR=}")
-    print(f"{T0=}")
-    E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR) * lam1
 
-    T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz) * lam3
-    # print(f"{T1=}")
-    # print(f"{lam3=}")
-    qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
-        "x,xy->xy", qB_source, muA_source
-    )
-    E_qu = torch.einsum("xy,xy->x", T1, qu)
+    E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
+    
+    T1 = torch.einsum('x,xy->xy', oodR ** 3, -1.0 * dR_xyz)
+    qu = torch.einsum('x,xy->xy', qA_source, muB_source) - torch.einsum('x,xy->xy', qB_source, muA_source)
+    E_qu = torch.einsum('xy,xy->x', T1, qu)
 
-    T2 = 3 * torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz) * lam5 - torch.einsum(
-        "x,x,yz->xyz", dR, dR, delta
-    ) * lam3
-    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+    T2 = 3 * torch.einsum('xy,xz->xyz', dR_xyz, dR_xyz) - torch.einsum('x,x,yz->xyz', dR, dR, delta)
+    T2 = torch.einsum('x,xyz->xyz', oodR ** 5, T2)
 
-    E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2)
+    E_uu = -1.0 * torch.einsum('xy,xz,xyz->x', muA_source, muB_source, T2)
 
-    qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
-    qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
-    E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source)
+    qA_quadB_source = torch.einsum('x,xyz->xyz', qA_source, quadB_source)
+    qB_quadA_source = torch.einsum('x,xyz->xyz', qB_source, quadA_source)
+    E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source + qB_quadA_source)  / 3.0
 
-    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu)
+    # ZA-ZB
+    E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
+
+    # ZA-MB
+    E_ZA_qB = torch.einsum("x,x,x->x", ZA_q, qB_source, oodR)
+    E_ZA_uB = torch.einsum('xy,x,xy->x', T1, ZA_q, muB_source)
+    E_ZA_MB = E_ZA_qB + E_ZA_uB
+    # print(f"{ZA_q=}\n{qB_source=}\n{oodR=}")
+    # print(f"{E_ZA_MB=}")
+    # ZB-MA
+    E_ZB_qA = torch.einsum("x,x,x->x", ZB_q, qA_source, oodR)
+    E_ZB_uA = torch.einsum('xy,x,xy->x', -T1, ZB_q, muA_source)
+    E_ZB_MA = E_ZB_qA + E_ZB_uA
+    # print(f"{E_ZB_MA=}")
+
+    MTP_MTP = torch.sum(E_qq + E_qu + E_qQ + E_uu)
+    print(f"E_ZA_ZB: {torch.sum(E_ZA_ZB) * 627.5094737775374:.4f}")
+    print(f"E_ZA_MB: {torch.sum(E_ZA_MB) * 627.5094737775374:.4f}")
+    print(f"E_ZB_MA: {torch.sum(E_ZB_MA) * 627.5094737775374:.4f}")
+    print(f"MTP-MTP: {MTP_MTP * 627.5094737775374:.4f}")
+    print(f"Total  : {(MTP_MTP + torch.sum(E_ZA_ZB + E_ZA_MB + E_ZB_MA))* 627.5094737775374:.4f}")
+
+    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
     return E_elst
 
 
