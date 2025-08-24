@@ -8,7 +8,7 @@ python3 -u ./train_models.py \
     --n_epochs 150 \
     --n_neuron 64 \
     --data_dir ./data_dimer_$iter \
-    --spec_type_ap 7 \
+    --spec_type_ap 2 \
 
 
 # python3 -u ./train_models.py \

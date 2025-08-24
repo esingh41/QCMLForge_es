@@ -36,14 +36,18 @@ def qcel_dimer_to_fused_data(dimer, r_cut=5.0, r_cut_im=8.0, **kwargs):
     )
 
 
-def assert_molecule_featurization_is_valid(atomic_props):
+def assert_molecule_featurization_is_valid(atomic_props, dimer_ind):
     if len(atomic_props.molecule_ind) == 1:
-        # single atom molecule should not have edges
-        return
-        
+        return True
+
     edge_index = atomic_props.edge_index
     atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
-    keep_mask = torch.isin(torch.arange(len(atomic_props.molecule_ind), device=atomic_props.molecule_ind.device), atoms_with_edges)
+    keep_mask = torch.isin(
+        torch.arange(
+            len(atomic_props.molecule_ind), device=atomic_props.molecule_ind.device
+        ),
+        atoms_with_edges,
+    )
     # all valid molecules will have edges
     if not keep_mask.all():
         print(
@@ -51,6 +55,7 @@ def assert_molecule_featurization_is_valid(atomic_props):
             "Some atoms in the molecule do not have edges."
             f"atomic_props:\n{atomic_props}. Skipping this data point."
         )
+        torch.save(atomic_props, f"invalid_molecule_{dimer_ind}.pt")
         return False
     return True
 
@@ -71,10 +76,10 @@ def dimer_fused_data(
     atomic_props_A = atomic_datasets.create_atomic_data(ZA, RA, TQA, r_cut=r_cut)
     atomic_props_B = atomic_datasets.create_atomic_data(ZB, RB, TQB, r_cut=r_cut)
     if check_validity:
-        valid = assert_molecule_featurization_is_valid(atomic_props_A)
+        valid = assert_molecule_featurization_is_valid(atomic_props_A, dimer_ind)
         if not valid:
             return None
-        valid = assert_molecule_featurization_is_valid(atomic_props_B)
+        valid = assert_molecule_featurization_is_valid(atomic_props_B, dimer_ind)
         if not valid:
             return None
     e_AA_source, e_AA_target = pairwise_edges(atomic_props_A.R, r_cut)
@@ -858,6 +863,7 @@ class ap2_fused_module_dataset(Dataset):
                 y=y,
             )
             if data is None:
+                print(data)
                 print(f"Skipping invalid dimer index {i}")
                 continue
             data = data.cpu()
@@ -940,7 +946,7 @@ class ap2_fused_module_dataset(Dataset):
         except Exception:
             print(
                 f"Error loading {datapath}\n    at {
-                    idx=}, {idx_datapath=}, {obj_ind=}"
+                    idx = }, {idx_datapath = }, {obj_ind = }"
             )
         return self.active_data[obj_ind]
 
