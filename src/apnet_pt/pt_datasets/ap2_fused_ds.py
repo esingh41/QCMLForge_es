@@ -46,12 +46,13 @@ def assert_molecule_featurization_is_valid(atomic_props):
     keep_mask = torch.isin(torch.arange(len(atomic_props.molecule_ind), device=atomic_props.molecule_ind.device), atoms_with_edges)
     # all valid molecules will have edges
     if not keep_mask.all():
-        raise ValueError(
+        print(
             "Molecule featurization is invalid. "
             "Some atoms in the molecule do not have edges."
-            f"atomic_props:\n{atomic_props}"
+            f"atomic_props:\n{atomic_props}. Skipping this data point."
         )
-    return
+        return False
+    return True
 
 
 def dimer_fused_data(
@@ -70,8 +71,12 @@ def dimer_fused_data(
     atomic_props_A = atomic_datasets.create_atomic_data(ZA, RA, TQA, r_cut=r_cut)
     atomic_props_B = atomic_datasets.create_atomic_data(ZB, RB, TQB, r_cut=r_cut)
     if check_validity:
-        assert_molecule_featurization_is_valid(atomic_props_A)
-        assert_molecule_featurization_is_valid(atomic_props_B)
+        valid = assert_molecule_featurization_is_valid(atomic_props_A)
+        if not valid:
+            return None
+        valid = assert_molecule_featurization_is_valid(atomic_props_B)
+        if not valid:
+            return None
     e_AA_source, e_AA_target = pairwise_edges(atomic_props_A.R, r_cut)
     e_BB_source, e_BB_target = pairwise_edges(atomic_props_B.R, r_cut)
     e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = pairwise_edges_im(
@@ -852,6 +857,9 @@ class ap2_fused_module_dataset(Dataset):
                 check_validity=self.check_monomer_validity,
                 y=y,
             )
+            if data is None:
+                print(f"Skipping invalid dimer index {i}")
+                continue
             data = data.cpu()
             if self.pre_filter is not None and not self.pre_filter(data):
                 continue
