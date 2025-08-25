@@ -1438,7 +1438,7 @@ def test_mtp_mtp_elst_dataset():
         n_epochs=500,
         skip_compile=False,
         lr=5e-3,
-        model_path='nan.pt',
+        # model_path='nan.pt',
     )
 
 
