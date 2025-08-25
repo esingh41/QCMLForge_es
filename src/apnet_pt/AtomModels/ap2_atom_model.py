@@ -294,7 +294,7 @@ class AtomMPNN(MessagePassing):
         if edge_index.size(1) == 0:
             # need h_list to have the same number of dimensions as the number of message passing layers
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
-            h_list = torch.stack(h_list, dim=1)
+            h_list = torch.stack(h_list, dim=0)
             molecule_ind.requires_grad_(False)
             molecule_ind = molecule_ind.long()
             total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")

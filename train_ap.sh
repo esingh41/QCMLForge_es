@@ -3,7 +3,7 @@ python3 -u ./train_models.py \
     --train_apnet AM-DimerParam \
     --am_model_path ./models/am_ensemble/am_$iter.pt \
     --random_seed $iter \
-    --lr 5e-4 \
+    --lr 5e-5 \
     --ap_model_path ./models/am_dimer_ensemble/am_dimer_elst_damp_$iter.pt \
     --n_epochs 150 \
     --n_neuron 64 \

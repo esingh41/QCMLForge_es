@@ -18,7 +18,6 @@ from .. import constants
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
@@ -33,6 +32,103 @@ class NoisyConstantEmbedding(nn.Embedding):
         super().__init__(num_embeddings, embedding_dim)
         with torch.no_grad():
             self.weight.copy_(mean + std * torch.randn_like(self.weight))
+
+
+class DimerProp(nn.Module):
+    def __init__(self, ATParam, dimer_eval="elst_damping"):
+        super().__init__()
+        self.AtomTypeParam = ATParam
+        if dimer_eval == "elst_damping":
+            self.forward = self._elst_damping_forward
+        elif dimer_eval == "elst":
+            self.forward = self._elst_forward
+        else:
+            raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
+        return
+
+    def _elst_damping_forward(
+        self,
+        batch,
+    ):
+        qA, muA, thetaA, hA, K_i = self.AtomTypeParam(
+            Data(
+                x=batch.ZA,
+                R=batch.RA,
+                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
+                molecule_ind=batch.molecule_ind_A,
+                total_charge=batch.total_charge_A,
+                natom_per_mol=batch.natom_per_mol_A,
+            )
+        )
+        # print(f"{qA=}, {muA=}, {thetaA=}, {K_i=}, {hA=}")
+        qB, muB, thetaB, hB, K_j = self.AtomTypeParam(
+            Data(
+                x=batch.ZB,
+                R=batch.RB,
+                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
+                molecule_ind=batch.molecule_ind_B,
+                total_charge=batch.total_charge_B,
+                natom_per_mol=batch.natom_per_mol_B,
+            )
+        )
+        # print(f"{qB=}, {muB=}, {thetaB=}, {K_j=}, {hB=}")
+        Elst = mtp_elst_damping(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=qA,
+            muA=muA,
+            quadA=thetaA,
+            Ka=K_i,
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=qB,
+            muB=muB,
+            quadB=thetaB,
+            Kb=K_j,
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+        )
+        return Elst
+
+    def _elst_forward(
+        self,
+        batch,
+    ):
+        qA, muA, thetaA, _, K_i = self.AtomTypeParam(
+            Data(
+                x=batch.ZA,
+                R=batch.RA,
+                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
+                molecule_ind=batch.molecule_ind_A,
+                total_charge=batch.total_charge_A,
+                natom_per_mol=batch.natom_per_mol_A,
+            )
+        )
+        qB, muB, thetaB, _, K_j = self.AtomTypeParam(
+            Data(
+                x=batch.ZB,
+                R=batch.RB,
+                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
+                molecule_ind=batch.molecule_ind_B,
+                total_charge=batch.total_charge_B,
+                natom_per_mol=batch.natom_per_mol_B,
+            )
+        )
+        Elst = mtp_elst(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=qA,
+            muA=muA,
+            quadA=thetaA,
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=qB,
+            muB=muB,
+            quadB=thetaB,
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+        )
+        return Elst
 
 
 class AtomTypeParamNN(nn.Module):
@@ -108,21 +204,20 @@ class AtomTypeParamNN(nn.Module):
         )
         Z = x
         K = self.guess_layer(Z)
+        # print(f"{K=}, {h_list=}")
         atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
         keep_mask = torch.isin(
             torch.arange(len(molecule_ind), device=molecule_ind.device),
             atoms_with_edges,
         )
         K_filtered = K[keep_mask]
+        # print(f"{K_filtered=}")
         for i in range(self.n_message):
             param_update = self.damping_elst_readout_layers[i](h_list[i + 1])
             K_filtered += param_update
-        K[keep_mask] = torch.relu(K_filtered) # + 1.00001
+            # print(f"Layer {i}, {param_update=}, {K_filtered=}")
+        K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
         return charge, dipole, qpole, h_list, K.squeeze(-1)
-
-
-def unwrap_model(model):
-    return model.module if isinstance(model, DDP) else model
 
 
 def get_distances(RA, RB, e_source, e_target):
@@ -133,12 +228,13 @@ def get_distances(RA, RB, e_source, e_target):
     return dR, dR_xyz
 
 
+@torch.compile
 def elst_damping_mtp_mtp_torch(
-        alpha_i: torch.tensor,
-        alpha_j: torch.tensor,
-        r: torch.tensor,
-        e_source: torch.tensor,
-        e_target: torch.tensor,
+    alpha_i: torch.tensor,
+    alpha_j: torch.tensor,
+    r: torch.tensor,
+    e_source: torch.tensor,
+    e_target: torch.tensor,
 ):
     """
     # MTP-MTP interaction
@@ -147,15 +243,10 @@ def elst_damping_mtp_mtp_torch(
     alpha_i = alpha_i.index_select(0, e_source)
     alpha_j = alpha_j.index_select(0, e_target)
     r2 = r**2
-    r3 = r2*r
-    r4 = r2**2
-    r5 = r4*r
-    a1_2 = alpha_i*alpha_i
-    a2_2 = alpha_j*alpha_j
-    a1_3 = a1_2*alpha_i
-    a2_3 = a2_2*alpha_j
-    a1_4 = a1_3*alpha_i
-    a2_4 = a2_3*alpha_j
+    r3 = r2 * r
+    a1_2 = alpha_i * alpha_i
+    a2_2 = alpha_j * alpha_j
+    a1_3 = a1_2 * alpha_i
     lam1 = torch.ones_like(r)
     lam3 = torch.ones_like(r)
     lam5 = torch.ones_like(r)
@@ -164,31 +255,28 @@ def elst_damping_mtp_mtp_torch(
     diff = torch.abs(alpha_i - alpha_j) > 1e-6
     A = torch.where(diff, a2_2 / (a2_2 - a1_2), torch.zeros_like(r))
     B = torch.where(diff, a1_2 / (a1_2 - a2_2), torch.zeros_like(r))
-    lam1 = torch.where(
-        diff,
-        1 - A*e1r - B*e2r,
-        1 - (1.0 + 0.5*alpha_i*r)*e1r
-    )
+    lam1 = torch.where(diff, 1 - A * e1r - B * e2r, 1 - (1.0 + 0.5 * alpha_i * r) * e1r)
     lam3 = torch.where(
         diff,
-        1 - (1.0 + alpha_i*r)*A*e1r - (1.0 + alpha_j*r)*B*e2r,
-        1 - (1.0 + alpha_i*r + 0.5*a1_2*r2)*e1r
+        1 - (1.0 + alpha_i * r) * A * e1r - (1.0 + alpha_j * r) * B * e2r,
+        1 - (1.0 + alpha_i * r + 0.5 * a1_2 * r2) * e1r,
     )
     lam5 = torch.where(
         diff,
-        1 - (1.0 + alpha_i*r + (1.0/3.0)*a1_2*r2)*A*e1r -
-        (1.0 + alpha_j*r + (1.0/3.0)*a2_2*r2)*B*e2r,
-        1 - (1.0 + alpha_i*r + 0.5*a1_2*r2 + (1.0/6.0)*a1_3*r3)*e1r
+        1
+        - (1.0 + alpha_i * r + (1.0 / 3.0) * a1_2 * r2) * A * e1r
+        - (1.0 + alpha_j * r + (1.0 / 3.0) * a2_2 * r2) * B * e2r,
+        1 - (1.0 + alpha_i * r + 0.5 * a1_2 * r2 + (1.0 / 6.0) * a1_3 * r3) * e1r,
     )
     return lam1, lam3, lam5
 
-
+@torch.compile
 def elst_damping_Z_mtp_torch(
-        alpha_i: torch.tensor,
-        alpha_j: torch.tensor,
-        r: torch.tensor,
-        e_source: torch.tensor,
-        e_target: torch.tensor,
+    alpha_i: torch.tensor,
+    alpha_j: torch.tensor,
+    r: torch.tensor,
+    e_source: torch.tensor,
+    e_target: torch.tensor,
 ):
     """
     # Z-MTP interaction
@@ -197,18 +285,27 @@ def elst_damping_Z_mtp_torch(
     alpha_i = alpha_i.index_select(0, e_source)
     alpha_j = alpha_j.index_select(0, e_target)
     lam1_j = 1.0 - torch.exp(-1.0 * torch.multiply(alpha_j, r))
-    lam3_j = 1.0 - (1.0 + torch.multiply(alpha_j, r)) * \
-        torch.exp(-1.0*torch.multiply(alpha_j, r))
-    lam5_j = 1.0 - (1.0 + torch.multiply(alpha_j, r) + (1.0/3.0)*torch.multiply(
-        torch.square(alpha_j), r**2)) * torch.exp(-1.0*torch.multiply(alpha_j, r))
+    lam3_j = 1.0 - (1.0 + torch.multiply(alpha_j, r)) * torch.exp(
+        -1.0 * torch.multiply(alpha_j, r)
+    )
+    lam5_j = 1.0 - (
+        1.0
+        + torch.multiply(alpha_j, r)
+        + (1.0 / 3.0) * torch.multiply(torch.square(alpha_j), r**2)
+    ) * torch.exp(-1.0 * torch.multiply(alpha_j, r))
     lam1_i = 1.0 - torch.exp(-1.0 * torch.multiply(alpha_i, r))
-    lam3_i = 1.0 - (1.0 + torch.multiply(alpha_i, r)) * \
-        torch.exp(-1.0*torch.multiply(alpha_i, r))
-    lam5_i = 1.0 - (1.0 + torch.multiply(alpha_i, r) + (1.0/3.0)*torch.multiply(
-        torch.square(alpha_i), r**2)) * torch.exp(-1.0*torch.multiply(alpha_i, r))
+    lam3_i = 1.0 - (1.0 + torch.multiply(alpha_i, r)) * torch.exp(
+        -1.0 * torch.multiply(alpha_i, r)
+    )
+    lam5_i = 1.0 - (
+        1.0
+        + torch.multiply(alpha_i, r)
+        + (1.0 / 3.0) * torch.multiply(torch.square(alpha_i), r**2)
+    ) * torch.exp(-1.0 * torch.multiply(alpha_i, r))
     return lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i
 
 
+@torch.compile
 def mtp_elst(
     ZA,
     RA,
@@ -253,21 +350,22 @@ def mtp_elst(
 
     E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
 
-    T1 = torch.einsum('x,xy->xy', oodR ** 3, -1.0 * dR_xyz)
-    qu = torch.einsum('x,xy->xy', qA_source, muB_source) - \
-        torch.einsum('x,xy->xy', qB_source, muA_source)
-    E_qu = torch.einsum('xy,xy->x', T1, qu)
+    T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
+    qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
+        "x,xy->xy", qB_source, muA_source
+    )
+    E_qu = torch.einsum("xy,xy->x", T1, qu)
 
-    T2 = 3 * torch.einsum('xy,xz->xyz', dR_xyz, dR_xyz) - \
-        torch.einsum('x,x,yz->xyz', dR, dR, delta)
-    T2 = torch.einsum('x,xyz->xyz', oodR ** 5, T2)
+    T2 = 3 * torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz) - torch.einsum(
+        "x,x,yz->xyz", dR, dR, delta
+    )
+    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
 
-    E_uu = -1.0 * torch.einsum('xy,xz,xyz->x', muA_source, muB_source, T2)
+    E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2)
 
-    qA_quadB_source = torch.einsum('x,xyz->xyz', qA_source, quadB_source)
-    qB_quadA_source = torch.einsum('x,xyz->xyz', qB_source, quadA_source)
-    E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source +
-                        qB_quadA_source) / Q_const
+    qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
+    qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
+    E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source) / Q_const
 
     # ZA-ZB
     E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
@@ -275,20 +373,20 @@ def mtp_elst(
     # TODO Z-M damping
     # ZA-MB
     E_ZA_qB = torch.einsum("x,x,x->x", ZA_q, qB_source, oodR)
-    E_ZA_uB = torch.einsum('xy,x,xy->x', T1, ZA_q, muB_source)
-    E_ZA_QB = torch.einsum('xyz,x,xyz->x', T2, ZA_q, quadB_source) / Q_const
+    E_ZA_uB = torch.einsum("xy,x,xy->x", T1, ZA_q, muB_source)
+    E_ZA_QB = torch.einsum("xyz,x,xyz->x", T2, ZA_q, quadB_source) / Q_const
     E_ZA_MB = E_ZA_qB + E_ZA_uB + E_ZA_QB
     # ZB-MA
     E_ZB_qA = torch.einsum("x,x,x->x", ZB_q, qA_source, oodR)
-    E_ZB_uA = torch.einsum('xy,x,xy->x', -T1, ZB_q, muA_source)
-    E_ZB_QA = torch.einsum('xyz,x,xyz->x', T2, ZB_q, quadA_source) / Q_const
+    E_ZB_uA = torch.einsum("xy,x,xy->x", -T1, ZB_q, muA_source)
+    E_ZB_QA = torch.einsum("xyz,x,xyz->x", T2, ZB_q, quadA_source) / Q_const
     E_ZB_MA = E_ZB_qA + E_ZB_uA + E_ZB_QA
 
-    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu +
-                        E_ZA_ZB + E_ZA_MB + E_ZB_MA)
+    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
     return E_elst
 
 
+@torch.compile
 def mtp_elst_damping(
     ZA,
     RA,
@@ -312,10 +410,13 @@ def mtp_elst_damping(
     oodR = 1.0 / dR
     delta = torch.eye(3, device=qA.device)
 
-    lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(
-        Ka, Kb, dR, e_AB_source, e_AB_target)
-    lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = elst_damping_Z_mtp_torch(
-        Ka, Kb, dR, e_AB_source, e_AB_target)
+    lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
+    lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = (
+        elst_damping_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
+    )
+    # print(f"{lam1=}, {lam3=}, {lam5=}")
+    # print(f"{lam1_ZA_MB=}, {lam3_ZA_MB=}, {lam5_ZA_MB=}")
+    # print(f"{lam1_ZB_MA=}, {lam3_ZB_MA=}, {lam5_ZB_MA=}")
 
     # Nuclear Charge Subtraction
     ZA_q = ZA.index_select(0, e_AB_source)
@@ -332,41 +433,43 @@ def mtp_elst_damping(
 
     E_qq = torch.einsum("x,x,x,x->x", qA_source, qB_source, oodR, lam1)
 
-    T1 = torch.einsum('x,xy->xy', oodR ** 3, -1.0 * dR_xyz)
-    qu = torch.einsum('x,xy->xy', qA_source, muB_source) - \
-        torch.einsum('x,xy->xy', qB_source, muA_source)
-    E_qu = torch.einsum('xy,xy,x->x', T1, qu, lam3)
+    T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
+    qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
+        "x,xy->xy", qB_source, muA_source
+    )
+    E_qu = torch.einsum("xy,xy,x->x", T1, qu, lam3)
 
-    T2 = 3 * torch.einsum('xy,xz,x->xyz', dR_xyz, dR_xyz, lam5) - \
-        torch.einsum('x,x,yz,x->xyz', dR, dR, delta, lam3)
-    T2 = torch.einsum('x,xyz->xyz', oodR ** 5, T2)
+    T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam5) - torch.einsum(
+        "x,x,yz,x->xyz", dR, dR, delta, lam3
+    )
+    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
 
-    E_uu = -1.0 * torch.einsum('xy,xz,xyz->x', muA_source, muB_source, T2)
+    E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2)
 
-    qA_quadB_source = torch.einsum('x,xyz->xyz', qA_source, quadB_source)
-    qB_quadA_source = torch.einsum('x,xyz->xyz', qB_source, quadA_source)
-    E_qQ = torch.einsum('xyz,xyz->x', T2, qA_quadB_source +
-                        qB_quadA_source) / Q_const
+    qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
+    qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
+    E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source) / Q_const
 
     # ZA-ZB
     E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
 
     # ZA-MB
     E_ZA_MB = torch.einsum("x,x,x,x->x", ZA_q, qB_source, oodR, lam1_ZA_MB)
-    E_ZA_MB += torch.einsum('xy,x,x,xy->x', T1, lam3_ZA_MB, ZA_q, muB_source)
-    T2 = 3 * torch.einsum('xy,xz,x->xyz', dR_xyz, dR_xyz, lam5_ZA_MB) - \
-        torch.einsum('x,x,yz,x->xyz', dR, dR, delta, lam3_ZA_MB)
-    T2 = torch.einsum('x,xyz->xyz', oodR ** 5, T2)
-    E_ZA_MB += torch.einsum('xyz,x,xyz->x', T2, ZA_q, quadB_source) / Q_const
+    E_ZA_MB += torch.einsum("xy,x,x,xy->x", T1, lam3_ZA_MB, ZA_q, muB_source)
+    T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam5_ZA_MB) - torch.einsum(
+        "x,x,yz,x->xyz", dR, dR, delta, lam3_ZA_MB
+    )
+    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+    E_ZA_MB += torch.einsum("xyz,x,xyz->x", T2, ZA_q, quadB_source) / Q_const
     # ZB-MA
-    T2 = 3 * torch.einsum('xy,xz,x->xyz', dR_xyz, dR_xyz, lam5_ZB_MA) - \
-        torch.einsum('x,x,yz,x->xyz', dR, dR, delta, lam3_ZB_MA)
-    T2 = torch.einsum('x,xyz->xyz', oodR ** 5, T2)
+    T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam5_ZB_MA) - torch.einsum(
+        "x,x,yz,x->xyz", dR, dR, delta, lam3_ZB_MA
+    )
+    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
     E_ZB_MA = torch.einsum("x,x,x,x->x", ZB_q, qA_source, oodR, lam1_ZB_MA)
-    E_ZB_MA += torch.einsum('xy,x,x,xy->x', -T1, lam3_ZB_MA, ZB_q, muA_source)
-    E_ZB_MA += torch.einsum('xyz,x,xyz->x', T2, ZB_q, quadA_source) / Q_const
-    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu +
-                        E_ZA_ZB + E_ZA_MB + E_ZB_MA)
+    E_ZB_MA += torch.einsum("xy,x,x,xy->x", -T1, lam3_ZB_MA, ZB_q, muA_source)
+    E_ZB_MA += torch.einsum("xyz,x,xyz->x", T2, ZB_q, quadA_source) / Q_const
+    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
     return E_elst
 
 
@@ -400,6 +503,7 @@ class AM_DimerParam_Model:
         print_lvl=0,
         ds_qcel_molecules=None,
         ds_energy_labels=None,
+        dimer_eval_type="elst_damping",
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -447,8 +551,7 @@ class AM_DimerParam_Model:
 """
             )
         if pre_trained_model_path:
-            print(
-                f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
+            print(f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = AtomTypeParamNN(
                 atom_model=self.atom_model,
@@ -472,13 +575,14 @@ class AM_DimerParam_Model:
                 param_start_mean=param_start_mean,
                 param_start_std=param_start_std,
             )
+        self.dimer_eval_type = dimer_eval_type
+        self.dimer_model = DimerProp(self.model, dimer_eval=dimer_eval_type)
+        self.dimer_model_elst = DimerProp(self.model, dimer_eval="elst")
         if n_message != self.model.n_message:
-            print(
-                f"Changing n_message from {self.model.n_message} to {n_message}")
+            print(f"Changing n_message from {self.model.n_message} to {n_message}")
             self.model.n_message = n_message
         if n_neuron != self.model.n_neuron:
-            print(
-                f"Changing n_neuron from {self.model.n_neuron} to {n_neuron}")
+            print(f"Changing n_neuron from {self.model.n_neuron} to {n_neuron}")
             self.model.n_neuron = n_neuron
         if n_embed != self.model.n_embed:
             print(f"Changing n_embed from {self.model.n_embed} to {n_embed}")
@@ -647,23 +751,41 @@ class AM_DimerParam_Model:
         self,
         mols,
         batch_size=1,
-        r_cut=5.0,
+        r_cut=999999,
     ):
         dimer_batch = ap2_fused_collate_update_no_target(
             [
                 qcel_dimer_to_fused_data(
-                    mol, r_cut=r_cut, dimer_ind=n, r_cut_im=torch.inf)
+                    mol, r_cut=r_cut, dimer_ind=n, r_cut_im=torch.inf
+                )
                 for n, mol in enumerate(mols)
             ]
         )
         batch = Data(
             x=dimer_batch.ZA,
             R=dimer_batch.RA,
-            edge_index=torch.vstack(
-                (dimer_batch.e_AA_source, dimer_batch.e_AA_target)),
+            edge_index=torch.vstack((dimer_batch.e_AA_source, dimer_batch.e_AA_target)),
             molecule_ind=dimer_batch.molecule_ind_A,
             total_charge=dimer_batch.total_charge_A,
             natom_per_mol=dimer_batch.natom_per_mol_A,
+        )
+        batch.to(self.device)
+        return batch
+
+
+    def _qcel_dimer_example_input(
+        self,
+        mols,
+        batch_size=1,
+        r_cut=999999,
+    ):
+        batch = ap2_fused_collate_update_no_target(
+            [
+                qcel_dimer_to_fused_data(
+                    mol, r_cut=r_cut, dimer_ind=n, r_cut_im=torch.inf
+                )
+                for n, mol in enumerate(mols)
+            ]
         )
         batch.to(self.device)
         return batch
@@ -808,7 +930,8 @@ class AM_DimerParam_Model:
             dimer_batch = ap2_fused_collate_update_no_target(
                 [
                     qcel_dimer_to_fused_data(
-                        dimer, r_cut=r_cut, dimer_ind=n, r_cut_im=torch.inf)
+                        dimer, r_cut=r_cut, dimer_ind=n, r_cut_im=torch.inf
+                    )
                     for n, dimer in enumerate(mols[i:upper_bound])
                 ]
             )
@@ -821,13 +944,12 @@ class AM_DimerParam_Model:
                 cutoffs.append(cutoff)
                 dimer_inds.append(dimer_batch.dimer_ind)
                 ndimers.append(
-                    torch.tensor(dimer_batch.total_charge_A.size(
-                        0), dtype=torch.long)
+                    torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long)
                 )
-                predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
             elif return_pairs:
                 E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
-                predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
                 pairwise_energies.extend(
                     self._assemble_pairs(
                         dimer_batch.cpu(),
@@ -839,7 +961,7 @@ class AM_DimerParam_Model:
                 )
             elif return_elst:
                 E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
-                predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
                 pairwise_energies.extend(
                     self._assemble_mtp_pairs(
                         dimer_batch,
@@ -848,7 +970,7 @@ class AM_DimerParam_Model:
                     )
                 )
             else:
-                predictions[i: i + batch_size] = preds[0].cpu().numpy()
+                predictions[i : i + batch_size] = preds[0].cpu().numpy()
         if verbose:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if self.model.return_hidden_states:
@@ -909,47 +1031,14 @@ units angstrom
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
-            qA, muA, thetaA, _, K_i = self.model(
-                Data(
-                    x=batch.ZA,
-                    R=batch.RA,
-                    edge_index=torch.vstack(
-                        (batch.e_AA_source, batch.e_AA_target)),
-                    molecule_ind=batch.molecule_ind_A,
-                    total_charge=batch.total_charge_A,
-                    natom_per_mol=batch.natom_per_mol_A,
-                )
-            )
-            qB, muB, thetaB, _, K_j = self.model(
-                Data(
-                    x=batch.ZB,
-                    R=batch.RB,
-                    edge_index=torch.vstack(
-                        (batch.e_BB_source, batch.e_BB_target)),
-                    molecule_ind=batch.molecule_ind_B,
-                    total_charge=batch.total_charge_B,
-                    natom_per_mol=batch.natom_per_mol_B,
-                )
-            )
-            preds = mtp_elst_damping(
-                ZA=batch.ZA,
-                RA=batch.RA,
-                qA=qA,
-                muA=muA,
-                quadA=thetaA,
-                Ka=K_i,
-                ZB=batch.ZB,
-                RB=batch.RB,
-                qB=qB,
-                muB=muB,
-                quadB=thetaB,
-                Kb=K_j,
-                e_AB_source=batch.e_ABsr_source,
-                e_AB_target=batch.e_ABsr_target,
-            )
             ref = batch.y[:, 0]
+            preds = self.dimer_model(batch)
             preds = scatter(
-                preds, batch.dimer_ind, dim=0, reduce="add", dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+                preds,
+                batch.dimer_ind,
+                dim=0,
+                reduce="add",
+                dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long),
             )
             # print(f"{K_i = }\n{K_j = }\n{preds = }")
             comp_errors = preds - ref
@@ -959,6 +1048,7 @@ units angstrom
                 else loss_fn(preds, ref)
             )
             batch_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.dimer_model.parameters(), max_norm=0.5)
             optimizer.step()
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
@@ -977,47 +1067,16 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                qA, muA, thetaA, _, K_i = self.model(
-                    Data(
-                        x=batch.ZA,
-                        R=batch.RA,
-                        edge_index=torch.vstack(
-                            (batch.e_AA_source, batch.e_AA_target)),
-                        molecule_ind=batch.molecule_ind_A,
-                        total_charge=batch.total_charge_A,
-                        natom_per_mol=batch.natom_per_mol_A,
-                    )
-                )
-                qB, muB, thetaB, _, K_j = self.model(
-                    Data(
-                        x=batch.ZB,
-                        R=batch.RB,
-                        edge_index=torch.vstack(
-                            (batch.e_BB_source, batch.e_BB_target)),
-                        molecule_ind=batch.molecule_ind_B,
-                        total_charge=batch.total_charge_B,
-                        natom_per_mol=batch.natom_per_mol_B,
-                    )
-                )
-                preds = mtp_elst_damping(
-                    ZA=batch.ZA,
-                    RA=batch.RA,
-                    qA=qA,
-                    muA=muA,
-                    quadA=thetaA,
-                    Ka=K_i,
-                    ZB=batch.ZB,
-                    RB=batch.RB,
-                    qB=qB,
-                    muB=muB,
-                    quadB=thetaB,
-                    Kb=K_j,
-                    e_AB_source=batch.e_ABsr_source,
-                    e_AB_target=batch.e_ABsr_target,
-                )
+                preds = self.dimer_model(batch)
                 ref = batch.y[:, 0]
                 preds = scatter(
-                    preds, batch.dimer_ind, dim=0, reduce="add", dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+                    preds,
+                    batch.dimer_ind,
+                    dim=0,
+                    reduce="add",
+                    dim_size=torch.tensor(
+                        batch.total_charge_A.size(0), dtype=torch.long
+                    ),
                 )
                 comp_errors = preds - ref
                 batch_loss = (
@@ -1031,52 +1090,25 @@ units angstrom
         total_MAE_t = torch.mean(torch.abs(comp_errors_t))
         return total_loss, total_MAE_t
 
-    def __evaluate_batches_single_proc_elst_no_damping(self, dataloader, loss_fn, rank_device):
+    def __evaluate_batches_single_proc_elst_no_damping(
+        self, dataloader, loss_fn, rank_device
+    ):
         self.model.eval()
         comp_errors_t = []
         total_loss = 0.0
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                qA, muA, thetaA, _, _ = self.model(
-                    Data(
-                        x=batch.ZA,
-                        R=batch.RA,
-                        edge_index=torch.vstack(
-                            (batch.e_AA_source, batch.e_AA_target)),
-                        molecule_ind=batch.molecule_ind_A,
-                        total_charge=batch.total_charge_A,
-                        natom_per_mol=batch.natom_per_mol_A,
-                    )
-                )
-                qB, muB, thetaB, _, _ = self.model(
-                    Data(
-                        x=batch.ZB,
-                        R=batch.RB,
-                        edge_index=torch.vstack(
-                            (batch.e_BB_source, batch.e_BB_target)),
-                        molecule_ind=batch.molecule_ind_B,
-                        total_charge=batch.total_charge_B,
-                        natom_per_mol=batch.natom_per_mol_B,
-                    )
-                )
-                preds = mtp_elst(
-                    ZA=batch.ZA,
-                    RA=batch.RA,
-                    qA=qA,
-                    muA=muA,
-                    quadA=thetaA,
-                    ZB=batch.ZB,
-                    RB=batch.RB,
-                    qB=qB,
-                    muB=muB,
-                    quadB=thetaB,
-                    e_AB_source=batch.e_ABsr_source,
-                    e_AB_target=batch.e_ABsr_target,
-                )
+                preds = self.dimer_model_elst(batch)
                 ref = batch.y[:, 0]
                 preds = scatter(
-                    preds, batch.dimer_ind, dim=0, reduce="add", dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+                    preds,
+                    batch.dimer_ind,
+                    dim=0,
+                    reduce="add",
+                    dim_size=torch.tensor(
+                        batch.total_charge_A.size(0), dtype=torch.long
+                    ),
                 )
                 comp_errors = preds - ref
                 batch_loss = (
@@ -1089,175 +1121,6 @@ units angstrom
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
         total_MAE_t = torch.mean(torch.abs(comp_errors_t))
         return total_loss, total_MAE_t
-
-    def ddp_train(
-        self,
-        rank,
-        world_size,
-        train_dataset,
-        test_dataset,
-        n_epochs,
-        batch_size,
-        lr,
-        pin_memory,
-        num_workers,
-    ):
-        print(f"{self.device.type=}")
-        if self.device.type == "cpu":
-            rank_device = "cpu"
-        else:
-            rank_device = rank
-        if world_size > 1:
-            self.__setup(rank, world_size)
-        if rank == 0:
-            print("Setup complete")
-
-        self.model = self.model.to(rank_device)
-        print(f"{rank=}, {world_size=}, {rank_device=}")
-        if rank == 0:
-            print("Model Transferred to device")
-        if world_size > 1:
-            first_pass_data = APNet2_fused_DataLoader(
-                dataset=test_dataset[:batch_size],
-                batch_size=batch_size,
-                shuffle=False,
-                num_workers=num_workers,
-                pin_memory=pin_memory,
-                collate_fn=ap2_fused_collate_update,
-            )
-            for b in first_pass_data:
-                b.to(rank_device)
-                self.model(b)
-                break
-            self.model = DDP(
-                self.model,
-            )
-
-        if rank == 0:
-            print("Model DDP wrapped")
-
-        train_sampler = (
-            torch.utils.data.distributed.DistributedSampler(
-                train_dataset, num_replicas=world_size, rank=rank
-            )
-            if world_size > 1
-            else None
-        )
-        test_sampler = (
-            torch.utils.data.distributed.DistributedSampler(
-                test_dataset, num_replicas=world_size, rank=rank, shuffle=False
-            )
-            if world_size > 1
-            else None
-        )
-
-        train_loader = APNet2_fused_DataLoader(
-            dataset=train_dataset,
-            batch_size=batch_size,
-            shuffle=(train_sampler is None),
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-            sampler=train_sampler,
-            collate_fn=ap2_fused_collate_update,
-        )
-
-        test_loader = APNet2_fused_DataLoader(
-            dataset=test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-            sampler=test_sampler,
-            collate_fn=ap2_fused_collate_update,
-        )
-        if rank == 0:
-            print("Loaders setup\n")
-
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-        scheduler = None
-        criterion = None
-        lowest_test_loss = torch.tensor(float("inf"))
-        self.model = self.model.to(rank_device)
-
-        if rank == 0:
-            print(
-                "                                       Total            Elst            Exch            Ind            Disp",
-                flush=True,
-            )
-        t1 = time.time()
-        with torch.no_grad():
-            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-                self.__evaluate_batches(
-                    rank, train_loader, criterion, rank_device)
-            )
-            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(
-                    rank, test_loader, criterion, rank_device)
-            )
-            dt = time.time() - t1
-            if rank == 0:
-                print(
-                    f"  (Pre-training)({dt: < 7.2f} sec)  MAE: {total_MAE_t: > 7.3f}/{
-                        total_MAE_v: < 7.3f
-                    } {elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{
-                        exch_MAE_v: < 7.3f
-                    } {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {disp_MAE_t: > 7.3f}/{
-                        disp_MAE_v: < 7.3f
-                    }",
-                    flush=True,
-                )
-        for epoch in range(n_epochs):
-            t1 = time.time()
-            test_lowered = False
-            train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-                self.__train_batches(
-                    rank,
-                    train_loader,
-                    criterion,
-                    optimizer,
-                    rank_device,
-                    scheduler,
-                )
-            )
-            test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(
-                    rank, test_loader, criterion, rank_device)
-            )
-
-            if rank == 0:
-                if test_loss < lowest_test_loss:
-                    lowest_test_loss = test_loss
-                    test_lowered = "*"
-                    if self.model_save_path:
-                        print("Saving model")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "param_start_mean": cpu_model.param_start_mean,
-                                    "param_start_std": cpu_model.param_start_std,
-                                },
-                            },
-                            self.model_save_path,
-                        )
-                        self.model.to(rank_device)
-                else:
-                    test_lowered = " "
-                dt = time.time() - t1
-                test_loss = 0.0
-                print(
-                    f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  "
-                    "MAE: { total_MAE_t: > 7.3f }/{total_MAE_v: < 7.3f} {elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} { exch_MAE_t: > 7.3f }/{exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} { disp_MAE_t: > 7.3f }/{disp_MAE_v: < 7.3f} {test_lowered}",
-                    flush=True,
-                )
-
-        if world_size > 1:
-            self.__cleanup()
-        return
 
     ########################################################################
     # SINGLE-PROCESS TRAINING
@@ -1321,17 +1184,22 @@ units angstrom
 
         # (5) Evaluate once pre-training
         t0 = time.time()
-        t_out = __evaluate_batch(train_loader, criterion, rank_device)
-        v_out = __evaluate_batch(test_loader, criterion, rank_device)
-        _, no_damping_MAE_t = self.__evaluate_batches_single_proc_elst_no_damping(train_loader, criterion, rank_device)
-        _, no_damping_MAE_v = self.__evaluate_batches_single_proc_elst_no_damping(test_loader, criterion, rank_device)
-        train_loss, total_MAE_t = t_out
-        test_loss, total_MAE_v = v_out
+        _, no_damping_MAE_t = self.__evaluate_batches_single_proc_elst_no_damping(
+            train_loader, criterion, rank_device
+        )
+        _, no_damping_MAE_v = self.__evaluate_batches_single_proc_elst_no_damping(
+            test_loader, criterion, rank_device
+        )
         print(
             f" (No Damping)  ({time.time() - t0: < 7.2f}s)"
-            f" MAE: {no_damping_MAE_t : > 7.3f}/{no_damping_MAE_v : < 7.3f}",
+            f" MAE: {no_damping_MAE_t: > 7.3f}/{no_damping_MAE_v: < 7.3f}",
             flush=True,
         )
+        t0 = time.time()
+        t_out = __evaluate_batch(train_loader, criterion, rank_device)
+        v_out = __evaluate_batch(test_loader, criterion, rank_device)
+        train_loss, total_MAE_t = t_out
+        test_loss, total_MAE_v = v_out
         print(
             f" (Pre-training)({time.time() - t0: < 7.2f}s)"
             f" MAE: {total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}",
@@ -1353,7 +1221,7 @@ units angstrom
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
-                cpu_model = unwrap_model(self.model).to("cpu")
+                cpu_model = self.model.to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
                     torch.save(
@@ -1380,6 +1248,19 @@ units angstrom
                 torch.cuda.empty_cache()
             if torch.isnan(total_MAE_t) or torch.isnan(total_MAE_v):
                 print("NaN detected, stopping training")
+                torch.save(
+                    {
+                        "model_state_dict": cpu_model.state_dict(),
+                        "config": {
+                            "n_message": cpu_model.n_message,
+                            "n_neuron": cpu_model.n_neuron,
+                            "n_embed": cpu_model.n_embed,
+                            "param_start_mean": cpu_model.param_start_mean,
+                            "param_start_std": cpu_model.param_start_std,
+                        },
+                    },
+                    "nan_crash_model.pt",
+                )
                 break
         self.model = best_model
         self.model.to(rank_device)
@@ -1431,19 +1312,16 @@ units angstrom
                 order_indices = np.random.permutation(len(self.dataset))
             else:
                 order_indices = np.arange(len(self.dataset))
-            train_indices = order_indices[: int(
-                len(self.dataset) * split_percent)]
-            test_indices = order_indices[int(
-                len(self.dataset) * split_percent):]
+            train_indices = order_indices[: int(len(self.dataset) * split_percent)]
+            test_indices = order_indices[int(len(self.dataset) * split_percent) :]
             train_dataset = self.dataset[train_indices]
             test_dataset = self.dataset[test_indices]
             batch_size = train_dataset.training_batch_size
         self.batch_size = batch_size
         print("~~ Training Dimer Param ~~", flush=True)
         print(
-            f"    Training on {len(train_dataset)} samples, Testing on {
-                len(test_dataset)
-            } samples"
+            f"    Training on {len(train_dataset)} samples,"
+            " Testing on {len(test_dataset)} samples"
         )
         print("\nNetwork Hyperparameters:", flush=True)
         print(f"  {self.model.n_message=}", flush=True)
@@ -1465,21 +1343,8 @@ units angstrom
 
         if world_size > 1:
             print("Running multi-process training", flush=True)
-            os.environ["OMP_NUM_THREADS"] = str(omp_num_threads_per_process)
-            mp.spawn(
-                self.ddp_train,
-                args=(
-                    world_size,
-                    train_dataset,
-                    test_dataset,
-                    n_epochs,
-                    batch_size,
-                    lr,
-                    pin_memory,
-                    dataloader_num_workers,
-                ),
-                nprocs=world_size,
-                join=True,
+            raise NotImplementedError(
+                "Multi-process training is not implemented for MTP-MTP models."
             )
         else:
             print("Running single-process training", flush=True)

@@ -584,9 +584,8 @@ class ap2_fused_module_dataset(Dataset):
                     "Length of qcel_molecules and energy_labels must match"
                 )
             print(
-                f"Received {
-                    len(qcel_molecules)
-                } QCElemental molecules with energy labels"
+                f"Received {len(qcel_molecules)}"
+                " QCElemental molecules with energy labels"
             )
 
         self.MAX_SIZE = max_size

@@ -80,6 +80,17 @@ mol_A = qcel.models.Molecule.from_data("""
 """)
 
 
+mol_dimer_ion = qcel.models.Molecule.from_data("""
+1 1
+11   -0.702196054   -0.056060256   0.009942262
+--
+0 1
+8   2.268880784   0.026340101   0.000508029
+1   2.645502399   -0.412039965   0.766632411
+1   2.641145101   -0.449872874   -0.744894473
+""")
+
+
 def test_apnet2_dataset_size_no_prebatched():
     batch_size = 2
     atomic_batch_size = 4
@@ -1397,7 +1408,7 @@ def test_mtp_mtp_elst_qcel_mols():
     )
     print(param_mod)
     param_mod.train(
-        n_epochs=25,
+        n_epochs=1000,
         skip_compile=True,
         lr=5e-4,
         split_percent=0.5,
@@ -1414,6 +1425,7 @@ def test_mtp_mtp_elst_dataset():
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ignore_database_null=False,
+        # pre_trained_model_path="nan.pt",
         ds_force_reprocess=True,
         ds_spec_type=7,
         use_GPU=False,
@@ -1423,11 +1435,39 @@ def test_mtp_mtp_elst_dataset():
         n_neuron=32,
     )
     param_mod.train(
-        # n_epochs=500,
-        n_epochs=5,
-        skip_compile=True,
-        lr=5e-4,
+        n_epochs=500,
+        skip_compile=False,
+        lr=5e-3,
+        model_path='nan.pt',
     )
+
+
+def test_mtp_mtp_elst_eval():
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    am.set_pretrained_model(model_id=0)
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        ignore_database_null=False,
+        # pre_trained_model_path="nan.pt",
+        ds_force_reprocess=True,
+        ds_spec_type=7,
+        use_GPU=False,
+        ds_root=data_path,
+        param_start_mean=1.5,
+        param_start_std=0.1,
+        n_neuron=32,
+    )
+    batch = param_mod._qcel_example_input([mol_dimer_ion])
+    v = param_mod.model(batch)
+    print(v[-1])
+    batch = param_mod._qcel_dimer_example_input([mol_dimer_ion])
+    v = param_mod.dimer_model(batch)
+    print(v[-1])
+    return
 
 
 def test_ap2_elst_dataset():
@@ -1455,7 +1495,9 @@ def test_ap2_elst_dataset():
 
 if __name__ == "__main__":
     # test_mtp_mtp_elst_qcel_mols()
+    # test_mtp_mtp_elst_eval()
     test_mtp_mtp_elst_dataset()
+
     # test_ap2_elst_dataset()
     # test_mtp_mtp_elst_dataset()
     # test_apnet2_train_qcel_molecules_in_memory()
