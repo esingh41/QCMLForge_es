@@ -46,7 +46,7 @@ echo "
         if submit:
             os.system(f'sbatch {fn}')
 
-def create_sbatch_am_non_eq-ddp(submit=False):
+def create_sbatch_am_non_eq_ddp(submit=False):
     for i in range(0, 5):
         fn = f"train_am_non_eq_ddp_{i}.sbatch"
         #os.system(f"cp -r data_dir data_{i}")
@@ -65,21 +65,23 @@ def create_sbatch_am_non_eq-ddp(submit=False):
             f.write(f"""#!/bin/bash
 #SBATCH -J AM_non_eq_model_{i}
 #SBATCH -o AM_non_eq_model_{i}_ddp_training.out
-#SBATCH -Agts-cs207-chemx
+#SBATCH -Ahive-cs207
 #SBATCH --open-mode=append
-#SBATCH -N1 --ntasks=1 --cpus-per-task=8 -G1
-#SBATCH --gres=gpu:1
+#SBATCH -N 1 --ntasks=1 --cpus-per-task=16
 #SBATCH --mem-per-cpu=12G
-#SBATCH -t72:00:00
-#SBATCH -pgpu-a100
+#SBATCH -t119:00:00
+#SBATCH -phive
 #SBATCH --mail-type=START,END,FAIL
 #SBATCH --mail-user=esingh41@gatech.edu
 
+module load anaconda3
+conda activate /storage/hive/project/chem-sherrill/esingh41/.conda/envs/qcml
 
-cd /storage/home/hcoda1/1/esingh41/gits/QCMLForge_es
-module load cuda/12.6.1
-source /storage/home/hcoda1/1/esingh41/p-cs207-0/miniconda3/etc/profile.d/conda.sh
-conda activate /storage/home/hcoda1/1/esingh41/p-cs207-0/miniconda3/envs/qcml
+export PYTHONPATH=/storage/hive/project/chem-sherrill/esingh41/QCMLForge_es/src:$PYTHONPATH
+which python
+
+export SCRATCH=${{TMPDIR}}
+export PSI_SCRATCH=${{TMPDIR}}
 
 iter={i}
 echo "
