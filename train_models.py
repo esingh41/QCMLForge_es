@@ -17,6 +17,8 @@ def train_atom_model(
     n_epochs=500,
     random_seed=42,
     ds_max_size=None,
+    world_size=1,
+    omp_num_threads=1,
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
@@ -44,6 +46,9 @@ def train_atom_model(
         use_GPU=True,
         pre_trained_model_path=pretrained_model,
     )
+    dataloader_num_workers = 0
+    if torch.cuda.is_available() and omp_num_threads > 2:
+        dataloader_num_workers = omp_num_threads - 2
     print(atom_model.dataset)
     atom_model.train(
         n_epochs=n_epochs,
@@ -52,9 +57,9 @@ def train_atom_model(
         split_percent=0.9,
         model_path=model_path,
         shuffle=True,
-        dataloader_num_workers=7,
-        world_size=1,
-        omp_num_threads_per_process=8,
+        dataloader_num_workers=dataloader_num_workers,
+        world_size=world_size,
+        omp_num_threads_per_process=omp_num_threads,
         random_seed=random_seed,
     )
     return
@@ -358,6 +363,18 @@ def main():
         default=0.1,
         help="specify AM-DimerParam Embedding Start std (default: 0.1)"
     )
+    args.add_argument(
+        "--world_size_ddp",
+        type=int,
+        default=1,
+        help="specify world_size for DDP only for AtomModels currently (default: 1)"
+    )
+    args.add_argument(
+        "--omp_num_threads",
+        type=int,
+        default=1,
+        help="specify omp_num_threads for DDP only for AtomModels currently (default: 1)"
+    )
     args = args.parse_args()
     pprint(args)
     set_all_seeds(args.random_seed)
@@ -370,6 +387,8 @@ def main():
             n_epochs=args.n_epochs_atom,
             random_seed=args.random_seed,
             ds_max_size=args.ds_max_size,
+            world_size=args.world_size_ddp,
+            omp_num_threads=args.omp_num_threads,
         )
     if args.train_apnet != "":
         train_pairwise_model(

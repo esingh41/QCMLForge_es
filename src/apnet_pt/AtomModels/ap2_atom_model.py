@@ -701,9 +701,9 @@ units angstrom
                 batch_loss = charge_loss + dipole_loss + qpole_loss
                 total_loss += batch_loss.detach()
 
-            charge_errors_t.append(q_error.detach())
-            dipole_errors_t.extend(d_error.detach())
-            qpole_errors_t.extend(qp_error.detach())
+            charge_errors_t.append(q_error.detach().cpu())
+            dipole_errors_t.extend(d_error.detach().cpu())
+            qpole_errors_t.extend(qp_error.detach().cpu())
         charge_errors_t = torch.cat(charge_errors_t)
         dipole_errors_t = torch.cat(dipole_errors_t)
         qpole_errors_t = torch.cat(qpole_errors_t)
@@ -1065,7 +1065,7 @@ units angstrom
         lr,
         pin_memory,
         num_workers,
-        optimize_for_speed=True,
+        skip_compile=True,
     ):
         if self.device.type == "cpu":
             rank_device = "cpu"
@@ -1073,7 +1073,7 @@ units angstrom
             rank_device = rank
 
         self.model.to(rank_device)
-        if optimize_for_speed:
+        if not skip_compile:
             self.compile_model()
 
         train_loader = AtomicDataLoader(
@@ -1157,7 +1157,7 @@ units angstrom
         lr=5e-4,
         split_percent=0.9,
         model_path=None,
-        optimize_for_speed=True,
+        skip_compile=False,
         shuffle=True,
         dataloader_num_workers=0,
         world_size=1,  # Default to 1 for single-core operation
@@ -1223,7 +1223,7 @@ units angstrom
         # pin_memory = torch.cuda.is_available()
         pin_memory = True
 
-        if optimize_for_speed:
+        if skip_compile:
             torch.jit.enable_onednn_fusion(True)
             torch.autograd.set_detect_anomaly(False)
 
@@ -1260,7 +1260,7 @@ units angstrom
                 lr=lr,
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
-                optimize_for_speed=optimize_for_speed,
+                skip_compile=skip_compile,
             )
 
         return
