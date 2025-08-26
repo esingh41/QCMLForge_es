@@ -507,8 +507,9 @@ class AtomModel:
         mp.set_sharing_strategy("file_system")
         split_dbs = [7]
         if not ignore_database_null and self.dataset is None and self.ds_spec_type not in split_dbs:
+            print("Setting up dataset...")
             def setup_ds(fp=ds_force_reprocess):
-                self.dataset = atomic_module_dataset(
+                return atomic_module_dataset(
                     root=ds_root,
                     testing=ds_testing,
                     spec_type=ds_spec_type,
@@ -547,7 +548,7 @@ class AtomModel:
                 ]
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
-        # print(f"{self.dataset = }")
+        print(f"{self.dataset = }")
         self.rank = None
         self.world_size = None
         self.model_save_path = model_save_path
