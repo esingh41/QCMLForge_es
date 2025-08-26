@@ -215,11 +215,12 @@ units angstrom
         for n, i in enumerate(qcel_molecule.fragments_):
             mols.append(qcel_molecule.get_fragment(n))
 
+    method = method.lower()
     time_seconds = 0.0
     for mol in mols:
         n_occupied, n_virtual, np_total, nbf_aux = estimate_timings.compute_psi4_time_estimation_variables(
             mol,
-            "aug-cc-pVDZ",
+            basis_set,
         )
         input_vars = {
             "nocc": n_occupied,

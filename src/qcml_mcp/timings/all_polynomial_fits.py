@@ -22,7 +22,7 @@ wfn_methods = [
 fit_data = {
     "metadata": {"created": "polynomial_fitting.py"},
     "methods": {
-        "B2PLYP": {
+        "b2plyp": {
             "coefficients": [
                 [-3.1440211363414563, 0.006865070648332795, -5.040959053078571e-06],
                 [-2.8087118976138687, -0.001084371421939387, 3.257997025858611e-07],
@@ -50,7 +50,7 @@ fit_data = {
             "\\times (6.84 \\times 10^{-1} + "
             "3.36 \\times 10^{-4} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "B2PLYP",
+            "method": "b2plyp",
             "method_name": "B2PLYP",
             "n_test_samples": 27,
             "n_train_samples": 243,
@@ -69,7 +69,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "B2PLYP-D3": {
+        "b2plyp-d3": {
             "coefficients": [
                 [-3.1440211363414563, 0.006865070648332795, -5.040959053078571e-06],
                 [-2.8087118976138687, -0.001084371421939387, 3.257997025858611e-07],
@@ -98,7 +98,7 @@ fit_data = {
             "N_{\\rm{grid}}) \\times (6.84 "
             "\\times 10^{-1} + 3.36 \\times "
             "10^{-4} \\cdot N_{\\rm{aux}})]",
-            "method": "B2PLYP-D3",
+            "method": "b2plyp-d3",
             "method_name": "B2PLYP-D3",
             "n_test_samples": 27,
             "n_train_samples": 243,
@@ -117,7 +117,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "B3LYP": {
+        "b3lyp": {
             "coefficients": [
                 [-2.394027814520387, 0.007307583672168582, -7.983251989976164e-06],
                 [-1.907978033184169, -0.000574512365907133, 1.6052357228367702e-07],
@@ -145,7 +145,7 @@ fit_data = {
             "\\times (3.97 \\times 10^{-1} + 2.37 "
             "\\times 10^{-4} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "B3LYP",
+            "method": "b3lyp",
             "method_name": "B3LYP",
             "n_test_samples": 23,
             "n_train_samples": 201,
@@ -164,7 +164,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "B3LYP-D3": {
+        "b3lyp-d3": {
             "coefficients": [
                 [-2.394027814520387, 0.007307583672168582, -7.983251989976164e-06],
                 [-1.907978033184169, -0.000574512365907133, 1.6052357228367702e-07],
@@ -193,7 +193,7 @@ fit_data = {
             "\\times (3.97 \\times 10^{-1} + "
             "2.37 \\times 10^{-4} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "B3LYP-D3",
+            "method": "b3lyp-d3",
             "method_name": "B3LYP-D3",
             "n_test_samples": 23,
             "n_train_samples": 201,
@@ -212,7 +212,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "FNO-CCSD": {
+        "fno-ccsd": {
             "coefficients": [
                 [
                     1.245754752909329,
@@ -246,7 +246,7 @@ fit_data = {
             "N_{\\rm{virt}}^{2}) \\times (6.09 "
             "\\times 10^{-2} - 2.64 \\times "
             "10^{-5} \\cdot N_{\\rm{aux}})]",
-            "method": "FNO-CCSD",
+            "method": "fno-ccsd",
             "method_name": "FNO-CCSD",
             "n_test_samples": 4,
             "n_train_samples": 32,
@@ -265,7 +265,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "FNO-CCSD(T)": {
+        "fno-ccsd(t)": {
             "coefficients": [
                 [
                     -5.791845519136249,
@@ -308,7 +308,7 @@ fit_data = {
             "(-1.94 \\times 10^{-2} + 2.60 "
             "\\times 10^{-4} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "FNO-CCSD(T)",
+            "method": "fno-ccsd(t)",
             "method_name": "FNO-CCSD(T)",
             "n_test_samples": 4,
             "n_train_samples": 31,
@@ -327,7 +327,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "HF": {
+        "hf": {
             "coefficients": [
                 [-4.087184018422912, 0.003572877739081107, -1.2607644427263935e-06],
                 [-3.8285623877134873, 0.0005409974625158854, -9.078005060787753e-08],
@@ -349,7 +349,7 @@ fit_data = {
             "10^{-8} \\cdot N_{\\rm{virt}}^{2}) "
             "\\times (-2.38 \\times 10^{-3} + 5.52 "
             "\\times 10^{-5} \\cdot N_{\\rm{aux}})]",
-            "method": "HF",
+            "method": "hf",
             "method_name": "HF",
             "n_test_samples": 14,
             "n_train_samples": 126,
@@ -368,7 +368,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "M05-2X": {
+        "m05-2x": {
             "coefficients": [
                 [
                     -5.630373415388223,
@@ -400,7 +400,7 @@ fit_data = {
             "\\times (3.51 \\times 10^{-2} + "
             "2.20 \\times 10^{-5} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "M05-2X",
+            "method": "m05-2x",
             "method_name": "M05-2X",
             "n_test_samples": 22,
             "n_train_samples": 195,
@@ -419,7 +419,7 @@ fit_data = {
             "variables": ["nbf", "np_total", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "MP2": {
+        "mp2": {
             "coefficients": [
                 [0.2759308904810978, 0.0018543185069818838, 2.8122931511922745e-07],
                 [1.2308226500020585, 0.0009379926543264187, 1.8713565944737797e-07],
@@ -442,7 +442,7 @@ fit_data = {
             "\\cdot N_{\\rm{virt}}^{2}) \\times "
             "(2.44 - 1.79 \\times 10^{-4} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "MP2",
+            "method": "mp2",
             "method_name": "MP2",
             "n_test_samples": 24,
             "n_train_samples": 210,
@@ -461,7 +461,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "PBE": {
+        "pbe": {
             "coefficients": [
                 [
                     -4.877660821671894,
@@ -494,7 +494,7 @@ fit_data = {
             "N_{\\rm{grid}}) \\times (8.87 \\times "
             "10^{-2} + 9.47 \\times 10^{-5} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "PBE",
+            "method": "pbe",
             "method_name": "PBE",
             "n_test_samples": 46,
             "n_train_samples": 408,
@@ -513,7 +513,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "PBE-D3": {
+        "pbe-d3": {
             "coefficients": [
                 [
                     -4.877660821671894,
@@ -547,7 +547,7 @@ fit_data = {
             "\\times (8.87 \\times 10^{-2} + "
             "9.47 \\times 10^{-5} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "PBE-D3",
+            "method": "pbe-d3",
             "method_name": "PBE-D3",
             "n_test_samples": 46,
             "n_train_samples": 408,
@@ -566,7 +566,7 @@ fit_data = {
             "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "wB97X-D": {
+        "wb97x-d": {
             "coefficients": [
                 [
                     2.0241543257375114,
@@ -598,7 +598,7 @@ fit_data = {
             "\\times (3.35 \\times 10^{-2} + "
             "3.24 \\times 10^{-5} \\cdot "
             "N_{\\rm{aux}})]",
-            "method": "wB97X-D",
+            "method": "wb97x-d",
             "method_name": "wB97X-D",
             "n_test_samples": 21,
             "n_train_samples": 182,
@@ -617,7 +617,7 @@ fit_data = {
             "variables": ["nbf", "np_total", "nbf_aux"],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
         },
-        "wB97X-V": {
+        "wb97x-v": {
             "coefficients": [
                 [2.4381186808329143, 0.04680345473545202, -6.178211275079922e-05],
                 [0.4094406601572704, -3.9060543448318675e-07, 8.881698788635312e-09],
@@ -645,7 +645,7 @@ fit_data = {
             "N_{\\rm{grid}}) \\times (2.72 "
             "\\times 10^{-1} + 1.16 \\times "
             "10^{-5} \\cdot N_{\\rm{aux}})]",
-            "method": "wB97X-V",
+            "method": "wb97x-v",
             "method_name": "wB97X-V",
             "n_test_samples": 23,
             "n_train_samples": 199,
