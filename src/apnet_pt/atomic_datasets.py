@@ -480,10 +480,15 @@ class atomic_module_dataset(Dataset):
                 ]
             # Must implement split logic...
             elif self.spec_type == 7:
-                return [
-                    "neq_damping_train.pkl",
-                    "neq_damping_test.pkl",
-                ]
+                if self.split == "train":
+                    return ["qm7x_cmpnn_train.pkl"]
+                elif self.split == "test":
+                    return ["qm7x_cmpnn_test.pkl"]
+                else:  # 'all'
+                    return [
+                        "qm7x_cmpnn_train.pkl",
+                        "qm7x_cmpnn_test.pkl",
+                    ]
         raise ValueError("spec_type must be 1, 2, or 3!")
         return []
 
