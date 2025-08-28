@@ -1522,6 +1522,8 @@ def test_mtp_mtp_elst_eval():
     batch = param_mod._qcel_dimer_example_input([mol_dimer_ion])
     v = param_mod.dimer_model(batch)
     print(v[-1])
+    elst_energy = param_mod.predict_qcel_mols([mol_dimer_ion], batch_size=1)
+    print(f"Predicted ELST energy: {elst_energy}")
     return
 
 
@@ -1550,8 +1552,8 @@ def test_ap2_elst_dataset():
 
 if __name__ == "__main__":
     # test_mtp_mtp_elst_qcel_mols()
-    # test_mtp_mtp_elst_eval()
-    test_atom_model_train()
+    test_mtp_mtp_elst_eval()
+    # test_atom_model_train()
     # test_mtp_mtp_elst_dataset()
 
     # test_ap2_elst_dataset()

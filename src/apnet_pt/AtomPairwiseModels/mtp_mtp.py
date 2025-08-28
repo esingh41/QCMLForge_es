@@ -772,7 +772,6 @@ class AM_DimerParam_Model:
         batch.to(self.device)
         return batch
 
-
     def _qcel_dimer_example_input(
         self,
         mols,
@@ -909,21 +908,13 @@ class AM_DimerParam_Model:
         assert not (return_elst and return_pairs), (
             "return_elst and return_pairs are not compatible"
         )
-        raise NotImplementedError(
-            "This method is not implemented for MTP-MTP models. "
-            "Use predict_qcel_mols_elst or predict_qcel_mols_pairs instead."
-        )
         if r_cut is None:
-            r_cut = self.model.r_cut
+            r_cut = self.atom_model.r_cut
 
         N = len(mols)
-        predictions = np.zeros((N, 4))
+        predictions = np.zeros((N, 1))
         if return_pairs or return_elst:
             pairwise_energies = []
-        if self.model.return_hidden_states:
-            # need to capture output
-            h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
-        # self.model.to(self.device)
         self.atom_model.to(self.device)
         for i in range(0, N, batch_size):
             upper_bound = min(i + batch_size, N)
@@ -936,45 +927,17 @@ class AM_DimerParam_Model:
                 ]
             )
             dimer_batch.to(device=self.device)
-            preds = self.model(dimer_batch)
-            if self.model.return_hidden_states:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA, cutoff = preds
-                h_ABs.append(hAB)
-                h_BAs.append(hBA)
-                cutoffs.append(cutoff)
-                dimer_inds.append(dimer_batch.dimer_ind)
-                ndimers.append(
-                    torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long)
-                )
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-            elif return_pairs:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-                pairwise_energies.extend(
-                    self._assemble_pairs(
-                        dimer_batch.cpu(),
-                        E_sr_dimer.cpu(),
-                        E_sr.cpu(),
-                        E_elst_sr.cpu(),
-                        E_elst_lr.cpu(),
-                    )
-                )
-            elif return_elst:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-                pairwise_energies.extend(
-                    self._assemble_mtp_pairs(
-                        dimer_batch,
-                        E_elst_sr,
-                        E_elst_lr,
-                    )
-                )
-            else:
-                predictions[i : i + batch_size] = preds[0].cpu().numpy()
+            preds = self.dimer_model(dimer_batch)
+            preds = scatter(
+                preds,
+                dimer_batch.dimer_ind,
+                dim=0,
+                reduce="add",
+                dim_size=torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long),
+            )
+            predictions[i: i + batch_size] = preds[0].cpu().numpy()
         if verbose:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
-        if self.model.return_hidden_states:
-            return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
         if return_pairs or return_elst:
             return predictions, pairwise_energies
         return predictions
