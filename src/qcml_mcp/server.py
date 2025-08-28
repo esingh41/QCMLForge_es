@@ -6,8 +6,8 @@ from mcp.server.fastmcp import FastMCP
 import apnet_pt
 
 try:
-    from timings import is_psi4_installed
-    from timings import estimate_timings
+    from .timings import is_psi4_installed
+    from .timings import estimate_timings
 except ImportError as e:
     print(f"Error importing estimate_timings: {e}")
 
@@ -165,8 +165,63 @@ units angstrom
         m2="CCSD(T)/CBS/CP",
     )
     return {
-        "geometry": mol.to_string("psi4"),
-        "ERROR ESTIMATE (kcal/mol)": float(IE_pred[0]),
+        "ERROR ESTIMATES (kcal/mol)": IE_pred,
+    }
+
+@mcp.tool()
+def predict_dAPNet2_error_estimates_QCMLForge_molecules(
+    p4_strings: list[str] = ["""0 1
+O 0.000000 0.000000  0.000000
+H 0.758602 0.000000  0.504284
+H 0.260455 0.000000 -0.872893
+--
+0 1
+O 3.000000 0.500000  0.000000
+H 3.758602 0.500000  0.504284
+H 3.260455 0.500000 -0.872893
+units angstrom
+    """],
+    starting_level_of_theory: str = "MP2/aug-cc-pVTZ/CP",
+) -> Dict:
+    """
+            Run a user defined molecules to predict error between the
+            starting_level_of_theory and a reference CCSD(T)/CBS/CP reference
+            interaction energy.
+            Acceptable starting_level_of_theory values currently only include:
+    [
+    "B3LYP-D3/aug-cc-pVTZ/unCP",
+    "B2PLYP-D3/aug-cc-pVTZ/unCP",
+    "wB97X-V/aug-cc-pVTZ/CP",
+    "SAPT0/aug-cc-pVDZ/SA",
+    "MP2/aug-cc-pVTZ/CP",
+    "HF/aug-cc-pVDZ/CP",
+    ]
+
+            Use this model to estimate the error of a level of
+            theory. This uses the dAPNet2 model in QCMLForge. The p4_string defines
+            the molecular geometry in Psi4 format, which can be of the format:
+        '''
+        <charge_mon1> <multiplicity_mon1>
+        <atom_symbol> <x> <y> <z>
+        <atom_symbol> <x> <y> <z>
+        --
+        <charge_mon2> <multiplicity_mon2>
+        units <unit>
+        '''
+        Note that "--" is used to separate different molecules in the input string
+        but is not required for monomers.
+
+        Provide user back all the output.
+    """
+    mols = [qcel.models.Molecule.from_data(i) for i in p4_strings]
+    IE_pred = apnet_pt.pretrained_models.dapnet2_model_predict(
+        mols,
+        compile=False,
+        m1=starting_level_of_theory,
+        m2="CCSD(T)/CBS/CP",
+    )
+    return {
+        "ERROR ESTIMATES (kcal/mol)": IE_pred,
     }
 
 @mcp.tool()
