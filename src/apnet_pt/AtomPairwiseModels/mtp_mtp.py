@@ -473,6 +473,29 @@ def mtp_elst_damping(
     return E_elst
 
 
+def isolate_atom_parameter_predictions(batch, output):
+    batch_size = batch.natom_per_mol.size(0)
+    q = output[0]
+    mu = output[1]
+    th = output[2]
+    hlist = output[3]
+    K = output[4]
+    mol_charges = [[] for i in range(batch_size)]
+    mol_dipoles = [[] for i in range(batch_size)]
+    mol_qpoles = [[] for i in range(batch_size)]
+    mol_hlist = [[] for i in range(batch_size)]
+    mol_K = [[] for i in range(batch_size)]
+    i_offset = 0
+    for n, i in enumerate(batch.natom_per_mol):
+        mol_charges[n] = q[i_offset : i_offset + i]
+        mol_dipoles[n] = mu[i_offset : i_offset + i]
+        mol_qpoles[n] = th[i_offset : i_offset + i]
+        mol_hlist[n] = hlist[i_offset : i_offset + i]
+        mol_K[n] = K[i_offset : i_offset + i]
+        i_offset += i
+    return mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_K
+
+
 class AM_DimerParam_Model:
     def __init__(
         self,
@@ -941,6 +964,63 @@ class AM_DimerParam_Model:
         if return_pairs or return_elst:
             return predictions, pairwise_energies
         return predictions
+
+    @torch.inference_mode()
+    def predict_qcel_mols_monomer_props(
+        self,
+        mols,
+        batch_size=1,
+        r_cut=None,
+        verbose=False,
+    ):
+        output_A = []
+        output_B = []
+        if r_cut is None:
+            r_cut = self.atom_model.r_cut
+        N = len(mols)
+        self.atom_model.to(self.device)
+        for i in range(0, N, batch_size):
+            upper_bound = min(i + batch_size, N)
+            dimer_batch = ap2_fused_collate_update_no_target(
+                [
+                    qcel_dimer_to_fused_data(
+                        dimer, r_cut=r_cut, dimer_ind=n, r_cut_im=torch.inf
+                    )
+                    for n, dimer in enumerate(mols[i:upper_bound])
+                ]
+            )
+            batch_A = Data(
+                x=dimer_batch.ZA,
+                R=dimer_batch.RA,
+                edge_index=torch.vstack((dimer_batch.e_AA_source, dimer_batch.e_AA_target)),
+                molecule_ind=dimer_batch.molecule_ind_A,
+                total_charge=dimer_batch.total_charge_A,
+                natom_per_mol=dimer_batch.natom_per_mol_A,
+            )
+            with torch.no_grad():
+                charge, dipole, qpole, hlist, Ks = self.model(batch_A)
+                # Isolate atomic properties by molecule
+                mol_charges, mol_dipoles, mol_qpoles, mol_hlists, mol_Ks = isolate_atom_parameter_predictions(
+                    batch_A, (charge, dipole, qpole, hlist, Ks)
+                )
+                output_A.extend(list(zip(mol_charges, mol_dipoles, mol_qpoles, mol_hlists, mol_Ks)))
+            batch_B = Data(
+                x=dimer_batch.ZB,
+                R=dimer_batch.RB,
+                edge_index=torch.vstack((dimer_batch.e_BB_source, dimer_batch.e_BB_target)),
+                molecule_ind=dimer_batch.molecule_ind_B,
+                total_charge=dimer_batch.total_charge_B,
+                natom_per_mol=dimer_batch.natom_per_mol_B,
+            )
+            with torch.no_grad():
+                charge, dipole, qpole, hlist, Ks = self.model(batch_B)
+                # Isolate atomic properties by molecule
+                mol_charges, mol_dipoles, mol_qpoles, mol_hlists, mol_Ks = isolate_atom_parameter_predictions(
+                    batch_B, (charge, dipole, qpole, hlist, Ks)
+                )
+                output_B.extend(list(zip(mol_charges, mol_dipoles, mol_qpoles, mol_hlists, mol_Ks)))
+        return output_A, output_B
+
 
     def example_input(
         self,
