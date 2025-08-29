@@ -20,649 +20,377 @@ wfn_methods = [
 ]
 
 fit_data = {
-    "metadata": {"created": "polynomial_fitting.py"},
     "methods": {
-        "b2plyp": {
-            "coefficients": [
-                [-3.1440211363414563, 0.006865070648332795, -5.040959053078571e-06],
-                [-2.8087118976138687, -0.001084371421939387, 3.257997025858611e-07],
-                [0.12222307412309985, 4.7107857558374e-08],
-                [0.6837797318001781, 0.00033598551003668673],
-            ],
-            "comment": "Coefficients correspond to features in the "
-            "order: a00, a01*nocc^1, a02*nocc^2",
-            "degrees": [2, 2, 1, 1],
+        "mp2": {
+            "method": "mp2",
+            "method_name": "mp2",
+            "variables": ["nocc", "nvirt", "nbf_aux"],
+            "degrees": [2, 2, 1],
+            "operators": ["*", "*", "*", "*"],
+            "latex_equation": "\\log[(2.76 \\times 10^{-1} + 1.85 \\times 10^{-3} \\cdot N_{\\rm{occ}} + 2.81 \\times 10^{-7} \\cdot N_{\\rm{occ}}^{2}) \\times (1.23 + 9.38 \\times 10^{-4} \\cdot N_{\\rm{virt}} + 1.87 \\times 10^{-7} \\cdot N_{\\rm{virt}}^{2}) \\times (2.44 - 1.79 \\times 10^{-4} \\cdot N_{\\rm{aux}})]",
             "feature_names": [
                 ["a00", "a01*nocc^1", "a02*nocc^2"],
-                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
-                ["a20", "a21*np_total^1"],
-                ["a30", "a31*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(-3.14 + 6.87 \\times 10^{-3} "
-            "\\cdot N_{\\rm{occ}} - 5.04 \\times "
-            "10^{-6} \\cdot N_{\\rm{occ}}^{2}) "
-            "\\times (-2.81 - 1.08 \\times "
-            "10^{-3} \\cdot N_{\\rm{virt}} + "
-            "3.26 \\times 10^{-7} \\cdot "
-            "N_{\\rm{virt}}^{2}) \\times (1.22 "
-            "\\times 10^{-1} + 4.71 \\times "
-            "10^{-8} \\cdot N_{\\rm{grid}}) "
-            "\\times (6.84 \\times 10^{-1} + "
-            "3.36 \\times 10^{-4} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "b2plyp",
-            "method_name": "B2PLYP",
-            "n_test_samples": 27,
-            "n_train_samples": 243,
-            "operators": ["*", "*", "*", "+"],
-            "plot_output": "./plots/polyfit_B2PLYP.png",
-            "test_error": {
-                "mae": 0.08974427017458256,
-                "mse": 0.12133950186295289,
-                "r2": 0.9843349111949355,
-            },
-            "train_error": {
-                "mae": 0.08925329632866794,
-                "mse": 0.11421528345972883,
-                "r2": 0.9850864283644825,
-            },
-            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "b2plyp-d3": {
-            "coefficients": [
-                [-3.1440211363414563, 0.006865070648332795, -5.040959053078571e-06],
-                [-2.8087118976138687, -0.001084371421939387, 3.257997025858611e-07],
-                [0.12222307412309985, 4.7107857558374e-08],
-                [0.6837797318001781, 0.00033598551003668673],
-            ],
-            "comment": "Coefficients correspond to features in "
-            "the order: a00, a01*nocc^1, a02*nocc^2",
-            "degrees": [2, 2, 1, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2"],
-                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
-                ["a20", "a21*np_total^1"],
-                ["a30", "a31*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(-3.14 + 6.87 \\times "
-            "10^{-3} \\cdot N_{\\rm{occ}} - "
-            "5.04 \\times 10^{-6} \\cdot "
-            "N_{\\rm{occ}}^{2}) \\times "
-            "(-2.81 - 1.08 \\times 10^{-3} "
-            "\\cdot N_{\\rm{virt}} + 3.26 "
-            "\\times 10^{-7} \\cdot "
-            "N_{\\rm{virt}}^{2}) \\times "
-            "(1.22 \\times 10^{-1} + 4.71 "
-            "\\times 10^{-8} \\cdot "
-            "N_{\\rm{grid}}) \\times (6.84 "
-            "\\times 10^{-1} + 3.36 \\times "
-            "10^{-4} \\cdot N_{\\rm{aux}})]",
-            "method": "b2plyp-d3",
-            "method_name": "B2PLYP-D3",
-            "n_test_samples": 27,
-            "n_train_samples": 243,
-            "operators": ["*", "*", "*", "+"],
-            "plot_output": "./plots/polyfit_B2PLYP-D3.png",
-            "test_error": {
-                "mae": 0.08974427017458256,
-                "mse": 0.12133950186295289,
-                "r2": 0.9843349111949355,
-            },
-            "train_error": {
-                "mae": 0.08925329632866794,
-                "mse": 0.11421528345972883,
-                "r2": 0.9850864283644825,
-            },
-            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "b3lyp": {
-            "coefficients": [
-                [-2.394027814520387, 0.007307583672168582, -7.983251989976164e-06],
-                [-1.907978033184169, -0.000574512365907133, 1.6052357228367702e-07],
-                [0.3683270074465912, 1.9803039892041405e-07],
-                [0.3973089773146867, 0.00023721612483082021],
-            ],
-            "comment": "Coefficients correspond to features in the "
-            "order: a00, a01*nocc^1, a02*nocc^2",
-            "degrees": [2, 2, 1, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2"],
-                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
-                ["a20", "a21*np_total^1"],
-                ["a30", "a31*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(-2.39 + 7.31 \\times 10^{-3} "
-            "\\cdot N_{\\rm{occ}} - 7.98 \\times "
-            "10^{-6} \\cdot N_{\\rm{occ}}^{2}) "
-            "\\times (-1.91 - 5.75 \\times "
-            "10^{-4} \\cdot N_{\\rm{virt}} + 1.61 "
-            "\\times 10^{-7} \\cdot "
-            "N_{\\rm{virt}}^{2}) \\times (3.68 "
-            "\\times 10^{-1} + 1.98 \\times "
-            "10^{-7} \\cdot N_{\\rm{grid}}) "
-            "\\times (3.97 \\times 10^{-1} + 2.37 "
-            "\\times 10^{-4} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "b3lyp",
-            "method_name": "B3LYP",
-            "n_test_samples": 23,
-            "n_train_samples": 201,
-            "operators": ["*", "*", "*", "+"],
-            "plot_output": "./plots/polyfit_B3LYP.png",
-            "test_error": {
-                "mae": 0.12311187477911614,
-                "mse": 0.15799279564060373,
-                "r2": 0.9724100356212982,
-            },
-            "train_error": {
-                "mae": 0.09313374069013099,
-                "mse": 0.12974402880638122,
-                "r2": 0.9800959172530193,
-            },
-            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "b3lyp-d3": {
-            "coefficients": [
-                [-2.394027814520387, 0.007307583672168582, -7.983251989976164e-06],
-                [-1.907978033184169, -0.000574512365907133, 1.6052357228367702e-07],
-                [0.3683270074465912, 1.9803039892041405e-07],
-                [0.3973089773146867, 0.00023721612483082021],
-            ],
-            "comment": "Coefficients correspond to features in "
-            "the order: a00, a01*nocc^1, a02*nocc^2",
-            "degrees": [2, 2, 1, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2"],
-                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
-                ["a20", "a21*np_total^1"],
-                ["a30", "a31*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(-2.39 + 7.31 \\times "
-            "10^{-3} \\cdot N_{\\rm{occ}} - "
-            "7.98 \\times 10^{-6} \\cdot "
-            "N_{\\rm{occ}}^{2}) \\times (-1.91 "
-            "- 5.75 \\times 10^{-4} \\cdot "
-            "N_{\\rm{virt}} + 1.61 \\times "
-            "10^{-7} \\cdot "
-            "N_{\\rm{virt}}^{2}) \\times (3.68 "
-            "\\times 10^{-1} + 1.98 \\times "
-            "10^{-7} \\cdot N_{\\rm{grid}}) "
-            "\\times (3.97 \\times 10^{-1} + "
-            "2.37 \\times 10^{-4} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "b3lyp-d3",
-            "method_name": "B3LYP-D3",
-            "n_test_samples": 23,
-            "n_train_samples": 201,
-            "operators": ["*", "*", "*", "+"],
-            "plot_output": "./plots/polyfit_B3LYP-D3.png",
-            "test_error": {
-                "mae": 0.12311187477911614,
-                "mse": 0.15799279564060373,
-                "r2": 0.9724100356212982,
-            },
-            "train_error": {
-                "mae": 0.09313374069013099,
-                "mse": 0.12974402880638122,
-                "r2": 0.9800959172530193,
-            },
-            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "fno-ccsd": {
-            "coefficients": [
-                [
-                    1.245754752909329,
-                    0.18532340162224037,
-                    -0.005750544631096848,
-                    9.635704127343583e-05,
-                    -5.550011795668423e-07,
-                ],
-                [-0.8823692537289531, 0.11369228067555259, -0.00011777228352299516],
-                [0.06088855966739218, -2.63997556710382e-05],
-            ],
-            "comment": "Coefficients correspond to features in "
-            "the order: a00, a01*nocc^1, a02*nocc^2, "
-            "a03*nocc^3, a04*nocc^4",
-            "degrees": [4, 2, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2", "a03*nocc^3", "a04*nocc^4"],
                 ["a10", "a11*nvirt^1", "a12*nvirt^2"],
                 ["a20", "a21*nbf_aux^1"],
             ],
-            "latex_equation": "\\log[(1.25 + 1.85 \\times "
-            "10^{-1} \\cdot N_{\\rm{occ}} - "
-            "5.75 \\times 10^{-3} \\cdot "
-            "N_{\\rm{occ}}^{2} + 9.64 \\times "
-            "10^{-5} \\cdot N_{\\rm{occ}}^{3} "
-            "- 5.55 \\times 10^{-7} \\cdot "
-            "N_{\\rm{occ}}^{4}) \\times (-8.82 "
-            "\\times 10^{-1} + 1.14 \\times "
-            "10^{-1} \\cdot N_{\\rm{virt}} - "
-            "1.18 \\times 10^{-4} \\cdot "
-            "N_{\\rm{virt}}^{2}) \\times (6.09 "
-            "\\times 10^{-2} - 2.64 \\times "
-            "10^{-5} \\cdot N_{\\rm{aux}})]",
-            "method": "fno-ccsd",
-            "method_name": "FNO-CCSD",
-            "n_test_samples": 4,
-            "n_train_samples": 32,
-            "operators": ["*", "*", "*"],
-            "plot_output": "./plots/polyfit_FNO-CCSD.png",
-            "test_error": {
-                "mae": 0.21318003281134418,
-                "mse": 0.30010842605870947,
-                "r2": 0.8118001848521468,
-            },
-            "train_error": {
-                "mae": 0.06472725253538725,
-                "mse": 0.07564253536014807,
-                "r2": 0.9925860873059035,
-            },
-            "variables": ["nocc", "nvirt", "nbf_aux"],
+            "coefficients": [
+                [0.2759308880228874, 0.001854318506802657, 2.8122922637032644e-07],
+                [1.2308226596030019, 0.0009379926674953875, 1.8713565482169838e-07],
+                [2.4440806001877124, -0.00017926557820767075],
+            ],
             "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.15417912932564246,
+                "r2": 0.9682305208158652,
+                "mae": 0.12028962227671643,
+            },
+            "test_error": {
+                "mse": 0.18552958411131748,
+                "r2": 0.9685450001171091,
+                "mae": 0.15753838754304852,
+            },
+            "n_train_samples": 210,
+            "n_test_samples": 24,
+            "plot_output": "./plots/polyfit_MP2.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2",
         },
-        "fno-ccsd(t)": {
+        "hf": {
+            "method": "hf",
+            "method_name": "hf",
+            "variables": ["nocc", "nvirt", "nbf_aux"],
+            "degrees": [2, 2, 1],
+            "operators": ["*", "*", "*"],
+            "latex_equation": "\\log[(-1.55 + 1.12 \\times 10^{-3} \\cdot N_{\\rm{occ}} - 2.23 \\times 10^{-7} \\cdot N_{\\rm{occ}}^{2}) \\times (-2.31 + 4.20 \\times 10^{-4} \\cdot N_{\\rm{virt}} - 7.78 \\times 10^{-8} \\cdot N_{\\rm{virt}}^{2}) \\times (-7.33 \\times 10^{-3} + 2.43 \\times 10^{-4} \\cdot N_{\\rm{aux}})]",
+            "feature_names": [
+                ["a00", "a01*nocc^1", "a02*nocc^2"],
+                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
+                ["a20", "a21*nbf_aux^1"],
+            ],
+            "coefficients": [
+                [-1.5532950845306484, 0.0011203686517772908, -2.2318355214468962e-07],
+                [-2.313244020292534, 0.0004198321550666003, -7.781522894234573e-08],
+                [-0.007333759737735857, 0.00024274669348890506],
+            ],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.10483773971601032,
+                "r2": 0.9770691733613946,
+                "mae": 0.0843559530274853,
+            },
+            "test_error": {
+                "mse": 0.11749060719718495,
+                "r2": 0.9772321081372511,
+                "mae": 0.09650084606551874,
+            },
+            "n_train_samples": 666,
+            "n_test_samples": 75,
+            "plot_output": "./plots/polyfit_HF.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2",
+        },
+        "b2plyp-d3": {
+            "method": "b2plyp-d3",
+            "method_name": "b2plyp-d3",
+            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
+            "degrees": [2, 2, 1, 1],
+            "operators": ["*", "*", "*", "+"],
+            "latex_equation": "\\log[(-3.60 - 4.10 \\times 10^{-4} \\cdot N_{\\rm{occ}} + 2.52 \\times 10^{-6} \\cdot N_{\\rm{occ}}^{2}) \\times (-5.13 - 1.83 \\times 10^{-3} \\cdot N_{\\rm{virt}} + 5.79 \\times 10^{-7} \\cdot N_{\\rm{virt}}^{2}) \\times (4.58 \\times 10^{-2} - 9.90 \\times 10^{-10} \\cdot N_{\\rm{grid}}) \\times (9.25 \\times 10^{-1} + 4.84 \\times 10^{-4} \\cdot N_{\\rm{aux}})]",
+            "feature_names": [
+                ["a00", "a01*nocc^1", "a02*nocc^2"],
+                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
+                ["a20", "a21*np_total^1"],
+                ["a30", "a31*nbf_aux^1"],
+            ],
+            "coefficients": [
+                [-3.602758580709572, -0.0004104477633704433, 2.5196720970391686e-06],
+                [-5.128926636972829, -0.0018308797348909225, 5.793113635251207e-07],
+                [0.04584891614420786, -9.896186281750893e-10],
+                [0.9252230394023921, 0.00048424617189654715],
+            ],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.151815502258898,
+                "r2": 0.955675332661392,
+                "mae": 0.12432878660985205,
+            },
+            "test_error": {
+                "mse": 0.14443300427056102,
+                "r2": 0.9467195802658204,
+                "mae": 0.11808545023436273,
+            },
+            "n_train_samples": 967,
+            "n_test_samples": 108,
+            "plot_output": "./plots/polyfit_B2PLYP-D3.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2",
+        },
+        "b3lyp-d3": {
+            "method": "b3lyp-d3",
+            "method_name": "b3lyp-d3",
+            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
+            "degrees": [2, 2, 1, 1],
+            "operators": ["*", "*", "*", "+"],
+            "latex_equation": "\\log[(-2.72 - 1.18 \\times 10^{-3} \\cdot N_{\\rm{occ}} + 8.31 \\times 10^{-7} \\cdot N_{\\rm{occ}}^{2}) \\times (-2.39 - 6.49 \\times 10^{-4} \\cdot N_{\\rm{virt}} + 1.97 \\times 10^{-7} \\cdot N_{\\rm{virt}}^{2}) \\times (1.60 \\times 10^{-1} - 1.45 \\times 10^{-8} \\cdot N_{\\rm{grid}}) \\times (6.67 \\times 10^{-1} + 4.58 \\times 10^{-4} \\cdot N_{\\rm{aux}})]",
+            "feature_names": [
+                ["a00", "a01*nocc^1", "a02*nocc^2"],
+                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
+                ["a20", "a21*np_total^1"],
+                ["a30", "a31*nbf_aux^1"],
+            ],
+            "coefficients": [
+                [-2.720926648451645, -0.0011836420634702912, 8.314153822154044e-07],
+                [-2.3890060235389257, -0.0006492795684708752, 1.9735959191584451e-07],
+                [0.1597849398193725, -1.449057285304565e-08],
+                [0.6665135143296432, 0.00045769813131803065],
+            ],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.19660797479862785,
+                "r2": 0.921860922532386,
+                "mae": 0.16074133274598063,
+            },
+            "test_error": {
+                "mse": 0.1875486343995083,
+                "r2": 0.9171875249900096,
+                "mae": 0.15616461168064008,
+            },
+            "n_train_samples": 891,
+            "n_test_samples": 99,
+            "plot_output": "./plots/polyfit_B3LYP-D3.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2",
+        },
+        "pbe-d3": {
+            "method": "pbe-d3",
+            "method_name": "pbe-d3",
+            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
+            "degrees": [3, 1, 1, 1],
+            "operators": ["*", "*", "*", "+"],
+            "latex_equation": "\\log[(-3.69 + 3.45 \\times 10^{-5} \\cdot N_{\\rm{occ}} - 2.31 \\times 10^{-6} \\cdot N_{\\rm{occ}}^{2} - 2.12 \\times 10^{-8} \\cdot N_{\\rm{occ}}^{3}) \\times (-2.07 - 1.94 \\times 10^{-5} \\cdot N_{\\rm{virt}}) \\times (1.89 \\times 10^{-1} - 3.14 \\times 10^{-8} \\cdot N_{\\rm{grid}}) \\times (4.40 \\times 10^{-1} + 4.68 \\times 10^{-4} \\cdot N_{\\rm{aux}})]",
+            "feature_names": [
+                ["a00", "a01*nocc^1", "a02*nocc^2", "a03*nocc^3"],
+                ["a10", "a11*nvirt^1"],
+                ["a20", "a21*np_total^1"],
+                ["a30", "a31*nbf_aux^1"],
+            ],
             "coefficients": [
                 [
-                    -5.791845519136249,
-                    0.10169366224430088,
-                    -0.0009058644615177612,
-                    -5.790178730437877e-06,
-                    8.617165703405521e-08,
+                    -3.68900657719594,
+                    3.451515358041541e-05,
+                    -2.30954270714433e-06,
+                    -2.1238857294178506e-08,
                 ],
-                [
-                    -3.9685814775903427,
-                    -0.0163719831817734,
-                    6.748478266292185e-05,
-                    -7.422645415650154e-08,
-                ],
-                [-0.019372932007445873, 0.00025979435400215586],
+                [-2.0693947944007034, -1.9359159800618436e-05],
+                [0.18910982996288972, -3.141478050750992e-08],
+                [0.439834596418766, 0.0004676048824484809],
             ],
-            "comment": "Coefficients correspond to features "
-            "in the order: a00, a01*nocc^1, "
-            "a02*nocc^2, a03*nocc^3, a04*nocc^4",
-            "degrees": [4, 3, 1],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.20051901641911604,
+                "r2": 0.9209338639596019,
+                "mae": 0.16744592225450686,
+            },
+            "test_error": {
+                "mse": 0.1817066380431074,
+                "r2": 0.9395412295586905,
+                "mae": 0.1490751145283753,
+            },
+            "n_train_samples": 1100,
+            "n_test_samples": 123,
+            "plot_output": "./plots/polyfit_PBE-D3.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2, a03*nocc^3",
+        },
+        "m05-2x": {
+            "method": "m05-2x",
+            "method_name": "m05-2x",
+            "variables": ["nbf", "np_total", "nbf_aux"],
+            "degrees": [4, 1, 1],
+            "operators": ["*", "*", "+"],
+            "latex_equation": "\\log[(-3.44 - 1.73 \\times 10^{-3} \\cdot N_{\\rm{bf}} - 8.69 \\times 10^{-7} \\cdot N_{\\rm{bf}}^{2} + 7.23 \\times 10^{-10} \\cdot N_{\\rm{bf}}^{3} - 1.09 \\times 10^{-13} \\cdot N_{\\rm{bf}}^{4}) \\times (-3.11 - 3.07 \\times 10^{-8} \\cdot N_{\\rm{grid}}) \\times (8.92 \\times 10^{-2} + 1.74 \\times 10^{-5} \\cdot N_{\\rm{aux}})]",
             "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2", "a03*nocc^3", "a04*nocc^4"],
+                ["a00", "a01*nbf^1", "a02*nbf^2", "a03*nbf^3", "a04*nbf^4"],
+                ["a10", "a11*np_total^1"],
+                ["a20", "a21*nbf_aux^1"],
+            ],
+            "coefficients": [
+                [
+                    -3.4369942766024217,
+                    -0.0017278461288336951,
+                    -8.687175585216696e-07,
+                    7.233804849171219e-10,
+                    -1.0929451788044275e-13,
+                ],
+                [-3.112778007143037, -3.069948769274262e-08],
+                [0.08923743195178932, 1.735440795072613e-05],
+            ],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.21475250497198442,
+                "r2": 0.9059731110354037,
+                "mae": 0.1745929475573088,
+            },
+            "test_error": {
+                "mse": 0.20208622758877465,
+                "r2": 0.9016117283768885,
+                "mae": 0.1680900255468107,
+            },
+            "n_train_samples": 894,
+            "n_test_samples": 100,
+            "plot_output": "./plots/polyfit_M05-2X.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nbf^1, a02*nbf^2, a03*nbf^3, a04*nbf^4",
+        },
+        "wb97x-v": {
+            "method": "wb97x-v",
+            "method_name": "wb97x-v",
+            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
+            "degrees": [2, 2, 1, 1],
+            "operators": ["*", "*", "*", "+"],
+            "latex_equation": "\\log[(-3.97 + 8.96 \\times 10^{-3} \\cdot N_{\\rm{occ}} - 9.23 \\times 10^{-7} \\cdot N_{\\rm{occ}}^{2}) \\times (-1.69 + 3.68 \\times 10^{-4} \\cdot N_{\\rm{virt}} - 8.90 \\times 10^{-8} \\cdot N_{\\rm{virt}}^{2}) \\times (1.22 \\times 10^{-1} + 1.10 \\times 10^{-7} \\cdot N_{\\rm{grid}}) \\times (1.41 + 6.86 \\times 10^{-4} \\cdot N_{\\rm{aux}})]",
+            "feature_names": [
+                ["a00", "a01*nocc^1", "a02*nocc^2"],
+                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
+                ["a20", "a21*np_total^1"],
+                ["a30", "a31*nbf_aux^1"],
+            ],
+            "coefficients": [
+                [-3.9715932062449073, 0.008963433202812007, -9.230343340793721e-07],
+                [-1.6860068205679235, 0.0003682876367593748, -8.904301240695038e-08],
+                [0.1216473795630523, 1.1011878031030391e-07],
+                [1.4143330491223471, 0.0006858735469245325],
+            ],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.2025497966895726,
+                "r2": 0.9315023461038916,
+                "mae": 0.1573518274475234,
+            },
+            "test_error": {
+                "mse": 0.18512977173290235,
+                "r2": 0.9412375087186848,
+                "mae": 0.143714141405321,
+            },
+            "n_train_samples": 947,
+            "n_test_samples": 106,
+            "plot_output": "./plots/polyfit_wB97X-V.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2",
+        },
+        "wb97x-d": {
+            "method": "wb97x-d",
+            "method_name": "wb97x-d",
+            "variables": ["nbf", "np_total", "nbf_aux"],
+            "degrees": [4, 1, 1],
+            "operators": ["*", "*", "+"],
+            "latex_equation": "\\log[(-3.96 + 2.80 \\times 10^{-4} \\cdot N_{\\rm{bf}} - 2.26 \\times 10^{-6} \\cdot N_{\\rm{bf}}^{2} + 1.54 \\times 10^{-9} \\cdot N_{\\rm{bf}}^{3} - 3.03 \\times 10^{-13} \\cdot N_{\\rm{bf}}^{4}) \\times (-5.75 \\times 10^{-1} + 4.01 \\times 10^{-8} \\cdot N_{\\rm{grid}}) \\times (3.41 \\times 10^{-1} + 2.34 \\times 10^{-4} \\cdot N_{\\rm{aux}})]",
+            "feature_names": [
+                ["a00", "a01*nbf^1", "a02*nbf^2", "a03*nbf^3", "a04*nbf^4"],
+                ["a10", "a11*np_total^1"],
+                ["a20", "a21*nbf_aux^1"],
+            ],
+            "coefficients": [
+                [
+                    -3.962083465444005,
+                    0.0002803721372853437,
+                    -2.2610616347259612e-06,
+                    1.5413151212898455e-09,
+                    -3.0318803023732244e-13,
+                ],
+                [-0.5751936536548626, 4.0054719533204603e-08],
+                [0.3410980034255663, 0.00023362686104798437],
+            ],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.18116642929612137,
+                "r2": 0.9475884449543807,
+                "mae": 0.142796621453862,
+            },
+            "test_error": {
+                "mse": 0.15310347079386613,
+                "r2": 0.9653784607021355,
+                "mae": 0.125483291945428,
+            },
+            "n_train_samples": 864,
+            "n_test_samples": 97,
+            "plot_output": "./plots/polyfit_wB97X-D.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nbf^1, a02*nbf^2, a03*nbf^3, a04*nbf^4",
+        },
+        "fno-ccsd": {
+            "method": "fno-ccsd",
+            "method_name": "fno-ccsd",
+            "variables": ["nocc", "nvirt", "nbf_aux"],
+            "degrees": [3, 2, 1],
+            "operators": ["*", "*", "*"],
+            "latex_equation": "\\log[(2.89 + 8.12 \\times 10^{-2} \\cdot N_{\\rm{occ}} - 1.14 \\times 10^{-3} \\cdot N_{\\rm{occ}}^{2} + 8.28 \\times 10^{-6} \\cdot N_{\\rm{occ}}^{3}) \\times (2.87 + 4.84 \\times 10^{-2} \\cdot N_{\\rm{virt}} - 2.77 \\times 10^{-5} \\cdot N_{\\rm{virt}}^{2}) \\times (5.64 \\times 10^{-2} - 8.57 \\times 10^{-6} \\cdot N_{\\rm{aux}})]",
+            "feature_names": [
+                ["a00", "a01*nocc^1", "a02*nocc^2", "a03*nocc^3"],
+                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
+                ["a20", "a21*nbf_aux^1"],
+            ],
+            "coefficients": [
+                [
+                    2.891023595431096,
+                    0.08117770696938333,
+                    -0.001142793704911738,
+                    8.276608845023314e-06,
+                ],
+                [2.8683278816181903, 0.04843392273066253, -2.7698636150638502e-05],
+                [0.056366117295994646, -8.566658240933823e-06],
+            ],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.1811000147701005,
+                "r2": 0.948073327905947,
+                "mae": 0.14373368061482067,
+            },
+            "test_error": {
+                "mse": 0.16865467597936415,
+                "r2": 0.9662360033968103,
+                "mae": 0.128479752237789,
+            },
+            "n_train_samples": 261,
+            "n_test_samples": 29,
+            "plot_output": "./plots/polyfit_FNO-CCSD.png",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2, a03*nocc^3",
+        },
+        "fno-ccsd(t)": {
+            "method": "fno-ccsd(t)",
+            "method_name": "fno-ccsd(t)",
+            "variables": ["nocc", "nvirt", "nbf_aux"],
+            "degrees": [3, 3, 1],
+            "operators": ["*", "*", "*"],
+            "latex_equation": "\\log[(-1.61 + 3.90 \\times 10^{-3} \\cdot N_{\\rm{occ}} - 8.78 \\times 10^{-4} \\cdot N_{\\rm{occ}}^{2} + 8.26 \\times 10^{-6} \\cdot N_{\\rm{occ}}^{3}) \\times (-2.99 - 3.59 \\times 10^{-2} \\cdot N_{\\rm{virt}} + 1.49 \\times 10^{-6} \\cdot N_{\\rm{virt}}^{2} + 1.66 \\times 10^{-8} \\cdot N_{\\rm{virt}}^{3}) \\times (1.51 \\times 10^{-1} - 3.06 \\times 10^{-5} \\cdot N_{\\rm{aux}})]",
+            "feature_names": [
+                ["a00", "a01*nocc^1", "a02*nocc^2", "a03*nocc^3"],
                 ["a10", "a11*nvirt^1", "a12*nvirt^2", "a13*nvirt^3"],
                 ["a20", "a21*nbf_aux^1"],
             ],
-            "latex_equation": "\\log[(-5.79 + 1.02 \\times "
-            "10^{-1} \\cdot N_{\\rm{occ}} - "
-            "9.06 \\times 10^{-4} \\cdot "
-            "N_{\\rm{occ}}^{2} - 5.79 "
-            "\\times 10^{-6} \\cdot "
-            "N_{\\rm{occ}}^{3} + 8.62 "
-            "\\times 10^{-8} \\cdot "
-            "N_{\\rm{occ}}^{4}) \\times "
-            "(-3.97 - 1.64 \\times 10^{-2} "
-            "\\cdot N_{\\rm{virt}} + 6.75 "
-            "\\times 10^{-5} \\cdot "
-            "N_{\\rm{virt}}^{2} - 7.42 "
-            "\\times 10^{-8} \\cdot "
-            "N_{\\rm{virt}}^{3}) \\times "
-            "(-1.94 \\times 10^{-2} + 2.60 "
-            "\\times 10^{-4} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "fno-ccsd(t)",
-            "method_name": "FNO-CCSD(T)",
-            "n_test_samples": 4,
-            "n_train_samples": 31,
-            "operators": ["*", "*", "*"],
+            "coefficients": [
+                [
+                    -1.6137755131853977,
+                    0.0038982725946969357,
+                    -0.0008779972371318832,
+                    8.262464492089495e-06,
+                ],
+                [
+                    -2.9877369466547923,
+                    -0.035888733509074906,
+                    1.4935619574455757e-06,
+                    1.658776918616654e-08,
+                ],
+                [0.15124531354719414, -3.062938599724743e-05],
+            ],
+            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "train_error": {
+                "mse": 0.24036656357716718,
+                "r2": 0.9380093804135203,
+                "mae": 0.18910833756992232,
+            },
+            "test_error": {
+                "mse": 0.19157905383252782,
+                "r2": 0.9642697975804219,
+                "mae": 0.15956756173736727,
+            },
+            "n_train_samples": 301,
+            "n_test_samples": 34,
             "plot_output": "./plots/polyfit_FNO-CCSD(T).png",
-            "test_error": {
-                "mae": 0.10966148515110341,
-                "mse": 0.12187988016332343,
-                "r2": 0.9347584060664296,
-            },
-            "train_error": {
-                "mae": 0.06951337024343368,
-                "mse": 0.08078273260853859,
-                "r2": 0.9943904832083275,
-            },
-            "variables": ["nocc", "nvirt", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "hf": {
-            "coefficients": [
-                [-4.087184018422912, 0.003572877739081107, -1.2607644427263935e-06],
-                [-3.8285623877134873, 0.0005409974625158854, -9.078005060787753e-08],
-                [-0.0023771122598862217, 5.524109894744721e-05],
-            ],
-            "comment": "Coefficients correspond to features in the "
-            "order: a00, a01*nocc^1, a02*nocc^2",
-            "degrees": [2, 2, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2"],
-                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
-                ["a20", "a21*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(-4.09 + 3.57 \\times 10^{-3} "
-            "\\cdot N_{\\rm{occ}} - 1.26 \\times "
-            "10^{-6} \\cdot N_{\\rm{occ}}^{2}) "
-            "\\times (-3.83 + 5.41 \\times 10^{-4} "
-            "\\cdot N_{\\rm{virt}} - 9.08 \\times "
-            "10^{-8} \\cdot N_{\\rm{virt}}^{2}) "
-            "\\times (-2.38 \\times 10^{-3} + 5.52 "
-            "\\times 10^{-5} \\cdot N_{\\rm{aux}})]",
-            "method": "hf",
-            "method_name": "HF",
-            "n_test_samples": 14,
-            "n_train_samples": 126,
-            "operators": ["*", "*", "*"],
-            "plot_output": "./plots/polyfit_HF.png",
-            "test_error": {
-                "mae": 0.0774746919207481,
-                "mse": 0.10045076865792293,
-                "r2": 0.9819196718341884,
-            },
-            "train_error": {
-                "mae": 0.09180469330331066,
-                "mse": 0.11735959358333713,
-                "r2": 0.9867114399372467,
-            },
-            "variables": ["nocc", "nvirt", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "m05-2x": {
-            "coefficients": [
-                [
-                    -5.630373415388223,
-                    -8.376114197433675e-05,
-                    -9.34974505779708e-07,
-                    5.000204395774288e-10,
-                    -7.36962574299227e-14,
-                ],
-                [-4.20405884143134, 3.953153656582772e-07],
-                [0.03513255624065878, 2.1966497018143082e-05],
-            ],
-            "comment": "Coefficients correspond to features in the "
-            "order: a00, a01*nbf^1, a02*nbf^2, "
-            "a03*nbf^3, a04*nbf^4",
-            "degrees": [4, 1, 1],
-            "feature_names": [
-                ["a00", "a01*nbf^1", "a02*nbf^2", "a03*nbf^3", "a04*nbf^4"],
-                ["a10", "a11*np_total^1"],
-                ["a20", "a21*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(-5.63 - 8.38 \\times 10^{-5} "
-            "\\cdot N_{\\rm{bf}} - 9.35 \\times "
-            "10^{-7} \\cdot N_{\\rm{bf}}^{2} + "
-            "5.00 \\times 10^{-10} \\cdot "
-            "N_{\\rm{bf}}^{3} - 7.37 \\times "
-            "10^{-14} \\cdot N_{\\rm{bf}}^{4}) "
-            "\\times (-4.20 + 3.95 \\times "
-            "10^{-7} \\cdot N_{\\rm{grid}}) "
-            "\\times (3.51 \\times 10^{-2} + "
-            "2.20 \\times 10^{-5} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "m05-2x",
-            "method_name": "M05-2X",
-            "n_test_samples": 22,
-            "n_train_samples": 195,
-            "operators": ["*", "*", "+"],
-            "plot_output": "./plots/polyfit_M05-2X.png",
-            "test_error": {
-                "mae": 0.15255364665190208,
-                "mse": 0.18070211520412696,
-                "r2": 0.9664117423493715,
-            },
-            "train_error": {
-                "mae": 0.14489672152256255,
-                "mse": 0.18072508377554197,
-                "r2": 0.9589491723451935,
-            },
-            "variables": ["nbf", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "mp2": {
-            "coefficients": [
-                [0.2759308904810978, 0.0018543185069818838, 2.8122931511922745e-07],
-                [1.2308226500020585, 0.0009379926543264187, 1.8713565944737797e-07],
-                [2.4440806047657877, -0.00017926558019083785],
-            ],
-            "comment": "Coefficients correspond to features in the "
-            "order: a00, a01*nocc^1, a02*nocc^2",
-            "degrees": [2, 2, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2"],
-                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
-                ["a20", "a21*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(2.76 \\times 10^{-1} + 1.85 "
-            "\\times 10^{-3} \\cdot N_{\\rm{occ}} + "
-            "2.81 \\times 10^{-7} \\cdot "
-            "N_{\\rm{occ}}^{2}) \\times (1.23 + "
-            "9.38 \\times 10^{-4} \\cdot "
-            "N_{\\rm{virt}} + 1.87 \\times 10^{-7} "
-            "\\cdot N_{\\rm{virt}}^{2}) \\times "
-            "(2.44 - 1.79 \\times 10^{-4} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "mp2",
-            "method_name": "MP2",
-            "n_test_samples": 24,
-            "n_train_samples": 210,
-            "operators": ["*", "*", "*", "*"],
-            "plot_output": "./plots/polyfit_MP2.png",
-            "test_error": {
-                "mae": 0.15753838753912816,
-                "mse": 0.1855295841452476,
-                "r2": 0.968545000105604,
-            },
-            "train_error": {
-                "mae": 0.12028962249615195,
-                "mse": 0.15417912935505582,
-                "r2": 0.9682305208037436,
-            },
-            "variables": ["nocc", "nvirt", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "pbe": {
-            "coefficients": [
-                [
-                    -4.877660821671894,
-                    0.010177013009294916,
-                    -1.662263221404033e-05,
-                    1.360448697812041e-08,
-                ],
-                [-1.8969867273052874, -5.5083153491836355e-05],
-                [0.7739749266582981, 2.532482531436583e-08],
-                [0.08868378791981453, 9.470135563727018e-05],
-            ],
-            "comment": "Coefficients correspond to features in the "
-            "order: a00, a01*nocc^1, a02*nocc^2, "
-            "a03*nocc^3",
-            "degrees": [3, 1, 1, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2", "a03*nocc^3"],
-                ["a10", "a11*nvirt^1"],
-                ["a20", "a21*np_total^1"],
-                ["a30", "a31*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(-4.88 + 1.02 \\times 10^{-2} "
-            "\\cdot N_{\\rm{occ}} - 1.66 \\times "
-            "10^{-5} \\cdot N_{\\rm{occ}}^{2} + "
-            "1.36 \\times 10^{-8} \\cdot "
-            "N_{\\rm{occ}}^{3}) \\times (-1.90 - "
-            "5.51 \\times 10^{-5} \\cdot "
-            "N_{\\rm{virt}}) \\times (7.74 \\times "
-            "10^{-1} + 2.53 \\times 10^{-8} \\cdot "
-            "N_{\\rm{grid}}) \\times (8.87 \\times "
-            "10^{-2} + 9.47 \\times 10^{-5} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "pbe",
-            "method_name": "PBE",
-            "n_test_samples": 46,
-            "n_train_samples": 408,
-            "operators": ["*", "*", "*", "+"],
-            "plot_output": "./plots/polyfit_PBE.png",
-            "test_error": {
-                "mae": 0.12397249707124955,
-                "mse": 0.15543472544079817,
-                "r2": 0.967747438704534,
-            },
-            "train_error": {
-                "mae": 0.13423098251970209,
-                "mse": 0.16381703445210333,
-                "r2": 0.9630442868975335,
-            },
-            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "pbe-d3": {
-            "coefficients": [
-                [
-                    -4.877660821671894,
-                    0.010177013009294916,
-                    -1.662263221404033e-05,
-                    1.360448697812041e-08,
-                ],
-                [-1.8969867273052874, -5.5083153491836355e-05],
-                [0.7739749266582981, 2.532482531436583e-08],
-                [0.08868378791981453, 9.470135563727018e-05],
-            ],
-            "comment": "Coefficients correspond to features in the "
-            "order: a00, a01*nocc^1, a02*nocc^2, "
-            "a03*nocc^3",
-            "degrees": [3, 1, 1, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2", "a03*nocc^3"],
-                ["a10", "a11*nvirt^1"],
-                ["a20", "a21*np_total^1"],
-                ["a30", "a31*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(-4.88 + 1.02 \\times 10^{-2} "
-            "\\cdot N_{\\rm{occ}} - 1.66 \\times "
-            "10^{-5} \\cdot N_{\\rm{occ}}^{2} + "
-            "1.36 \\times 10^{-8} \\cdot "
-            "N_{\\rm{occ}}^{3}) \\times (-1.90 - "
-            "5.51 \\times 10^{-5} \\cdot "
-            "N_{\\rm{virt}}) \\times (7.74 "
-            "\\times 10^{-1} + 2.53 \\times "
-            "10^{-8} \\cdot N_{\\rm{grid}}) "
-            "\\times (8.87 \\times 10^{-2} + "
-            "9.47 \\times 10^{-5} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "pbe-d3",
-            "method_name": "PBE-D3",
-            "n_test_samples": 46,
-            "n_train_samples": 408,
-            "operators": ["*", "*", "*", "+"],
-            "plot_output": "./plots/polyfit_PBE-D3.png",
-            "test_error": {
-                "mae": 0.12397249707124955,
-                "mse": 0.15543472544079817,
-                "r2": 0.967747438704534,
-            },
-            "train_error": {
-                "mae": 0.13423098251970209,
-                "mse": 0.16381703445210333,
-                "r2": 0.9630442868975335,
-            },
-            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "wb97x-d": {
-            "coefficients": [
-                [
-                    2.0241543257375114,
-                    0.0045776361580094,
-                    -5.020953785281088e-06,
-                    2.2936782424722992e-09,
-                    -3.6614157886138976e-13,
-                ],
-                [6.753190561963754, -7.395071174847531e-07],
-                [0.033517707220830605, 3.241351630111042e-05],
-            ],
-            "comment": "Coefficients correspond to features in "
-            "the order: a00, a01*nbf^1, a02*nbf^2, "
-            "a03*nbf^3, a04*nbf^4",
-            "degrees": [4, 1, 1],
-            "feature_names": [
-                ["a00", "a01*nbf^1", "a02*nbf^2", "a03*nbf^3", "a04*nbf^4"],
-                ["a10", "a11*np_total^1"],
-                ["a20", "a21*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(2.02 + 4.58 \\times 10^{-3} "
-            "\\cdot N_{\\rm{bf}} - 5.02 \\times "
-            "10^{-6} \\cdot N_{\\rm{bf}}^{2} + "
-            "2.29 \\times 10^{-9} \\cdot "
-            "N_{\\rm{bf}}^{3} - 3.66 \\times "
-            "10^{-13} \\cdot N_{\\rm{bf}}^{4}) "
-            "\\times (6.75 - 7.40 \\times "
-            "10^{-7} \\cdot N_{\\rm{grid}}) "
-            "\\times (3.35 \\times 10^{-2} + "
-            "3.24 \\times 10^{-5} \\cdot "
-            "N_{\\rm{aux}})]",
-            "method": "wb97x-d",
-            "method_name": "wB97X-D",
-            "n_test_samples": 21,
-            "n_train_samples": 182,
-            "operators": ["*", "*", "+"],
-            "plot_output": "./plots/polyfit_wB97X-D.png",
-            "test_error": {
-                "mae": 0.15339598560078277,
-                "mse": 0.17705005036281976,
-                "r2": 0.9729660254143987,
-            },
-            "train_error": {
-                "mae": 0.11510049750960494,
-                "mse": 0.15126891493665187,
-                "r2": 0.9742170496781816,
-            },
-            "variables": ["nbf", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
-        },
-        "wb97x-v": {
-            "coefficients": [
-                [2.4381186808329143, 0.04680345473545202, -6.178211275079922e-05],
-                [0.4094406601572704, -3.9060543448318675e-07, 8.881698788635312e-09],
-                [4.338426355597796, -6.154823107242462e-07],
-                [0.27249160065543027, 1.1629577257059353e-05],
-            ],
-            "comment": "Coefficients correspond to features in "
-            "the order: a00, a01*nocc^1, a02*nocc^2",
-            "degrees": [2, 2, 1, 1],
-            "feature_names": [
-                ["a00", "a01*nocc^1", "a02*nocc^2"],
-                ["a10", "a11*nvirt^1", "a12*nvirt^2"],
-                ["a20", "a21*np_total^1"],
-                ["a30", "a31*nbf_aux^1"],
-            ],
-            "latex_equation": "\\log[(2.44 + 4.68 \\times 10^{-2} "
-            "\\cdot N_{\\rm{occ}} - 6.18 "
-            "\\times 10^{-5} \\cdot "
-            "N_{\\rm{occ}}^{2}) \\times (4.09 "
-            "\\times 10^{-1} - 3.91 \\times "
-            "10^{-7} \\cdot N_{\\rm{virt}} + "
-            "8.88 \\times 10^{-9} \\cdot "
-            "N_{\\rm{virt}}^{2}) \\times (4.34 "
-            "- 6.15 \\times 10^{-7} \\cdot "
-            "N_{\\rm{grid}}) \\times (2.72 "
-            "\\times 10^{-1} + 1.16 \\times "
-            "10^{-5} \\cdot N_{\\rm{aux}})]",
-            "method": "wb97x-v",
-            "method_name": "wB97X-V",
-            "n_test_samples": 23,
-            "n_train_samples": 199,
-            "operators": ["*", "*", "*", "+"],
-            "plot_output": "./plots/polyfit_wB97X-V.png",
-            "test_error": {
-                "mae": 0.07054578233548094,
-                "mse": 0.08544554542301415,
-                "r2": 0.9902371137613144,
-            },
-            "train_error": {
-                "mae": 0.11751837322059758,
-                "mse": 0.15675855268726915,
-                "r2": 0.9703007330202956,
-            },
-            "variables": ["nocc", "nvirt", "np_total", "nbf_aux"],
-            "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
+            "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2, a03*nocc^3",
         },
     },
+    "metadata": {"created": "polynomial_fitting.py"},
 }

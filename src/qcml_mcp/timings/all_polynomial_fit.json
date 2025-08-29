@@ -594,7 +594,7 @@
         "nbf_aux"
       ],
       "degrees": [
-        4,
+        3,
         2,
         1
       ],
@@ -603,14 +603,13 @@
         "*",
         "*"
       ],
-      "latex_equation": "\\log[(3.04 + 2.17 \\times 10^{-2} \\cdot N_{\\rm{occ}} + 1.28 \\times 10^{-5} \\cdot N_{\\rm{occ}}^{2} + 7.21 \\times 10^{-6} \\cdot N_{\\rm{occ}}^{3} - 8.85 \\times 10^{-8} \\cdot N_{\\rm{occ}}^{4}) \\times (3.36 + 1.58 \\times 10^{-1} \\cdot N_{\\rm{virt}} - 1.08 \\times 10^{-4} \\cdot N_{\\rm{virt}}^{2}) \\times (2.47 \\times 10^{-2} - 4.25 \\times 10^{-6} \\cdot N_{\\rm{aux}})]",
+      "latex_equation": "\\log[(2.89 + 8.12 \\times 10^{-2} \\cdot N_{\\rm{occ}} - 1.14 \\times 10^{-3} \\cdot N_{\\rm{occ}}^{2} + 8.28 \\times 10^{-6} \\cdot N_{\\rm{occ}}^{3}) \\times (2.87 + 4.84 \\times 10^{-2} \\cdot N_{\\rm{virt}} - 2.77 \\times 10^{-5} \\cdot N_{\\rm{virt}}^{2}) \\times (5.64 \\times 10^{-2} - 8.57 \\times 10^{-6} \\cdot N_{\\rm{aux}})]",
       "feature_names": [
         [
           "a00",
           "a01*nocc^1",
           "a02*nocc^2",
-          "a03*nocc^3",
-          "a04*nocc^4"
+          "a03*nocc^3"
         ],
         [
           "a10",
@@ -624,37 +623,36 @@
       ],
       "coefficients": [
         [
-          3.043426384595809,
-          0.02170121576670866,
-          1.2769630690906377e-05,
-          7.211656106710502e-06,
-          -8.848920841303425e-08
+          2.891023595431096,
+          0.08117770696938333,
+          -0.001142793704911738,
+          8.276608845023314e-06
         ],
         [
-          3.36198577796353,
-          0.15818285594813172,
-          -0.0001077849969054353
+          2.8683278816181903,
+          0.04843392273066253,
+          -2.7698636150638502e-05
         ],
         [
-          0.024659352550932916,
-          -4.250832360773085e-06
+          0.056366117295994646,
+          -8.566658240933823e-06
         ]
       ],
       "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
       "train_error": {
-        "mse": 0.17301619786811817,
-        "r2": 0.9526055981512034,
-        "mae": 0.13968224662101378
+        "mse": 0.1811000147701005,
+        "r2": 0.948073327905947,
+        "mae": 0.14373368061482067
       },
       "test_error": {
-        "mse": 0.16647432041635332,
-        "r2": 0.9671033574313369,
-        "mae": 0.12322975605032287
+        "mse": 0.16865467597936415,
+        "r2": 0.9662360033968103,
+        "mae": 0.128479752237789
       },
       "n_train_samples": 261,
       "n_test_samples": 29,
       "plot_output": "./plots/polyfit_FNO-CCSD.png",
-      "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2, a03*nocc^3, a04*nocc^4"
+      "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2, a03*nocc^3"
     },
     "FNO-CCSD(T)": {
       "method": "FNO-CCSD(T)",
@@ -665,7 +663,7 @@
         "nbf_aux"
       ],
       "degrees": [
-        4,
+        3,
         3,
         1
       ],
@@ -674,14 +672,13 @@
         "*",
         "*"
       ],
-      "latex_equation": "\\log[(-3.27 + 1.49 \\times 10^{-1} \\cdot N_{\\rm{occ}} - 7.65 \\times 10^{-3} \\cdot N_{\\rm{occ}}^{2} + 1.10 \\times 10^{-4} \\cdot N_{\\rm{occ}}^{3} - 4.86 \\times 10^{-7} \\cdot N_{\\rm{occ}}^{4}) \\times (-1.03 \\times 10 - 1.59 \\times 10^{-2} \\cdot N_{\\rm{virt}} - 1.78 \\times 10^{-4} \\cdot N_{\\rm{virt}}^{2} + 2.01 \\times 10^{-7} \\cdot N_{\\rm{virt}}^{3}) \\times (5.29 \\times 10^{-2} - 1.23 \\times 10^{-5} \\cdot N_{\\rm{aux}})]",
+      "latex_equation": "\\log[(-1.61 + 3.90 \\times 10^{-3} \\cdot N_{\\rm{occ}} - 8.78 \\times 10^{-4} \\cdot N_{\\rm{occ}}^{2} + 8.26 \\times 10^{-6} \\cdot N_{\\rm{occ}}^{3}) \\times (-2.99 - 3.59 \\times 10^{-2} \\cdot N_{\\rm{virt}} + 1.49 \\times 10^{-6} \\cdot N_{\\rm{virt}}^{2} + 1.66 \\times 10^{-8} \\cdot N_{\\rm{virt}}^{3}) \\times (1.51 \\times 10^{-1} - 3.06 \\times 10^{-5} \\cdot N_{\\rm{aux}})]",
       "feature_names": [
         [
           "a00",
           "a01*nocc^1",
           "a02*nocc^2",
-          "a03*nocc^3",
-          "a04*nocc^4"
+          "a03*nocc^3"
         ],
         [
           "a10",
@@ -696,38 +693,37 @@
       ],
       "coefficients": [
         [
-          -3.2727585091329594,
-          0.14901356290154644,
-          -0.007652621214370708,
-          0.00011027278377757964,
-          -4.856580514997464e-07
+          -1.6137755131853977,
+          0.0038982725946969357,
+          -0.0008779972371318832,
+          8.262464492089495e-06
         ],
         [
-          -10.287051901853346,
-          -0.01593939546490085,
-          -0.00017780720036488485,
-          2.0126738169810166e-07
+          -2.9877369466547923,
+          -0.035888733509074906,
+          1.4935619574455757e-06,
+          1.658776918616654e-08
         ],
         [
-          0.052949184842386955,
-          -1.2323963585721335e-05
+          0.15124531354719414,
+          -3.062938599724743e-05
         ]
       ],
       "y_variable": "$\\log_{10}[\\mathrm{time(s)}]$",
       "train_error": {
-        "mse": 0.3228225624951273,
-        "r2": 0.888183568277521,
-        "mae": 0.2474934665679391
+        "mse": 0.24036656357716718,
+        "r2": 0.9380093804135203,
+        "mae": 0.18910833756992232
       },
       "test_error": {
-        "mse": 0.30899993862761244,
-        "r2": 0.9070485401805668,
-        "mae": 0.25233803912611424
+        "mse": 0.19157905383252782,
+        "r2": 0.9642697975804219,
+        "mae": 0.15956756173736727
       },
       "n_train_samples": 301,
       "n_test_samples": 34,
       "plot_output": "./plots/polyfit_FNO-CCSD(T).png",
-      "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2, a03*nocc^3, a04*nocc^4"
+      "comment": "Coefficients correspond to features in the order: a00, a01*nocc^1, a02*nocc^2, a03*nocc^3"
     }
   },
   "metadata": {
