@@ -134,7 +134,7 @@ executors:
     cores_per_worker: {resources_config.get('cores_per_worker', '8')}
     memory_per_worker: {resources_config.get('memory_per_worker', '8')}
     max_workers: {resources_config.get('max_workers', '4')}
-    queue_tags:                 
+    queue_tags:
       - '*'
     {conda_env_str}
     worker_init:
@@ -147,7 +147,7 @@ executors:
                 "qcfractal-server",
                 f"--config={QCF_BASE_FOLDER}/qcfractal_config.yaml",
                 "start",
-                # "&", 
+                # "&",
                 # "disown",
             ]
         )

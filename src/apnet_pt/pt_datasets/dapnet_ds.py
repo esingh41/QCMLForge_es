@@ -765,6 +765,7 @@ class dapnet2_module_dataset_apnetStored(Dataset):
                     dimer_ind=dimer_inds[0],
                     ndimer=ndimers[0],
                 )
+                data = data.cpu()
                 data_objects.append(data)
                 if len(data_objects) == self.datapoint_storage_n_objects:
                     if self.in_memory:

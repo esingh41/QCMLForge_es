@@ -1,10 +1,10 @@
 import numpy as np
 import apnet_pt
-import qcelemental
+import qcelemental as qcel
 import torch
 
 
-mol3 = qcelemental.models.Molecule.from_data(
+mol3 = qcel.models.Molecule.from_data(
     """
     1 1
     C       0.0545060001    -0.1631290019   -1.1141539812

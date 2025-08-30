@@ -17,6 +17,8 @@ def train_atom_model(
     n_epochs=500,
     random_seed=42,
     ds_max_size=None,
+    world_size=1,
+    omp_num_threads=1,
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
@@ -44,6 +46,9 @@ def train_atom_model(
         use_GPU=True,
         pre_trained_model_path=pretrained_model,
     )
+    dataloader_num_workers = 0
+    if torch.cuda.is_available() and omp_num_threads > 2:
+        dataloader_num_workers = omp_num_threads - 2
     print(atom_model.dataset)
     atom_model.train(
         n_epochs=n_epochs,
@@ -51,11 +56,10 @@ def train_atom_model(
         lr=5e-4,
         split_percent=0.9,
         model_path=model_path,
-        shuffle=False,
-        dataloader_num_workers=7,
-        optimize_for_speed=True,
-        world_size=1,
-        omp_num_threads_per_process=8,
+        shuffle=True,
+        dataloader_num_workers=dataloader_num_workers,
+        world_size=world_size,
+        omp_num_threads_per_process=omp_num_threads,
         random_seed=random_seed,
     )
     return
@@ -78,11 +82,18 @@ def train_pairwise_model(
     n_embed=8,
     m1="",
     m2="",
+    pre_trained_model_path="./models/dapnet2/ap2_0.pt",
+    param_start_mean=1.5,
+    param_start_std=0.1,
 ):
     ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
+    elif apnet_model_type == "APNet2-fused":
+        APNet = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model
+    elif apnet_model_type == "AM-DimerParam":
+        APNet = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model
     elif apnet_model_type == "APNet3":
         APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":
@@ -95,7 +106,7 @@ def train_pairwise_model(
             r_cut=r_cut,
             r_cut_im=r_cut_im,
             atom_model_pre_trained_path=am_model_path,
-            pre_trained_model_path="./models/dapnet2/ap2_0.pt",
+            pre_trained_model_path=pre_trained_model_path,
         )
         apnet2_model.model.return_hidden_states = True
     else:
@@ -135,6 +146,26 @@ def train_pairwise_model(
             ds_m1=m1,
             ds_m2=m2,
         )
+    elif apnet_model_type.startswith("AM-DimerParam"):
+        apnet2 = APNet(
+            atom_model_pre_trained_path=am_model_path,
+            pre_trained_model_path=pretrained_model,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            ds_spec_type=spec_type,
+            ds_root=data_dir,
+            ignore_database_null=False,
+            ds_atomic_batch_size=ds_atomic_batch_size,
+            ds_num_devices=1,
+            ds_skip_process=False,
+            ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+            ds_prebatched=True,
+            ds_random_seed=random_seed,
+            param_start_mean=param_start_mean,
+            param_start_std=param_start_std,
+        )
     else:
         apnet2 = APNet(
             atom_model_pre_trained_path=am_model_path,
@@ -152,6 +183,7 @@ def train_pairwise_model(
             ds_skip_process=False,
             ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
             ds_prebatched=True,
+            ds_random_seed=random_seed,
         )
     apnet2.train(
         model_path=model_out,
@@ -199,6 +231,12 @@ def main():
         help="specify where to save output model (default: ./models/ap2_ensemble/ap2_1.pt)"
     )
     args.add_argument(
+        "--ap_pretrained_model_path",
+        type=str,
+        default="./models/dapnet2/ap2_0.pt",
+        help="specify a special loaded model. Currently only used for dAP-Net2 training (default: ./models/dapnet2/ap2_0.pt)"
+    )
+    args.add_argument(
         "--train_am",
         type=str,
         default="",
@@ -208,7 +246,7 @@ def main():
         "--train_apnet",
         type=str,
         default="",
-        help="Train APNet Model: (APNet2, APNet3, dAPNet2)"
+        help="Train APNet Model: (APNet2, APNet3, dAPNet2, APNet2-fused, AM-DimerParam)"
     )
     args.add_argument(
         "--random_seed",
@@ -313,6 +351,30 @@ def main():
         default=8,
         help="specify AP n_embed (default: 8)"
     )
+    args.add_argument(
+        "--param_start_mean",
+        type=int,
+        default=2.0,
+        help="specify AM-DimerParam Embedding Start Mean (default: 2.0)"
+    )
+    args.add_argument(
+        "--param_start_std",
+        type=int,
+        default=0.1,
+        help="specify AM-DimerParam Embedding Start std (default: 0.1)"
+    )
+    args.add_argument(
+        "--world_size_ddp",
+        type=int,
+        default=1,
+        help="specify world_size for DDP only for AtomModels currently (default: 1)"
+    )
+    args.add_argument(
+        "--omp_num_threads",
+        type=int,
+        default=1,
+        help="specify omp_num_threads for DDP only for AtomModels currently (default: 1)"
+    )
     args = args.parse_args()
     pprint(args)
     set_all_seeds(args.random_seed)
@@ -325,6 +387,8 @@ def main():
             n_epochs=args.n_epochs_atom,
             random_seed=args.random_seed,
             ds_max_size=args.ds_max_size,
+            world_size=args.world_size_ddp,
+            omp_num_threads=args.omp_num_threads,
         )
     if args.train_apnet != "":
         train_pairwise_model(
@@ -344,6 +408,9 @@ def main():
             n_embed=args.n_embed,
             m1=args.m1,
             m2=args.m2,
+            pre_trained_model_path=args.ap_pretrained_model_path,
+            param_start_mean=args.param_start_mean,
+            param_start_std=args.param_start_std,
         )
     return
 

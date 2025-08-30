@@ -1,10 +1,10 @@
 import apnet_pt
 import numpy as np
-import qcelemental
+import qcelemental as qcel
 import torch
 import pytest
 
-mol3 = qcelemental.models.Molecule.from_data(
+mol3 = qcel.models.Molecule.from_data(
     """
     1 1
     C       0.0545060001    -0.1631290019   -1.1141539812
@@ -34,7 +34,7 @@ mol3 = qcelemental.models.Molecule.from_data(
     units angstrom
                 """
 )
-water = qcelemental.models.Molecule.from_data("""
+water = qcel.models.Molecule.from_data("""
 
 0 1
 8   -0.702196054   -0.056060256   0.009942262
@@ -116,7 +116,7 @@ def test_ap3_indu():
         atom_model=atom_model.model,
         ignore_database_null=True,
     )
-    au2ang = qcelemental.constants.conversion_factor("bohr", "angstrom")
+    au2ang = qcel.constants.conversion_factor("bohr", "angstrom")
     print("water geometry in angstrom")
     print(water.geometry * au2ang)
     print()

@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter
+# from torch_scatter import scatter
+from torch_geometric.utils import scatter
 from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings
@@ -293,15 +294,24 @@ class AtomMPNN(MessagePassing):
         if edge_index.size(1) == 0:
             # need h_list to have the same number of dimensions as the number of message passing layers
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
-            h_list = torch.stack(h_list, dim=1)
-            return charge.squeeze(), dipole, qpole, h_list
-
+            h_list = torch.stack(h_list, dim=0)
+            molecule_ind.requires_grad_(False)
+            molecule_ind = molecule_ind.long()
+            total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+            total_charge_pred = total_charge_pred.squeeze()
+            total_charge_err = total_charge_pred - total_charge
+            charge_err = torch.repeat_interleave(
+                total_charge_err / natom_per_mol.float(), natom_per_mol
+            ).unsqueeze(1)
+            charge = charge - charge_err
+            return charge, dipole, qpole, h_list
         
-        # 1) Identify which molecules have more than one atom
-        mol_ind = torch.where(natom_per_mol != 1)[0] 
-        keep_mask = (molecule_ind.unsqueeze(1) == mol_ind).any(dim=1)
+        # 1) Filter out atoms that don't have edges
+        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
+        keep_mask = torch.isin(torch.arange(len(molecule_ind), device=molecule_ind.device), atoms_with_edges)
         filtered_charge = charge[keep_mask]
-        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms.
+
+        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms and edges
         h_list = [h_list_0[0][keep_mask]]
 
         # Now we need to filter the edge_index to only include edges between
@@ -315,7 +325,6 @@ class AtomMPNN(MessagePassing):
         idx_map = idx_map.long()                     # ensure integer
         e_source = idx_map[e_source]
         e_target = idx_map[e_target]
-
 
         R = R[keep_mask, :]
 
@@ -409,7 +418,8 @@ class AtomMPNN(MessagePassing):
         ).unsqueeze(1)
         charge = charge - charge_err
         charge = charge.squeeze()
-        h_list = torch.stack(h_list, dim=1)
+        # changed to dim=0 from dim=1 for usage in Param fitting # AMW 8/20/25
+        h_list = torch.stack(h_list, dim=0)
         return charge, dipole, qpole, h_list
 
 
@@ -493,17 +503,52 @@ class AtomModel:
         # self.model.to(device)
         self.device = device
         self.dataset = dataset
+        self.ds_spec_type = ds_spec_type
         mp.set_sharing_strategy("file_system")
-        if not ignore_database_null and self.dataset is None:
-            self.dataset = atomic_module_dataset(
-                root=ds_root,
-                testing=ds_testing,
-                spec_type=ds_spec_type,
-                max_size=ds_max_size,
-                force_reprocess=ds_force_reprocess,
-                in_memory=ds_in_memory,
-            )
-        # print(f"{self.dataset = }")
+        split_dbs = [7]
+        if not ignore_database_null and self.dataset is None and self.ds_spec_type not in split_dbs:
+            print("Setting up dataset...")
+            def setup_ds(fp=ds_force_reprocess):
+                return atomic_module_dataset(
+                    root=ds_root,
+                    testing=ds_testing,
+                    spec_type=ds_spec_type,
+                    max_size=ds_max_size,
+                    force_reprocess=fp,
+                    in_memory=ds_in_memory,
+                )
+            self.dataset = setup_ds()
+            self.dataset = setup_ds(False)
+        elif (
+            not ignore_database_null
+            and self.dataset is None
+            and self.ds_spec_type in split_dbs
+        ):
+            print("Processing Split dataset...")
+            def setup_ds(fp=ds_force_reprocess):
+                return [
+                    atomic_module_dataset(
+                        root=ds_root,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        split="train",
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    ),
+                    atomic_module_dataset(
+                        root=ds_root,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        split="test",
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    ),
+                ]
+            self.dataset = setup_ds()
+            self.dataset = setup_ds(False)
+        print(f"{self.dataset = }")
         self.rank = None
         self.world_size = None
         self.model_save_path = model_save_path
@@ -657,9 +702,9 @@ units angstrom
                 batch_loss = charge_loss + dipole_loss + qpole_loss
                 total_loss += batch_loss.detach()
 
-            charge_errors_t.append(q_error.detach())
-            dipole_errors_t.extend(d_error.detach())
-            qpole_errors_t.extend(qp_error.detach())
+            charge_errors_t.append(q_error.detach().cpu())
+            dipole_errors_t.extend(d_error.detach().cpu())
+            qpole_errors_t.extend(qp_error.detach().cpu())
         charge_errors_t = torch.cat(charge_errors_t)
         dipole_errors_t = torch.cat(dipole_errors_t)
         qpole_errors_t = torch.cat(qpole_errors_t)
@@ -673,9 +718,10 @@ units angstrom
                     train_loader,  # loss_fn=criterion
                 )
             )
-            charge_MAE_t = np.mean(np.abs(charge_errors_t))
-            dipole_MAE_t = np.mean(np.abs(dipole_errors_t))
-            qpole_MAE_t = np.mean(np.abs(qpole_errors_t))
+            print(charge_errors_t.shape, dipole_errors_t.shape, qpole_errors_t.shape)
+            charge_MAE_t = np.mean(np.abs(charge_errors_t.numpy()))
+            dipole_MAE_t = np.mean(np.abs(dipole_errors_t.numpy()))
+            qpole_MAE_t = np.mean(np.abs(qpole_errors_t.numpy()))
 
             charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []
             test_loss, charge_errors_v, dipole_errors_v, qpole_errors_v = (
@@ -683,9 +729,9 @@ units angstrom
                     test_loader,  # loss_fn=criterion
                 )
             )
-            charge_MAE_v = np.mean(np.abs(charge_errors_v))
-            dipole_MAE_v = np.mean(np.abs(dipole_errors_v))
-            qpole_MAE_v = np.mean(np.abs(qpole_errors_v))
+            charge_MAE_v = np.mean(np.abs(charge_errors_v.numpy()))
+            dipole_MAE_v = np.mean(np.abs(dipole_errors_v.numpy()))
+            qpole_MAE_v = np.mean(np.abs(qpole_errors_v.numpy()))
             charge_errors_v, dipole_errors_v, qpole_errors_v = [], [], []
             dt = time.time() - t1
             print(
@@ -1020,7 +1066,7 @@ units angstrom
         lr,
         pin_memory,
         num_workers,
-        optimize_for_speed=True,
+        skip_compile=True,
     ):
         if self.device.type == "cpu":
             rank_device = "cpu"
@@ -1028,7 +1074,7 @@ units angstrom
             rank_device = rank
 
         self.model.to(rank_device)
-        if optimize_for_speed:
+        if not skip_compile:
             self.compile_model()
 
         train_loader = AtomicDataLoader(
@@ -1054,6 +1100,8 @@ units angstrom
 
         lowest_test_loss = torch.tensor(float("inf"))
         print(f"{rank=}")
+
+        test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
 
         for epoch in range(n_epochs):
             t1 = time.time()
@@ -1110,7 +1158,7 @@ units angstrom
         lr=5e-4,
         split_percent=0.9,
         model_path=None,
-        optimize_for_speed=True,
+        skip_compile=False,
         shuffle=True,
         dataloader_num_workers=0,
         world_size=1,  # Default to 1 for single-core operation
@@ -1129,17 +1177,33 @@ units angstrom
             raise ValueError("No dataset provided")
         self.train_shuffle = shuffle
 
-        np.random.seed(42)
-        torch.manual_seed(42)
-        random_indices = np.random.permutation(len(self.dataset))
-        train_indices = random_indices[: int(len(self.dataset) * split_percent)]
-        test_indices = random_indices[int(len(self.dataset) * split_percent) :]
         if random_seed:
             np.random.seed(random_seed)
             torch.manual_seed(random_seed)
-            train_indices = np.random.permutation(train_indices)
-        train_dataset = self.dataset[train_indices]
-        test_dataset = self.dataset[test_indices]
+
+        if isinstance(self.dataset, list):
+            train_dataset = self.dataset[0]
+            if shuffle:
+                order_indices = np.random.permutation(len(train_dataset))
+            else:
+                order_indices = [i for i in range(len(train_dataset))]
+            train_dataset = train_dataset[order_indices]
+
+            test_dataset = self.dataset[1]
+            if shuffle:
+                order_indices = np.random.permutation(len(test_dataset))
+            else:
+                order_indices = [i for i in range(len(test_dataset))]
+            test_dataset = test_dataset[order_indices]
+        else:
+            if shuffle:
+                order_indices = np.random.permutation(len(self.dataset))
+            else:
+                order_indices = np.arange(len(self.dataset))
+            train_indices = order_indices[: int(len(self.dataset) * split_percent)]
+            test_indices = order_indices[int(len(self.dataset) * split_percent) :]
+            train_dataset = self.dataset[train_indices]
+            test_dataset = self.dataset[test_indices]
 
         print("~~ Training Atom Model ~~", flush=True)
         print(
@@ -1160,7 +1224,7 @@ units angstrom
         # pin_memory = torch.cuda.is_available()
         pin_memory = True
 
-        if optimize_for_speed:
+        if skip_compile:
             torch.jit.enable_onednn_fusion(True)
             torch.autograd.set_detect_anomaly(False)
 
@@ -1197,7 +1261,7 @@ units angstrom
                 lr=lr,
                 pin_memory=pin_memory,
                 num_workers=dataloader_num_workers,
-                optimize_for_speed=optimize_for_speed,
+                skip_compile=skip_compile,
             )
 
         return
