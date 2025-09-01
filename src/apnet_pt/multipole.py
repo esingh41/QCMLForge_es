@@ -9,6 +9,7 @@ from . import constants
 import torch
 from typing import Tuple
 import qcelemental as qcel
+# from .AtomPairwiseModels.mtp_mtp import get_distances
 
 
 def proc_molden(name):
@@ -977,6 +978,8 @@ def dimer_induced_dipole(
     hirshfeld_volume_ratio_B: np.ndarray,
     valence_widths_A: np.ndarray,
     valence_widths_B: np.ndarray,
+    atom_polarizabilities_A: np.ndarray = None,
+    atom_polarizabilities_B: np.ndarray = None,
     max_iterations: int = 200,
     convergence_threshold: float = 1e-8,
     # CLIFF omega parameter = 0.7 for fewer iterations
@@ -1002,15 +1005,25 @@ def dimer_induced_dipole(
     # Get atomic positions (in bohr)
     RA = molA.geometry
     RB = molB.geometry
+    ZA = molA.atomic_numbers
+    ZB = molB.atomic_numbers
     np.set_printoptions(precision=6, suppress=True, floatmode="fixed")
 
     # Calculate atomic polarizabilities using Hirshfeld volume ratios
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B
 
+    if atom_polarizabilities_A is not None and atom_polarizabilities_B is not None:
+        print("Overriding polarizabilities with provided values.")
+        alpha_A = atom_polarizabilities_A.flatten()
+        alpha_B = atom_polarizabilities_B.flatten()
+
     # Combine all atoms and properties
     R_all = np.vstack([RA, RB])
     alpha_all = np.vstack([alpha_A.reshape(-1, 1), alpha_B.reshape(-1, 1)]).flatten()
+    print(f"{alpha_all = }")
+    # qA -= ZA
+    # qB -= ZB
     q_all = np.concatenate([qA, qB]).flatten()
     mu_all = np.concatenate([muA, muB])
     theta_all = np.concatenate([thetaA, thetaB])
@@ -1030,6 +1043,10 @@ def dimer_induced_dipole(
     M_A = M[:n_atoms_A, :]
     # Multipoles on molecule B
     M_B = M[n_atoms_A:, :]
+
+    np.set_printoptions(precision=5, suppress=True, floatmode="fixed", sign=" ")
+    print(f"{M_A = }")
+    print(f"{M_B = }")
 
     # Initialize interaction tensors
     for i in range(n_atoms_total):
@@ -1052,8 +1069,8 @@ def dimer_induced_dipole(
             # T_abij[i, j, 4:13, 0] = 1 / 3 * T2.reshape(9)
 
             T_abij[i, j, 0, 0] = T0
-            T_abij[i, j, 1:4, 0] = T1
             T_abij[i, j, 0, 1:4] = T1
+            T_abij[i, j, 1:4, 0] = T1
             T_abij[i, j, 1:4, 1:4] = T2
             T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
             T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
@@ -1061,95 +1078,146 @@ def dimer_induced_dipole(
             T_abij[i, j, 0, 4:13] =  T2.reshape(9)
             T_abij[i, j, 4:13, 0] =  T2.reshape(9)
 
-    E_qq = float(
-        (
-            np.einsum(
-                "ai,abij,bj->",
-                M_A[:, 0:1],
-                T_abij[:n_atoms_A, n_atoms_A:, 0:1, 0:1],
-                M_B[:, 0:1],
-            )
-        )
-        * constants.h2kcalmol
-    )
-    print(f"{E_qq=:.6f}")
-    E_qu = float(
-        (
-            np.einsum(
-                "a,abj,bj->",
-                M_A[:, 0],
-                T_abij[:n_atoms_A, n_atoms_A:, 0, 1:4],
-                M_B[:, 1:4],
-            )
-            - np.einsum(
-                "ai,abi,b->",
-                M_A[:, 1:4],
-                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0],
-                M_B[:, 0],
-            )
-        )
-        * constants.h2kcalmol
-    )
-    print(f"{E_qu=:.6f}")
-    E_uu = float(
-        -1.0 * (
-            np.einsum(
-                "ai,abij,bj->",
-                M_A[:, 1:4],
-                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
-                M_B[:, 1:4],
-            )
-        )
-        * constants.h2kcalmol
-    )
-    print(f"{E_uu=:.6f}")
-    E_qQ = float(
-        1/3*(
-            np.einsum(
-                "ai,abij,bj->",
-                M_A[:, 0:1],
-                T_abij[:n_atoms_A, n_atoms_A:, 0:1, 4:],
-                M_B[:, 4:],
-            )
-            + np.einsum(
-                "ai,abij,bj->",
-                M_A[:, 4:],
-                T_abij[:n_atoms_A, n_atoms_A:, 4:, 0:1],
-                M_B[:, 0:1],
-            )
-        )
-        * constants.h2kcalmol
-    )
-    print(f"{E_qQ=:.6f}")
-    E_uQ = float(
-        1/3*(
-            np.einsum(
-                "ai,abij,bj->",
-                M_A[:, 1:4],
-                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 4:],
-                M_B[:, 4:],
-            )
-            + np.einsum(
-                "ai,abij,bj->",
-                M_A[:, 4:],
-                T_abij[:n_atoms_A, n_atoms_A:, 4:, 1:4],
-                M_B[:, 1:4],
-            )
-        )
-        * constants.h2kcalmol
-    )
-    print(f"{E_uQ=:.6f}")
+    """
+Pair: O-O  E_ind:  1.8889 kcal/mol
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [ 0.17471 -0.02548  0.00017]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
+  T[:4, :4] = array([[ 0.19095, -0.03645, -0.00110,  0.00012],
+       [ 0.03645, -0.01391, -0.00063,  0.00007],
+       [ 0.00110, -0.00063,  0.00694,  0.00000],
+       [-0.00012,  0.00007,  0.00000,  0.00696]])
+Pair: O-H  E_ind:  0.6634 kcal/mol
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [-0.00377 -0.00336  0.00662]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [ 0.45258  0.00157 -0.00108  0.02948]
+  T[:4, :4] = array([[ 0.16254, -0.02553,  0.00288, -0.00614],
+       [ 0.02553, -0.00774,  0.00136, -0.00290],
+       [-0.00288,  0.00136,  0.00414,  0.00033],
+       [ 0.00614, -0.00290,  0.00033,  0.00360]])
+Pair: O-H  E_ind:  0.6634 kcal/mol
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [-0.00381 -0.00368 -0.00642]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [ 0.45258  0.00140 -0.00256 -0.02940]
+  T[:4, :4] = array([[ 0.16256, -0.02551,  0.00318,  0.00612],
+       [ 0.02551, -0.00771,  0.00150,  0.00288],
+       [-0.00318,  0.00150,  0.00411, -0.00036],
+       [-0.00612,  0.00288, -0.00036,  0.00360]])
+Pair: H-O  E_ind: -1.3331 kcal/mol
+  mu_ind1: [-0.00114 -0.00314  0.00008]  mu_ind2: [ 0.17471 -0.02548  0.00017]
+  M_A: [ 0.45219 -0.02343  0.01783 -0.00038]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
+  T[:4, :4] = array([[ 0.16554, -0.02649,  0.00702, -0.00011],
+       [ 0.02649, -0.00818,  0.00337, -0.00005],
+       [-0.00702,  0.00337,  0.00364,  0.00001],
+       [ 0.00011, -0.00005,  0.00001,  0.00454]])
+Pair: H-H  E_ind:  0.0055 kcal/mol
+  mu_ind1: [-0.00114 -0.00314  0.00008]  mu_ind2: [-0.00377 -0.00336  0.00662]
+  M_A: [ 0.45219 -0.02343  0.01783 -0.00038]  M_B: [ 0.45258  0.00157 -0.00108  0.02948]
+  T[:4, :4] = array([[ 0.14041, -0.01813,  0.00658, -0.00407],
+       [ 0.01813, -0.00426,  0.00255, -0.00158],
+       [-0.00658,  0.00255,  0.00184,  0.00057],
+       [ 0.00407, -0.00158,  0.00057,  0.00241]])
+Pair: H-H  E_ind:  0.0055 kcal/mol
+  mu_ind1: [-0.00114 -0.00314  0.00008]  mu_ind2: [-0.00381 -0.00368 -0.00642]
+  M_A: [ 0.45219 -0.02343  0.01783 -0.00038]  M_B: [ 0.45258  0.00140 -0.00256 -0.02940]
+  T[:4, :4] = array([[ 0.14042, -0.01812,  0.00678,  0.00384],
+       [ 0.01812, -0.00424,  0.00262,  0.00148],
+       [-0.00678,  0.00262,  0.00179, -0.00056],
+       [-0.00384,  0.00148, -0.00056,  0.00245]])
+Pair: H-O  E_ind: -5.2828 kcal/mol
+  mu_ind1: [ 0.02094  0.00186 -0.00010]  mu_ind2: [ 0.17471 -0.02548  0.00017]
+  M_A: [ 0.45063  0.02653 -0.01379  0.00028]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
+  T[:4, :4] = array([[ 0.29231, -0.08544,  0.00067,  0.00020],
+       [ 0.08544, -0.04995,  0.00059,  0.00018],
+       [-0.00067,  0.00059,  0.02497, -0.00000],
+       [-0.00020,  0.00018, -0.00000,  0.02498]])
+Pair: H-H  E_ind:  0.2776 kcal/mol
+  mu_ind1: [ 0.02094  0.00186 -0.00010]  mu_ind2: [-0.00377 -0.00336  0.00662]
+  M_A: [ 0.45063  0.02653 -0.01379  0.00028]  M_B: [ 0.45258  0.00157 -0.00108  0.02948]
+  T[:4, :4] = array([[ 0.22427, -0.04661,  0.00965, -0.01624],
+       [ 0.04661, -0.01779,  0.00602, -0.01013],
+       [-0.00965,  0.00602,  0.01003,  0.00210],
+       [ 0.01624, -0.01013,  0.00210,  0.00775]])
+Pair: H-H  E_ind:  0.2777 kcal/mol
+  mu_ind1: [ 0.02094  0.00186 -0.00010]  mu_ind2: [-0.00381 -0.00368 -0.00642]
+  M_A: [ 0.45063  0.02653 -0.01379  0.00028]  M_B: [ 0.45258  0.00140 -0.00256 -0.02940]
+  T[:4, :4] = array([[ 0.22430, -0.04654,  0.01046,  0.01599],
+       [ 0.04654, -0.01769,  0.00651,  0.00995],
+       [-0.01046,  0.00651,  0.00982, -0.00224],
+       [-0.01599,  0.00995, -0.00224,  0.00787]])
+    """
+
     mu_induced_0 = np.zeros((n_atoms_total, 3))
     mu_induced_0_A = mu_induced_0[:n_atoms_A, :]
     mu_induced_0_B = mu_induced_0[n_atoms_A:, :]
     mu_induced_0_A[:, :] = np.einsum(
         "a,abij,bj->ai", alpha_A, T_abij[:n_atoms_A, n_atoms_A:, 1:4, :], M_B
     )
+    print(f"{T_abij.shape = }")
+    # print(f"{T_abij[:n_atoms_A, n_atoms_A:, 1:4, :] = }")
     mu_induced_0_B[:, :] = np.einsum(
         "b,baij,ai->bj", alpha_B, T_abij[n_atoms_A:, :n_atoms_A, :, 1:4], M_A
     )
     # Self-consistent induced dipole iterations
     mu_induced = mu_induced_0.copy()
+    print("mu(0):")
+    print(mu_induced_0)
+    """
+mtp1 = array([[-0.90283, -0.12100, -0.19035,  0.00497,  0.00000,  0.00000,
+         0.00000,  0.00000,  0.00000,  0.00000,  0.00000,  0.00000,
+         0.00000],
+       [ 0.45219, -0.02343,  0.01783, -0.00038,  0.00000,  0.00000,
+         0.00000,  0.00000,  0.00000,  0.00000,  0.00000,  0.00000,
+         0.00000],
+       [ 0.45063,  0.02653, -0.01379,  0.00028,  0.00000,  0.00000,
+         0.00000,  0.00000,  0.00000,  0.00000,  0.00000,  0.00000,
+         0.00000]])
+O [ 0.06873  0.02041 -0.00066]
+H [ 0.00287 -0.00024 -0.00000]
+H [ 0.01425  0.00205 -0.00008]
+O [ 0.14175 -0.02421  0.00023]
+H [ 0.00287 -0.00183  0.00173]
+H [ 0.00286 -0.00192 -0.00165]
+mtp1 = array([[-0.90516, -0.14261,  0.17417, -0.00395,  0.00000,  0.00000,
+         0.00000,  0.00000,  0.00000,  0.00000,  0.00000,  0.00000,
+         0.00000],
+       [ 0.45258,  0.00157, -0.00108,  0.02948,  0.00000,  0.00000,
+         0.00000,  0.00000,  0.00000,  0.00000,  0.00000,  0.00000,
+         0.00000],
+       [ 0.45258,  0.00140, -0.00256, -0.02940,  0.00000,  0.00000,
+         0.00000,  0.00000,  0.00000,  0.00000,  0.00000,  0.00000,
+         0.00000]])
+mu_prev:
+ [[[ 0.00000  0.00000  0.00000]
+  [ 0.00000  0.00000  0.00000]
+  [ 0.00000  0.00000  0.00000]]
+
+ [[ 0.00000  0.00000  0.00000]
+  [ 0.00000  0.00000  0.00000]
+  [ 0.00000  0.00000  0.00000]]]
+mu_next:
+ [[[ 0.06873  0.02041 -0.00066]
+  [ 0.00287 -0.00024 -0.00000]
+  [ 0.01425  0.00205 -0.00008]]
+
+ [[ 0.14175 -0.02421  0.00023]
+  [ 0.00287 -0.00183  0.00173]
+  [ 0.00286 -0.00192 -0.00165]]]
+mu_prev:
+ [[[ 0.09856  0.02394 -0.00082]
+  [-0.00114 -0.00314  0.00008]
+  [ 0.02094  0.00186 -0.00010]]
+
+ [[ 0.17470 -0.02548  0.00017]
+  [-0.00377 -0.00336  0.00662]
+  [-0.00381 -0.00368 -0.00642]]]
+mu_next:
+ [[[ 0.09856  0.02394 -0.00082]
+  [-0.00114 -0.00314  0.00008]
+  [ 0.02094  0.00186 -0.00010]]
+
+ [[ 0.17470 -0.02548  0.00017]
+  [-0.00377 -0.00336  0.00662]
+  [-0.00381 -0.00368 -0.00642]]]
+    """
+
     M_induced_0 = M.copy()
     M_induced_0[:n_atoms_A, 1:4] = mu_induced_0_A
     M_induced_0[n_atoms_A:, 1:4] = mu_induced_0_B
@@ -1185,11 +1253,103 @@ def dimer_induced_dipole(
     print("mu(n):")
     print(mu_induced)
     # diff
-    print(f"Change in induced dipoles over {iteration = }:")
-    print(mu_induced_0 - mu_induced_old)
+    print(f"Converged in {iteration + 1} steps with diff: {delta:.5e}, target: {convergence_threshold:.5e}")
+    """
+    Converged in 14 steps with diff: 6.97042e-06, target: 1.00000e-05
 
+Final induced dipoles [au]:
+(2, 3, 13)
+[[[ 0.00000  0.09857  0.02394 -0.00082  0.00000  0.00000  0.00000
+    0.00000  0.00000  0.00000  0.00000  0.00000  0.00000]
+  [ 0.00000 -0.00114 -0.00314  0.00008  0.00000  0.00000  0.00000
+    0.00000  0.00000  0.00000  0.00000  0.00000  0.00000]
+  [ 0.00000  0.02094  0.00186 -0.00010  0.00000  0.00000  0.00000
+    0.00000  0.00000  0.00000  0.00000  0.00000  0.00000]]
+
+ [[ 0.00000  0.17471 -0.02548  0.00017  0.00000  0.00000  0.00000
+    0.00000  0.00000  0.00000  0.00000  0.00000  0.00000]
+  [ 0.00000 -0.00377 -0.00336  0.00662  0.00000  0.00000  0.00000
+    0.00000  0.00000  0.00000  0.00000  0.00000  0.00000]
+  [ 0.00000 -0.00381 -0.00368 -0.00642  0.00000  0.00000  0.00000
+    0.00000  0.00000  0.00000  0.00000  0.00000  0.00000]]]
+Pair: O-O  E_ind:  1.8889 kcal/mol
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [ 0.17471 -0.02548  0.00017]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
+Pair: O-H  E_ind:  0.6634 kcal/mol
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [-0.00377 -0.00336  0.00662]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [ 0.45258  0.00157 -0.00108  0.02948]
+Pair: O-H  E_ind:  0.6634 kcal/mol
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [-0.00381 -0.00368 -0.00642]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [ 0.45258  0.00140 -0.00256 -0.02940]
+Pair: H-O  E_ind: -1.3331 kcal/mol
+  mu_ind1: [-0.00114 -0.00314  0.00008]  mu_ind2: [ 0.17471 -0.02548  0.00017]
+  M_A: [ 0.45219 -0.02343  0.01783 -0.00038]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
+Pair: H-H  E_ind:  0.0055 kcal/mol
+  mu_ind1: [-0.00114 -0.00314  0.00008]  mu_ind2: [-0.00377 -0.00336  0.00662]
+  M_A: [ 0.45219 -0.02343  0.01783 -0.00038]  M_B: [ 0.45258  0.00157 -0.00108  0.02948]
+Pair: H-H  E_ind:  0.0055 kcal/mol
+  mu_ind1: [-0.00114 -0.00314  0.00008]  mu_ind2: [-0.00381 -0.00368 -0.00642]
+  M_A: [ 0.45219 -0.02343  0.01783 -0.00038]  M_B: [ 0.45258  0.00140 -0.00256 -0.02940]
+Pair: H-O  E_ind: -5.2828 kcal/mol
+  mu_ind1: [ 0.02094  0.00186 -0.00010]  mu_ind2: [ 0.17471 -0.02548  0.00017]
+  M_A: [ 0.45063  0.02653 -0.01379  0.00028]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
+Pair: H-H  E_ind:  0.2776 kcal/mol
+  mu_ind1: [ 0.02094  0.00186 -0.00010]  mu_ind2: [-0.00377 -0.00336  0.00662]
+  M_A: [ 0.45063  0.02653 -0.01379  0.00028]  M_B: [ 0.45258  0.00157 -0.00108  0.02948]
+Pair: H-H  E_ind:  0.2777 kcal/mol
+  mu_ind1: [ 0.02094  0.00186 -0.00010]  mu_ind2: [-0.00381 -0.00368 -0.00642]
+  M_A: [ 0.45063  0.02653 -0.01379  0.00028]  M_B: [ 0.45258  0.00140 -0.00256 -0.02940]
+Polarization energy   : -1.4170 kcal/mol
+Short-range correction: -2.5792 kcal/mol
+        INDU energy   : -3.9962 kcal/mol
+    """
     # Calculate induction energy
     E_ind = 0.0
+    en1 = (
+        (
+            np.einsum(
+                "ai,abij,bj->ab",
+                mu_induced_0_A,
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, :],
+                M_B_induced_0,
+            )
+        )
+        * constants.h2kcalmol 
+    )
+    en2 = -(
+        (
+            np.einsum(
+                "bj,abij,ai->ab",
+                mu_induced_0_B,
+                T_abij[:n_atoms_A, n_atoms_A:, :, 1:4],
+                M_A_induced_0,
+            )
+        )
+        * constants.h2kcalmol
+    )
+    E_0_ind = en1 + en2
+    """
+Pair: O-O  E_ind:  1.8889 kcal/mol
+  en1: -1.9201  en2:  3.8090
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [ 0.17471 -0.02548  0.00017]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
+  T[:4, :4] = array([[ 0.19095, -0.03645, -0.00110,  0.00012],
+       [ 0.03645, -0.01391, -0.00063,  0.00007],
+       [ 0.00110, -0.00063,  0.00694,  0.00000],
+       [-0.00012,  0.00007,  0.00000,  0.00696]])
+    """
+    for i in range(n_atoms_A):
+        for j in range(n_atoms_B):
+            print(
+                f"Pair: {molA.symbols[i]}-{molB.symbols[j]}  E_ind: {E_0_ind[i, j]:8.4f} kcal/mol"
+            )
+            print(f"  en1: {en1[i, j]:8.4f}  en2: {en2[i, j]:8.4f}")
+            print(
+                f"  mu_ind1: {mu_induced_A[i]}  mu_ind2: {mu_induced_B[j]}"
+            )
+            print(f"  M_A: {M_A[i, :4]}  M_B: {M_B[j, :4]}")
+            print(f"  T: {T_abij[i, n_atoms_A + j, :4, :4]}")
+    print(f"{E_0_ind = }")
     E_0_ind = (
         float(
             np.einsum(
@@ -1220,6 +1380,81 @@ def dimer_induced_dipole(
     )
     # E_ind *= constants.h2kcalmol  # * 0.5
     return E_ind
+
+
+def dimer_induced_dipole_torch(
+    ZA,
+    RA,
+    qA,
+    muA,
+    quadA,
+    ZB,
+    RB,
+    qB,
+    muB,
+    quadB,
+    e_AB_source,
+    e_AB_target,
+    e_AA_source,
+    e_BB_source,
+    e_AA_target,
+    e_BB_target,
+    hirshfeld_volume_ratio_A: torch.tensor,
+    hirshfeld_volume_ratio_B: torch.tensor,
+    valence_widths_A: torch.tensor,
+    valence_widths_B: torch.tensor,
+    atom_polarizabilities_A: torch.tensor = None,
+    atom_polarizabilities_B: torch.tensor = None,
+    max_iterations: int = 200,
+    convergence_threshold: float = 1e-6,
+    omega: float = 0.7,
+    thole_damping_param: float = 0.39,
+    Q_const=3.0,  # set to 1.0 to agree with CLIFF
+) -> float:
+    """
+    Calculate the induced dipole interaction energy between two molecules using
+    their multipole moments and Hirshfeld volume ratios. Follow classical
+    induction model from this paper:
+    https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
+    """
+    from apnet_pt.AtomPairwiseModels.mtp_mtp import get_distances
+    dR_ang, dR_xyz_ang = get_distances(RA, RB, e_AB_source, e_AB_target)
+    dR = dR_ang / constants.au2ang
+    dR_xyz = dR_xyz_ang / constants.au2ang
+    oodR = 1.0 / dR
+    delta = torch.eye(3, device=qA.device)
+    # Nuclear Charge Subtraction
+    ZA_q = ZA.index_select(0, e_AB_source)
+    ZB_q = ZB.index_select(0, e_AB_target)
+    # qA -= ZA
+    # qB -= ZB
+    # Extracting tensor elements
+    qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
+    qB_source = qB.squeeze(-1).index_select(0, e_AB_target)
+    muA_source = muA.index_select(0, e_AB_source)
+    muB_source = muB.index_select(0, e_AB_target)
+    quadA_source = quadA.index_select(0, e_AB_source)
+    quadB_source = quadB.index_select(0, e_AB_target)
+
+    # E_qq = torch.einsum("x,x,x,x->x", qA_source, qB_source, oodR, lam1)
+
+    T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
+    # qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
+    #     "x,xy->xy", qB_source, muA_source
+    # )
+    # E_qu = torch.einsum("xy,xy,x->x", T1, qu, lam3)
+    lam1 = torch.ones_like(dR)
+    lam3 = torch.ones_like(dR)
+    lam5 = torch.ones_like(dR)
+
+    T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam5) - torch.einsum(
+        "x,x,yz,x->xyz", dR, dR, delta, lam3
+    )
+    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+    mu_induced_0 = torch.zeros((dR.shape[0], 3), device=qA.device)
+    print(mu_induced_0.shape)
+    return 0
+
 
 if __name__ == "__main__":
     T_cart()
