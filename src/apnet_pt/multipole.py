@@ -1302,54 +1302,23 @@ Pair: H-H  E_ind:  0.2777 kcal/mol
 Polarization energy   : -1.4170 kcal/mol
 Short-range correction: -2.5792 kcal/mol
         INDU energy   : -3.9962 kcal/mol
-    """
-    # Calculate induction energy
-    E_ind = 0.0
-    en1 = (
-        (
-            np.einsum(
-                "ai,abij,bj->ab",
-                mu_induced_0_A,
-                T_abij[:n_atoms_A, n_atoms_A:, 1:4, :],
-                M_B_induced_0,
-            )
-        )
-        * constants.h2kcalmol 
-    )
-    en2 = -(
-        (
-            np.einsum(
-                "bj,abij,ai->ab",
-                mu_induced_0_B,
-                T_abij[:n_atoms_A, n_atoms_A:, :, 1:4],
-                M_A_induced_0,
-            )
-        )
-        * constants.h2kcalmol
-    )
-    E_0_ind = en1 + en2
-    """
+
+
 Pair: O-O  E_ind:  1.8889 kcal/mol
-  en1: -1.9201  en2:  3.8090
   mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [ 0.17471 -0.02548  0.00017]
   M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
   T[:4, :4] = array([[ 0.19095, -0.03645, -0.00110,  0.00012],
        [ 0.03645, -0.01391, -0.00063,  0.00007],
        [ 0.00110, -0.00063,  0.00694,  0.00000],
        [-0.00012,  0.00007,  0.00000,  0.00696]])
+Pair: O-H  E_ind:  0.6634 kcal/mol
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [-0.00377 -0.00336  0.00662]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [ 0.45258  0.00157 -0.00108  0.02948]
+  T[:4, :4] = array([[ 0.16254, -0.02553,  0.00288, -0.00614],
+       [ 0.02553, -0.00774,  0.00136, -0.00290],
+       [-0.00288,  0.00136,  0.00414,  0.00033],
+       [ 0.00614, -0.00290,  0.00033,  0.00360]])
     """
-    for i in range(n_atoms_A):
-        for j in range(n_atoms_B):
-            print(
-                f"Pair: {molA.symbols[i]}-{molB.symbols[j]}  E_ind: {E_0_ind[i, j]:8.4f} kcal/mol"
-            )
-            print(f"  en1: {en1[i, j]:8.4f}  en2: {en2[i, j]:8.4f}")
-            print(
-                f"  mu_ind1: {mu_induced_A[i]}  mu_ind2: {mu_induced_B[j]}"
-            )
-            print(f"  M_A: {M_A[i, :4]}  M_B: {M_B[j, :4]}")
-            print(f"  T: {T_abij[i, n_atoms_A + j, :4, :4]}")
-    print(f"{E_0_ind = }")
     E_0_ind = (
         float(
             np.einsum(
@@ -1367,18 +1336,73 @@ Pair: O-O  E_ind:  1.8889 kcal/mol
         )
         * constants.h2kcalmol
     )
-    print(f"{E_0_ind = }")
-    E_ind_BA = np.einsum(
-            "bi,baij,aj->", mu_induced_B, T_abij[n_atoms_A:, :n_atoms_A, 1:4, :], M_A
-    ) * constants.h2kcalmol
-    E_ind_AB = np.einsum(
-            "ai,baij,bj->", mu_induced_A, T_abij[n_atoms_A:, :n_atoms_A, 1:4, :], M_B
-    ) * constants.h2kcalmol
-    print(f" {E_ind_AB = :.6f}\n {E_ind_BA = :.6f}")
-    E_ind = float(
-        E_ind_AB - E_ind_BA
+
+    # Build T for eval energy
+    for i in range(n_atoms_total):
+        for j in range(n_atoms_total):
+            if i == j:
+                T_abij[i, j, :, :] = np.zeros((13, 13))
+                continue
+            T0, T1, T2, T3, T4 = T_cart_Thole_damping(
+                R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
+            )
+            T_abij[i, j, 0, 0] = T0
+            T_abij[i, j, 0, 1:4] = T1
+            T_abij[i, j, 1:4, 0] = -T1
+            T_abij[i, j, 1:4, 1:4] = -T2
+            T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
+            T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
+            T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
+            T_abij[i, j, 0, 4:13] =  T2.reshape(9)
+            T_abij[i, j, 4:13, 0] =  T2.reshape(9)
+    # Calculate induction energy
+    E_ind = 0.0
+    en1 = (
+        (
+            np.einsum(
+                "ai,abij,bj->ab",
+                mu_induced_A,
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, :],
+                M_B,
+            )
+        )
+        * constants.h2kcalmol 
     )
-    # E_ind *= constants.h2kcalmol  # * 0.5
+    en2 = (
+        (
+            np.einsum(
+                "bj,abij,ai->ab",
+                mu_induced_B,
+                T_abij[:n_atoms_A, n_atoms_A:, :, 1:4],
+                M_A,
+            )
+        )
+        * constants.h2kcalmol
+    )
+    E_ind = en1 + en2
+    """
+Pair: O-O  E_ind:  1.8889 kcal/mol
+  en1: -1.9201  en2:  3.8090
+  mu_ind1: [ 0.09857  0.02394 -0.00082]  mu_ind2: [ 0.17471 -0.02548  0.00017]
+  M_A: [-0.90283 -0.12100 -0.19035  0.00497]  M_B: [-0.90516 -0.14261  0.17417 -0.00395]
+  T[:4, :4] = array([[ 0.19095, -0.03645, -0.00110,  0.00012],
+       [ 0.03645, -0.01391, -0.00063,  0.00007],
+       [ 0.00110, -0.00063,  0.00694,  0.00000],
+       [-0.00012,  0.00007,  0.00000,  0.00696]])
+    """
+    for i in range(n_atoms_A):
+        for j in range(n_atoms_B):
+            print(
+                f"Pair: {molA.symbols[i]}-{molB.symbols[j]}  E_ind: {E_ind[i, j]:8.4f} kcal/mol"
+            )
+            print(f"  en1: {en1[i, j]:8.4f}  en2: {en2[i, j]:8.4f}")
+            print(
+                f"  mu_ind1: {mu_induced_A[i]}  mu_ind2: {mu_induced_B[j]}"
+            )
+            print(f"  M_A: {M_A[i, :4]}  M_B: {M_B[j, :4]}")
+            print(f"  T: {T_abij[i, n_atoms_A + j, :4, :4]}")
+    print(f"{E_ind = }")
+    E_ind = np.sum(E_ind) / 2
     return E_ind
 
 
