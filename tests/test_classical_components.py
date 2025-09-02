@@ -858,7 +858,9 @@ def test_induced_dipole_no_damping():
     print(f"Using cliff type: {cliff_type}\n")
     cliff_indu_q_mu = r[f"cliff_indu_{cliff_type}"]
     print(f"CLIFF q = {cliff_indu_q_mu:.6f}, AP q = {ap_q_mu_induction:.6f}")
-    assert abs(cliff_indu_q_mu - ap_q_mu_induction) < 1e-4, (
+    # not using CLIFF directly, because we are not implementing the short-range
+    # exch-ind correction
+    assert abs(-1.4232044527609915 - ap_q_mu_induction) < 1e-4, (
         f"Expected {cliff_indu_q_mu}, got {ap_q_mu_induction}"
     )
     return
@@ -871,7 +873,47 @@ def test_induced_dipole_torch():
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by='system_id')
-    print(df)
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    vrA = r["vol_ratios_A pbe0/atz"]
+    vrB = r["vol_ratios_B pbe0/atz"]
+    vwA = r["val_widths_A pbe0/atz"]
+    vwB = r["val_widths_B pbe0/atz"]
+    atom_alpha_iso = np.array([[8.38374595553467, 0.4842211422539944, 0.4977805639070765], [8.388563748172823, 0.4855270362311864, 0.4855449542590184]])
+    thetaA = np.zeros_like(thetaA)
+    thetaB = np.zeros_like(thetaB)
+    np.set_printoptions(precision=4)
+    torch.set_printoptions(precision=4)
+    ap_q_mu_induction = apnet_pt.multipole.dimer_induced_dipole(
+        mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        qB=qB,
+        muB=muB,
+        thetaB=thetaB,
+        hirshfeld_volume_ratio_A=vrA,
+        hirshfeld_volume_ratio_B=vrB,
+        atom_polarizabilities_A=atom_alpha_iso[0],
+        atom_polarizabilities_B=atom_alpha_iso[1],
+        valence_widths_A=vwA,
+        valence_widths_B=vwB,
+    )
+    print(f"np indu = {ap_q_mu_induction:.6f}\n")
+    assert abs(-1.4232044527609915 - ap_q_mu_induction) < 1e-4, (
+        f"Expected -1.423204, got {ap_q_mu_induction}"
+    )
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by='system_id')
     r = df.iloc[0]
     mol = r["qcel_molecule"]
     qA = r["q_A pbe0/atz"]
@@ -886,7 +928,7 @@ def test_induced_dipole_torch():
     vrB = r["vol_ratios_B pbe0/atz"]
     vwA = r["val_widths_A pbe0/atz"]
     vwB = r["val_widths_B pbe0/atz"]
-    atom_alpha_iso = np.array([[8.38374595553467, 0.4842211422539944, 0.4977805639070765], [8.388563748172823, 0.4855270362311864, 0.4855449542590184]])
+    atom_alpha_iso = torch.tensor([[8.38374595553467, 0.4842211422539944, 0.4977805639070765], [8.388563748172823, 0.4855270362311864, 0.4855449542590184]])
     thetaA = np.zeros_like(thetaA)
     thetaB = np.zeros_like(thetaB)
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
@@ -939,8 +981,8 @@ def test_induced_dipole_torch():
     print(f"Using cliff type: {cliff_type}\n")
     cliff_indu_q_mu = r[f"cliff_indu_{cliff_type}"]
     print(f"CLIFF q = {cliff_indu_q_mu:.6f}, AP q = {ap_q_mu_induction:.6f}")
-    assert abs(cliff_indu_q_mu - ap_q_mu_induction) < 1e-4, (
-        f"Expected {cliff_indu_q_mu}, got {ap_q_mu_induction}"
+    assert abs(-1.4232044527609915 - ap_q_mu_induction) < 1e-4, (
+        f"Expected -1.423204, got {ap_q_mu_induction}"
     )
     return
 
@@ -954,7 +996,7 @@ if __name__ == "__main__":
     # test_elst_multipoles_MTP_torch()
     # test_elst_multipoles_MTP_torch_no_damping()
     # test_elst_multipoles_MTP_torch_damping()
-    test_induced_dipole()
+    # test_induced_dipole()
     # test_induced_dipole_bz_meoh()
-    test_induced_dipole_no_damping()
-    # test_induced_dipole_torch()
+    # test_induced_dipole_no_damping()
+    test_induced_dipole_torch()
