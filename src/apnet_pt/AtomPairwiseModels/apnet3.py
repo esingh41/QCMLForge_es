@@ -27,7 +27,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
-from ..multipole import T_cart_torch
+# from ..multipole import T_cart_torch
 
 hartree2kcal = qcel.constants.conversion_factor("hartree", "kcal/mol")
 
@@ -333,7 +333,7 @@ class APNet3_MPNN(nn.Module):
         dR, dR_xyz = self.get_distances(RA, RB, e_AB_source_all, e_AB_target_all)
         # print(f"{dR.size() = }")
         # print(f"{dR = }")
-        T0, T1, T2, T3, T4 = T_cart_torch(RA, RB)
+        # T0, T1, T2, T3, T4 = T_cart_torch(RA, RB)
         # print(f"{T0 = }")
         # print(f"{T1 = }")
         # print(f"{T2 = }")
