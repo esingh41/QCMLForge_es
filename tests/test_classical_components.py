@@ -358,21 +358,14 @@ def test_elst_multipoles_am_hirshfeld():
 def test_induced_dipole():
     # check here for CLIFF eval: /home/awallace43/projects/multipoles/cliff_tests
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes2.pkl")
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
-    print(df[["cliff_elst", "SAPT0 ELST ENERGY adz"]])
-    print(df[["cliff_exch", "SAPT0 EXCH ENERGY adz"]])
-    print(df[["cliff_indu", "SAPT0 IND ENERGY adz"]])
-    print(df[["cliff_disp", "SAPT0 DISP ENERGY adz"]])
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by='system_id')
     for n, r in df.iterrows():
         sapt0_ind = r["SAPT0 IND ENERGY adz"]
-        sapt0_elst = r["SAPT0 ELST ENERGY adz"]
+        cliff_ind = r['cliff_indu_q_mu']
         mol = r["qcel_molecule"]
-        # qm_tools_aw.molecular_visualization.visualize_molecule(
-        #     mol,
-        #    temp_filename=f"{n}_water_dimer_sapt0_ind.html",
-        #                                                        )
-        # Distance between monomers
         monA = mol.get_fragment(0).copy()
         monB = mol.get_fragment(1).copy()
         dist = np.sqrt(
@@ -382,35 +375,16 @@ def test_induced_dipole():
         qA = r["q_A pbe0/atz"]
         muA = r["mu_A pbe0/atz"]
         thetaA = r["theta_A pbe0/atz"]
+        thetaA = np.zeros_like(thetaA)
         qB = r["q_B pbe0/atz"]
         muB = r["mu_B pbe0/atz"]
         thetaB = r["theta_B pbe0/atz"]
+        thetaB = np.zeros_like(thetaB)
         vrA = r["vol_ratios_A pbe0/atz"]
         vrB = r["vol_ratios_B pbe0/atz"]
         vwA = r["val_widths_A pbe0/atz"]
         vwB = r["val_widths_B pbe0/atz"]
-        total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs, _, _, _ = (
-            apnet_pt.multipole.eval_qcel_dimer_individual_components(
-                mol_dimer=mol,
-                qA=qA,
-                muA=muA,
-                thetaA=thetaA,
-                qB=qB,
-                muB=muB,
-                thetaB=thetaB,
-            )
-        )
-        E_qq = E_qqs.sum()
-        E_qu = E_qus.sum()
-        E_uu = E_uus.sum()
-        E_qQ = E_qQs.sum()
-        E_uQ = E_uQs.sum()
-        print(f"{total_energy=:.6f} kcal/mol")
-        print(f"{E_qq=:.6f} kcal/mol")
-        print(f"{E_qu=:.6f} kcal/mol")
-        print(f"{E_uu=:.6f} kcal/mol")
-        print(f"{E_qQ=:.6f} kcal/mol")
-        print(f"{E_uQ=:.6f} kcal/mol")
+        atom_alpha_iso = np.array([[8.38374595553467, 0.4842211422539944, 0.4977805639070765], [8.388563748172823, 0.4855270362311864, 0.4855449542590184]])
         induction_energy = apnet_pt.multipole.dimer_induced_dipole(
             mol,
             qA=qA,
@@ -423,13 +397,13 @@ def test_induced_dipole():
             hirshfeld_volume_ratio_B=vrB,
             valence_widths_A=vwA,
             valence_widths_B=vwB,
+            atom_polarizabilities_A=atom_alpha_iso[0],
+            atom_polarizabilities_B=atom_alpha_iso[1],
         )
         print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
-        print(f"CLIFF elst       = {r['cliff_elst']:.6f}")
-        print(f"SAPT elst        = {sapt0_elst:.6f} kcal/mol")
         print(f"SAPT induction   = {sapt0_ind:.6f} kcal/mol")
         print(f"Induction energy = {induction_energy:.6f} kcal/mol")
-        print(f"CLIFF induction  = {r['cliff_indu']:.6f}")
+        print(f"CLIFF induction  = {cliff_ind:.6f}")
 
 
 def test_induced_dipole_bz_meoh():
@@ -858,32 +832,13 @@ def test_induced_dipole_no_damping():
     qB = r["q_B pbe0/atz"]
     muB = r["mu_B pbe0/atz"]
     thetaB = r["theta_B pbe0/atz"]
-    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
-    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
     vrA = r["vol_ratios_A pbe0/atz"]
     vrB = r["vol_ratios_B pbe0/atz"]
     vwA = r["val_widths_A pbe0/atz"]
     vwB = r["val_widths_B pbe0/atz"]
-    # atom_alpha_iso = [[8.38374595553467, 0.4842211422539944, 0.4977805639070765], [8.388563748172823, 0.4855270362311864, 0.4855449542590184]]
-    # vrA = np.array(
-    #     [
-    #         8.38374595553467,
-    #         0.4842211422539944,
-    #         0.4977805639070765,
-    #     ]
-    # )
-    # vrB = np.array(
-    #     [
-    #         8.388563748172823,
-    #         0.4855270362311864,
-    #         0.4855449542590184,
-    #     ]
-    # )
-
     atom_alpha_iso = np.array([[8.38374595553467, 0.4842211422539944, 0.4977805639070765], [8.388563748172823, 0.4855270362311864, 0.4855449542590184]])
     thetaA = np.zeros_like(thetaA)
     thetaB = np.zeros_like(thetaB)
-    # TODO: write induced dipole logic here... need CLIFF undamped form
     ap_q_mu_induction = apnet_pt.multipole.dimer_induced_dipole(
         mol,
         qA=qA,
@@ -999,7 +954,7 @@ if __name__ == "__main__":
     # test_elst_multipoles_MTP_torch()
     # test_elst_multipoles_MTP_torch_no_damping()
     # test_elst_multipoles_MTP_torch_damping()
-    # test_induced_dipole()
+    test_induced_dipole()
     # test_induced_dipole_bz_meoh()
     test_induced_dipole_no_damping()
     # test_induced_dipole_torch()

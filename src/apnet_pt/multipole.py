@@ -1057,17 +1057,6 @@ def dimer_induced_dipole(
             T0, T1, T2, T3, T4 = T_cart_Thole_damping(
                 R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
             )
-            # Added constants to agree with eval_interaction terms
-            # T_abij[i, j, 0, 0] = T0
-            # T_abij[i, j, 1:4, 0] = -1.0 * T1
-            # T_abij[i, j, 0, 1:4] = T1.T
-            # T_abij[i, j, 1:4, 1:4] = T2
-            # T_abij[i, j, 1:4, 4:13] = -1 / 3 * T3.reshape(3, 9)
-            # T_abij[i, j, 4:13, 1:4] = 1 / 3 * T3.T.reshape(9, 3)
-            # T_abij[i, j, 4:13, 4:13] = 1.0 / 9.0 * T4.reshape(9, 9)
-            # T_abij[i, j, 0, 4:13] = 1 / 3 * T2.reshape(9)
-            # T_abij[i, j, 4:13, 0] = 1 / 3 * T2.reshape(9)
-
             T_abij[i, j, 0, 0] = T0
             T_abij[i, j, 0, 1:4] = T1
             T_abij[i, j, 1:4, 0] = T1
@@ -1338,47 +1327,55 @@ Pair: O-H  E_ind:  0.6634 kcal/mol
     )
 
     # Build T for eval energy
-    for i in range(n_atoms_total):
-        for j in range(n_atoms_total):
-            if i == j:
-                T_abij[i, j, :, :] = np.zeros((13, 13))
-                continue
-            T0, T1, T2, T3, T4 = T_cart_Thole_damping(
-                R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
-            )
-            T_abij[i, j, 0, 0] = T0
-            T_abij[i, j, 0, 1:4] = T1
-            T_abij[i, j, 1:4, 0] = -T1
-            T_abij[i, j, 1:4, 1:4] = -T2
-            T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
-            T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
-            T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
-            T_abij[i, j, 0, 4:13] =  T2.reshape(9)
-            T_abij[i, j, 4:13, 0] =  T2.reshape(9)
+    # for i in range(n_atoms_total):
+    #     for j in range(n_atoms_total):
+    #         if i == j:
+    #             T_abij[i, j, :, :] = np.zeros((13, 13))
+    #             continue
+    #         T0, T1, T2, T3, T4 = T_cart_Thole_damping(
+    #             R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
+    #         )
+    #         T_abij[i, j, 0, 0] = T0
+    #         T_abij[i, j, 0, 1:4] = T1
+    #         T_abij[i, j, 1:4, 0] = -T1
+    #         T_abij[i, j, 1:4, 1:4] = -T2
+    #         T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
+    #         T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
+    #         T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
+    #         T_abij[i, j, 0, 4:13] =  T2.reshape(9)
+    #         T_abij[i, j, 4:13, 0] =  T2.reshape(9)
     # Calculate induction energy
     E_ind = 0.0
     en1 = (
-        (
+            -np.einsum(
+                "ai,abi,b->ab",
+                mu_induced_A,
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0],
+                M_B[:, 0],
+            )
+            -
             np.einsum(
                 "ai,abij,bj->ab",
                 mu_induced_A,
-                T_abij[:n_atoms_A, n_atoms_A:, 1:4, :],
-                M_B,
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+                M_B[:, 1:4],
             )
-        )
-        * constants.h2kcalmol 
-    )
+    ) * constants.h2kcalmol
     en2 = (
         (
             np.einsum(
+                "bj,abj,a->ab",
+                mu_induced_B,
+                T_abij[:n_atoms_A, n_atoms_A:, 0, 1:4],
+                M_A[:, 0],
+            )
+            -np.einsum(
                 "bj,abij,ai->ab",
                 mu_induced_B,
-                T_abij[:n_atoms_A, n_atoms_A:, :, 1:4],
-                M_A,
-            )
+                T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+                M_A[:, 1:4],
         )
-        * constants.h2kcalmol
-    )
+    )) * constants.h2kcalmol
     E_ind = en1 + en2
     """
 Pair: O-O  E_ind:  1.8889 kcal/mol
@@ -1430,7 +1427,7 @@ def dimer_induced_dipole_torch(
     atom_polarizabilities_A: torch.tensor = None,
     atom_polarizabilities_B: torch.tensor = None,
     max_iterations: int = 200,
-    convergence_threshold: float = 1e-6,
+    convergence_threshold: float = 1e-8,
     omega: float = 0.7,
     thole_damping_param: float = 0.39,
     Q_const=3.0,  # set to 1.0 to agree with CLIFF
