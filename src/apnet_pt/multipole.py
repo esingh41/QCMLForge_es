@@ -9,6 +9,7 @@ from . import constants
 import torch
 from typing import Tuple
 import qcelemental as qcel
+from torch_geometric.utils import scatter
 # from .AtomPairwiseModels.mtp_mtp import get_distances
 
 
@@ -1332,45 +1333,20 @@ def dimer_induced_dipole_torch(
     # Calculate initial induced dipoles from molecule B's multipoles on molecule A
     # Contribution from charges
     mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
-
-    print(f"{mu_charge_A=}")
-
-    # Contribution from dipoles
+    mu_induced_0_A = scatter(mu_charge_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
-    print(f"{mu_dipole_A=}")
-
-    # Combine charge and dipole contributions
-    mu_induced_AB_pairs = mu_charge_A + mu_dipole_A
-    print(f"{mu_induced_AB_pairs=}")
-
-    # Aggregate back to full molecule A (using scatter_add)
-    for i, idx in enumerate(e_AB_source):
-        mu_induced_0_A[idx] += mu_induced_AB_pairs[i]
-
+    mu_induced_0_A += scatter(mu_dipole_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
     print(f"{mu_induced_0_A=}")
 
-    # Calculate initial induced dipoles from molecule A's multipoles on molecule B
-    # Contribution from charges
-    mu_charge_B = torch.einsum("b,bi,b->bi", alpha_B_target, -T1_AB, qA_source)
-
-    # Contribution from dipoles
-    mu_dipole_B = torch.einsum("b,bij,bj->bi", alpha_B_target, T2_AB, muA_source)
-
-    # Combine charge and dipole contributions
-    mu_induced_BA_pairs = mu_charge_B + mu_dipole_B
-
-    # Aggregate back to full molecule B (using scatter_add)
-    for i, idx in enumerate(e_AB_target):
-        mu_induced_0_B[idx] += mu_induced_BA_pairs[i]
+    mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
+    mu_induced_0_B = scatter(mu_charge_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
+    mu_induced_0_B += scatter(mu_dipole_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    print(f"{mu_induced_0_B=}")
 
     # Self-consistent induced dipole iterations
     mu_induced_A = mu_induced_0_A.clone()
     mu_induced_B = mu_induced_0_B.clone()
-
-    # Create indices for all atom pairs within molecules A and B
-    # These are needed for the self-consistent calculation
-    alpha_A_AA_source = alpha_A.index_select(0, e_AA_source)
-    alpha_B_BB_source = alpha_B.index_select(0, e_BB_source)
 
     # Iterative SCF procedure to converge induced dipoles
     for iteration in range(max_iterations):
