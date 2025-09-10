@@ -1251,6 +1251,38 @@ Pair: O-H  E_ind:  0.6634 kcal/mol
     print(f"{E_uu=}")
     print(f"{np.sum(E_qu)=}")
     print(f"{np.sum(E_uu)=}")
+    print(
+     (
+        - np.einsum(
+            "ai,abij,bj->ab",
+            mu_induced_A,
+            T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+            M_B[:, 1:4],
+        )
+            ) * constants.h2kcalmol,
+        - np.einsum(
+            "bj,abij,ai->ab",
+            mu_induced_B,
+            T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+            M_A[:, 1:4],
+        )* constants.h2kcalmol
+    )
+    print(
+     np.sum(
+        - np.einsum(
+            "ai,abij,bj->ab",
+            mu_induced_A,
+            T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+            M_B[:, 1:4],
+        )
+            ) * constants.h2kcalmol,
+        -np.sum(np.einsum(
+            "bj,abij,ai->ab",
+            mu_induced_B,
+            T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+            M_A[:, 1:4],
+        ))* constants.h2kcalmol
+    )
 
     print(f"{en1=}, {en2=}")
     print(f"{np.sum(en1)=:.2f}, {np.sum(en2)=:.2f}")
@@ -1439,13 +1471,16 @@ def dimer_induced_dipole_torch(
             break
     print(f"{mu_induced_A=}")
     print(f"{mu_induced_B=}")
-    muA_source = mu_induced_A.index_select(0, e_AB_source)
-    muB_target = mu_induced_B.index_select(0, e_AB_target)
-    qu = torch.einsum("x,xy->xy", qA_source, muB_target) - torch.einsum(
-        "x,xy->xy", qB_target, muA_source
+    muA_induced_source = mu_induced_A.index_select(0, e_AB_source)
+    muB_induced_target = mu_induced_B.index_select(0, e_AB_target)
+    qu = torch.einsum("x,xy->xy", qA_source, muB_induced_target) - torch.einsum(
+        "x,xy->xy", qB_target, muA_induced_source
     )
     E_qu = torch.einsum("xy,xy->x", T1_AB, qu) * h2kcalmol
-    E_uu = torch.einsum("xy,xz,xyz->x", muA_source, muB_target, T2_AB) * h2kcalmol
+    E_uu = -1.0 * (
+    torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB) +
+    torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB) 
+    ) * h2kcalmol
     print(f"{E_qu=}")
     print(f"{E_uu=}")
     print(f"{E_qu.sum()=}")

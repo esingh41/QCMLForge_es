@@ -363,7 +363,7 @@ def test_induced_dipole():
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by='system_id')
     for n, r in df.iterrows():
-        sapt0_ind = r["SAPT0 IND ENERGY adz"]
+        sapt0_ind = r["SAPT0 IND ENERGY adz"] * qcel.constants.conversion_factor("hartree", "kcal/mol")
         cliff_ind = r['cliff_indu_q_mu']
         mol = r["qcel_molecule"]
         monA = mol.get_fragment(0).copy()
@@ -1075,10 +1075,11 @@ if __name__ == "__main__":
     # test_elst_multipoles_MTP_torch()
     # test_elst_multipoles_MTP_torch_no_damping()
     # test_elst_multipoles_MTP_torch_damping()
-    # test_induced_dipole()
     # test_induced_dipole_bz_meoh()
     # test_induced_dipole_no_damping()
     # test_induced_dipole_no_damping()
 
-    # test_induced_dipole_torch()
-    test_induced_dipole_torch_df()
+    test_induced_dipole_torch()
+
+    # test_induced_dipole()
+    # test_induced_dipole_torch_df()
