@@ -1218,6 +1218,42 @@ Pair: O-H  E_ind:  0.6634 kcal/mol
             M_A[:, 1:4],
         )
     ) * constants.h2kcalmol
+    E_qu = (
+        -np.einsum(
+            "ai,abi,b->ab",
+            mu_induced_A,
+            T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0],
+            M_B[:, 0],
+        ) +
+        np.einsum(
+            "bj,abj,a->ab",
+            mu_induced_B,
+            T_abij[:n_atoms_A, n_atoms_A:, 0, 1:4],
+            M_A[:, 0],
+        )
+            ) * constants.h2kcalmol
+    E_uu = (
+        - np.einsum(
+            "ai,abij,bj->ab",
+            mu_induced_A,
+            T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+            M_B[:, 1:4],
+        )
+        - np.einsum(
+            "bj,abij,ai->ab",
+            mu_induced_B,
+            T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4],
+            M_A[:, 1:4],
+        )
+            ) * constants.h2kcalmol
+
+    print(f"{E_qu=}")
+    print(f"{E_uu=}")
+    print(f"{np.sum(E_qu)=}")
+    print(f"{np.sum(E_uu)=}")
+
+    print(f"{en1=}, {en2=}")
+    print(f"{np.sum(en1)=:.2f}, {np.sum(en2)=:.2f}")
     E_ind = en1 + en2
     E_ind = np.sum(E_ind) / 2
     return E_ind
@@ -1403,7 +1439,19 @@ def dimer_induced_dipole_torch(
             break
     print(f"{mu_induced_A=}")
     print(f"{mu_induced_B=}")
-    return E_ind
+    muA_source = mu_induced_A.index_select(0, e_AB_source)
+    muB_target = mu_induced_B.index_select(0, e_AB_target)
+    qu = torch.einsum("x,xy->xy", qA_source, muB_target) - torch.einsum(
+        "x,xy->xy", qB_target, muA_source
+    )
+    E_qu = torch.einsum("xy,xy->x", T1_AB, qu) * h2kcalmol
+    E_uu = torch.einsum("xy,xz,xyz->x", muA_source, muB_target, T2_AB) * h2kcalmol
+    print(f"{E_qu=}")
+    print(f"{E_uu=}")
+    print(f"{E_qu.sum()=}")
+    print(f"{E_uu.sum()=}")
+    E_0_ind = (E_qu + E_uu)  / 2.0
+    return E_0_ind
 
 
 if __name__ == "__main__":

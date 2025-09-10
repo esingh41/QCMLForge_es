@@ -978,8 +978,10 @@ def test_induced_dipole_torch():
         atom_polarizabilities_B=torch.tensor(atom_alpha_iso[1]),
         # Q_const=1.0, # Agree with CLIFF
     )
-    assert abs(ref_e - ap_q_mu_induction) < 1e-4, (
-        f"Expected {ref_e}, got {ap_q_mu_induction}"
+    torch_ap_indu = ap_q_mu_induction.detach().numpy().sum()
+    print(f"{torch_ap_indu = }")
+    assert abs(ref_e - torch_ap_indu) < 1e-4, (
+        f"Expected {ref_e}, got {torch_ap_indu}"
     )
     return
 
