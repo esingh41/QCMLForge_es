@@ -1342,9 +1342,28 @@ def dimer_induced_dipole_torch(
     delta = torch.eye(3, device=qA.device)
     h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
 
+    print(f"{hirshfeld_volume_ratio_A=}")
+    print(f"{hirshfeld_volume_ratio_B=}")
+
+
     if atom_polarizabilities_A is not None and atom_polarizabilities_B is not None:
-        alpha_A = atom_polarizabilities_A
-        alpha_B = atom_polarizabilities_B
+        alpha_A = atom_polarizabilities_A.squeeze(-1)
+        alpha_B = atom_polarizabilities_B.squeeze(-1)
+    else:
+        alpha_0_A = torch.tensor([free_atom_polarizabilities[int(i)] for i in ZA], dtype=hirshfeld_volume_ratio_A.dtype, device=hirshfeld_volume_ratio_A.device)
+        alpha_0_B = torch.tensor([free_atom_polarizabilities[int(i)] for i in ZB], dtype=hirshfeld_volume_ratio_A.dtype, device=hirshfeld_volume_ratio_A.device)
+        # pol_free=array([ 5.40000,  4.50000,  4.50000])
+        # hirshfeld_ratios=array([ 1.39086,  0.18788,  0.19181])
+        # hirshfeld_ratios**(4/3.)=array([ 1.55255,  0.10760,  0.11062])
+        # self.pol_scaled=array([ 8.38375,  0.48422,  0.49778])
+        alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
+        alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
+        print(f"{alpha_0_A=}")
+        print(f"{hirshfeld_volume_ratio_A=}")
+        print(f"{hirshfeld_volume_ratio_A**(4/3.)=}")
+    print(f"{alpha_A=}")
+    print(f"{alpha_A.dtype=}")
+    print(f"{alpha_B=}")
 
     # Note: need to include Thole damping here...
     def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None):
@@ -1375,17 +1394,12 @@ def dimer_induced_dipole_torch(
     dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A)
     dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B)
 
-    # Get atomic polarizabilities and multipole moments
-    alpha_A = atom_polarizabilities_A.squeeze(-1)
-    alpha_B = atom_polarizabilities_B.squeeze(-1)
 
     # Select relevant tensors for atom pairs
     alpha_A_source = alpha_A.index_select(0, e_AB_source)
     alpha_B_target = alpha_B.index_select(0, e_AB_target)
 
-    alpha_AA_source = alpha_A.index_select(0, e_AA_source)
     alpha_AA_target = alpha_A.index_select(0, e_AA_target)
-    alpha_BB_source = alpha_B.index_select(0, e_BB_source)
     alpha_BB_target = alpha_B.index_select(0, e_BB_target)
 
     qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
@@ -1393,12 +1407,6 @@ def dimer_induced_dipole_torch(
 
     muA_source = muA.index_select(0, e_AB_source)
     muB_target = muB.index_select(0, e_AB_target)
-
-    muAA_source = muA.index_select(0, e_AA_source)
-    muAA_target = muA.index_select(0, e_AA_target)
-    muBB_source = muB.index_select(0, e_BB_source)
-    muBB_target = muB.index_select(0, e_BB_target)
-
 
     # Initialize tensors for induced dipoles
     n_atoms_A = RA.shape[0]
@@ -1481,10 +1489,10 @@ def dimer_induced_dipole_torch(
         torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB) +
         torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
     ) * h2kcalmol
-    print(f"{E_qu=}")
-    print(f"{E_uu=}")
-    print(f"{E_qu.sum()=}")
-    print(f"{E_uu.sum()=}")
+    # print(f"{E_qu=}")
+    # print(f"{E_uu=}")
+    # print(f"{E_qu.sum()=}")
+    # print(f"{E_uu.sum()=}")
     E_ind = (E_qu + E_uu) / 2.0
     return E_ind
 
