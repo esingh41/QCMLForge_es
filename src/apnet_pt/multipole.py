@@ -1147,8 +1147,8 @@ mu_next:
     # print(mu_all)
     # print("mu(0):")
     # print(mu_induced_0)
-    # print("mu(n):")
-    # print(mu_induced)
+    print("mu(n):")
+    print(mu_induced)
     # diff
     # print(
     #     f"Converged in {iteration + 1} steps with diff: {delta:.5e}, target: {
@@ -1315,11 +1315,22 @@ def dimer_induced_dipole_torch(
     alpha_A_source = alpha_A.index_select(0, e_AB_source)
     alpha_B_target = alpha_B.index_select(0, e_AB_target)
 
+    alpha_AA_source = alpha_A.index_select(0, e_AA_source)
+    alpha_AA_target = alpha_A.index_select(0, e_AA_target)
+    alpha_BB_source = alpha_B.index_select(0, e_BB_source)
+    alpha_BB_target = alpha_B.index_select(0, e_BB_target)
+
     qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
     qB_target = qB.squeeze(-1).index_select(0, e_AB_target)
 
     muA_source = muA.index_select(0, e_AB_source)
     muB_target = muB.index_select(0, e_AB_target)
+
+    muAA_source = muA.index_select(0, e_AA_source)
+    muAA_target = muA.index_select(0, e_AA_target)
+    muBB_source = muB.index_select(0, e_BB_source)
+    muBB_target = muB.index_select(0, e_BB_target)
+
 
     # Initialize tensors for induced dipoles
     n_atoms_A = RA.shape[0]
@@ -1353,86 +1364,45 @@ def dimer_induced_dipole_torch(
         mu_induced_A_old = mu_induced_A.clone()
         mu_induced_B_old = mu_induced_B.clone()
 
-        # Initialize new dipoles
-        mu_induced_A_new = torch.zeros_like(mu_induced_A)
-        mu_induced_B_new = torch.zeros_like(mu_induced_B)
+        ####### (A) INDUCED DIPOLES ########
+        # Induced dipoles on A due to induced dipoles on B
+        mu_induced_A_due_B = torch.einsum(
+            "a,aij,aj->ai", alpha_A_source, T2_AB, mu_induced_B.index_select(0, e_AB_target)
+        )
+        mu_induced_A_new = scatter(mu_induced_A_due_B, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+        # Induced dipoles on A due to induced dipoles on A
+        mu_induced_A_due_A = torch.einsum(
+                "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A.index_select(0, e_AA_source)
+        )
+        mu_induced_A_new += scatter(mu_induced_A_due_A, e_AA_target, dim=0, reduce="sum", dim_size=n_atoms_A)
+        mu_induced_A_new += mu_induced_0_A
 
-        # Update A's dipoles from interactions with B
-        for i, idx_A in enumerate(e_AB_source):
-            for j, idx_B in enumerate(e_AB_target):
-                if e_AB_source[i] == idx_A and e_AB_target[j] == idx_B:
-                    # Contribution from B's charge
-                    mu_induced_A_new[idx_A] += alpha_A[idx_A] * T1_AB[i] * qB_target[j]
-                    # Contribution from B's dipole
-                    mu_induced_A_new[idx_A] += alpha_A[idx_A] * torch.einsum("ij,j->i", T2_AB[i], muB_target[j])
-                    # Contribution from B's induced dipole
-                    mu_induced_A_new[idx_A] += alpha_A[idx_A] * torch.einsum("ij,j->i", T2_AB[i], mu_induced_B[idx_B])
+        ####### (B) INDUCED DIPOLES ########
+        # Induced dipoles on B due to induced dipoles on A
+        mu_induced_B_due_A = torch.einsum(
+            "a,aij,aj->ai", alpha_B_target, T2_AB, mu_induced_A.index_select(0, e_AB_source)
+        )
+        mu_induced_B_new = scatter(mu_induced_B_due_A, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        # Induced dipoles on B due to induced dipoles on B
+        mu_induced_B_due_B = torch.einsum(
+                "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B.index_select(0, e_BB_source)
+        )
+        mu_induced_B_new += scatter(mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        mu_induced_B_new += mu_induced_0_B
 
-        # Update B's dipoles from interactions with A
-        for i, idx_B in enumerate(e_AB_target):
-            for j, idx_A in enumerate(e_AB_source):
-                if e_AB_target[i] == idx_B and e_AB_source[j] == idx_A:
-                    # Contribution from A's charge
-                    mu_induced_B_new[idx_B] += alpha_B[idx_B] * -T1_AB[j] * qA_source[j]
-                    # Contribution from A's dipole
-                    mu_induced_B_new[idx_B] += alpha_B[idx_B] * torch.einsum("ij,j->i", T2_AB[j], muA_source[j])
-                    # Contribution from A's induced dipole
-                    mu_induced_B_new[idx_B] += alpha_B[idx_B] * torch.einsum("ij,j->i", T2_AB[j], mu_induced_A[idx_A])
-
-        # Update dipoles with damping factor omega
-        mu_induced_A = (1 - omega) * mu_induced_A_old + omega * (mu_induced_0_A + mu_induced_A_new)
-        mu_induced_B = (1 - omega) * mu_induced_B_old + omega * (mu_induced_0_B + mu_induced_B_new)
+        # Apply mixing for stability
+        mu_induced_A = (1 - omega) * mu_induced_A_old + omega * mu_induced_A_new
+        mu_induced_B = (1 - omega) * mu_induced_B_old + omega * mu_induced_B_new
 
         # Check convergence
-        delta_A = torch.linalg.norm(mu_induced_A - mu_induced_A_old)
-        delta_B = torch.linalg.norm(mu_induced_B - mu_induced_B_old)
-        delta = torch.max(delta_A, delta_B)
-
+        delta_A = torch.norm(mu_induced_A - mu_induced_A_old)
+        delta_B = torch.norm(mu_induced_B - mu_induced_B_old)
+        delta = max(delta_A, delta_B)
         if delta < convergence_threshold:
-            print(f"Converged after {iteration + 1} iterations with delta: {delta:.8f}")
+            print(f"   Converged after {iteration + 1} iterations.")
             break
-
-        if iteration == max_iterations - 1:
-            print(f"Warning: Induced dipoles did not converge after {max_iterations} iterations. Final delta: {delta:.8f}")
-
-    # Calculate induction energy
-    # E_ind = -0.5 * (mu_A * field_A + mu_B * field_B)
-    E_ind = 0.0
-
-    # Contribution from molecule A
-    for i, idx_A in enumerate(e_AB_source):
-        # Field at A due to B's permanent multipoles
-        field_A = torch.zeros(3, device=qA.device)
-        for j, idx_B in enumerate(e_AB_target):
-            if e_AB_source[i] == idx_A and e_AB_target[j] == idx_B:
-                # Contribution from B's charge
-                field_A += T1_AB[i] * qB_target[j]
-                # Contribution from B's dipole
-                field_A += torch.einsum("ij,j->i", T2_AB[i], muB_target[j])
-
-        # Energy contribution: -0.5 * mu_A * field_A
-        E_ind -= 0.5 * torch.dot(mu_induced_A[idx_A], field_A)
-
-    # Contribution from molecule B
-    for i, idx_B in enumerate(e_AB_target):
-        # Field at B due to A's permanent multipoles
-        field_B = torch.zeros(3, device=qB.device)
-        for j, idx_A in enumerate(e_AB_source):
-            if e_AB_target[i] == idx_B and e_AB_source[j] == idx_A:
-                # Contribution from A's charge
-                field_B += -T1_AB[j] * qA_source[j]
-                # Contribution from A's dipole
-                field_B += torch.einsum("ij,j->i", T2_AB[j], muA_source[j])
-
-        # Energy contribution: -0.5 * mu_B * field_B
-        E_ind -= 0.5 * torch.dot(mu_induced_B[idx_B], field_B)
-
-    # Convert to kcal/mol
-    E_ind = E_ind.item() * h2kcalmol
-
-    # Print detailed information if needed
-    print(f"Final induction energy: {E_ind:.6f} kcal/mol")
-
+    print(f"{mu_induced_A=}")
+    print(f"{mu_induced_B=}")
     return E_ind
 
 
