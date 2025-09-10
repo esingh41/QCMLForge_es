@@ -1458,7 +1458,7 @@ def dimer_induced_dipole_torch(
         mu_induced_B_new += scatter(mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
         mu_induced_B_new += mu_induced_0_B
 
-        # Apply mixing for stability
+        # Apply mixing
         mu_induced_A = (1 - omega) * mu_induced_A_old + omega * mu_induced_A_new
         mu_induced_B = (1 - omega) * mu_induced_B_old + omega * mu_induced_B_new
 
@@ -1478,15 +1478,15 @@ def dimer_induced_dipole_torch(
     )
     E_qu = torch.einsum("xy,xy->x", T1_AB, qu) * h2kcalmol
     E_uu = -1.0 * (
-    torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB) +
-    torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB) 
+        torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB) +
+        torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
     ) * h2kcalmol
     print(f"{E_qu=}")
     print(f"{E_uu=}")
     print(f"{E_qu.sum()=}")
     print(f"{E_uu.sum()=}")
-    E_0_ind = (E_qu + E_uu)  / 2.0
-    return E_0_ind
+    E_ind = (E_qu + E_uu) / 2.0
+    return E_ind
 
 
 if __name__ == "__main__":

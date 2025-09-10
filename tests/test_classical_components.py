@@ -1081,5 +1081,5 @@ if __name__ == "__main__":
 
     test_induced_dipole_torch()
 
-    # test_induced_dipole()
-    # test_induced_dipole_torch_df()
+    test_induced_dipole()
+    test_induced_dipole_torch_df()
