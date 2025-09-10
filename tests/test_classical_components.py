@@ -986,6 +986,86 @@ def test_induced_dipole_torch():
     return
 
 
+def test_induced_dipole_torch_df():
+    # check here for CLIFF eval: /home/awallace43/projects/multipoles/cliff_tests
+    import torch
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by='system_id')
+    for n, r in df.iterrows():
+        sapt0_ind = r["SAPT0 IND ENERGY adz"] * qcel.constants.conversion_factor("hartree", "kcal/mol")
+        cliff_ind = r['cliff_indu_q_mu']
+        mol = r["qcel_molecule"]
+        monA = mol.get_fragment(0).copy()
+        monB = mol.get_fragment(1).copy()
+        dist = np.sqrt(
+            np.sum((monA.geometry[:, None] - monB.geometry) ** 2, axis=2)
+        ).min()
+        bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
+        qA = r["q_A pbe0/atz"]
+        muA = r["mu_A pbe0/atz"]
+        thetaA = r["theta_A pbe0/atz"]
+        thetaA = np.zeros_like(thetaA)
+        qB = r["q_B pbe0/atz"]
+        muB = r["mu_B pbe0/atz"]
+        thetaB = r["theta_B pbe0/atz"]
+        thetaB = np.zeros_like(thetaB)
+        vrA = r["vol_ratios_A pbe0/atz"]
+        vrB = r["vol_ratios_B pbe0/atz"]
+        vwA = r["val_widths_A pbe0/atz"]
+        vwB = r["val_widths_B pbe0/atz"]
+        atom_alpha_iso = torch.tensor([[8.38374595553467, 0.4842211422539944, 0.4977805639070765], [8.388563748172823, 0.4855270362311864, 0.4855449542590184]])
+        thetaA = np.zeros_like(thetaA)
+        thetaB = np.zeros_like(thetaB)
+        dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+            [
+                apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                    mol, r_cut_im=99999.0, dimer_ind=0
+                )
+            ]
+        )
+        dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
+        dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
+
+        dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
+        dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
+        dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
+        dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
+
+        ap_q_mu_induction = apnet_pt.multipole.dimer_induced_dipole_torch(
+            ZA=dimer_batch.ZA,
+            RA=dimer_batch.RA,
+            qA=dimer_batch.qA,
+            muA=dimer_batch.muA,
+            quadA=dimer_batch.quadA,
+            ZB=dimer_batch.ZB,
+            RB=dimer_batch.RB,
+            qB=dimer_batch.qB,
+            muB=dimer_batch.muB,
+            quadB=dimer_batch.quadB,
+            e_AA_source=dimer_batch.e_AA_source,
+            e_BB_source=dimer_batch.e_BB_source,
+            e_AA_target=dimer_batch.e_AA_target,
+            e_BB_target=dimer_batch.e_BB_target,
+            e_AB_source=dimer_batch.e_ABsr_source,
+            e_AB_target=dimer_batch.e_ABsr_target,
+            hirshfeld_volume_ratio_A=torch.tensor(vrA),
+            hirshfeld_volume_ratio_B=torch.tensor(vrB),
+            valence_widths_A=torch.tensor(vwA),
+            valence_widths_B=torch.tensor(vwB),
+            atom_polarizabilities_A=torch.tensor(atom_alpha_iso[0]),
+            atom_polarizabilities_B=torch.tensor(atom_alpha_iso[1]),
+            # Q_const=1.0, # Agree with CLIFF
+        )
+        induction_energy = ap_q_mu_induction.detach().numpy().sum()
+        print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
+        print(f"SAPT induction   = {sapt0_ind:.6f} kcal/mol")
+        print(f"Induction energy = {induction_energy:.6f} kcal/mol")
+        print(f"CLIFF induction  = {cliff_ind:.6f}")
+
+
 if __name__ == "__main__":
     # test_elst_charge_dipole_qpole()
     # test_elst_multipoles()
@@ -999,4 +1079,6 @@ if __name__ == "__main__":
     # test_induced_dipole_bz_meoh()
     # test_induced_dipole_no_damping()
     # test_induced_dipole_no_damping()
-    test_induced_dipole_torch()
+
+    # test_induced_dipole_torch()
+    test_induced_dipole_torch_df()
