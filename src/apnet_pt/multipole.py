@@ -194,6 +194,7 @@ def thole_damping(r_ij, alpha_i, alpha_j, a):
     """Apply Thole damping to interaction tensor"""
     # Compute damping factor
     u = r_ij / ((alpha_i * alpha_j) ** (1.0 / 6.0))
+    # print(f"{u=:.2f}, {r_ij:.2f}, {alpha_i:.2f}, {alpha_i:.2f}")
     au3 = a * (u**3)
     l3 = 1 - np.exp(-au3)
     l5 = 1 - (1 + au3) * np.exp(-au3)
@@ -319,7 +320,11 @@ def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a):
 
     au3, l3, l5, l7, l9 = thole_damping(R, alpha_i, alpha_j, a)
     # l3, l5, l7, l9 = (1.0, 1.0, 1.0, 1.0)  # Turn off Thole damping
+    # print(f"   {l3 = }")
 
+    # l3 = np.ones_like(l3)
+    # l5 = np.ones_like(l5)
+    # print(f"{alpha_i:.2f}-{alpha_j:.2f} {l3 = }, {l5 = }")
     T0 = R**-1
     T1 = l3 * (R**-3) * (-1.0 * dR)
     T2 = (R**-5) * (l5 * 3 * np.outer(dR, dR) - l3 * R * R * delta)
@@ -1004,6 +1009,7 @@ def dimer_induced_dipole(
             if i == j:
                 T_abij[i, j, :, :] = np.zeros((13, 13))
                 continue
+            # print(f"{i}::{j}")
             T0, T1, T2, T3, T4 = T_cart_Thole_damping(
                 R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
             )
@@ -1027,7 +1033,8 @@ def dimer_induced_dipole(
     mu_induced_0_A[:, :] = np.einsum(
         "a,abi,b->ai", alpha_A, T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0], M_B[:, 0]
     )
-    print(T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0])
+    # print(f"{T_abij[:n_atoms_A, n_atoms_A:, 1:4, 0]=}")
+    # print(f"{T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4]=}")
     print(f"{mu_induced_0_A=}")
     mu_induced_0_A[:, :] += np.einsum(
         "a,abij,bj->ai", alpha_A, T_abij[:n_atoms_A, n_atoms_A:, 1:4, 1:4], M_B[:, 1:4]
@@ -1211,17 +1218,6 @@ Pair: O-H  E_ind:  0.6634 kcal/mol
         )
     ) * constants.h2kcalmol
     E_ind = en1 + en2
-    # for i in range(n_atoms_A):
-    #     for j in range(n_atoms_B):
-    #         print(
-    #             f"Pair: {molA.symbols[i]}-{molB.symbols[j]}  E_ind: {
-    #                 E_ind[i, j]:8.4f} kcal/mol"
-    #         )
-    #         print(f"  en1: {en1[i, j]:8.4f}  en2: {en2[i, j]:8.4f}")
-    #         print(f"  mu_ind1: {mu_induced_A[i]}  mu_ind2: {mu_induced_B[j]}")
-    #         print(f"  M_A: {M_A[i, :4]}  M_B: {M_B[j, :4]}")
-    #         print(f"  T: {T_abij[i, n_atoms_A + j, :4, :4]}")
-    # print(f"{E_ind=}")
     E_ind = np.sum(E_ind) / 2
     return E_ind
 
@@ -1230,27 +1226,11 @@ def thole_damping_torch(r_ij, alpha_i, alpha_j, a):
     """Apply Thole damping to interaction tensor"""
     # Compute damping factor
     u = r_ij / ((alpha_i * alpha_j) ** (1.0 / 6.0))
+    print(f"{u = }")
     au3 = a * (u**3)
-    l3 = 1 - np.exp(-au3)
-    l5 = 1 - (1 + au3) * np.exp(-au3)
+    l3 = 1 - torch.exp(-au3)
+    l5 = 1 - (1 + au3) * torch.exp(-au3)
     return au3, l3, l5
-
-
-def T_cart_Thole(RA, RB, alpha_i=None, alpha_j=None, a=0.39):
-    lam_1, lam_3, lam_5, lam_7, lam_9 = (1.0, 1.0, 1.0, 1.0, 1.0)
-
-    dR = RB - RA
-    R = np.linalg.norm(dR)
-    if alpha_i is not None and alpha_j is not None:
-        lam_1, lam_3, lam_5 = thole_damping_torch(R, alpha_i, alpha_j, a)
-    delta = np.identity(3)
-    # E_qq
-    T0 = R**-1 * lam_1
-    # E_qu
-    T1 = (R**-3) * (-1.0 * dR) * lam_3
-    # E_uu
-    T2 = (R**-5) * (lam_5 * 3 * np.outer(dR, dR) - lam_3 * R * R * delta)
-    return T0, T1, T2
 
 
 def dimer_induced_dipole_torch(
@@ -1293,24 +1273,38 @@ def dimer_induced_dipole_torch(
     delta = torch.eye(3, device=qA.device)
     h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
 
+    if atom_polarizabilities_A is not None and atom_polarizabilities_B is not None:
+        alpha_A = atom_polarizabilities_A
+        alpha_B = atom_polarizabilities_B
+
     # Note: need to include Thole damping here...
-    def distance_tensors(Ri, Rj, e_source, e_target, alpha_i=None, alpha_j=None):
-        Rij = Rj[e_target] - Ri[e_source]
-        dR = torch.linalg.norm(Rij, axis=-1)
-        dR_xyz = Rij / dR[:, None]
-        # oodR = 1.0 / dR
-        T0, T1, T2 = T_cart_Thole(Ri[e_source], Rj[e_target], alpha_i, alpha_j, thole_damping_param)
-        # T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
-        # T2 = 3 * torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz) - torch.einsum(
-        #     "x,x,yz->xyz", dR, dR, delta
-        # )
-        # T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
-        return dR, dR_xyz, T0, T1, T2
+    def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None):
+        dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
+        dR_xyz = dR_xyz_ang / constants.au2ang
+        dR = dR_ang / constants.au2ang
+        alpha_i = alpha_A.index_select(0, e_source)
+        alpha_j = alpha_B.index_select(0, e_target)
+        print(f"{e_source=}, {e_target=}")
+        au3, lam_3, lam_5 = thole_damping_torch(dR, alpha_i, alpha_j, thole_damping_param)
+        print(dR, alpha_i, alpha_j, sep='\n')
+        # lam_5 = torch.ones_like(lam_5)
+        # print(f"{lam_3=}, {lam_5=}")
+        delta = torch.eye(3, device=dR.device)
+        oodR = 1.0 / dR
+        T1 = torch.einsum("x,xy,x->xy", oodR**3, -1.0 * dR_xyz, lam_3)
+        T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam_5) - torch.einsum(
+            "x,x,yz,x->xyz", dR, dR, delta, lam_3
+        )
+        T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+        return dR, dR_xyz, oodR, T1, T2
 
     # Calculate interaction tensors between atoms
+    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B)
+    # print(f"{T0_AB=}")
+    # print(f"{T1_AB=}")
+    # print(f"{T2_AB=}")
     dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A)
     dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B)
-    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B)
 
     # Get atomic polarizabilities and multipole moments
     alpha_A = atom_polarizabilities_A.squeeze(-1)
@@ -1339,11 +1333,15 @@ def dimer_induced_dipole_torch(
     # Contribution from charges
     mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
 
+    print(f"{mu_charge_A=}")
+
     # Contribution from dipoles
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
+    print(f"{mu_dipole_A=}")
 
     # Combine charge and dipole contributions
     mu_induced_AB_pairs = mu_charge_A + mu_dipole_A
+    print(f"{mu_induced_AB_pairs=}")
 
     # Aggregate back to full molecule A (using scatter_add)
     for i, idx in enumerate(e_AB_source):

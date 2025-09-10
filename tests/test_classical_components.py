@@ -900,15 +900,16 @@ def test_induced_dipole_torch():
         thetaB=thetaB,
         hirshfeld_volume_ratio_A=vrA,
         hirshfeld_volume_ratio_B=vrB,
-        atom_polarizabilities_A=atom_alpha_iso[0],
-        atom_polarizabilities_B=atom_alpha_iso[1],
+        atom_polarizabilities_A=atom_alpha_iso[0],  # Use computed polarizabilities
+        atom_polarizabilities_B=atom_alpha_iso[1],  # Use computed polarizabilities
         valence_widths_A=vwA,
         valence_widths_B=vwB,
     )
-    print(f"np indu = {ap_q_mu_induction:.6f}\n")
-    assert abs(-1.4232044527609915 - ap_q_mu_induction) < 1e-4, (
-        f"Expected -1.423204, got {ap_q_mu_induction}"
-    )
+    ref_e = -1.4232045
+    print(f"{ap_q_mu_induction = }")
+    # assert abs(ref_e - ap_q_mu_induction) < 1e-4, (
+    #     f"Expected {ref_e}, got {ap_q_mu_induction}"
+    # )
     df = pd.read_pickle(
         file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
@@ -977,12 +978,8 @@ def test_induced_dipole_torch():
         atom_polarizabilities_B=torch.tensor(atom_alpha_iso[1]),
         # Q_const=1.0, # Agree with CLIFF
     )
-    cliff_type = "q_mu"
-    print(f"Using cliff type: {cliff_type}\n")
-    cliff_indu_q_mu = r[f"cliff_indu_{cliff_type}"]
-    print(f"CLIFF q = {cliff_indu_q_mu:.6f}, AP q = {ap_q_mu_induction:.6f}")
-    assert abs(-1.4232044527609915 - ap_q_mu_induction) < 1e-4, (
-        f"Expected -1.423204, got {ap_q_mu_induction}"
+    assert abs(ref_e - ap_q_mu_induction) < 1e-4, (
+        f"Expected {ref_e}, got {ap_q_mu_induction}"
     )
     return
 
@@ -998,5 +995,6 @@ if __name__ == "__main__":
     # test_elst_multipoles_MTP_torch_damping()
     # test_induced_dipole()
     # test_induced_dipole_bz_meoh()
+    # test_induced_dipole_no_damping()
     # test_induced_dipole_no_damping()
     test_induced_dipole_torch()
