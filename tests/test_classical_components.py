@@ -1003,6 +1003,7 @@ def test_induced_dipole_torch_alphas():
     vrB = r["vol_ratios_B pbe0/atz"]
     vwA = r["val_widths_A pbe0/atz"]
     vwB = r["val_widths_B pbe0/atz"]
+    Ks = [[1.14769962, 0.685558974, 0.685558974], [1.14769962, 0.685558974, 0.685558974]]
     thetaA = np.zeros_like(thetaA)
     thetaB = np.zeros_like(thetaB)
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
@@ -1041,10 +1042,12 @@ def test_induced_dipole_torch_alphas():
         hirshfeld_volume_ratio_B=torch.tensor(vrB, dtype=torch.float32),
         valence_widths_A=torch.tensor(vwA),
         valence_widths_B=torch.tensor(vwB),
+        K_A=torch.tensor(Ks[0], dtype=torch.float32),
+        K_B=torch.tensor(Ks[1], dtype=torch.float32),
     )
     # using libmbd free polarizabilities which causes the shift from CLIFF
-    # induction energies. Everything else has been verified to match CLIFF
-    ref_e = -1.3721474409103394
+    # induction energies AND K_ij. Everything else has been verified to match CLIFF
+    ref_e = -3.9513449668884277
     torch_ap_indu = ap_q_mu_induction.detach().numpy().sum()
     print(f"{torch_ap_indu = }")
     assert abs(ref_e - torch_ap_indu) < 1e-4, (
@@ -1061,6 +1064,7 @@ def test_induced_dipole_torch_df():
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by='system_id')
+    Ks = [[1.14769962, 0.685558974, 0.685558974], [1.14769962, 0.685558974, 0.685558974]]
     for n, r in df.iterrows():
         sapt0_ind = r["SAPT0 IND ENERGY adz"] * qcel.constants.conversion_factor("hartree", "kcal/mol")
         cliff_ind = r['cliff_indu_q_mu']
@@ -1124,6 +1128,8 @@ def test_induced_dipole_torch_df():
             valence_widths_B=torch.tensor(vwB),
             atom_polarizabilities_A=torch.tensor(atom_alpha_iso[0]),
             atom_polarizabilities_B=torch.tensor(atom_alpha_iso[1]),
+            K_A=torch.tensor(Ks[0], dtype=torch.float32),
+            K_B=torch.tensor(Ks[1], dtype=torch.float32),
             # Q_const=1.0, # Agree with CLIFF
         )
         induction_energy = ap_q_mu_induction.detach().numpy().sum()
@@ -1150,4 +1156,4 @@ if __name__ == "__main__":
     test_induced_dipole_torch_alphas()
 
     # test_induced_dipole()
-    # test_induced_dipole_torch_df()
+    test_induced_dipole_torch_df()

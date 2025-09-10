@@ -1325,6 +1325,8 @@ def dimer_induced_dipole_torch(
     valence_widths_B: torch.tensor,
     atom_polarizabilities_A: torch.tensor = None,
     atom_polarizabilities_B: torch.tensor = None,
+    K_A: torch.tensor = None,
+    K_B: torch.tensor = None,
     max_iterations: int = 200,
     convergence_threshold: float = 1e-8,
     omega: float = 0.7,
@@ -1336,6 +1338,20 @@ def dimer_induced_dipole_torch(
     their multipole moments and Hirshfeld volume ratios. Follow classical
     induction model from this paper:
     https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
+
+    vwA = torch.where(vwA > 0.1, vwA, 0.1)
+    vwB = torch.where(vwB > 0.1, vwB, 0.1)
+    sigma_A_source = vwA.index_select(0, e_source)
+    sigma_B_target = vwB.index_select(0, e_target)
+    sigma_ij = sigma_A_source * sigma_B_target
+    B_ij = (1.0 / sigma_ij).squeeze()
+    # print(f"{B_ij = }")
+    # print(f"{r_ij = }")
+    S_ij = (
+        (1.0 / 3.0 * (B_ij * r_ij) ** 2 + B_ij * r_ij + 1.0)
+        * torch.exp(-B_ij * r_ij)
+        * hartree2kcal
+    )
     """
     from apnet_pt.AtomPairwiseModels.mtp_mtp import get_distances
 
@@ -1352,18 +1368,8 @@ def dimer_induced_dipole_torch(
     else:
         alpha_0_A = torch.tensor([free_atom_polarizabilities[int(i)] for i in ZA], dtype=hirshfeld_volume_ratio_A.dtype, device=hirshfeld_volume_ratio_A.device)
         alpha_0_B = torch.tensor([free_atom_polarizabilities[int(i)] for i in ZB], dtype=hirshfeld_volume_ratio_A.dtype, device=hirshfeld_volume_ratio_A.device)
-        # pol_free=array([ 5.40000,  4.50000,  4.50000])
-        # hirshfeld_ratios=array([ 1.39086,  0.18788,  0.19181])
-        # hirshfeld_ratios**(4/3.)=array([ 1.55255,  0.10760,  0.11062])
-        # self.pol_scaled=array([ 8.38375,  0.48422,  0.49778])
         alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
         alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
-        print(f"{alpha_0_A=}")
-        print(f"{hirshfeld_volume_ratio_A=}")
-        print(f"{hirshfeld_volume_ratio_A**(4/3.)=}")
-    print(f"{alpha_A=}")
-    print(f"{alpha_A.dtype=}")
-    print(f"{alpha_B=}")
 
     # Note: need to include Thole damping here...
     def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None):
@@ -1394,7 +1400,6 @@ def dimer_induced_dipole_torch(
     dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A)
     dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B)
 
-
     # Select relevant tensors for atom pairs
     alpha_A_source = alpha_A.index_select(0, e_AB_source)
     alpha_B_target = alpha_B.index_select(0, e_AB_target)
@@ -1411,6 +1416,39 @@ def dimer_induced_dipole_torch(
     # Initialize tensors for induced dipoles
     n_atoms_A = RA.shape[0]
     n_atoms_B = RB.shape[0]
+
+    if K_A is not None and K_B is not None:
+        """
+        v_widths[s1] = [0.4111834223806629, 0.3502946586498706, 0.35229699276619997]
+        v_widths[s2] = [0.41117481494233643, 0.35060148140776876, 0.35060415277704976]
+        r = array([[ 5.23691,  6.15248,  6.15150],
+       [ 6.04079,  7.12206,  7.12139],
+       [ 3.42099,  4.45900,  4.45825]])
+ovp = array([[ 0.00020,  0.00001,  0.00001],
+       [ 0.00001,  0.00000,  0.00000],
+       [ 0.00461,  0.00021,  0.00021]])
+ind_params[s1] = [1.14769962, 0.685558974, 0.685558974]
+ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
+
+        """
+        K_A_source = K_A.index_select(0, e_AB_source)
+        K_B_target = K_B.index_select(0, e_AB_target)
+        sigma_A_source = valence_widths_A.index_select(0, e_AB_source)
+        sigma_B_target = valence_widths_B.index_select(0, e_AB_target)
+        print(f"{sigma_A_source=}")
+        print(f"{sigma_B_target=}")
+        print(f"{dR_AB=}")
+        B_ij = torch.sqrt(1.0 / (sigma_A_source * sigma_B_target))
+        print(f"{B_ij=}")
+        S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(-B_ij * dR_AB)
+        
+        print(f"{K_A_source=}")
+        print(f"{K_B_target=}")
+        print(f"{S_ij=}")
+        E_ind_overlap = K_A_source * S_ij * K_B_target * h2kcalmol
+        print(f"{E_ind_overlap=}")
+        print(f"Sum E_ind_overlap: {torch.sum(E_ind_overlap)=}")
+
 
     # Calculate initial induced dipoles (order-0)
     # A: Induced by B's multipoles
@@ -1494,6 +1532,8 @@ def dimer_induced_dipole_torch(
     # print(f"{E_qu.sum()=}")
     # print(f"{E_uu.sum()=}")
     E_ind = (E_qu + E_uu) / 2.0
+    if K_A is not None and K_B is not None:
+        E_ind -= E_ind_overlap
     return E_ind
 
 
