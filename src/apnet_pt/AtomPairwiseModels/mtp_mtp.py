@@ -6,7 +6,8 @@ from torch_geometric.utils import scatter
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap2_atom_model import AtomMPNN
+# from ..AtomModels.ap2_atom_model import AtomHirshfeldMPNN
+from ..AtomModels.ap3_atom_model import AtomHirshfeldMPNN
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
@@ -191,7 +192,7 @@ class DimerProp(nn.Module):
 class AtomTypeParamNN(nn.Module):
     def __init__(
         self,
-        atom_model: AtomMPNN,
+        atom_model: AtomHirshfeldMPNN,
         n_message=3,
         n_neuron=128,
         n_embed=8,
@@ -813,16 +814,17 @@ class AM_DimerParam_Model:
             device = torch.device("cpu")
             print("running on the CPU")
         self.ds_spec_type = ds_spec_type
-        self.atom_model = AtomMPNN()
+        #TODO UPDATE TO AP3
+        self.atom_model = AtomHirshfeldMPNN()
 
         if atom_model_pre_trained_path:
             print(
-                f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
+                f"Loading pre-trained AtomHirshfeldMPNN model from {atom_model_pre_trained_path}"
             )
             checkpoint = torch.load(
                 atom_model_pre_trained_path, map_location=device, weights_only=False
             )
-            self.atom_model = AtomMPNN(
+            self.atom_model = AtomHirshfeldMPNN(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -836,7 +838,7 @@ class AM_DimerParam_Model:
             }
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
-            print("Using provided AtomMPNN model:", atom_model)
+            print("Using provided AtomHirshfeldMPNN model:", atom_model)
             self.atom_model = atom_model
         else:
             print(

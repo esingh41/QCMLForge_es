@@ -1,15 +1,15 @@
 export iter=0
 
-python3 -u ./train_models.py \
-    --train_am "AtomHirshfeldModel" \
-    --am_model_path ./models/am_hirshfeld_ensemble/am_$iter.pt \
-    --spec_type_am 1 \
-    --random_seed $iter \
-    --n_epochs 50 \
-    --lr 5e-5 \
-    --data_dir ./data_dir \
-    --world_size 1 \
-    --omp_num_threads 16 \
+# python3 -u ./train_models.py \
+#     --train_am "AtomHirshfeldModel" \
+#     --am_model_path ./models/am_hirshfeld_ensemble/am_$iter.pt \
+#     --spec_type_am 1 \
+#     --random_seed $iter \
+#     --n_epochs 50 \
+#     --lr 5e-5 \
+#     --data_dir ./data_dir \
+#     --world_size 1 \
+#     --omp_num_threads 16 \
 
 python3 -u ./train_models.py \
     --train_apnet AM-DimerParam \
