@@ -206,7 +206,6 @@ class AtomTypeParamNN(nn.Module):
         charge, dipole, qpole, h_list = am_out[0], am_out[1], am_out[2], am_out[-1]
         Z = x
         K = self.guess_layer(Z)
-        # print(f"{K=}, {h_list=}")
         atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
         keep_mask = torch.isin(
             torch.arange(len(molecule_ind), device=molecule_ind.device),
@@ -219,6 +218,7 @@ class AtomTypeParamNN(nn.Module):
             K_filtered += param_update
             # print(f"Layer {i}, {param_update=}, {K_filtered=}")
         K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
+        # print(f"Final {K=}")
         return charge, dipole, qpole, *am_out[3:], K.squeeze(-1)
 
 
@@ -646,8 +646,8 @@ def induced_dipole_induction(
         torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
     ) * h2kcalmol
     E_ind = (E_qu + E_uu) / 2.0
-    if Ka is not None and Kb is not None:
-        E_ind -= E_ind_overlap
+    # print(f"{torch.sum(E_ind)=}, {torch.sum(E_ind_overlap)=}")
+    E_ind -= E_ind_overlap
     return E_ind
 
 
@@ -701,7 +701,7 @@ def isolate_atom_parameter_predictions_ap3(batch, output):
         mol_hlist[n] = hlist[i_offset : i_offset + i]
         mol_K[n] = K[i_offset : i_offset + i]
         i_offset += i
-    return mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_K
+    return mol_charges, mol_dipoles, mol_qpoles, mol_hfvr, mol_vw, mol_hlist, mol_K
 
 
 

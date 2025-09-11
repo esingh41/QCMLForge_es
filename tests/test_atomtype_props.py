@@ -83,24 +83,25 @@ def test_AM_hirshfeld_induction_DimerParam():
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
-    print(r['SAPT0 IND ENERGY adz'])
+    print(r['SAPT0 IND ENERGY adz'] * qcel.constants.hartree2kcalmol)
     am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         use_GPU=False,
         ignore_database_null=True,
     )
     am.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
+    # Ks = [[1.14769962, 0.685558974, 0.685558974], [1.14769962, 0.685558974, 0.685558974]]
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
-        ignore_database_null=False,
+        ignore_database_null=True,
         # pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_ind_0.pt",
         ds_spec_type=7,
         use_GPU=False,
-        ds_root=data_path,
+        # ds_root=data_path,
         param_start_mean=1.5,
         param_start_std=0.1,
         n_neuron=32,
     )
-    monA_props, monB_props = param_mod.predict_qcel_mols_monomer_props([mol])
+    monA_props, monB_props = param_mod.predict_qcel_mols_monomer_props([mol], am_type='ap3')
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
             apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
@@ -122,7 +123,7 @@ def test_AM_hirshfeld_induction_DimerParam():
     dimer_batch.Ka = torch.tensor(monA_props[0][-1], dtype=torch.float32)
     dimer_batch.Kb = torch.tensor(monB_props[0][-1], dtype=torch.float32)
 
-    torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction(
+    torch_indu = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction(
         ZA=dimer_batch.ZA,
         RA=dimer_batch.RA,
         qA=dimer_batch.qA,
@@ -147,7 +148,7 @@ def test_AM_hirshfeld_induction_DimerParam():
         valence_widths_B=dimer_batch.vwB,
 
     )
-    print(f"Torch indu = {torch.sum(torch_elst):.6f} kcal/mol")
+    print(f"Torch indu = {torch.sum(torch_indu):.6f} kcal/mol")
     return
 
 
