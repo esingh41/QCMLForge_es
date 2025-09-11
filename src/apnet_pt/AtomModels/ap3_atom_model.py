@@ -1090,8 +1090,22 @@ class AtomHirshfeldModel:
         criterion = torch.nn.MSELoss()
 
         lowest_test_loss = torch.tensor(float("inf"))
-        print(f"{rank=}")
-        # self.pretrain_statistics(train_loader, test_loader, criterion)
+        t1 = time.time()
+        train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t, hfvr_MAE_t, vw_MAE_t = (
+            self.evaluate_batches_single_proc(
+                rank, train_loader, criterion, rank_device
+            )
+        )
+        test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v, vw_MAE_v = (
+            self.evaluate_batches_single_proc(
+                rank, test_loader, criterion, rank_device
+            )
+        )
+        dt = time.time() - t1
+        print(
+            f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f}",
+            flush=True,
+        )
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False

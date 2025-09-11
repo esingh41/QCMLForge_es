@@ -865,9 +865,7 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched():
         os.remove(i)
     for i in glob(f"{data_path}/processed_delta/targets_Elst_aug_to_Exch_aug.pt"):
         os.remove(i)
-    assert ds_labels * ds.batch_size - 1 == cnt, f"Expected {
-        ds_labels * ds.batch_size - 1
-    } points, but got {cnt} points"
+    assert ds_labels * ds.batch_size - 1 == cnt, f"Expected {ds_labels * ds.batch_size - 1} points, but got {cnt} points"
 
 
 def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
@@ -1325,7 +1323,6 @@ def test_atomhirshfeld_model_train():
         lr=5e-4,
         split_percent=0.5,
         model_path=None,
-        optimize_for_speed=False,
         shuffle=True,
         dataloader_num_workers=0,
         world_size=1,
@@ -1656,11 +1653,13 @@ def test_ap2_elst_dataset():
 
 if __name__ == "__main__":
     # test_induced_dipole_qcel_mols()
-    test_induced_dipole_eval()
-    test_induced_dipole_dataset()
+
+    test_atomhirshfeld_model_train()
+    # test_induced_dipole_eval()
+    # test_induced_dipole_dataset()
 
     # test_mtp_mtp_elst_qcel_mols()
-    test_mtp_mtp_elst_eval()
+    # test_mtp_mtp_elst_eval()
     # test_atom_model_train()
     # test_mtp_mtp_elst_dataset()
 
