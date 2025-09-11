@@ -85,6 +85,7 @@ def train_pairwise_model(
     pre_trained_model_path="./models/dapnet2/ap2_0.pt",
     param_start_mean=1.5,
     param_start_std=0.1,
+    dimer_eval_type="elst_damping",
 ):
     ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
@@ -165,6 +166,7 @@ def train_pairwise_model(
             ds_random_seed=random_seed,
             param_start_mean=param_start_mean,
             param_start_std=param_start_std,
+            dimer_eval_type=dimer_eval_type,
         )
     else:
         apnet2 = APNet(
@@ -247,6 +249,12 @@ def main():
         type=str,
         default="",
         help="Train APNet Model: (APNet2, APNet3, dAPNet2, APNet2-fused, AM-DimerParam)"
+    )
+    args.add_argument(
+        "--dimer_eval_type",
+        type=str,
+        default="elst_damping",
+        help="Specify dimer eval type for AM-DimerParam (default: 'elst_damping', other options: 'induced_dipole)"
     )
     args.add_argument(
         "--random_seed",
@@ -411,6 +419,7 @@ def main():
             pre_trained_model_path=args.ap_pretrained_model_path,
             param_start_mean=args.param_start_mean,
             param_start_std=args.param_start_std,
+            dimer_eval_type=args.dimer_eval_type,
         )
     return
 
