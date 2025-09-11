@@ -323,9 +323,9 @@ class AtomHirshfeldMPNN(MessagePassing):
         charge = charge - charge_err
         charge = charge.squeeze()
         h_list = torch.stack(h_list, dim=0)
-        volume_ratio[keep_mask] = filtered_volume_ratio
+        volume_ratio[keep_mask] = torch.relu(filtered_volume_ratio) + 0.0001
         volume_ratio = volume_ratio.squeeze()
-        valence_width[keep_mask] = filtered_valence_width
+        valence_width[keep_mask] = torch.relu(filtered_valence_width) + 0.0001
         valence_width = valence_width.squeeze()
         return charge, dipole, qpole, volume_ratio, valence_width, h_list
 

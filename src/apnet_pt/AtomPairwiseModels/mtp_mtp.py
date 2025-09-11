@@ -43,6 +43,8 @@ class DimerProp(nn.Module):
             self.forward = self._elst_damping_forward
         elif dimer_eval == "elst":
             self.forward = self._elst_forward
+        elif dimer_eval == "induced_dipole":
+            self.forward = self._indu_induced_dipole_forward
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
         return
@@ -51,7 +53,7 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
-        qA, muA, thetaA, hA, K_i = self.AtomTypeParam(
+        v_A = self.AtomTypeParam(
             Data(
                 x=batch.ZA,
                 R=batch.RA,
@@ -62,7 +64,7 @@ class DimerProp(nn.Module):
             )
         )
         # print(f"{qA=}, {muA=}, {thetaA=}, {K_i=}, {hA=}")
-        qB, muB, thetaB, hB, K_j = self.AtomTypeParam(
+        v_B = self.AtomTypeParam(
             Data(
                 x=batch.ZB,
                 R=batch.RB,
@@ -76,16 +78,16 @@ class DimerProp(nn.Module):
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
             RA=batch.RA,
-            qA=qA,
-            muA=muA,
-            quadA=thetaA,
-            Ka=K_i,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=v_A[-1],
             ZB=batch.ZB,
             RB=batch.RB,
-            qB=qB,
-            muB=muB,
-            quadB=thetaB,
-            Kb=K_j,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=v_B[-1],
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
@@ -95,7 +97,7 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
-        qA, muA, thetaA, _, K_i = self.AtomTypeParam(
+        v_A = self.AtomTypeParam(
             Data(
                 x=batch.ZA,
                 R=batch.RA,
@@ -105,7 +107,7 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_A,
             )
         )
-        qB, muB, thetaB, _, K_j = self.AtomTypeParam(
+        v_B = self.AtomTypeParam(
             Data(
                 x=batch.ZB,
                 R=batch.RB,
@@ -118,18 +120,72 @@ class DimerProp(nn.Module):
         Elst = mtp_elst(
             ZA=batch.ZA,
             RA=batch.RA,
-            qA=qA,
-            muA=muA,
-            quadA=thetaA,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
             ZB=batch.ZB,
             RB=batch.RB,
-            qB=qB,
-            muB=muB,
-            quadB=thetaB,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
         return Elst
+
+    def _indu_induced_dipole_forward(
+        self,
+        batch,
+    ):
+        v_A = self.AtomTypeParam(
+            Data(
+                x=batch.ZA,
+                R=batch.RA,
+                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
+                molecule_ind=batch.molecule_ind_A,
+                total_charge=batch.total_charge_A,
+                natom_per_mol=batch.natom_per_mol_A,
+            )
+        )
+        # print(f"{qA=}, {muA=}, {thetaA=}, {K_i=}, {hA=}")
+        v_B = self.AtomTypeParam(
+            Data(
+                x=batch.ZB,
+                R=batch.RB,
+                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
+                molecule_ind=batch.molecule_ind_B,
+                total_charge=batch.total_charge_B,
+                natom_per_mol=batch.natom_per_mol_B,
+            )
+        )
+        # print(f"{qB=}, {muB=}, {thetaB=}, {K_j=}, {hB=}")
+        Indu = induced_dipole_induction(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=v_A[-1],
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=v_B[-1],
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+            # Additional parameters for induction
+            e_AA_source=batch.e_AA_source,
+            e_BB_source=batch.e_BB_source,
+            e_AA_target=batch.e_AA_target,
+            e_BB_target=batch.e_BB_target,
+            hirshfeld_volume_ratio_A=v_A[3],
+            hirshfeld_volume_ratio_B=v_B[3],
+            valence_widths_A=v_A[4],
+            valence_widths_B=v_B[4],
+        )
+        print(f"{Indu = }")
+        return Indu
 
 
 class AtomTypeParamNN(nn.Module):
@@ -566,10 +622,14 @@ def induced_dipole_induction(
 
     K_A_source = Ka.index_select(0, e_AB_source)
     K_B_target = Kb.index_select(0, e_AB_target)
+    # print(f"{K_A_source=}, {K_B_target=}")
+    # Must have sigma be > 0 to avoid NaNs
     sigma_A_source = valence_widths_A.index_select(0, e_AB_source)
     sigma_B_target = valence_widths_B.index_select(0, e_AB_target)
     B_ij = torch.sqrt(1.0 / (sigma_A_source * sigma_B_target))
+    # print(f"{sigma_A_source=}, {sigma_B_target=}, {B_ij=}, {dR_AB=}")
     S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(-B_ij * dR_AB)
+    # print(f"{S_ij=}")
     E_ind_overlap = K_A_source * S_ij * K_B_target * h2kcalmol
 
     # Calculate initial induced dipoles
@@ -646,7 +706,7 @@ def induced_dipole_induction(
         torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
     ) * h2kcalmol
     E_ind = (E_qu + E_uu) / 2.0
-    # print(f"{torch.sum(E_ind)=}, {torch.sum(E_ind_overlap)=}")
+    # print(f"{E_ind=}, {torch.sum(E_ind_overlap)=}")
     E_ind -= E_ind_overlap
     return E_ind
 
@@ -809,8 +869,12 @@ class AM_DimerParam_Model:
                 param_start_std=param_start_std,
             )
         self.dimer_eval_type = dimer_eval_type
+        print(f"Using dimer evaluation type: {dimer_eval_type}")
         self.dimer_model = DimerProp(self.model, dimer_eval=dimer_eval_type)
-        self.dimer_model_elst = DimerProp(self.model, dimer_eval="elst")
+        if "elst" in dimer_eval_type:
+            self.dimer_model_elst = DimerProp(self.model, dimer_eval="elst")
+        else:
+            self.dimer_model_elst = None
         if n_message != self.model.n_message:
             print(f"Changing n_message from {self.model.n_message} to {n_message}")
             self.model.n_message = n_message
@@ -1271,8 +1335,8 @@ units angstrom
     def __cleanup(self):
         dist.destroy_process_group()
 
-    def __train_batches_single_proc_elst(
-        self, dataloader, loss_fn, optimizer, rank_device, scheduler
+    def __train_batches_single_proc(
+        self, dataloader, loss_fn, optimizer, rank_device, scheduler, y_ind=0
     ):
         """
         Single-process training loop body.
@@ -1283,7 +1347,7 @@ units angstrom
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
-            ref = batch.y[:, 0]
+            ref = batch.y[:, y_ind]
             preds = self.dimer_model(batch)
             preds = scatter(
                 preds,
@@ -1312,7 +1376,7 @@ units angstrom
         return total_loss, total_MAE_t
 
     # @torch.inference_mode()
-    def __evaluate_batches_single_proc_elst(self, dataloader, loss_fn, rank_device):
+    def __evaluate_batches_single_proc(self, dataloader, loss_fn, rank_device, y_ind=0):
         self.model.eval()
         comp_errors_t = []
         total_loss = 0.0
@@ -1320,7 +1384,7 @@ units angstrom
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
                 preds = self.dimer_model(batch)
-                ref = batch.y[:, 0]
+                ref = batch.y[:, y_ind]
                 preds = scatter(
                     preds,
                     batch.dimer_ind,
@@ -1427,29 +1491,38 @@ units angstrom
         criterion = torch.nn.MSELoss()
 
         # (4) Set eval functions
-        __evaluate_batch = self.__evaluate_batches_single_proc_elst
-        __train_batch = self.__train_batches_single_proc_elst
+        __evaluate_batch = self.__evaluate_batches_single_proc
+        __train_batch = self.__train_batches_single_proc
+        if self.dimer_eval_type == "elst_damping":
+            y_ind = 0
+            term = "Elst"
+        elif self.dimer_eval_type == "induced_dipole":
+            y_ind = 2
+            term = "Indu"
+        else:
+            raise ValueError(f"Unknown dimer_eval_type: {self.dimer_eval_type}")
         print(
-            "                                       Elst",
+            f"                                       {term}",
             flush=True,
         )
 
         # (5) Evaluate once pre-training
+        if self.dimer_model_elst is not None:
+            t0 = time.time()
+            _, no_damping_MAE_t = self.__evaluate_batches_single_proc_elst_no_damping(
+                train_loader, criterion, rank_device
+            )
+            _, no_damping_MAE_v = self.__evaluate_batches_single_proc_elst_no_damping(
+                test_loader, criterion, rank_device
+            )
+            print(
+                f" (No Damping)  ({time.time() - t0: < 7.2f}s)"
+                f" MAE: {no_damping_MAE_t: > 7.3f}/{no_damping_MAE_v: < 7.3f}",
+                flush=True,
+            )
         t0 = time.time()
-        _, no_damping_MAE_t = self.__evaluate_batches_single_proc_elst_no_damping(
-            train_loader, criterion, rank_device
-        )
-        _, no_damping_MAE_v = self.__evaluate_batches_single_proc_elst_no_damping(
-            test_loader, criterion, rank_device
-        )
-        print(
-            f" (No Damping)  ({time.time() - t0: < 7.2f}s)"
-            f" MAE: {no_damping_MAE_t: > 7.3f}/{no_damping_MAE_v: < 7.3f}",
-            flush=True,
-        )
-        t0 = time.time()
-        t_out = __evaluate_batch(train_loader, criterion, rank_device)
-        v_out = __evaluate_batch(test_loader, criterion, rank_device)
+        t_out = __evaluate_batch(train_loader, criterion, rank_device, y_ind=y_ind)
+        v_out = __evaluate_batch(test_loader, criterion, rank_device, y_ind=y_ind)
         train_loss, total_MAE_t = t_out
         test_loss, total_MAE_v = v_out
         print(
@@ -1462,9 +1535,9 @@ units angstrom
         for epoch in range(n_epochs):
             t1 = time.time()
             t_out = __train_batch(
-                train_loader, criterion, optimizer, rank_device, scheduler
+                train_loader, criterion, optimizer, rank_device, scheduler, y_ind=y_ind
             )
-            v_out = __evaluate_batch(test_loader, criterion, rank_device)
+            v_out = __evaluate_batch(test_loader, criterion, rank_device, y_ind=y_ind)
             train_loss, total_MAE_t = t_out
             test_loss, total_MAE_v = v_out
 
