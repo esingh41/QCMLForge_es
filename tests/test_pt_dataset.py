@@ -1555,7 +1555,7 @@ def test_induced_dipole_qcel_mols():
     )
     print(param_mod)
     param_mod.train(
-        n_epochs=1000,
+        n_epochs=5,
         skip_compile=True,
         lr=5e-4,
         split_percent=0.5,
@@ -1583,7 +1583,7 @@ def test_induced_dipole_dataset():
         dimer_eval_type="induced_dipole",
     )
     param_mod.train(
-        n_epochs=10,
+        n_epochs=5,
         skip_compile=False,
         lr=5e-3,
         # model_path='nan.pt',
@@ -1649,7 +1649,7 @@ def test_ap2_elst_dataset():
     )
 
 if __name__ == "__main__":
-    test_induced_dipole_qcel_mols()
+    # test_induced_dipole_qcel_mols()
     test_induced_dipole_eval()
     test_induced_dipole_dataset()
 

@@ -165,20 +165,18 @@ class AtomHirshfeldMPNN(MessagePassing):
 
         h_list_0 = [self.embed_layer(Z)]
 
-        # Initial guesses
         charge = self.guess_layer(Z)
-        # volume_ratio = self.guess_hirshfeldVolumeRatio(Z)
         volume_ratio = torch.ones(natom, 1, dtype=torch.float32, device=Z.device)
-        # valence_widths = torch.ones(natom, 1, dtype=torch.float32, device=Z.device)
         valence_width = self.guess_valenceWidth(Z)
+        # volume_ratio = self.guess_hirshfeldVolumeRatio(Z)
+        # valence_widths = torch.ones(natom, 1, dtype=torch.float32, device=Z.device)
 
         dipole = torch.zeros(natom, 3, dtype=torch.float32, device=Z.device)
         qpole = torch.zeros(natom, 3, 3, dtype=torch.float32, device=Z.device)
 
-        if edge_index.size(0) == 0:
-            # need h_list to have the same number of dimensions as the number of message passing layers
+        if edge_index.size(1) == 0:
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
-            h_list = torch.stack(h_list, dim=1)
+            h_list = torch.stack(h_list, dim=0)
             # if we get a single atom, we should return ones for volume_ratio, valence_width
             return (
                 charge.squeeze(),
@@ -189,13 +187,15 @@ class AtomHirshfeldMPNN(MessagePassing):
                 h_list,
             )
 
-        # 1) Identify which molecules have more than one atom
-        mol_ind = torch.where(natom_per_mol != 1)[0]
-        keep_mask = (molecule_ind.unsqueeze(1) == mol_ind).any(dim=1)
+        # 1) Filter out atoms that don't have edges
+        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
+        keep_mask = torch.isin(torch.arange(len(molecule_ind), device=molecule_ind.device), atoms_with_edges)
+
         filtered_charge = charge[keep_mask]
         filtered_volume_ratio = volume_ratio[keep_mask]
         filtered_valence_width = valence_width[keep_mask]
-        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms.
+
+        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms and edges
         h_list = [h_list_0[0][keep_mask]]
 
         # Now we need to filter the edge_index to only include edges between
@@ -205,9 +205,8 @@ class AtomHirshfeldMPNN(MessagePassing):
         edge_keep = keep_mask[e_source] & keep_mask[e_target]
         e_source = e_source[edge_keep]
         e_target = e_target[edge_keep]
-        # shape [N], each kept atom -> new index
-        idx_map = torch.cumsum(keep_mask, dim=0) - 1
-        idx_map = idx_map.long()  # ensure integer
+        idx_map = torch.cumsum(keep_mask, dim=0) - 1  # shape [N], each kept atom -> new index
+        idx_map = idx_map.long()                     # ensure integer
         e_source = idx_map[e_source]
         e_target = idx_map[e_target]
 

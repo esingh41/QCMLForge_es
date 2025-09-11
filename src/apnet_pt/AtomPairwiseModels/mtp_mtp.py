@@ -184,7 +184,7 @@ class DimerProp(nn.Module):
             valence_widths_A=v_A[4],
             valence_widths_B=v_B[4],
         )
-        print(f"{Indu = }")
+        # print(f"{Indu = }")
         return Indu
 
 
