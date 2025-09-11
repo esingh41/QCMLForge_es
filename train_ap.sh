@@ -8,8 +8,8 @@ python3 -u ./train_models.py \
     --n_epochs 50 \
     --lr 5e-5 \
     --data_dir ./data_dir \
-    --world_size 4 \
-    --omp_num_threads 4 \
+    --world_size 1 \
+    --omp_num_threads 16 \
 
 python3 -u ./train_models.py \
     --train_apnet AM-DimerParam \
