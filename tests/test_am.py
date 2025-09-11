@@ -1,5 +1,5 @@
 from apnet_pt.AtomModels.ap2_atom_model import AtomModel
-from apnet_pt.AtomModels.ap3_atom_model import AtomHirshfeldModel
+# from apnet_pt.AtomModels.ap3_atom_model import AtomHirshfeldModel
 import os
 import torch
 import apnet_pt
@@ -103,21 +103,6 @@ def test_am():
     print(batch_C)
     qC, muC, thetaC, hlistC = am.predict_multipoles_batch(batch_C)
     print("batch_C complete")
-    return
-
-
-def test_am_hirshfeld():
-    am = AtomHirshfeldModel(
-        use_GPU=False,
-        ignore_database_null=True,
-    )
-    return
-
-
-def test_dimer_multipole_training():
-    am = AtomModel(
-        use_GPU=False,
-    ).set_pretrained_model(model_id=0)
     return
 
 
@@ -313,4 +298,5 @@ if __name__ == "__main__":
     # test_am()
     # test_am_architecture()
     # test_am_element()
-    test_am_architecture()
+    # test_am_architecture()
+    test_am_hirshfeld()

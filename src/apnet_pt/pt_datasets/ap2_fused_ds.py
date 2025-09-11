@@ -115,7 +115,6 @@ def dimer_fused_data(
         **kwargs,  # allows for additional properties to be passed in
     )
 
-
 def natural_key(text):
     return [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", text)]
 
