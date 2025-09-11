@@ -1610,9 +1610,15 @@ def test_induced_dipole_eval():
         n_neuron=32,
         dimer_eval_type="induced_dipole",
     )
+    print("\nSingle Molecule Eval\n")
     batch = param_mod._qcel_example_input([mol_dimer_ion])
     v = param_mod.model(batch)
     print(v[-1])
+    print("\nDimer Molecule Eval\n")
+    batch = param_mod._qcel_dimer_example_input([mol_dimer])
+    v = param_mod.dimer_model(batch)
+    print(v[-1])
+    print("\nDimer Molecule Ion Eval\n")
     batch = param_mod._qcel_dimer_example_input([mol_dimer_ion])
     v = param_mod.dimer_model(batch)
     print(v[-1])

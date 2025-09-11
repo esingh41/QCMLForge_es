@@ -444,7 +444,7 @@ def mtp_elst(
     return E_elst
 
 
-@torch.compile
+# @torch.compile
 def mtp_elst_damping(
     ZA,
     RA,
@@ -528,7 +528,6 @@ def mtp_elst_damping(
     return E_elst
 
 
-
 @torch.compile
 def induced_dipole_induction(
     ZA,
@@ -579,6 +578,9 @@ def induced_dipole_induction(
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
 
+    print(f"{alpha_A.size() = }")
+    print(f"{qA.size() = }")
+    print(f"{hirshfeld_volume_ratio_A.size() = }")
     def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None):
         dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
         dR_xyz = dR_xyz_ang / constants.au2ang

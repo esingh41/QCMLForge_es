@@ -174,16 +174,18 @@ class AtomHirshfeldMPNN(MessagePassing):
         dipole = torch.zeros(natom, 3, dtype=torch.float32, device=Z.device)
         qpole = torch.zeros(natom, 3, 3, dtype=torch.float32, device=Z.device)
 
+        # print(f"{charge.size() =}")
+        # print(f"{dipole.size() =}")
         if edge_index.size(1) == 0:
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
             h_list = torch.stack(h_list, dim=0)
             # if we get a single atom, we should return ones for volume_ratio, valence_width
             return (
-                charge.squeeze(),
+                charge.squeeze(0),
                 dipole,
                 qpole,
-                volume_ratio.squeeze(),
-                volume_ratio.squeeze(),
+                volume_ratio.squeeze(0),
+                valence_width.squeeze(0),
                 h_list,
             )
 
