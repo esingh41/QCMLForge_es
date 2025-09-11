@@ -159,6 +159,7 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
+        # print(f"{v_A[-1][:2]=}")
         # print(f"{qB=}, {muB=}, {thetaB=}, {K_j=}, {hB=}")
         Indu = induced_dipole_induction(
             ZA=batch.ZA,
@@ -1359,7 +1360,6 @@ units angstrom
                 reduce="add",
                 dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long),
             )
-            # print(f"{K_i = }\n{K_j = }\n{preds = }")
             comp_errors = preds - ref
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
@@ -1505,7 +1505,7 @@ units angstrom
         else:
             raise ValueError(f"Unknown dimer_eval_type: {self.dimer_eval_type}")
         print(
-            f"                                       {term}",
+            f"                                       {term}:{y_ind}",
             flush=True,
         )
 

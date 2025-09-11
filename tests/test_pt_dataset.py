@@ -90,6 +90,21 @@ mol_dimer_ion = qcel.models.Molecule.from_data("""
 1   2.641145101   -0.449872874   -0.744894473
 """)
 
+mol_cliff_water_close = qcel.models.Molecule.from_data("""
+0 1
+O                    -1.326958220000    -0.105938540000     0.018788150000
+H                    -1.931665230000     1.600174310000    -0.021710520000
+H                     0.486644270000     0.079598100000     0.009862480000
+--
+0 1
+O                     3.907523240000     0.052757410000     0.001850160000
+H                     4.619234940000    -0.775660840000     1.449615410000
+H                     4.611000850000    -0.847154680000    -1.406756420000
+units bohr
+no_com
+no_reorient
+""")
+
 
 def test_apnet2_dataset_size_no_prebatched():
     batch_size = 2
@@ -1527,15 +1542,15 @@ def test_mtp_mtp_elst_eval():
 
 
 def test_induced_dipole_qcel_mols():
-    qcel_molecules = [mol_dimer] * 4
-    energy_labels = [np.array([-10.779292828139122, 0, 0, 0]) for _ in range(len(qcel_molecules))]
+    qcel_molecules = [mol_cliff_water_close] * 4
+    energy_labels = [np.array([-1000, -500, -3.414543432719425, 10000]) for _ in range(len(qcel_molecules))]
     print(energy_labels)
     am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         ds_root=None,
         ignore_database_null=True,
         use_GPU=False,
     )
-    # am.set_pretrained_model(model_id=0)
+    am.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ds_root=data_path,
@@ -1545,14 +1560,14 @@ def test_induced_dipole_qcel_mols():
         ds_spec_type=None,
         ds_qcel_molecules=qcel_molecules,
         ds_energy_labels=energy_labels,
-        param_start_mean=2.0,
-        param_start_std=0.1,
-        n_neuron=16,
+        param_start_mean=1.3,
+        param_start_std=0.05,
+        n_neuron=32,
         dimer_eval_type="induced_dipole",
     )
     print(param_mod)
     param_mod.train(
-        n_epochs=5,
+        n_epochs=10,
         skip_compile=True,
         lr=5e-4,
         split_percent=0.5,
@@ -1565,7 +1580,7 @@ def test_induced_dipole_dataset():
         ignore_database_null=True,
         use_GPU=False,
     )
-    # am.set_pretrained_model(model_id=0)
+    am.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ignore_database_null=False,
@@ -1574,15 +1589,15 @@ def test_induced_dipole_dataset():
         ds_spec_type=7,
         use_GPU=False,
         ds_root=data_path,
-        param_start_mean=1.5,
-        param_start_std=0.1,
+        param_start_mean=0.4,
+        param_start_std=0.2,
         n_neuron=32,
         dimer_eval_type="induced_dipole",
     )
     param_mod.train(
-        n_epochs=5,
+        n_epochs=50,
         skip_compile=False,
-        lr=5e-3,
+        lr=5e-4,
         # model_path='nan.pt',
     )
 
@@ -1593,7 +1608,7 @@ def test_induced_dipole_eval():
         ignore_database_null=True,
         use_GPU=False,
     )
-    # am.set_pretrained_model(model_id=0)
+    am.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ignore_database_null=False,
@@ -1652,11 +1667,11 @@ def test_ap2_elst_dataset():
     )
 
 if __name__ == "__main__":
-    # test_induced_dipole_qcel_mols()
+    test_induced_dipole_qcel_mols()
+    test_induced_dipole_eval()
+    test_induced_dipole_dataset()
 
-    test_atomhirshfeld_model_train()
-    # test_induced_dipole_eval()
-    # test_induced_dipole_dataset()
+    # test_atomhirshfeld_model_train()
 
     # test_mtp_mtp_elst_qcel_mols()
     # test_mtp_mtp_elst_eval()

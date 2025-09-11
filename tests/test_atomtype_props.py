@@ -83,6 +83,7 @@ def test_AM_hirshfeld_induction_DimerParam():
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
+    print(mol.to_string("psi4"))
     print(r['SAPT0 IND ENERGY adz'] * qcel.constants.hartree2kcalmol)
     am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         use_GPU=False,
@@ -97,9 +98,10 @@ def test_AM_hirshfeld_induction_DimerParam():
         ds_spec_type=7,
         use_GPU=False,
         # ds_root=data_path,
-        param_start_mean=1.5,
-        param_start_std=0.1,
+        param_start_mean=1.3,
+        param_start_std=0.05,
         n_neuron=32,
+        dimer_eval_type="induced_dipole",
     )
     monA_props, monB_props = param_mod.predict_qcel_mols_monomer_props([mol], am_type='ap3')
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
@@ -122,6 +124,10 @@ def test_AM_hirshfeld_induction_DimerParam():
     dimer_batch.vwB = torch.tensor(monB_props[0][4], dtype=torch.float32)
     dimer_batch.Ka = torch.tensor(monA_props[0][-1], dtype=torch.float32)
     dimer_batch.Kb = torch.tensor(monB_props[0][-1], dtype=torch.float32)
+    # dimer_batch.Ka = torch.zeros_like(dimer_batch.Ka)
+    # dimer_batch.Kb = torch.zeros_like(dimer_batch.Kb)
+    print(f"Ka = {dimer_batch.Ka}")
+    print(f"Kb = {dimer_batch.Kb}")
 
     torch_indu = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction(
         ZA=dimer_batch.ZA,
@@ -146,9 +152,10 @@ def test_AM_hirshfeld_induction_DimerParam():
         hirshfeld_volume_ratio_B=dimer_batch.hfvrB,
         valence_widths_A=dimer_batch.vwA,
         valence_widths_B=dimer_batch.vwB,
-
     )
     print(f"Torch indu = {torch.sum(torch_indu):.6f} kcal/mol")
+    pred = param_mod.predict_qcel_mols([mol, mol])
+    print(pred)
     return
 
 
