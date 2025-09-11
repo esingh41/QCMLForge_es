@@ -31,7 +31,7 @@ def test_elst_multipoles_MTP_torch_damping_AM_DimerParam():
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ignore_database_null=False,
-        pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_elst_damp_0.pt",
+        # pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_elst_damp_0.pt",
         ds_spec_type=7,
         use_GPU=False,
         ds_root=data_path,
@@ -84,16 +84,15 @@ def test_AM_hirshfeld_induction_DimerParam():
     r = df.iloc[0]
     mol = r["qcel_molecule"]
     print(r['SAPT0 IND ENERGY adz'])
-    am = apnet_pt.AtomModels.ap2_atom_model.AtomHirshfeldModel(
+    am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         use_GPU=False,
         ignore_database_null=True,
     )
-    am.set_pretrained_model(model_id=0)
-    am.set_pretrained_model(model_id=0)
+    am.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ignore_database_null=False,
-        pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_elst_damp_0.pt",
+        # pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_ind_0.pt",
         ds_spec_type=7,
         use_GPU=False,
         ds_root=data_path,
@@ -105,7 +104,7 @@ def test_AM_hirshfeld_induction_DimerParam():
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
             apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
-                mol, r_cut_im=99999.0, dimer_ind=0
+                mol, r_cut_im=99999.0, dimer_ind=0, am_type='ap3',
             )
         ]
     )
@@ -116,8 +115,12 @@ def test_AM_hirshfeld_induction_DimerParam():
     dimer_batch.quadA = torch.tensor(monA_props[0][2], dtype=torch.float32)
     dimer_batch.quadB = torch.tensor(monB_props[0][2], dtype=torch.float32)
 
-    dimer_batch.Ka = torch.tensor(monA_props[0][4], dtype=torch.float32)
-    dimer_batch.Kb = torch.tensor(monB_props[0][4], dtype=torch.float32)
+    dimer_batch.hfvrA = torch.tensor(monA_props[0][3], dtype=torch.float32)
+    dimer_batch.hfvrB = torch.tensor(monB_props[0][3], dtype=torch.float32)
+    dimer_batch.vwA = torch.tensor(monA_props[0][4], dtype=torch.float32)
+    dimer_batch.vwB = torch.tensor(monB_props[0][4], dtype=torch.float32)
+    dimer_batch.Ka = torch.tensor(monA_props[0][-1], dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(monB_props[0][-1], dtype=torch.float32)
 
     torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction(
         ZA=dimer_batch.ZA,
@@ -134,11 +137,20 @@ def test_AM_hirshfeld_induction_DimerParam():
         Kb=dimer_batch.Kb,
         e_AB_source=dimer_batch.e_ABsr_source,
         e_AB_target=dimer_batch.e_ABsr_target,
+        e_AA_source=dimer_batch.e_AA_source,
+        e_BB_source=dimer_batch.e_BB_source,
+        e_AA_target=dimer_batch.e_AA_target,
+        e_BB_target=dimer_batch.e_BB_target,
+        hirshfeld_volume_ratio_A=dimer_batch.hfvrA,
+        hirshfeld_volume_ratio_B=dimer_batch.hfvrB,
+        valence_widths_A=dimer_batch.vwA,
+        valence_widths_B=dimer_batch.vwB,
+
     )
-    print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
+    print(f"Torch indu = {torch.sum(torch_elst):.6f} kcal/mol")
     return
 
 
-
 if __name__ == "__main__":
-    test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
+    # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
+    test_AM_hirshfeld_induction_DimerParam()

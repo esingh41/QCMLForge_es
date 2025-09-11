@@ -5,6 +5,7 @@ Fixed constants (units, atom types, etc.)
 import qcelemental as qcel
 import pandas as pd
 from importlib import resources
+import torch
 
 au2ang = qcel.constants.conversion_factor("bohr", "angstrom")
 h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
@@ -88,3 +89,9 @@ free_atom_polarizabilities = {
     for el, v in zip(libmbd_vwd_params["Z"], libmbd_vwd_params["alpha_0(BG)"])
 }
 
+
+# Create lookup table as a tensor
+max_z = max(free_atom_polarizabilities.keys())
+polarizability_table = torch.zeros(max_z + 1)
+for z, value in free_atom_polarizabilities.items():
+    polarizability_table[z] = value

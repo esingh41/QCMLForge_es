@@ -156,7 +156,7 @@ class AtomTypeParamNN(nn.Module):
         )
 
         # readout layers for predicting multipoles from hidden states
-        self.damping_elst_readout_layers = nn.ModuleList()
+        self.param_readout_layers = nn.ModuleList()
         layer_nodes_readout = [
             n_embed,
             n_neuron * 2,
@@ -171,7 +171,7 @@ class AtomTypeParamNN(nn.Module):
             None,
         ]
         for i in range(n_message):
-            self.damping_elst_readout_layers.append(
+            self.param_readout_layers.append(
                 self._make_layers(layer_nodes_readout, layer_activations)
             )
 
@@ -195,7 +195,7 @@ class AtomTypeParamNN(nn.Module):
         x = batch.x
         edge_index = batch.edge_index
         molecule_ind = batch.molecule_ind
-        charge, dipole, qpole, h_list = self.atom_model(
+        am_out = self.atom_model(
             batch.x,
             batch.edge_index,
             R=batch.R,
@@ -203,6 +203,7 @@ class AtomTypeParamNN(nn.Module):
             total_charge=batch.total_charge,
             natom_per_mol=batch.natom_per_mol,
         )
+        charge, dipole, qpole, h_list = am_out[0], am_out[1], am_out[2], am_out[-1]
         Z = x
         K = self.guess_layer(Z)
         # print(f"{K=}, {h_list=}")
@@ -214,11 +215,11 @@ class AtomTypeParamNN(nn.Module):
         K_filtered = K[keep_mask]
         # print(f"{K_filtered=}")
         for i in range(self.n_message):
-            param_update = self.damping_elst_readout_layers[i](h_list[i + 1])
+            param_update = self.param_readout_layers[i](h_list[i + 1])
             K_filtered += param_update
             # print(f"Layer {i}, {param_update=}, {K_filtered=}")
         K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
-        return charge, dipole, qpole, h_list, K.squeeze(-1)
+        return charge, dipole, qpole, *am_out[3:], K.squeeze(-1)
 
 
 def get_distances(RA, RB, e_source, e_target):
@@ -494,10 +495,8 @@ def induced_dipole_induction(
     hirshfeld_volume_ratio_B: torch.tensor,
     valence_widths_A: torch.tensor,
     valence_widths_B: torch.tensor,
-    atom_polarizabilities_A: torch.tensor,
-    atom_polarizabilities_B: torch.tensor,
-    K_A: torch.tensor,
-    K_B: torch.tensor,
+    Ka: torch.tensor,
+    Kb: torch.tensor,
     max_iterations: int = 200,
     convergence_threshold: float = 1e-8,
     omega: float = 0.7,
@@ -515,23 +514,25 @@ def induced_dipole_induction(
     delta = torch.eye(3, device=qA.device)
     h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
 
-    alpha_0_A = torch.tensor([constants.free_atom_polarizabilities[int(i)] for i in ZA], dtype=hirshfeld_volume_ratio_A.dtype, device=hirshfeld_volume_ratio_A.device)
-    alpha_0_B = torch.tensor([constants.free_atom_polarizabilities[int(i)] for i in ZB], dtype=hirshfeld_volume_ratio_A.dtype, device=hirshfeld_volume_ratio_A.device)
+    alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
+    alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
+    
+    # Use index_select for vectorized lookup
+    alpha_0_A = torch.index_select(constants.polarizability_table, 0, ZA.long())
+    alpha_0_B = torch.index_select(constants.polarizability_table, 0, ZB.long())
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
 
-    # Note: need to include Thole damping here...
     def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None):
         dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
         dR_xyz = dR_xyz_ang / constants.au2ang
         dR = dR_ang / constants.au2ang
         alpha_i = alpha_A.index_select(0, e_source)
         alpha_j = alpha_B.index_select(0, e_target)
-        print(f"{e_source=}, {e_target=}")
-        au3, lam_3, lam_5 = thole_damping_torch(dR, alpha_i, alpha_j, thole_damping_param)
-        print(dR, alpha_i, alpha_j, sep='\n')
-        # lam_5 = torch.ones_like(lam_5)
-        # print(f"{lam_3=}, {lam_5=}")
+        u = dR / ((alpha_i * alpha_j) ** (1.0 / 6.0))
+        au3 = thole_damping_param * (u**3)
+        lam_3 = 1 - torch.exp(-au3)
+        lam_5 = 1 - (1 + au3) * torch.exp(-au3)
         delta = torch.eye(3, device=dR.device)
         oodR = 1.0 / dR
         T1 = torch.einsum("x,xy,x->xy", oodR**3, -1.0 * dR_xyz, lam_3)
@@ -543,9 +544,6 @@ def induced_dipole_induction(
 
     # Calculate interaction tensors between atoms
     dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B)
-    # print(f"{T0_AB=}")
-    # print(f"{T1_AB=}")
-    # print(f"{T2_AB=}")
     dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A)
     dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B)
 
@@ -566,40 +564,15 @@ def induced_dipole_induction(
     n_atoms_A = RA.shape[0]
     n_atoms_B = RB.shape[0]
 
-    if K_A is not None and K_B is not None:
-        """
-        v_widths[s1] = [0.4111834223806629, 0.3502946586498706, 0.35229699276619997]
-        v_widths[s2] = [0.41117481494233643, 0.35060148140776876, 0.35060415277704976]
-        r = array([[ 5.23691,  6.15248,  6.15150],
-       [ 6.04079,  7.12206,  7.12139],
-       [ 3.42099,  4.45900,  4.45825]])
-ovp = array([[ 0.00020,  0.00001,  0.00001],
-       [ 0.00001,  0.00000,  0.00000],
-       [ 0.00461,  0.00021,  0.00021]])
-ind_params[s1] = [1.14769962, 0.685558974, 0.685558974]
-ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
+    K_A_source = Ka.index_select(0, e_AB_source)
+    K_B_target = Kb.index_select(0, e_AB_target)
+    sigma_A_source = valence_widths_A.index_select(0, e_AB_source)
+    sigma_B_target = valence_widths_B.index_select(0, e_AB_target)
+    B_ij = torch.sqrt(1.0 / (sigma_A_source * sigma_B_target))
+    S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(-B_ij * dR_AB)
+    E_ind_overlap = K_A_source * S_ij * K_B_target * h2kcalmol
 
-        """
-        K_A_source = K_A.index_select(0, e_AB_source)
-        K_B_target = K_B.index_select(0, e_AB_target)
-        sigma_A_source = valence_widths_A.index_select(0, e_AB_source)
-        sigma_B_target = valence_widths_B.index_select(0, e_AB_target)
-        print(f"{sigma_A_source=}")
-        print(f"{sigma_B_target=}")
-        print(f"{dR_AB=}")
-        B_ij = torch.sqrt(1.0 / (sigma_A_source * sigma_B_target))
-        print(f"{B_ij=}")
-        S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(-B_ij * dR_AB)
-        
-        print(f"{K_A_source=}")
-        print(f"{K_B_target=}")
-        print(f"{S_ij=}")
-        E_ind_overlap = K_A_source * S_ij * K_B_target * h2kcalmol
-        print(f"{E_ind_overlap=}")
-        print(f"Sum E_ind_overlap: {torch.sum(E_ind_overlap)=}")
-
-
-    # Calculate initial induced dipoles (order-0)
+    # Calculate initial induced dipoles
     # A: Induced by B's multipoles
     mu_induced_0_A = torch.zeros((n_atoms_A, 3), device=qA.device)
     mu_induced_0_B = torch.zeros((n_atoms_B, 3), device=qB.device)
@@ -610,13 +583,11 @@ ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
     mu_induced_0_A = scatter(mu_charge_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
     mu_induced_0_A += scatter(mu_dipole_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
-    print(f"{mu_induced_0_A=}")
 
     mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
     mu_induced_0_B = scatter(mu_charge_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
     mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
     mu_induced_0_B += scatter(mu_dipole_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
-    print(f"{mu_induced_0_B=}")
 
     # Self-consistent induced dipole iterations
     mu_induced_A = mu_induced_0_A.clone()
@@ -662,10 +633,8 @@ ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
         delta_B = torch.norm(mu_induced_B - mu_induced_B_old)
         delta = max(delta_A, delta_B)
         if delta < convergence_threshold:
-            print(f"   Converged after {iteration + 1} iterations.")
+            # print(f"   Converged after {iteration + 1} iterations.")
             break
-    print(f"{mu_induced_A=}")
-    print(f"{mu_induced_B=}")
     muA_induced_source = mu_induced_A.index_select(0, e_AB_source)
     muB_induced_target = mu_induced_B.index_select(0, e_AB_target)
     qu = torch.einsum("x,xy->xy", qA_source, muB_induced_target) - torch.einsum(
@@ -676,12 +645,8 @@ ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
         torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB) +
         torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
     ) * h2kcalmol
-    # print(f"{E_qu=}")
-    # print(f"{E_uu=}")
-    # print(f"{E_qu.sum()=}")
-    # print(f"{E_uu.sum()=}")
     E_ind = (E_qu + E_uu) / 2.0
-    if K_A is not None and K_B is not None:
+    if Ka is not None and Kb is not None:
         E_ind -= E_ind_overlap
     return E_ind
 
@@ -708,6 +673,37 @@ def isolate_atom_parameter_predictions(batch, output):
         mol_K[n] = K[i_offset : i_offset + i]
         i_offset += i
     return mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_K
+
+
+def isolate_atom_parameter_predictions_ap3(batch, output):
+    batch_size = batch.natom_per_mol.size(0)
+    q = output[0]
+    mu = output[1]
+    th = output[2]
+    hfvr = output[3]
+    vw = output[4]
+    hlist = output[5]
+    K = output[6]
+    mol_charges = [[] for i in range(batch_size)]
+    mol_dipoles = [[] for i in range(batch_size)]
+    mol_qpoles = [[] for i in range(batch_size)]
+    mol_hfvr = [[] for i in range(batch_size)]
+    mol_vw = [[] for i in range(batch_size)]
+    mol_hlist = [[] for i in range(batch_size)]
+    mol_K = [[] for i in range(batch_size)]
+    i_offset = 0
+    for n, i in enumerate(batch.natom_per_mol):
+        mol_charges[n] = q[i_offset : i_offset + i]
+        mol_dipoles[n] = mu[i_offset : i_offset + i]
+        mol_qpoles[n] = th[i_offset : i_offset + i]
+        mol_hfvr[n] = hfvr[i_offset : i_offset + i]
+        mol_vw[n] = vw[i_offset : i_offset + i]
+        mol_hlist[n] = hlist[i_offset : i_offset + i]
+        mol_K[n] = K[i_offset : i_offset + i]
+        i_offset += i
+    return mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_K
+
+
 
 
 class AM_DimerParam_Model:
@@ -1185,6 +1181,7 @@ class AM_DimerParam_Model:
         mols,
         batch_size=1,
         r_cut=None,
+        am_type='ap2',
         verbose=False,
     ):
         output_A = []
@@ -1193,6 +1190,12 @@ class AM_DimerParam_Model:
             r_cut = self.atom_model.r_cut
         N = len(mols)
         self.atom_model.to(self.device)
+        if am_type == 'ap2':
+            isolate_fn = isolate_atom_parameter_predictions
+        elif am_type == 'ap3':
+            isolate_fn = isolate_atom_parameter_predictions_ap3
+        else:
+            raise ValueError(f"Unknown am_type: {am_type}")
         for i in range(0, N, batch_size):
             upper_bound = min(i + batch_size, N)
             dimer_batch = ap2_fused_collate_update_no_target(
@@ -1212,12 +1215,8 @@ class AM_DimerParam_Model:
                 natom_per_mol=dimer_batch.natom_per_mol_A,
             )
             with torch.no_grad():
-                charge, dipole, qpole, hlist, Ks = self.model(batch_A)
-                # Isolate atomic properties by molecule
-                mol_charges, mol_dipoles, mol_qpoles, mol_hlists, mol_Ks = isolate_atom_parameter_predictions(
-                    batch_A, (charge, dipole, qpole, hlist, Ks)
-                )
-                output_A.extend(list(zip(mol_charges, mol_dipoles, mol_qpoles, mol_hlists, mol_Ks)))
+                v = isolate_fn(batch_A, self.model(batch_A))
+                output_A.extend(list(zip(*v)))
             batch_B = Data(
                 x=dimer_batch.ZB,
                 R=dimer_batch.RB,
@@ -1227,12 +1226,8 @@ class AM_DimerParam_Model:
                 natom_per_mol=dimer_batch.natom_per_mol_B,
             )
             with torch.no_grad():
-                charge, dipole, qpole, hlist, Ks = self.model(batch_B)
-                # Isolate atomic properties by molecule
-                mol_charges, mol_dipoles, mol_qpoles, mol_hlists, mol_Ks = isolate_atom_parameter_predictions(
-                    batch_B, (charge, dipole, qpole, hlist, Ks)
-                )
-                output_B.extend(list(zip(mol_charges, mol_dipoles, mol_qpoles, mol_hlists, mol_Ks)))
+                v = isolate_fn(batch_B, self.model(batch_B))
+                output_B.extend(list(zip(*v)))
         return output_A, output_B
 
 

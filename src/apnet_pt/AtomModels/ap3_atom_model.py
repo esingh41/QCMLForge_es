@@ -322,7 +322,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         ).unsqueeze(1)
         charge = charge - charge_err
         charge = charge.squeeze()
-        h_list = torch.stack(h_list, dim=1)
+        h_list = torch.stack(h_list, dim=0)
         volume_ratio[keep_mask] = filtered_volume_ratio
         volume_ratio = volume_ratio.squeeze()
         valence_width[keep_mask] = filtered_valence_width
