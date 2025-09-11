@@ -1,8 +1,8 @@
 export iter=0
 
 python3 -u ./train_models.py \
-    --train_am "AtomModel" \
-    --am_model_path ./models/am_neq/am_ensemble/am_$iter.pt \
+    --train_am "AtomHirshfeldModel" \
+    --am_model_path ./models/am_hirshfeld_ensemble/am_$iter.pt \
     --spec_type_am 4 \
     --random_seed $iter \
     --n_epochs 500 \
