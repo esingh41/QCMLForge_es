@@ -578,9 +578,6 @@ def induced_dipole_induction(
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
 
-    print(f"{alpha_A.size() = }")
-    print(f"{qA.size() = }")
-    print(f"{hirshfeld_volume_ratio_A.size() = }")
     def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None):
         dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
         dR_xyz = dR_xyz_ang / constants.au2ang
@@ -612,6 +609,9 @@ def induced_dipole_induction(
     alpha_AA_target = alpha_A.index_select(0, e_AA_target)
     alpha_BB_target = alpha_B.index_select(0, e_BB_target)
 
+    # Need to ensure that qA and qB are right shape even when ions
+    qA = qA.reshape(-1, 1)
+    qB = qB.reshape(-1, 1)
     qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
     qB_target = qB.squeeze(-1).index_select(0, e_AB_target)
 
@@ -871,7 +871,6 @@ class AM_DimerParam_Model:
                 param_start_std=param_start_std,
             )
         self.dimer_eval_type = dimer_eval_type
-        print(f"Using dimer evaluation type: {dimer_eval_type}")
         self.dimer_model = DimerProp(self.model, dimer_eval=dimer_eval_type)
         if "elst" in dimer_eval_type:
             self.dimer_model_elst = DimerProp(self.model, dimer_eval="elst")

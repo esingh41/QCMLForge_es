@@ -1623,7 +1623,7 @@ def test_induced_dipole_eval():
     v = param_mod.dimer_model(batch)
     print(v[-1])
     elst_energy = param_mod.predict_qcel_mols([mol_dimer_ion], batch_size=1)
-    print(f"Predicted ELST energy: {elst_energy}")
+    print(f"Predicted INDU energy: {elst_energy}")
     return
 
 
