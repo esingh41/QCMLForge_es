@@ -47,6 +47,7 @@ class DimerProp(nn.Module):
         elif dimer_eval == "induced_dipole":
             self.forward = self._indu_induced_dipole_forward
             self.polarizability_table = constants.polarizability_table #.to(self.device)
+            # self.polarizability_table.to(self.device)
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
         return
@@ -531,6 +532,25 @@ def mtp_elst_damping(
     E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
     return E_elst
 
+@torch.compile
+def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None, thole_damping_param=0.39):
+    dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
+    dR_xyz = dR_xyz_ang / constants.au2ang
+    dR = dR_ang / constants.au2ang
+    alpha_i = alpha_A.index_select(0, e_source)
+    alpha_j = alpha_B.index_select(0, e_target)
+    u = dR / ((alpha_i * alpha_j) ** (1.0 / 6.0))
+    au3 = thole_damping_param * (u**3)
+    lam_3 = 1 - torch.exp(-au3)
+    lam_5 = 1 - (1 + au3) * torch.exp(-au3)
+    delta = torch.eye(3, device=dR.device)
+    oodR = 1.0 / dR
+    T1 = torch.einsum("x,xy,x->xy", oodR**3, -1.0 * dR_xyz, lam_3)
+    T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam_5) - torch.einsum(
+        "x,x,yz,x->xyz", dR, dR, delta, lam_3
+    )
+    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+    return dR, dR_xyz, oodR, T1, T2
 
 @torch.compile
 def induced_dipole_induction(
@@ -583,30 +603,13 @@ def induced_dipole_induction(
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
 
-    def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None):
-        dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
-        dR_xyz = dR_xyz_ang / constants.au2ang
-        dR = dR_ang / constants.au2ang
-        alpha_i = alpha_A.index_select(0, e_source)
-        alpha_j = alpha_B.index_select(0, e_target)
-        u = dR / ((alpha_i * alpha_j) ** (1.0 / 6.0))
-        au3 = thole_damping_param * (u**3)
-        lam_3 = 1 - torch.exp(-au3)
-        lam_5 = 1 - (1 + au3) * torch.exp(-au3)
-        delta = torch.eye(3, device=dR.device)
-        oodR = 1.0 / dR
-        T1 = torch.einsum("x,xy,x->xy", oodR**3, -1.0 * dR_xyz, lam_3)
-        T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam_5) - torch.einsum(
-            "x,x,yz,x->xyz", dR, dR, delta, lam_3
-        )
-        T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
-        return dR, dR_xyz, oodR, T1, T2
 
     # Calculate interaction tensors between atoms
-    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B)
-    dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A)
-    dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B)
+    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B, thole_damping_param)
+    dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A, thole_damping_param)
+    dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B, thole_damping_param)
 
+    #TODO PASS DAMPING PARAM;
     # Select relevant tensors for atom pairs
     alpha_A_source = alpha_A.index_select(0, e_AB_source)
     alpha_B_target = alpha_B.index_select(0, e_AB_target)
@@ -901,6 +904,7 @@ class AM_DimerParam_Model:
         self.device = device
         self.atom_model.to(device)
         self.model.to(device)
+        self.dimer_model.to(device)
 
         split_dbs = [2, 5, 6, 7]
         ds_qcel_split_db = (

@@ -1568,7 +1568,8 @@ def test_induced_dipole_qcel_mols():
     print(param_mod)
     param_mod.train(
         n_epochs=10,
-        skip_compile=True,
+        # skip_compile=True,
+        skip_compile=False,
         lr=5e-4,
         split_percent=0.5,
     )
