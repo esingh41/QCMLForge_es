@@ -478,6 +478,10 @@ class atomic_module_dataset(Dataset):
                 return [
                     "monomers_apnet2_spec_3_62.pkl",
                 ]
+            elif self.spec_type == 9:
+                return [
+                    f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
+                ]
             # Must implement split logic...
             elif self.spec_type == 7:
                 return [
