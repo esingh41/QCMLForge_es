@@ -46,6 +46,7 @@ class DimerProp(nn.Module):
             self.forward = self._elst_forward
         elif dimer_eval == "induced_dipole":
             self.forward = self._indu_induced_dipole_forward
+            self.polarizability_table = constants.polarizability_table #.to(self.device)
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
         return
@@ -185,6 +186,7 @@ class DimerProp(nn.Module):
             hirshfeld_volume_ratio_B=v_B[3],
             valence_widths_A=v_A[4],
             valence_widths_B=v_B[4],
+            polarizability_table=self.polarizability_table,
         )
         # print(f"{Indu = }")
         return Indu
@@ -559,6 +561,7 @@ def induced_dipole_induction(
     omega: float = 0.7,
     thole_damping_param: float = 0.39,
     Q_const=3.0,  # set to 1.0 to agree with CLIFF
+    polarizability_table = constants.polarizability_table,
 ) -> float:
     """
     Calculate the induced dipole interaction energy between two molecules using
@@ -575,8 +578,8 @@ def induced_dipole_induction(
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
     
     # Use index_select for vectorized lookup
-    alpha_0_A = torch.index_select(constants.polarizability_table, 0, ZA.long())
-    alpha_0_B = torch.index_select(constants.polarizability_table, 0, ZB.long())
+    alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
+    alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
 
