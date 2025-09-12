@@ -1502,6 +1502,7 @@ units angstrom
         elif self.dimer_eval_type == "induced_dipole":
             y_ind = 2
             term = "Indu"
+            constants.polarizability_table.to(self.device)
         else:
             raise ValueError(f"Unknown dimer_eval_type: {self.dimer_eval_type}")
         print(

@@ -1563,7 +1563,7 @@ def test_induced_dipole_dataset():
     am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
         ds_root=None,
         ignore_database_null=True,
-        use_GPU=False,
+        use_GPU=True,
     )
     # am.set_pretrained_model(model_id=0)
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
@@ -1654,9 +1654,9 @@ def test_ap2_elst_dataset():
 if __name__ == "__main__":
     # test_induced_dipole_qcel_mols()
 
-    test_atomhirshfeld_model_train()
+    # test_atomhirshfeld_model_train()
     # test_induced_dipole_eval()
-    # test_induced_dipole_dataset()
+    test_induced_dipole_dataset()
 
     # test_mtp_mtp_elst_qcel_mols()
     # test_mtp_mtp_elst_eval()
