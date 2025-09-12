@@ -17,7 +17,7 @@ python3 -u ./train_models.py \
     --random_seed $iter \
     --lr 5e-5 \
     --ap_model_path ./models/am_dimer_ensemble/am_dimer_induced_dipole_$iter.pt \
-    --n_epochs 150 \
+    --n_epochs 50 \
     --n_neuron 64 \
     --data_dir ./data_dimer_$iter \
     --spec_type_ap 2 \
