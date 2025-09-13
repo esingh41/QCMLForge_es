@@ -5,9 +5,9 @@ for seed in 0 # 1 2 3 4
 do
     export iter=$seed
     python3 -u ./train_models.py \
-        --train_am "AtomModel" \
-        --am_model_path ./models/am_pbe0_ensemble/am_$iter.pt \
-        --spec_type_am 4 \
+        --train_am "AtomHirshfeldModel" \
+        --am_model_path ./models/am_ap3_HF_ensemble/am_$iter.pt \
+        --spec_type_am 10 \
         --random_seed $iter \
         --n_epochs 500 \
         --lr 5e-5 \
