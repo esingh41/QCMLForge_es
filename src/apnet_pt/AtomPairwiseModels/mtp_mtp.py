@@ -477,12 +477,12 @@ def mtp_elst_damping(
         elst_damping_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
     )
 
-    # Nuclear Charge Subtraction
+    # Nuclear Charge Subtraction - pre-compute all index selections
     ZA_q = ZA.index_select(0, e_AB_source)
     ZB_q = ZB.index_select(0, e_AB_target)
     qA -= ZA
     qB -= ZB
-    # Extracting tensor elements
+    # Extracting tensor elements - pre-compute all selections
     qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
     qB_source = qB.squeeze(-1).index_select(0, e_AB_target)
     muA_source = muA.index_select(0, e_AB_source)
@@ -498,36 +498,36 @@ def mtp_elst_damping(
     )
     E_qu = torch.einsum("xy,xy,x->x", T1, qu, lam3)
 
-    T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam5) - torch.einsum(
-        "x,x,yz,x->xyz", dR, dR, delta, lam3
-    )
-    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+    # Pre-compute common T2 components to avoid redundant calculations
+    dR_outer = torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz)  # dR_xyz[:, :, None] * dR_xyz[:, None, :]
+    dR_squared_delta = torch.einsum("x,x,yz->xyz", dR, dR, delta)
 
-    E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2)
+    # Main T2 for E_uu and E_qQ
+    T2_main = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5) - torch.einsum("xyz,x->xyz", dR_squared_delta, lam3)
+    T2_main = torch.einsum("x,xyz->xyz", oodR**5, T2_main)
+
+    E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2_main)
 
     qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
     qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
-    E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source) / Q_const
+    E_qQ = torch.einsum("xyz,xyz->x", T2_main, qA_quadB_source + qB_quadA_source) / Q_const
 
     # ZA-ZB
     E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
 
-    # ZA-MB
+    # ZA-MB - reuse T1, compute specialized T2
     E_ZA_MB = torch.einsum("x,x,x,x->x", ZA_q, qB_source, oodR, lam1_ZA_MB)
     E_ZA_MB += torch.einsum("xy,x,x,xy->x", T1, lam3_ZA_MB, ZA_q, muB_source)
-    T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam5_ZA_MB) - torch.einsum(
-        "x,x,yz,x->xyz", dR, dR, delta, lam3_ZA_MB
-    )
-    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
-    E_ZA_MB += torch.einsum("xyz,x,xyz->x", T2, ZA_q, quadB_source) / Q_const
-    # ZB-MA
-    T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam5_ZB_MA) - torch.einsum(
-        "x,x,yz,x->xyz", dR, dR, delta, lam3_ZB_MA
-    )
-    T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+    T2_ZA_MB = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5_ZA_MB) - torch.einsum("xyz,x->xyz", dR_squared_delta, lam3_ZA_MB)
+    T2_ZA_MB = torch.einsum("x,xyz->xyz", oodR**5, T2_ZA_MB)
+    E_ZA_MB += torch.einsum("xyz,x,xyz->x", T2_ZA_MB, ZA_q, quadB_source) / Q_const
+
+    # ZB-MA - reuse T1, compute specialized T2
+    T2_ZB_MA = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5_ZB_MA) - torch.einsum("xyz,x->xyz", dR_squared_delta, lam3_ZB_MA)
+    T2_ZB_MA = torch.einsum("x,xyz->xyz", oodR**5, T2_ZB_MA)
     E_ZB_MA = torch.einsum("x,x,x,x->x", ZB_q, qA_source, oodR, lam1_ZB_MA)
     E_ZB_MA += torch.einsum("xy,x,x,xy->x", -T1, lam3_ZB_MA, ZB_q, muA_source)
-    E_ZB_MA += torch.einsum("xyz,x,xyz->x", T2, ZB_q, quadA_source) / Q_const
+    E_ZB_MA += torch.einsum("xyz,x,xyz->x", T2_ZB_MA, ZB_q, quadA_source) / Q_const
     E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
     return E_elst
 
