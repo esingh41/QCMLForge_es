@@ -17,3 +17,5 @@
 - **Structure**: PEP 8, 4-space indent, type hints, functions <50 lines
 - **Organization**: Utils in `util.py`, constants in `constants.py`, tests in `tests/`
 - **Performance**: Vectorized numpy/torch ops, avoid loops, use GPU when available
+- **Development**: New features added via TDD - write pytest first, then implement code to pass test, iterate both until complete
+

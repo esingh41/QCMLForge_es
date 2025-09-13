@@ -156,6 +156,8 @@ def test_AM_hirshfeld_induction_DimerParam():
     print(f"Torch indu = {torch.sum(torch_indu):.6f} kcal/mol")
     pred = param_mod.predict_qcel_mols([mol, mol])
     print(pred)
+    ref = np.array([[-3.38611817], [-3.38611817]])
+    assert np.allclose(pred, ref, atol=1e-4)
     return
 
 
