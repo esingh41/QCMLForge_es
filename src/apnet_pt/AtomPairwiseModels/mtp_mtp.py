@@ -46,8 +46,7 @@ class DimerProp(nn.Module):
             self.forward = self._elst_forward
         elif dimer_eval == "induced_dipole":
             self.forward = self._indu_induced_dipole_forward
-            self.polarizability_table = constants.polarizability_table #.to(self.device)
-            # self.polarizability_table.to(self.device)
+            self.polarizability_table = constants.polarizability_table.clone()
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
         return
@@ -1509,7 +1508,7 @@ units angstrom
         elif self.dimer_eval_type == "induced_dipole":
             y_ind = 2
             term = "Indu"
-            constants.polarizability_table.to(self.device)
+            self.dimer_model.polarizability_table = self.dimer_model.polarizability_table.to(self.device)
         else:
             raise ValueError(f"Unknown dimer_eval_type: {self.dimer_eval_type}")
         print(

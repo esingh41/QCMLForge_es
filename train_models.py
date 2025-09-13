@@ -361,13 +361,13 @@ def main():
     )
     args.add_argument(
         "--param_start_mean",
-        type=int,
+        type=float,
         default=2.0,
         help="specify AM-DimerParam Embedding Start Mean (default: 2.0)"
     )
     args.add_argument(
         "--param_start_std",
-        type=int,
+        type=float,
         default=0.1,
         help="specify AM-DimerParam Embedding Start std (default: 0.1)"
     )
