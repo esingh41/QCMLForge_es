@@ -6,6 +6,7 @@ import pandas as pd
 from pprint import pprint
 import numpy as np
 import torch
+import time
 
 file_dir = os.path.dirname(os.path.abspath(__file__))
 torch.manual_seed(42)
@@ -128,7 +129,7 @@ def test_AM_hirshfeld_induction_DimerParam():
     # dimer_batch.Kb = torch.zeros_like(dimer_batch.Kb)
     print(f"Ka = {dimer_batch.Ka}")
     print(f"Kb = {dimer_batch.Kb}")
-
+    t1 = time.time()
     torch_indu = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction(
         ZA=dimer_batch.ZA,
         RA=dimer_batch.RA,
@@ -158,6 +159,39 @@ def test_AM_hirshfeld_induction_DimerParam():
     print(pred)
     ref = np.array([[-3.38611817], [-3.38611817]])
     assert np.allclose(pred, ref, atol=1e-4)
+    print(f"Indu time: {time.time() - t1:.4f} s")
+    t1 = time.time()
+    print("---- Now test with optimization AM model ----")
+    torch_indu = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction_optimized(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+        e_AA_source=dimer_batch.e_AA_source,
+        e_BB_source=dimer_batch.e_BB_source,
+        e_AA_target=dimer_batch.e_AA_target,
+        e_BB_target=dimer_batch.e_BB_target,
+        hirshfeld_volume_ratio_A=dimer_batch.hfvrA,
+        hirshfeld_volume_ratio_B=dimer_batch.hfvrB,
+        valence_widths_A=dimer_batch.vwA,
+        valence_widths_B=dimer_batch.vwB,
+    )
+    print(f"Torch indu = {torch.sum(torch_indu):.6f} kcal/mol")
+    pred = param_mod.predict_qcel_mols([mol, mol])
+    print(pred)
+    ref = np.array([[-3.38611817], [-3.38611817]])
+    assert np.allclose(pred, ref, atol=1e-4)
+    print(f"Indu time: {time.time() - t1:.4f} s")
     return
 
 

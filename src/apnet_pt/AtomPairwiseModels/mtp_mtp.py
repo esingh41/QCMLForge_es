@@ -662,6 +662,12 @@ def induced_dipole_induction(
     mu_induced_A = mu_induced_0_A.clone()
     mu_induced_B = mu_induced_0_B.clone()
 
+    # Pre-compute index selections to avoid repeated operations in the loop
+    mu_induced_B_at_AB_target = mu_induced_B.index_select(0, e_AB_target)
+    mu_induced_A_at_AB_source = mu_induced_A.index_select(0, e_AB_source)
+    mu_induced_A_at_AA_source = mu_induced_A.index_select(0, e_AA_source)
+    mu_induced_B_at_BB_source = mu_induced_B.index_select(0, e_BB_source)
+
     # Iterative SCF procedure to converge induced dipoles
     for iteration in range(max_iterations):
         mu_induced_A_old = mu_induced_A.clone()
@@ -670,12 +676,12 @@ def induced_dipole_induction(
         ####### (A) INDUCED DIPOLES ########
         # Induced dipoles on A due to induced dipoles on B
         mu_induced_A_due_B = torch.einsum(
-            "a,aij,aj->ai", alpha_A_source, T2_AB, mu_induced_B.index_select(0, e_AB_target)
+            "a,aij,aj->ai", alpha_A_source, T2_AB, mu_induced_B_at_AB_target
         )
         mu_induced_A_new = scatter(mu_induced_A_due_B, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
         # Induced dipoles on A due to induced dipoles on A
         mu_induced_A_due_A = torch.einsum(
-                "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A.index_select(0, e_AA_source)
+                "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A_at_AA_source
         )
         mu_induced_A_new += scatter(mu_induced_A_due_A, e_AA_target, dim=0, reduce="sum", dim_size=n_atoms_A)
         mu_induced_A_new += mu_induced_0_A
@@ -683,12 +689,12 @@ def induced_dipole_induction(
         ####### (B) INDUCED DIPOLES ########
         # Induced dipoles on B due to induced dipoles on A
         mu_induced_B_due_A = torch.einsum(
-            "a,aij,aj->ai", alpha_B_target, T2_AB, mu_induced_A.index_select(0, e_AB_source)
+            "a,aij,aj->ai", alpha_B_target, T2_AB, mu_induced_A_at_AB_source
         )
         mu_induced_B_new = scatter(mu_induced_B_due_A, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
         # Induced dipoles on B due to induced dipoles on B
         mu_induced_B_due_B = torch.einsum(
-                "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B.index_select(0, e_BB_source)
+                "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B_at_BB_source
         )
         mu_induced_B_new += scatter(mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
         mu_induced_B_new += mu_induced_0_B
@@ -696,6 +702,12 @@ def induced_dipole_induction(
         # Apply mixing
         mu_induced_A = (1 - omega) * mu_induced_A_old + omega * mu_induced_A_new
         mu_induced_B = (1 - omega) * mu_induced_B_old + omega * mu_induced_B_new
+
+        # Update pre-computed index selections for next iteration
+        mu_induced_B_at_AB_target = mu_induced_B.index_select(0, e_AB_target)
+        mu_induced_A_at_AB_source = mu_induced_A.index_select(0, e_AB_source)
+        mu_induced_A_at_AA_source = mu_induced_A.index_select(0, e_AA_source)
+        mu_induced_B_at_BB_source = mu_induced_B.index_select(0, e_BB_source)
 
         # Check convergence
         delta_A = torch.norm(mu_induced_A - mu_induced_A_old)
@@ -719,6 +731,175 @@ def induced_dipole_induction(
     E_ind -= E_ind_overlap
     return E_ind
 
+
+@torch.compile
+def induced_dipole_induction_optimized(
+    ZA,
+    RA,
+    qA,
+    muA,
+    quadA,
+    ZB,
+    RB,
+    qB,
+    muB,
+    quadB,
+    e_AB_source,
+    e_AB_target,
+    e_AA_source,
+    e_BB_source,
+    e_AA_target,
+    e_BB_target,
+    hirshfeld_volume_ratio_A: torch.tensor,
+    hirshfeld_volume_ratio_B: torch.tensor,
+    valence_widths_A: torch.tensor,
+    valence_widths_B: torch.tensor,
+    Ka: torch.tensor,
+    Kb: torch.tensor,
+    max_iterations: int = 200,
+    convergence_threshold: float = 1e-8,
+    omega: float = 0.7,
+    thole_damping_param: float = 0.39,
+    Q_const=3.0,  # set to 1.0 to agree with CLIFF
+    polarizability_table = constants.polarizability_table,
+) -> float:
+    """
+    Optimized version of induced_dipole_induction with reduced index_select and scatter operations.
+    """
+    from apnet_pt.AtomPairwiseModels.mtp_mtp import get_distances
+
+    delta = torch.eye(3, device=qA.device)
+    h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
+
+    alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
+    alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
+
+    # Use index_select for vectorized lookup
+    alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
+    alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
+    alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
+    alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
+
+    # Calculate interaction tensors between atoms
+    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B, thole_damping_param)
+    dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A, thole_damping_param)
+    dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B, thole_damping_param)
+
+    # Select relevant tensors for atom pairs
+    alpha_A_source = alpha_A.index_select(0, e_AB_source)
+    alpha_B_target = alpha_B.index_select(0, e_AB_target)
+
+    alpha_AA_target = alpha_A.index_select(0, e_AA_target)
+    alpha_BB_target = alpha_B.index_select(0, e_BB_target)
+
+    # Need to ensure that qA and qB are right shape even when ions
+    qA = qA.reshape(-1, 1)
+    qB = qB.reshape(-1, 1)
+    qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
+    qB_target = qB.squeeze(-1).index_select(0, e_AB_target)
+
+    muA_source = muA.index_select(0, e_AB_source)
+    muB_target = muB.index_select(0, e_AB_target)
+
+    # Initialize tensors for induced dipoles
+    n_atoms_A = RA.shape[0]
+    n_atoms_B = RB.shape[0]
+
+    K_A_source = Ka.index_select(0, e_AB_source)
+    K_B_target = Kb.index_select(0, e_AB_target)
+    sigma_A_source = valence_widths_A.index_select(0, e_AB_source)
+    sigma_B_target = valence_widths_B.index_select(0, e_AB_target)
+    B_ij = torch.sqrt(1.0 / (sigma_A_source * sigma_B_target))
+    S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(-B_ij * dR_AB)
+    E_ind_overlap = K_A_source * S_ij * K_B_target * h2kcalmol
+
+    # Calculate initial induced dipoles
+    mu_induced_0_A = torch.zeros((n_atoms_A, 3), device=qA.device)
+    mu_induced_0_B = torch.zeros((n_atoms_B, 3), device=qB.device)
+
+    # Calculate initial induced dipoles from molecule B's multipoles on molecule A
+    mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
+    mu_induced_0_A = scatter(mu_charge_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+    mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
+    mu_induced_0_A += scatter(mu_dipole_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+
+    mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
+    mu_induced_0_B = scatter(mu_charge_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
+    mu_induced_0_B += scatter(mu_dipole_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+
+    # Self-consistent induced dipole iterations
+    mu_induced_A = mu_induced_0_A.clone()
+    mu_induced_B = mu_induced_0_B.clone()
+
+    # Pre-compute index selections to avoid repeated operations in the loop
+    mu_induced_B_at_AB_target = mu_induced_B.index_select(0, e_AB_target)
+    mu_induced_A_at_AB_source = mu_induced_A.index_select(0, e_AB_source)
+    mu_induced_A_at_AA_source = mu_induced_A.index_select(0, e_AA_source)
+    mu_induced_B_at_BB_source = mu_induced_B.index_select(0, e_BB_source)
+
+    # Iterative SCF procedure to converge induced dipoles
+    for iteration in range(max_iterations):
+        mu_induced_A_old = mu_induced_A.clone()
+        mu_induced_B_old = mu_induced_B.clone()
+
+        # Update pre-computed selections
+        mu_induced_B_at_AB_target = mu_induced_B.index_select(0, e_AB_target)
+        mu_induced_A_at_AB_source = mu_induced_A.index_select(0, e_AB_source)
+        mu_induced_A_at_AA_source = mu_induced_A.index_select(0, e_AA_source)
+        mu_induced_B_at_BB_source = mu_induced_B.index_select(0, e_BB_source)
+
+        ####### (A) INDUCED DIPOLES ########
+        # Induced dipoles on A due to induced dipoles on B
+        mu_induced_A_due_B = torch.einsum(
+            "a,aij,aj->ai", alpha_A_source, T2_AB, mu_induced_B_at_AB_target
+        )
+        mu_induced_A_new = scatter(mu_induced_A_due_B, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+        # Induced dipoles on A due to induced dipoles on A
+        mu_induced_A_due_A = torch.einsum(
+                "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A_at_AA_source
+        )
+        mu_induced_A_new += scatter(mu_induced_A_due_A, e_AA_target, dim=0, reduce="sum", dim_size=n_atoms_A)
+        mu_induced_A_new += mu_induced_0_A
+
+        ####### (B) INDUCED DIPOLES ########
+        # Induced dipoles on B due to induced dipoles on A
+        mu_induced_B_due_A = torch.einsum(
+            "a,aij,aj->ai", alpha_B_target, T2_AB, mu_induced_A_at_AB_source
+        )
+        mu_induced_B_new = scatter(mu_induced_B_due_A, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        # Induced dipoles on B due to induced dipoles on B
+        mu_induced_B_due_B = torch.einsum(
+                "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B_at_BB_source
+        )
+        mu_induced_B_new += scatter(mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        mu_induced_B_new += mu_induced_0_B
+
+        # Apply mixing
+        mu_induced_A = (1 - omega) * mu_induced_A_old + omega * mu_induced_A_new
+        mu_induced_B = (1 - omega) * mu_induced_B_old + omega * mu_induced_B_new
+
+        # Check convergence
+        delta_A = torch.norm(mu_induced_A - mu_induced_A_old)
+        delta_B = torch.norm(mu_induced_B - mu_induced_B_old)
+        delta = max(delta_A, delta_B)
+        if delta < convergence_threshold:
+            break
+
+    # Final energy calculation
+    muA_induced_source = mu_induced_A.index_select(0, e_AB_source)
+    muB_induced_target = mu_induced_B.index_select(0, e_AB_target)
+    qu = torch.einsum("x,xy->xy", qA_source, muB_induced_target) - torch.einsum(
+        "x,xy->xy", qB_target, muA_induced_source
+    )
+    E_qu = torch.einsum("xy,xy->x", T1_AB, qu) * h2kcalmol
+    E_uu = -1.0 * (
+        torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB) +
+        torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
+    ) * h2kcalmol
+    E_ind = (E_qu + E_uu) / 2.0
+    E_ind -= E_ind_overlap
+    return E_ind
 
 
 def isolate_atom_parameter_predictions(batch, output):
