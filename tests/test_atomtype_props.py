@@ -77,6 +77,14 @@ def test_elst_multipoles_MTP_torch_damping_AM_DimerParam():
     ref = -12.312845
     print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
     assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-4)
+
+    # Test model prediction with batched molecules (this properly handles batching)
+    print("---- Testing model prediction with batched molecules ----")
+    pred = param_mod.predict_qcel_mols([mol, mol])
+    expected_pred = np.array([[ref], [ref]])  # Two identical dimers
+    print(f"Model predictions: {pred}")
+    assert np.allclose(pred, expected_pred, atol=1e-4)
+
     return
 
 
