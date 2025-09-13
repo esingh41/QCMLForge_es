@@ -74,7 +74,9 @@ def test_elst_multipoles_MTP_torch_damping_AM_DimerParam():
         e_AB_source=dimer_batch.e_ABsr_source,
         e_AB_target=dimer_batch.e_ABsr_target,
     )
+    ref = -12.312845
     print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
+    assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-4)
     return
 
 
@@ -129,6 +131,30 @@ def test_AM_hirshfeld_induction_DimerParam():
     # dimer_batch.Kb = torch.zeros_like(dimer_batch.Kb)
     print(f"Ka = {dimer_batch.Ka}")
     print(f"Kb = {dimer_batch.Kb}")
+    torch_indu = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+        e_AA_source=dimer_batch.e_AA_source,
+        e_BB_source=dimer_batch.e_BB_source,
+        e_AA_target=dimer_batch.e_AA_target,
+        e_BB_target=dimer_batch.e_BB_target,
+        hirshfeld_volume_ratio_A=dimer_batch.hfvrA,
+        hirshfeld_volume_ratio_B=dimer_batch.hfvrB,
+        valence_widths_A=dimer_batch.vwA,
+        valence_widths_B=dimer_batch.vwB,
+    )
     t1 = time.time()
     torch_indu = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction(
         ZA=dimer_batch.ZA,
@@ -196,5 +222,5 @@ def test_AM_hirshfeld_induction_DimerParam():
 
 
 if __name__ == "__main__":
-    # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
     test_AM_hirshfeld_induction_DimerParam()
+    # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()

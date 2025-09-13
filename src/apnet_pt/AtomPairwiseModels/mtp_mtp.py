@@ -588,7 +588,6 @@ def induced_dipole_induction(
     induction model from this paper:
     https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
     """
-    from apnet_pt.AtomPairwiseModels.mtp_mtp import get_distances
 
     delta = torch.eye(3, device=qA.device)
     h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
@@ -766,7 +765,6 @@ def induced_dipole_induction_optimized(
     """
     Optimized version of induced_dipole_induction with reduced index_select and scatter operations.
     """
-    from apnet_pt.AtomPairwiseModels.mtp_mtp import get_distances
 
     delta = torch.eye(3, device=qA.device)
     h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
