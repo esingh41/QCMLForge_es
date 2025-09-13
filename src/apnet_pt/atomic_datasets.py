@@ -401,7 +401,7 @@ class atomic_module_dataset(Dataset):
     ):
         """ """
         try:
-            assert spec_type in [1, 2, 3, 4, 6, 7]
+            assert spec_type in [1, 2, 3, 4, 6, 7, 9]
         except Exception:
             print(
                 "Currently spec_type must be 1, 2, or 3 for HF/jun-cc-pV(D+d)Z (CMPNN), PBE0/aug-cc-pV(T+D)Z (CMPNN), or HF/jun-cc-pV(D+D)Z (APNET2) respectively. Only 1 and 2 are available for download at the moment."
@@ -483,6 +483,11 @@ class atomic_module_dataset(Dataset):
                 return [
                     "neq_damping_train.pkl",
                     "neq_damping_test.pkl",
+                ]
+            elif self.spec_type == 9:
+                print('Using spec_type 9 for AP3 PBE0/aug-cc-pVDZ (with Hirshfeld volumes and widths')
+                return [
+                    "monomers_ap3_spec_5_pbe0.pkl",
                 ]
         raise ValueError("spec_type must be 1, 2, or 3!")
         return []
