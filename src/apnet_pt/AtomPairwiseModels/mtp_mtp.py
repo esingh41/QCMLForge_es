@@ -201,6 +201,7 @@ class AtomTypeParamNN(nn.Module):
         n_embed=8,
         param_start_mean=1.8,
         param_start_std=0.01,
+        n_params=1,
     ):
         super().__init__()
         self.atom_model = atom_model
@@ -211,12 +212,17 @@ class AtomTypeParamNN(nn.Module):
         self.n_embed = n_embed
         self.param_start_mean = param_start_mean
         self.param_start_std = param_start_std
-        self.guess_layer = NoisyConstantEmbedding(
-            max_Z + 1, 1, mean=self.param_start_mean, std=self.param_start_std
-        )
+        self.n_params = n_params
+        self.guess_layer = nn.ModuleList([
+            NoisyConstantEmbedding(
+                max_Z + 1, 1, mean=self.param_start_mean, std=self.param_start_std
+            ) for _ in range(n_params)
+        ])
 
         # readout layers for predicting multipoles from hidden states
-        self.param_readout_layers = nn.ModuleList()
+        self.param_readout_layers = nn.ModuleList([
+            nn.ModuleList() for _ in range(n_params)
+        ])
         layer_nodes_readout = [
             n_embed,
             n_neuron * 2,
@@ -230,10 +236,11 @@ class AtomTypeParamNN(nn.Module):
             nn.ReLU(),
             None,
         ]
-        for i in range(n_message):
-            self.param_readout_layers.append(
-                self._make_layers(layer_nodes_readout, layer_activations)
-            )
+        for p in range(n_params):
+            for i in range(n_message):
+                self.param_readout_layers[p].append(
+                    self._make_layers(layer_nodes_readout, layer_activations)
+                )
 
     def _make_layers(self, layer_nodes, activations):
         layers = []
@@ -265,21 +272,24 @@ class AtomTypeParamNN(nn.Module):
         )
         charge, dipole, qpole, h_list = am_out[0], am_out[1], am_out[2], am_out[-1]
         Z = x
-        K = self.guess_layer(Z)
+        K_list = [self.guess_layer[p](Z) for p in range(self.n_params)]
+        K = torch.cat(K_list, dim=-1)  # shape (n_atoms, n_params)
         atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
         keep_mask = torch.isin(
             torch.arange(len(molecule_ind), device=molecule_ind.device),
             atoms_with_edges,
         )
-        K_filtered = K[keep_mask]
+        K_filtered = K[keep_mask]  # shape (n_atoms_filtered, n_params)
         # print(f"{K_filtered=}")
-        for i in range(self.n_message):
-            param_update = self.param_readout_layers[i](h_list[i + 1])
-            K_filtered += param_update
-            # print(f"Layer {i}, {param_update=}, {K_filtered=}")
+        for p in range(self.n_params):
+            for i in range(self.n_message):
+                param_update = self.param_readout_layers[p][i](h_list[i + 1])
+                K_filtered[:, p] += param_update.squeeze(-1)
+                # print(f"Param {p}, Layer {i}, {param_update=}, {K_filtered=}")
         K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
         # print(f"Final {K=}")
-        return charge, dipole, qpole, *am_out[3:], K.squeeze(-1)
+        # TODO: make this not a squeeze...
+        return charge, dipole, qpole, *am_out[3:], K.squeeze(-1) if self.n_params == 1 else K
 
 
 def get_distances(RA, RB, e_source, e_target):
@@ -968,6 +978,7 @@ class AM_DimerParam_Model:
         r_cut=5.0,
         param_start_mean=1.7,
         param_start_std=0.01,
+        n_params=1,
         use_GPU=None,
         ignore_database_null=True,
         ds_spec_type=1,
@@ -1042,6 +1053,7 @@ class AM_DimerParam_Model:
                 n_embed=checkpoint["config"]["n_embed"],
                 param_start_mean=checkpoint["config"]["param_start_mean"],
                 param_start_std=checkpoint["config"]["param_start_std"],
+                n_params=checkpoint["config"].get("n_params", 1),
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -1056,6 +1068,7 @@ class AM_DimerParam_Model:
                 n_embed=n_embed,
                 param_start_mean=param_start_mean,
                 param_start_std=param_start_std,
+                n_params=n_params,
             )
         self.dimer_eval_type = dimer_eval_type
         self.dimer_model = DimerProp(self.model, dimer_eval=dimer_eval_type)
