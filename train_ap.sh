@@ -11,7 +11,8 @@ do
         --random_seed $iter \
         --n_epochs 500 \
         --lr 5e-5 \
-        --data_dir data_dir \
+        --data_dir ./data_dimer_0 \
+        --data_dir_atom ./data_dimer_0 \
         --world_size 1 \
         --omp_num_threads 16
 done
