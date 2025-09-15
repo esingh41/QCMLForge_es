@@ -12,6 +12,7 @@ from ..atomic_datasets import (
     AtomicDataLoader, atomic_collate_update, atomic_collate_update_no_target, atomic_collate_update_prebatched
 )
 from ..AtomModels.ap3_atom_model import (
+    AtomHirshfeldMPNN,
     atomic_hirshfeld_module_dataset
 )
 from ..pt_datasets.ap2_fused_ds import (
@@ -199,27 +200,6 @@ class DimerProp(nn.Module):
         )
         # print(f"{Indu = }")
         return Indu
-
-
-class MonomerProp(nn.Module):
-    def __init__(self, ATParam):
-        super().__init__()
-        self.AtomTypeParam = ATParam
-
-    def forward(
-        self,
-        batch,
-    ):
-        return self.AtomTypeParam(
-            Data(
-                x=batch.x,
-                R=batch.R,
-                edge_index=batch.edge_index,
-                molecule_ind=batch.molecule_ind,
-                total_charge=batch.total_charge,
-                natom_per_mol=batch.natom_per_mol,
-            )
-        )[-1]
 
 
 class AtomTypeParamNN(nn.Module):
@@ -1187,7 +1167,6 @@ class AM_DimerParam_Model:
         self.n_params = n_params
         self.dimer_eval_type = dimer_eval_type
         self.dimer_model = DimerProp(self.model, dimer_eval=dimer_eval_type)
-        self.monomer_model = MonomerProp(self.model)
         if self.dimer_eval_type in ["elst", "elst_damping"]:
             self.dimer_model_elst = DimerProp(self.model, dimer_eval="elst")
         else:
@@ -2018,12 +1997,18 @@ class AtomTypeParamModel:
     def __init__(
         self,
         dataset=None,
+        atom_model=None,
+        atom_model_type="AtomMPNN",
         pre_trained_model_path=None,
+        atom_model_pre_trained_path=None,
         n_message=3,
         n_rbf=8,
         n_neuron=128,
         n_embed=8,
         r_cut=5.0,
+        param_start_mean=1.7,
+        param_start_std=0.01,
+        n_params=1,
         use_GPU=None,
         ignore_database_null=True,
         ds_spec_type=1,
@@ -2048,15 +2033,58 @@ class AtomTypeParamModel:
         else:
             device = torch.device("cpu")
             print("running on the CPU")
+        self.ds_spec_type = ds_spec_type
+        # TODO UPDATE TO AP3
+        if atom_model_type == "AtomMPNN":
+            self.atom_model = AtomMPNN()
+            am_type = AtomMPNN
+        elif atom_model_type == "AtomHirshfeldMPNN":
+            self.atom_model = AtomHirshfeldMPNN()
+            am_type = AtomHirshfeldMPNN
+        else:
+            raise ValueError(f"Unknown atom_model_type: {atom_model_type}")
 
-        if pre_trained_model_path:
-            checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = AtomMPNN(
+        if atom_model_pre_trained_path:
+            print(
+                f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
+            )
+            checkpoint = torch.load(
+                atom_model_pre_trained_path, map_location=device, weights_only=False
+            )
+            self.atom_model = am_type(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
                 n_embed=checkpoint["config"]["n_embed"],
                 r_cut=checkpoint["config"]["r_cut"],
+            )
+            # model_state_dict = checkpoint["model_state_dict"]
+            model_state_dict = {
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.atom_model.load_state_dict(model_state_dict)
+        elif atom_model:
+            print("Using provided AtomMPNN model:", atom_model)
+            self.atom_model = atom_model
+        else:
+            print(
+                """No atom model provided.
+    Assuming atomic multipoles and embeddings are
+    pre-computed and passed as input to the model.
+"""
+            )
+        if pre_trained_model_path:
+            print(f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
+            checkpoint = torch.load(pre_trained_model_path, weights_only=False)
+            self.model = AtomTypeParamNN(
+                atom_model=self.atom_model,
+                n_message=checkpoint["config"]["n_message"],
+                n_neuron=checkpoint["config"]["n_neuron"],
+                n_embed=checkpoint["config"]["n_embed"],
+                param_start_mean=checkpoint["config"]["param_start_mean"],
+                param_start_std=checkpoint["config"]["param_start_std"],
+                n_params=checkpoint["config"].get("n_params", 1),
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -2064,13 +2092,17 @@ class AtomTypeParamModel:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = AtomMPNN(
+            self.model = AtomTypeParamNN(
+                atom_model=self.atom_model,
                 n_message=n_message,
-                n_rbf=n_rbf,
                 n_neuron=n_neuron,
                 n_embed=n_embed,
-                r_cut=r_cut,
+                param_start_mean=param_start_mean,
+                param_start_std=param_start_std,
+                n_params=n_params,
             )
+        self.n_params = n_params
+        self.monomer_eval_type = monomer_eval_type
         # self.model.to(device)
         self.device = device
         self.dataset = dataset
@@ -2124,13 +2156,7 @@ class AtomTypeParamModel:
     def eval_fn(self, batch):
         charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = (
             self.model(
-                batch.x,
-                batch.edge_index,
-                # batch.edge_attr,
-                R=batch.R,
-                molecule_ind=batch.molecule_ind,
-                total_charge=batch.total_charge,
-                natom_per_mol=batch.natom_per_mol,
+                batch
             )
         )
         return charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist
@@ -2144,12 +2170,7 @@ class AtomTypeParamModel:
             batch = batch.to(self.device)
             optimizer.zero_grad()
             charge, dipole, qpole, _ = self.model(
-                batch.x,
-                batch.edge_index,
-                # batch.edge_attr,
-                R=batch.R,
-                molecule_ind=batch.molecule_ind,
-                total_charge=batch.total_charge,
+                batch
             )
 
             # Errors
@@ -2202,13 +2223,7 @@ class AtomTypeParamModel:
                     valence_widths,
                     hlist,
                 ) = self.model(
-                    batch.x,
-                    batch.edge_index,
-                    # batch.edge_attr,
-                    R=batch.R,
-                    molecule_ind=batch.molecule_ind,
-                    total_charge=batch.total_charge,
-                    natom_per_mol=batch.natom_per_mol,
+                    batch
                 )
 
                 # Errors
@@ -2445,9 +2460,6 @@ class AtomTypeParamModel:
 
     def evaluate_batches_single_proc(self, rank, dataloader, criterion, rank_device):
         self.model.eval()
-        total_charge_error = torch.zeros([], dtype=torch.float32, device=rank_device)
-        total_dipole_error = torch.zeros([], dtype=torch.float32, device=rank_device)
-        total_qpole_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_hfvr_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_vw_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_loss = 0.0
@@ -2600,12 +2612,6 @@ class AtomTypeParamModel:
             self.model = DDP(
                 self.model,
             )
-        # elif rank_device != "cpu":
-        #     self.model = DDP(
-        #         self.model,
-        #         device_ids=[rank],
-        #         output_device=rank_device,
-        #     )
 
         train_sampler = (
             torch.utils.data.distributed.DistributedSampler(
@@ -2668,7 +2674,6 @@ class AtomTypeParamModel:
                     lowest_test_loss = test_loss
                     test_lowered = "*"
                     if self.model_save_path:
-                        # cpu_model = self.model.to("cpu")
                         cpu_model = unwrap_model(self.model).to("cpu")
                         torch.save(
                             {
@@ -2864,8 +2869,7 @@ class AtomTypeParamModel:
         print(f"  {self.model.n_message=}", flush=True)
         print(f"  {self.model.n_neuron=}", flush=True)
         print(f"  {self.model.n_embed=}", flush=True)
-        print(f"  {self.model.n_rbf=}", flush=True)
-        print(f"  {self.model.r_cut=}", flush=True)
+        print(f"  {self.model.n_params=}", flush=True)
         print("\nTraining Hyperparameters:", flush=True)
         print(f"  {n_epochs=}", flush=True)
         print(f"  {batch_size=}", flush=True)
@@ -3025,13 +3029,7 @@ class AtomTypeParamModel:
     def model_predict(self, data):
         charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = (
             self.model(
-                data.x,
-                data.edge_index,
-                # data.edge_attr,
-                R=data.R,
-                molecule_ind=data.molecule_ind,
-                total_charge=data.total_charge,
-                natom_per_mol=data.natom_per_mol,
+                data
             )
         )
         return charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist
