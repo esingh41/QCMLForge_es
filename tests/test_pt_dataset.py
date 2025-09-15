@@ -1241,6 +1241,7 @@ def test_atom_model_train():
     return
 
 
+
 def test_AtomTypeParamModel_train():
     """
     AtomTypeParamModel hirsfhfeld_valencewidth uses atomic_hirshfeld_module_dataset with ap2_atom_model
