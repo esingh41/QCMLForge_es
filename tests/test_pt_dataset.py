@@ -1240,6 +1240,44 @@ def test_atom_model_train():
     )
     return
 
+
+def test_AtomTypeParamModel_train():
+    """
+    AtomTypeParamModel hirsfhfeld_valencewidth uses atomic_hirshfeld_module_dataset with ap2_atom_model
+    """
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+
+
 def test_atomhirshfeld_model_train():
     ds = atomic_datasets.atomic_hirshfeld_module_dataset(
         root=data_path,
@@ -1266,7 +1304,6 @@ def test_atomhirshfeld_model_train():
         lr=5e-4,
         split_percent=0.5,
         model_path=None,
-        optimize_for_speed=False,
         shuffle=True,
         dataloader_num_workers=0,
         world_size=1,
@@ -1302,7 +1339,6 @@ def test_atomhirshfeld_model_train():
         lr=5e-4,
         split_percent=0.5,
         model_path=None,
-        optimize_for_speed=False,
         shuffle=True,
         dataloader_num_workers=0,
         world_size=1,
@@ -1405,7 +1441,6 @@ def test_am_dimer_multipole_ds():
         lr=5e-4,
         split_percent=0.5,
         model_path=None,
-        optimize_for_speed=False,
         shuffle=True,
         dataloader_num_workers=0,
         world_size=1,
@@ -1441,7 +1476,6 @@ def test_am_train_test():
         lr=5e-4,
         split_percent=0.5,
         model_path=None,
-        optimize_for_speed=False,
         shuffle=True,
         dataloader_num_workers=0,
         world_size=1,
@@ -1668,9 +1702,11 @@ def test_ap2_elst_dataset():
     )
 
 if __name__ == "__main__":
-    test_induced_dipole_qcel_mols()
-    test_induced_dipole_eval()
-    test_induced_dipole_dataset()
+    test_AtomTypeParamModel_train()
+
+    # test_induced_dipole_qcel_mols()
+    # test_induced_dipole_eval()
+    # test_induced_dipole_dataset()
 
     # test_atomhirshfeld_model_train()
 
