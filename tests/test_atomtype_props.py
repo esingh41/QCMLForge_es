@@ -80,7 +80,7 @@ def test_elst_multipoles_MTP_torch_damping_AM_DimerParam():
 
     # Test model prediction with batched molecules (this properly handles batching)
     print("---- Testing model prediction with batched molecules ----")
-    pred = param_mod.predict_qcel_mols([mol, mol])
+    pred = param_mod.predict_qcel_mols_dimer([mol, mol])
     expected_pred = np.array([[ref], [ref]])  # Two identical dimers
     print(f"Model predictions: {pred}")
     assert np.allclose(pred, expected_pred, atol=1e-4)
@@ -255,7 +255,7 @@ def test_AM_hirshfeld_induction_DimerParam():
         valence_widths_B=dimer_batch.vwB,
     )
     print(f"Torch indu = {torch.sum(torch_indu):.6f} kcal/mol")
-    pred = param_mod.predict_qcel_mols([mol, mol])
+    pred = param_mod.predict_qcel_mols_dimer([mol, mol])
     print(pred)
     ref = np.array([[-3.44164515], [-3.44164515]])
     assert np.allclose(pred, ref, atol=1e-4)
@@ -287,7 +287,7 @@ def test_AM_hirshfeld_induction_DimerParam():
         valence_widths_B=dimer_batch.vwB,
     )
     print(f"Torch indu = {torch.sum(torch_indu):.6f} kcal/mol")
-    pred = param_mod.predict_qcel_mols([mol, mol])
+    pred = param_mod.predict_qcel_mols_dimer([mol, mol])
     print(pred)
     assert np.allclose(pred, ref, atol=1e-4)
     print(f"Indu time: {time.time() - t1:.4f} s")
@@ -318,7 +318,9 @@ def test_AtomTypeParamNN():
         param_start_std=0.1,
         n_neuron=32,
         n_params=2,
+        atom_model_type="AtomMPNN",
     )
+    print(param_mod)
     monA_props, monB_props = param_mod.predict_qcel_mols_monomer_props([mol])
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
@@ -327,9 +329,11 @@ def test_AtomTypeParamNN():
             )
         ]
     )
+    pred = param_mod.predict_qcel_mols_dimer([mol, mol])
 
 
 if __name__ == "__main__":
     # test_AM_hirshfeld_induction_DimerParam()
-    test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
+    # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
     # test_elst_multipoles_MTP_torch_AM_DimerParam()
+    test_AtomTypeParamNN()

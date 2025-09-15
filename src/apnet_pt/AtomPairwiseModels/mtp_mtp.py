@@ -7,7 +7,7 @@ import numpy as np
 import warnings
 import time
 from ..AtomModels.ap2_atom_model import AtomMPNN
-# from ..AtomModels.ap3_atom_model import AtomMPNN
+from ..AtomModels.ap3_atom_model import AtomHirshfeldMPNN
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
@@ -192,6 +192,27 @@ class DimerProp(nn.Module):
         return Indu
 
 
+class MonomerProp(nn.Module):
+    def __init__(self, ATParam):
+        super().__init__()
+        self.AtomTypeParam = ATParam
+
+    def forward(
+        self,
+        batch,
+    ):
+        return self.AtomTypeParam(
+            Data(
+                x=batch.x,
+                R=batch.R,
+                edge_index=batch.edge_index,
+                molecule_ind=batch.molecule_ind,
+                total_charge=batch.total_charge,
+                natom_per_mol=batch.natom_per_mol,
+            )
+        )[-1]
+
+
 class AtomTypeParamNN(nn.Module):
     def __init__(
         self,
@@ -213,16 +234,19 @@ class AtomTypeParamNN(nn.Module):
         self.param_start_mean = param_start_mean
         self.param_start_std = param_start_std
         self.n_params = n_params
-        self.guess_layer = nn.ModuleList([
-            NoisyConstantEmbedding(
-                max_Z + 1, 1, mean=self.param_start_mean, std=self.param_start_std
-            ) for _ in range(n_params)
-        ])
+        self.guess_layer = nn.ModuleList(
+            [
+                NoisyConstantEmbedding(
+                    max_Z + 1, 1, mean=self.param_start_mean, std=self.param_start_std
+                )
+                for _ in range(n_params)
+            ]
+        )
 
         # readout layers for predicting multipoles from hidden states
-        self.param_readout_layers = nn.ModuleList([
-            nn.ModuleList() for _ in range(n_params)
-        ])
+        self.param_readout_layers = nn.ModuleList(
+            [nn.ModuleList() for _ in range(n_params)]
+        )
         layer_nodes_readout = [
             n_embed,
             n_neuron * 2,
@@ -289,7 +313,13 @@ class AtomTypeParamNN(nn.Module):
         K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
         # print(f"Final {K=}")
         # TODO: make this not a squeeze...
-        return charge, dipole, qpole, *am_out[3:], K.squeeze(-1) if self.n_params == 1 else K
+        return (
+            charge,
+            dipole,
+            qpole,
+            *am_out[3:],
+            K.squeeze(-1) if self.n_params == 1 else K,
+        )
 
 
 def get_distances(RA, RB, e_source, e_target):
@@ -341,6 +371,7 @@ def elst_damping_mtp_mtp_torch(
         1 - (1.0 + alpha_i * r + 0.5 * a1_2 * r2 + (1.0 / 6.0) * a1_3 * r3) * e1r,
     )
     return lam1, lam3, lam5
+
 
 @torch.compile
 def elst_damping_Z_mtp_torch(
@@ -509,18 +540,23 @@ def mtp_elst_damping(
     E_qu = torch.einsum("xy,xy,x->x", T1, qu, lam3)
 
     # Pre-compute common T2 components to avoid redundant calculations
-    dR_outer = torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz)  # dR_xyz[:, :, None] * dR_xyz[:, None, :]
+    # dR_xyz[:, :, None] * dR_xyz[:, None, :]
+    dR_outer = torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz)
     dR_squared_delta = torch.einsum("x,x,yz->xyz", dR, dR, delta)
 
     # Main T2 for E_uu and E_qQ
-    T2_main = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5) - torch.einsum("xyz,x->xyz", dR_squared_delta, lam3)
+    T2_main = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5) - torch.einsum(
+        "xyz,x->xyz", dR_squared_delta, lam3
+    )
     T2_main = torch.einsum("x,xyz->xyz", oodR**5, T2_main)
 
     E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2_main)
 
     qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
     qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
-    E_qQ = torch.einsum("xyz,xyz->x", T2_main, qA_quadB_source + qB_quadA_source) / Q_const
+    E_qQ = (
+        torch.einsum("xyz,xyz->x", T2_main, qA_quadB_source + qB_quadA_source) / Q_const
+    )
 
     # ZA-ZB
     E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
@@ -528,12 +564,16 @@ def mtp_elst_damping(
     # ZA-MB - reuse T1, compute specialized T2
     E_ZA_MB = torch.einsum("x,x,x,x->x", ZA_q, qB_source, oodR, lam1_ZA_MB)
     E_ZA_MB += torch.einsum("xy,x,x,xy->x", T1, lam3_ZA_MB, ZA_q, muB_source)
-    T2_ZA_MB = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5_ZA_MB) - torch.einsum("xyz,x->xyz", dR_squared_delta, lam3_ZA_MB)
+    T2_ZA_MB = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5_ZA_MB) - torch.einsum(
+        "xyz,x->xyz", dR_squared_delta, lam3_ZA_MB
+    )
     T2_ZA_MB = torch.einsum("x,xyz->xyz", oodR**5, T2_ZA_MB)
     E_ZA_MB += torch.einsum("xyz,x,xyz->x", T2_ZA_MB, ZA_q, quadB_source) / Q_const
 
     # ZB-MA - reuse T1, compute specialized T2
-    T2_ZB_MA = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5_ZB_MA) - torch.einsum("xyz,x->xyz", dR_squared_delta, lam3_ZB_MA)
+    T2_ZB_MA = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5_ZB_MA) - torch.einsum(
+        "xyz,x->xyz", dR_squared_delta, lam3_ZB_MA
+    )
     T2_ZB_MA = torch.einsum("x,xyz->xyz", oodR**5, T2_ZB_MA)
     E_ZB_MA = torch.einsum("x,x,x,x->x", ZB_q, qA_source, oodR, lam1_ZB_MA)
     E_ZB_MA += torch.einsum("xy,x,x,xy->x", -T1, lam3_ZB_MA, ZB_q, muA_source)
@@ -541,8 +581,11 @@ def mtp_elst_damping(
     E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
     return E_elst
 
+
 @torch.compile
-def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None, thole_damping_param=0.39):
+def distance_tensors(
+    Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None, thole_damping_param=0.39
+):
     dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
     dR_xyz = dR_xyz_ang / constants.au2ang
     dR = dR_ang / constants.au2ang
@@ -560,6 +603,7 @@ def distance_tensors(Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None, tho
     )
     T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
     return dR, dR_xyz, oodR, T1, T2
+
 
 @torch.compile
 def induced_dipole_induction(
@@ -590,7 +634,7 @@ def induced_dipole_induction(
     omega: float = 0.7,
     thole_damping_param: float = 0.39,
     Q_const=3.0,  # set to 1.0 to agree with CLIFF
-    polarizability_table = constants.polarizability_table,
+    polarizability_table=constants.polarizability_table,
 ) -> float:
     """
     Calculate the induced dipole interaction energy between two molecules using
@@ -604,20 +648,25 @@ def induced_dipole_induction(
 
     alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
-    
+
     # Use index_select for vectorized lookup
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
-    alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
-    alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
-
+    alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
+    alpha_B = alpha_0_B * hirshfeld_volume_ratio_B ** (4 / 3.0)
 
     # Calculate interaction tensors between atoms
-    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B, thole_damping_param)
-    dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A, thole_damping_param)
-    dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B, thole_damping_param)
+    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(
+        RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B, thole_damping_param
+    )
+    dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(
+        RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A, thole_damping_param
+    )
+    dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(
+        RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B, thole_damping_param
+    )
 
-    #TODO PASS DAMPING PARAM;
+    # TODO PASS DAMPING PARAM;
     # Select relevant tensors for atom pairs
     alpha_A_source = alpha_A.index_select(0, e_AB_source)
     alpha_B_target = alpha_B.index_select(0, e_AB_target)
@@ -646,7 +695,9 @@ def induced_dipole_induction(
     sigma_B_target = valence_widths_B.index_select(0, e_AB_target)
     B_ij = torch.sqrt(1.0 / (sigma_A_source * sigma_B_target))
     # print(f"{sigma_A_source=}, {sigma_B_target=}, {B_ij=}, {dR_AB=}")
-    S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(-B_ij * dR_AB)
+    S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(
+        -B_ij * dR_AB
+    )
     # print(f"{S_ij=}")
     E_ind_overlap = K_A_source * S_ij * K_B_target * h2kcalmol
 
@@ -658,14 +709,22 @@ def induced_dipole_induction(
     # Calculate initial induced dipoles from molecule B's multipoles on molecule A
     # Contribution from charges
     mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
-    mu_induced_0_A = scatter(mu_charge_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+    mu_induced_0_A = scatter(
+        mu_charge_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A
+    )
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
-    mu_induced_0_A += scatter(mu_dipole_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+    mu_induced_0_A += scatter(
+        mu_dipole_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A
+    )
 
     mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
-    mu_induced_0_B = scatter(mu_charge_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    mu_induced_0_B = scatter(
+        mu_charge_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B
+    )
     mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
-    mu_induced_0_B += scatter(mu_dipole_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    mu_induced_0_B += scatter(
+        mu_dipole_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B
+    )
 
     # Self-consistent induced dipole iterations
     mu_induced_A = mu_induced_0_A.clone()
@@ -687,12 +746,16 @@ def induced_dipole_induction(
         mu_induced_A_due_B = torch.einsum(
             "a,aij,aj->ai", alpha_A_source, T2_AB, mu_induced_B_at_AB_target
         )
-        mu_induced_A_new = scatter(mu_induced_A_due_B, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+        mu_induced_A_new = scatter(
+            mu_induced_A_due_B, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A
+        )
         # Induced dipoles on A due to induced dipoles on A
         mu_induced_A_due_A = torch.einsum(
-                "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A_at_AA_source
+            "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A_at_AA_source
         )
-        mu_induced_A_new += scatter(mu_induced_A_due_A, e_AA_target, dim=0, reduce="sum", dim_size=n_atoms_A)
+        mu_induced_A_new += scatter(
+            mu_induced_A_due_A, e_AA_target, dim=0, reduce="sum", dim_size=n_atoms_A
+        )
         mu_induced_A_new += mu_induced_0_A
 
         ####### (B) INDUCED DIPOLES ########
@@ -700,12 +763,16 @@ def induced_dipole_induction(
         mu_induced_B_due_A = torch.einsum(
             "a,aij,aj->ai", alpha_B_target, T2_AB, mu_induced_A_at_AB_source
         )
-        mu_induced_B_new = scatter(mu_induced_B_due_A, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        mu_induced_B_new = scatter(
+            mu_induced_B_due_A, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B
+        )
         # Induced dipoles on B due to induced dipoles on B
         mu_induced_B_due_B = torch.einsum(
-                "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B_at_BB_source
+            "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B_at_BB_source
         )
-        mu_induced_B_new += scatter(mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        mu_induced_B_new += scatter(
+            mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B
+        )
         mu_induced_B_new += mu_induced_0_B
 
         # Apply mixing
@@ -731,10 +798,14 @@ def induced_dipole_induction(
         "x,xy->xy", qB_target, muA_induced_source
     )
     E_qu = torch.einsum("xy,xy->x", T1_AB, qu) * h2kcalmol
-    E_uu = -1.0 * (
-        torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB) +
-        torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
-    ) * h2kcalmol
+    E_uu = (
+        -1.0
+        * (
+            torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB)
+            + torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
+        )
+        * h2kcalmol
+    )
     E_ind = (E_qu + E_uu) / 2.0
     # print(f"{E_ind=}, {torch.sum(E_ind_overlap)=}")
     E_ind -= E_ind_overlap
@@ -770,7 +841,7 @@ def induced_dipole_induction_optimized(
     omega: float = 0.7,
     thole_damping_param: float = 0.39,
     Q_const=3.0,  # set to 1.0 to agree with CLIFF
-    polarizability_table = constants.polarizability_table,
+    polarizability_table=constants.polarizability_table,
 ) -> float:
     """
     Optimized version of induced_dipole_induction with reduced index_select and scatter operations.
@@ -785,13 +856,19 @@ def induced_dipole_induction_optimized(
     # Use index_select for vectorized lookup
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
-    alpha_A = alpha_0_A * hirshfeld_volume_ratio_A **(4/3.)
-    alpha_B = alpha_0_B * hirshfeld_volume_ratio_B **(4/3.)
+    alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
+    alpha_B = alpha_0_B * hirshfeld_volume_ratio_B ** (4 / 3.0)
 
     # Calculate interaction tensors between atoms
-    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B, thole_damping_param)
-    dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A, thole_damping_param)
-    dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B, thole_damping_param)
+    dR_AB, dR_AB_xyz, T0_AB, T1_AB, T2_AB = distance_tensors(
+        RA, RB, e_AB_source, e_AB_target, alpha_A, alpha_B, thole_damping_param
+    )
+    dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(
+        RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A, thole_damping_param
+    )
+    dR_BB, dR_BB_xyz, T0_BB, T1_BB, T2_BB = distance_tensors(
+        RB, RB, e_BB_source, e_BB_target, alpha_B, alpha_B, thole_damping_param
+    )
 
     # Select relevant tensors for atom pairs
     alpha_A_source = alpha_A.index_select(0, e_AB_source)
@@ -818,7 +895,9 @@ def induced_dipole_induction_optimized(
     sigma_A_source = valence_widths_A.index_select(0, e_AB_source)
     sigma_B_target = valence_widths_B.index_select(0, e_AB_target)
     B_ij = torch.sqrt(1.0 / (sigma_A_source * sigma_B_target))
-    S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(-B_ij * dR_AB)
+    S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(
+        -B_ij * dR_AB
+    )
     E_ind_overlap = K_A_source * S_ij * K_B_target * h2kcalmol
 
     # Calculate initial induced dipoles
@@ -827,14 +906,22 @@ def induced_dipole_induction_optimized(
 
     # Calculate initial induced dipoles from molecule B's multipoles on molecule A
     mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
-    mu_induced_0_A = scatter(mu_charge_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+    mu_induced_0_A = scatter(
+        mu_charge_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A
+    )
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
-    mu_induced_0_A += scatter(mu_dipole_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+    mu_induced_0_A += scatter(
+        mu_dipole_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A
+    )
 
     mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
-    mu_induced_0_B = scatter(mu_charge_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    mu_induced_0_B = scatter(
+        mu_charge_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B
+    )
     mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
-    mu_induced_0_B += scatter(mu_dipole_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    mu_induced_0_B += scatter(
+        mu_dipole_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B
+    )
 
     # Self-consistent induced dipole iterations
     mu_induced_A = mu_induced_0_A.clone()
@@ -862,12 +949,16 @@ def induced_dipole_induction_optimized(
         mu_induced_A_due_B = torch.einsum(
             "a,aij,aj->ai", alpha_A_source, T2_AB, mu_induced_B_at_AB_target
         )
-        mu_induced_A_new = scatter(mu_induced_A_due_B, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+        mu_induced_A_new = scatter(
+            mu_induced_A_due_B, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A
+        )
         # Induced dipoles on A due to induced dipoles on A
         mu_induced_A_due_A = torch.einsum(
-                "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A_at_AA_source
+            "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A_at_AA_source
         )
-        mu_induced_A_new += scatter(mu_induced_A_due_A, e_AA_target, dim=0, reduce="sum", dim_size=n_atoms_A)
+        mu_induced_A_new += scatter(
+            mu_induced_A_due_A, e_AA_target, dim=0, reduce="sum", dim_size=n_atoms_A
+        )
         mu_induced_A_new += mu_induced_0_A
 
         ####### (B) INDUCED DIPOLES ########
@@ -875,12 +966,16 @@ def induced_dipole_induction_optimized(
         mu_induced_B_due_A = torch.einsum(
             "a,aij,aj->ai", alpha_B_target, T2_AB, mu_induced_A_at_AB_source
         )
-        mu_induced_B_new = scatter(mu_induced_B_due_A, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        mu_induced_B_new = scatter(
+            mu_induced_B_due_A, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B
+        )
         # Induced dipoles on B due to induced dipoles on B
         mu_induced_B_due_B = torch.einsum(
-                "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B_at_BB_source
+            "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B_at_BB_source
         )
-        mu_induced_B_new += scatter(mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        mu_induced_B_new += scatter(
+            mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B
+        )
         mu_induced_B_new += mu_induced_0_B
 
         # Apply mixing
@@ -901,10 +996,14 @@ def induced_dipole_induction_optimized(
         "x,xy->xy", qB_target, muA_induced_source
     )
     E_qu = torch.einsum("xy,xy->x", T1_AB, qu) * h2kcalmol
-    E_uu = -1.0 * (
-        torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB) +
-        torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
-    ) * h2kcalmol
+    E_uu = (
+        -1.0
+        * (
+            torch.einsum("xy,xz,xyz->x", muA_induced_source, muB_target, T2_AB)
+            + torch.einsum("xy,xz,xyz->x", muA_source, muB_induced_target, T2_AB)
+        )
+        * h2kcalmol
+    )
     E_ind = (E_qu + E_uu) / 2.0
     E_ind -= E_ind_overlap
     return E_ind
@@ -962,13 +1061,12 @@ def isolate_atom_parameter_predictions_ap3(batch, output):
     return mol_charges, mol_dipoles, mol_qpoles, mol_hfvr, mol_vw, mol_hlist, mol_K
 
 
-
-
 class AM_DimerParam_Model:
     def __init__(
         self,
         dataset=None,
         atom_model=None,
+        atom_model_type="AtomMPNN",
         pre_trained_model_path=None,
         atom_model_pre_trained_path=None,
         n_message=3,
@@ -1010,8 +1108,15 @@ class AM_DimerParam_Model:
             device = torch.device("cpu")
             print("running on the CPU")
         self.ds_spec_type = ds_spec_type
-        #TODO UPDATE TO AP3
-        self.atom_model = AtomMPNN()
+        # TODO UPDATE TO AP3
+        if atom_model_type == "AtomMPNN":
+            self.atom_model = AtomMPNN()
+            am_type = AtomMPNN
+        elif atom_model_type == "AtomHirshfeldMPNN":
+            self.atom_model = AtomHirshfeldMPNN()
+            am_type = AtomHirshfeldMPNN
+        else:
+            raise ValueError(f"Unknown atom_model_type: {atom_model_type}")
 
         if atom_model_pre_trained_path:
             print(
@@ -1020,7 +1125,7 @@ class AM_DimerParam_Model:
             checkpoint = torch.load(
                 atom_model_pre_trained_path, map_location=device, weights_only=False
             )
-            self.atom_model = AtomMPNN(
+            self.atom_model = am_type(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -1072,12 +1177,13 @@ class AM_DimerParam_Model:
             )
         self.dimer_eval_type = dimer_eval_type
         self.dimer_model = DimerProp(self.model, dimer_eval=dimer_eval_type)
+        self.monomer_model = MonomerProp(self.model)
         if "elst" in dimer_eval_type:
             self.dimer_model_elst = DimerProp(self.model, dimer_eval="elst")
         else:
             self.dimer_model_elst = None
         if n_message != self.model.n_message:
-            print(f"Changing n_message from {self.model.n_message} to {n_message}")
+            print(f"Changing n_mesage from {self.model.n_message} to {n_message}")
             self.model.n_message = n_message
         if n_neuron != self.model.n_neuron:
             print(f"Changing n_neuron from {self.model.n_neuron} to {n_neuron}")
@@ -1395,7 +1501,7 @@ class AM_DimerParam_Model:
         return pair_energies_batch
 
     @torch.inference_mode()
-    def predict_qcel_mols(
+    def predict_qcel_mols_dimer(
         self,
         mols,
         batch_size=1,
@@ -1432,9 +1538,11 @@ class AM_DimerParam_Model:
                 dimer_batch.dimer_ind,
                 dim=0,
                 reduce="add",
-                dim_size=torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long),
+                dim_size=torch.tensor(
+                    dimer_batch.total_charge_A.size(0), dtype=torch.long
+                ),
             )
-            predictions[i: i + batch_size] = preds[0].cpu().numpy()
+            predictions[i : i + batch_size] = preds[0].cpu().numpy()
         if verbose:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if return_pairs or return_elst:
@@ -1447,7 +1555,7 @@ class AM_DimerParam_Model:
         mols,
         batch_size=1,
         r_cut=None,
-        am_type='ap2',
+        am_type="ap2",
         verbose=False,
     ):
         output_A = []
@@ -1456,9 +1564,9 @@ class AM_DimerParam_Model:
             r_cut = self.atom_model.r_cut
         N = len(mols)
         self.atom_model.to(self.device)
-        if am_type == 'ap2':
+        if am_type == "ap2":
             isolate_fn = isolate_atom_parameter_predictions
-        elif am_type == 'ap3':
+        elif am_type == "ap3":
             isolate_fn = isolate_atom_parameter_predictions_ap3
         else:
             raise ValueError(f"Unknown am_type: {am_type}")
@@ -1475,7 +1583,9 @@ class AM_DimerParam_Model:
             batch_A = Data(
                 x=dimer_batch.ZA,
                 R=dimer_batch.RA,
-                edge_index=torch.vstack((dimer_batch.e_AA_source, dimer_batch.e_AA_target)),
+                edge_index=torch.vstack(
+                    (dimer_batch.e_AA_source, dimer_batch.e_AA_target)
+                ),
                 molecule_ind=dimer_batch.molecule_ind_A,
                 total_charge=dimer_batch.total_charge_A,
                 natom_per_mol=dimer_batch.natom_per_mol_A,
@@ -1486,7 +1596,9 @@ class AM_DimerParam_Model:
             batch_B = Data(
                 x=dimer_batch.ZB,
                 R=dimer_batch.RB,
-                edge_index=torch.vstack((dimer_batch.e_BB_source, dimer_batch.e_BB_target)),
+                edge_index=torch.vstack(
+                    (dimer_batch.e_BB_source, dimer_batch.e_BB_target)
+                ),
                 molecule_ind=dimer_batch.molecule_ind_B,
                 total_charge=dimer_batch.total_charge_B,
                 natom_per_mol=dimer_batch.natom_per_mol_B,
@@ -1495,7 +1607,6 @@ class AM_DimerParam_Model:
                 v = isolate_fn(batch_B, self.model(batch_B))
                 output_B.extend(list(zip(*v)))
         return output_A, output_B
-
 
     def example_input(
         self,
@@ -1700,7 +1811,9 @@ units angstrom
         elif self.dimer_eval_type == "induced_dipole":
             y_ind = 2
             term = "Indu"
-            self.dimer_model.polarizability_table = self.dimer_model.polarizability_table.to(self.device)
+            self.dimer_model.polarizability_table = (
+                self.dimer_model.polarizability_table.to(self.device)
+            )
         else:
             raise ValueError(f"Unknown dimer_eval_type: {self.dimer_eval_type}")
         print(
