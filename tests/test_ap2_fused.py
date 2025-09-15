@@ -200,9 +200,51 @@ def test_ap2_fused_architecture():
     print(output[0])
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+def test_ap2_fused_ensemble_water_dimer():
+    import torch
+    import pandas as pd
+
+    df = pd.read_pickle(
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    Ks = [
+        [1.14769962, 0.685558974, 0.685558974],
+        [1.14769962, 0.685558974, 0.685558974],
+    ]
+    for n, r in df.iterrows():
+        sapt0_elst = r["SAPT0 ELST ENERGY adz"]
+        sapt0_total = r["SAPT0 TOTAL ENERGY adz"] * qcel.constants.conversion_factor(
+            "hartree", "kcal/mol"
+        )
+        sapt0_exch = r["SAPT0 EXCH ENERGY adz"] * qcel.constants.conversion_factor(
+            "hartree", "kcal/mol"
+        )
+        sapt0_ind = r["SAPT0 IND ENERGY adz"] * qcel.constants.conversion_factor(
+            "hartree", "kcal/mol"
+        )
+        sapt0_disp = r["SAPT0 DISP ENERGY adz"] * qcel.constants.conversion_factor(
+            "hartree", "kcal/mol"
+        )
+        mol = r["qcel_molecule"]
+        interaction_energies = apnet_pt.pretrained_models.apnet2_model_predict(
+            [mol],
+            compile=False,
+            batch_size=2,
+            ap2_fused=True,
+        )
+        print(
+            f"TOTAL = {sapt0_total:.6f}\n ELST = {sapt0_elst:.6f}\n EXCH = {sapt0_exch:.6f}\n DISP = {sapt0_disp:.6f}\n IND = {sapt0_ind:.6f}"
+        )
+        print(interaction_energies)
+
 
 if __name__ == "__main__":
     # test_ap2_fused_dataset_size()
     # test_ap2_fused_architecture()
     # test_ap2_fused_train_qcel_molecules_in_memory()
-    test_ap2_fused_dataset_size()
+    # test_ap2_fused_dataset_size()
+    test_ap2_fused_ensemble_water_dimer()
