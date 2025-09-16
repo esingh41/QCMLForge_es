@@ -98,8 +98,10 @@ def edge_function_system_index_only(R, r_c):
 
 MAX_Z = 118  # largest atomic number
 
+
 def atomic_collate_update_prebatched(batch):
     return batch[0]
+
 
 def atomic_collate_update(batch):
     """

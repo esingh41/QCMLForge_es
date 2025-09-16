@@ -6,14 +6,20 @@ from torch_geometric.utils import scatter
 import numpy as np
 import time
 from ..AtomModels.ap2_atom_model import (
-    AtomMPNN, isolate_atomic_property_predictions, qcel_mon_to_pyg_data, unwrap_model
+    AtomMPNN,
+    isolate_atomic_property_predictions,
+    qcel_mon_to_pyg_data,
+    unwrap_model,
 )
 from ..atomic_datasets import (
-    AtomicDataLoader, atomic_collate_update, atomic_collate_update_no_target, atomic_collate_update_prebatched
+    AtomicDataLoader,
+    atomic_collate_update,
+    atomic_collate_update_no_target,
+    atomic_collate_update_prebatched,
 )
 from ..AtomModels.ap3_atom_model import (
     AtomHirshfeldMPNN,
-    atomic_hirshfeld_module_dataset
+    atomic_hirshfeld_module_dataset,
 )
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
@@ -205,7 +211,7 @@ class DimerProp(nn.Module):
 class AtomTypeParamNN(nn.Module):
     def __init__(
         self,
-        atom_model: AtomMPNN,
+        atom_model: AtomMPNN = AtomMPNN(),
         n_message=3,
         n_neuron=128,
         n_embed=8,
@@ -1104,8 +1110,14 @@ class AM_DimerParam_Model:
         elif atom_model_type == "AtomHirshfeldMPNN":
             self.atom_model = AtomHirshfeldMPNN()
             am_type = AtomHirshfeldMPNN
+        elif atom_model_type == "AtomTypeParamNN":
+            self.atom_model = AtomTypeParamNN()
+            am_type = AtomTypeParamNN
         else:
             raise ValueError(f"Unknown atom_model_type: {atom_model_type}")
+
+        print(f"Atom model type: {atom_model_type}")
+        print(f"Atom model: {self.atom_model}")
 
         if atom_model_pre_trained_path:
             print(
@@ -1114,13 +1126,23 @@ class AM_DimerParam_Model:
             checkpoint = torch.load(
                 atom_model_pre_trained_path, map_location=device, weights_only=False
             )
-            self.atom_model = am_type(
-                n_message=checkpoint["config"]["n_message"],
-                n_rbf=checkpoint["config"]["n_rbf"],
-                n_neuron=checkpoint["config"]["n_neuron"],
-                n_embed=checkpoint["config"]["n_embed"],
-                r_cut=checkpoint["config"]["r_cut"],
-            )
+            if atom_model_type in ["AtomHirshfeldMPNN", "AtomMPNN"]:
+                self.atom_model = am_type(
+                    n_message=checkpoint["config"]["n_message"],
+                    n_rbf=checkpoint["config"]["n_rbf"],
+                    n_neuron=checkpoint["config"]["n_neuron"],
+                    n_embed=checkpoint["config"]["n_embed"],
+                    r_cut=checkpoint["config"]["r_cut"],
+                )
+            elif atom_model_type == "AtomTypeParamNN":
+                self.atom_model = am_type(
+                    n_message=checkpoint["config"]["n_message"],
+                    n_neuron=checkpoint["config"]["n_neuron"],
+                    n_embed=checkpoint["config"]["n_embed"],
+                    param_start_mean=checkpoint["config"]["param_start_mean"],
+                    param_start_std=checkpoint["config"]["param_start_std"],
+                    n_params=checkpoint["config"].get("n_params", 1),
+                )
             # model_state_dict = checkpoint["model_state_dict"]
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -2008,12 +2030,12 @@ class AtomTypeParamModel:
         r_cut=5.0,
         param_start_mean=1.7,
         param_start_std=0.01,
-        n_params=1,
         use_GPU=None,
         ignore_database_null=True,
         ds_spec_type=1,
         ds_root="data_dir",
         ds_max_size=None,
+        ds_random_seed=42,
         ds_batch_size=16,
         ds_testing=False,
         ds_force_reprocess=False,
@@ -2043,6 +2065,10 @@ class AtomTypeParamModel:
             am_type = AtomHirshfeldMPNN
         else:
             raise ValueError(f"Unknown atom_model_type: {atom_model_type}")
+
+        self.n_params = 1
+        if monomer_eval_type in ["hirshfeld_volume_ratio__valence_width"]:
+            self.n_params = 2
 
         if atom_model_pre_trained_path:
             print(
@@ -2099,11 +2125,10 @@ class AtomTypeParamModel:
                 n_embed=n_embed,
                 param_start_mean=param_start_mean,
                 param_start_std=param_start_std,
-                n_params=n_params,
+                n_params=self.n_params,
             )
-        self.n_params = n_params
+        self.n_params = self.n_params
         self.monomer_eval_type = monomer_eval_type
-        # self.model.to(device)
         self.device = device
         self.dataset = dataset
         mp.set_sharing_strategy("file_system")
@@ -2153,14 +2178,6 @@ class AtomTypeParamModel:
     def cleanup(self):
         dist.destroy_process_group()
 
-    def eval_fn(self, batch):
-        charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = (
-            self.model(
-                batch
-            )
-        )
-        return charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist
-
     def evaluate_model_collate_train(self, data_loader, optimizer=None, loss_fn=None):
         charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []
         total_loss = 0.0
@@ -2169,9 +2186,7 @@ class AtomTypeParamModel:
             batch_loss = 0.0
             batch = batch.to(self.device)
             optimizer.zero_grad()
-            charge, dipole, qpole, _ = self.model(
-                batch
-            )
+            charge, dipole, qpole, _ = self.model(batch)
 
             # Errors
             q_error = charge - batch.charges
@@ -2202,10 +2217,7 @@ class AtomTypeParamModel:
         return total_loss, charge_errors_t, dipole_errors_t, qpole_errors_t
 
     def evaluate_model_collate_eval(self, data_loader, loss_fn=None):
-        charge_errors_t, dipole_errors_t, qpole_errors_t, hfvr_errors_t, vw_errors_t = (
-            [],
-            [],
-            [],
+        hfvr_errors_t, vw_errors_t = (
             [],
             [],
         )
@@ -2214,61 +2226,33 @@ class AtomTypeParamModel:
         with torch.no_grad():
             for batch in data_loader:
                 batch_loss = 0.0
-                batch = batch.to(self.device)
-                (
-                    charge,
-                    dipole,
-                    qpole,
-                    hirshfeld_volume_ratios,
-                    valence_widths,
-                    hlist,
-                ) = self.model(
-                    batch
-                )
+                params = self.model(batch)[-1]
+                hirshfeld_volume_ratios = params[:, 0]
+                valence_widths = params[:, 1]
 
                 # Errors
-                q_error = charge - batch.charges
-                d_error = dipole - batch.dipoles
-                qp_error = qpole - batch.quadrupoles
                 hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
                 vw_error = valence_widths - batch.valence_widths
                 if loss_fn is None:
                     # perform mean squared error
-                    charge_loss = torch.mean(torch.square(q_error))
-                    dipole_loss = torch.mean(torch.square(d_error))
-                    qpole_loss = torch.mean(torch.square(qp_error))
                     hfvr_loss = torch.mean(torch.square(hfvr_error))
                     vw_loss = torch.mean(torch.square(vw_error))
                 else:
                     # perform custom loss function, or pytorch criterion loss_fn
-                    charge_loss = loss_fn(charge, batch.charges)
-                    dipole_loss = torch.mean(loss_fn(dipole, batch.dipoles))
-                    qpole_loss = torch.mean(loss_fn(qpole, batch.quadrupoles))
                     hfvr_loss = torch.mean(
                         loss_fn(hirshfeld_volume_ratios, batch.volume_ratios)
                     )
                     vw_loss = torch.mean(loss_fn(valence_widths, batch.valence_widths))
 
-                batch_loss = (
-                    charge_loss + dipole_loss + qpole_loss + hfvr_loss + vw_loss
-                )
+                batch_loss = hfvr_loss + vw_loss
                 total_loss += batch_loss.detach()
 
-            charge_errors_t.append(q_error.detach())
-            dipole_errors_t.extend(d_error.detach())
-            qpole_errors_t.extend(qp_error.detach())
             hfvr_errors_t.extend(hfvr_error.detach())
             vw_errors_t.extend(vw_error.detach())
-        charge_errors_t = torch.cat(charge_errors_t)
-        dipole_errors_t = torch.cat(dipole_errors_t)
-        qpole_errors_t = torch.cat(qpole_errors_t)
         hfvr_errors_t = torch.cat(hfvr_errors_t)
         vw_errors_t = torch.cat(vw_errors_t)
         return (
             total_loss,
-            charge_errors_t,
-            dipole_errors_t,
-            qpole_errors_t,
             hfvr_errors_t,
             vw_errors_t,
         )
@@ -2278,52 +2262,34 @@ class AtomTypeParamModel:
         with torch.no_grad():
             (
                 _,
-                charge_errors_t,
-                dipole_errors_t,
-                qpole_errors_t,
                 hfvr_errors_t,
                 vw_errors_t,
             ) = self.evaluate_model_collate_eval(
                 train_loader,  # loss_fn=criterion
             )
-            charge_MAE_t = np.mean(np.abs(charge_errors_t))
-            dipole_MAE_t = np.mean(np.abs(dipole_errors_t))
-            qpole_MAE_t = np.mean(np.abs(qpole_errors_t))
             hfvr_MAE_t = np.mean(np.abs(hfvr_errors_t))
             vw_MAE_t = np.mean(np.abs(vw_errors_t))
 
             (
-                charge_errors_t,
-                dipole_errors_t,
-                qpole_errors_t,
                 hfvr_errors_t,
                 vw_errors_t,
             ) = [], [], [], []
             (
                 test_loss,
-                charge_errors_v,
-                dipole_errors_v,
-                qpole_errors_v,
                 hfvr_errors_v,
                 vw_errors_v,
             ) = self.evaluate_model_collate_eval(
                 test_loader,  # loss_fn=criterion
             )
-            charge_MAE_v = np.mean(np.abs(charge_errors_v))
-            dipole_MAE_v = np.mean(np.abs(dipole_errors_v))
-            qpole_MAE_v = np.mean(np.abs(qpole_errors_v))
             hfvr_MAE_v = np.mean(np.abs(hfvr_errors_v))
             vw_MAE_v = np.mean(np.abs(vw_errors_v))
             (
-                charge_errors_v,
-                dipole_errors_v,
-                qpole_errors_v,
                 hfvr_errors_v,
                 vw_errors_v,
-            ) = [], [], [], [], []
+            ) = [], []
             dt = time.time() - t1
             print(
-                f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f}",
+                f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f}",
                 flush=True,
             )
         return test_loss
@@ -2332,9 +2298,6 @@ class AtomTypeParamModel:
         self, rank, dataloader, criterion, optimizer, rank_device
     ):
         self.model.train()
-        total_charge_error = torch.zeros([], dtype=torch.float32, device=rank_device)
-        total_dipole_error = torch.zeros([], dtype=torch.float32, device=rank_device)
-        total_qpole_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_hfvr_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_vw_error = torch.zeros([], dtype=torch.float32, device=rank_device)
         total_loss = 0.0
@@ -2344,49 +2307,34 @@ class AtomTypeParamModel:
         for batch in dataloader:
             batch = batch.to(rank_device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, _ = (
-                self.eval_fn(batch)
-            )
+            params = self.model(batch)[-1]
+            hirshfeld_volume_ratios = params[:, 0]
+            valence_widths = params[:, 1]
 
-            q_error = charge - batch.charges
-            d_error = dipole - batch.dipoles
-            qp_error = qpole - batch.quadrupoles
             hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
             vw_error = valence_widths - batch.valence_widths
 
-            charge_loss = (q_error**2).mean()
-            dipole_loss = (d_error**2).mean()
-            qpole_loss = (qp_error**2).mean()
             hfvr_loss = (hfvr_error**2).mean()
             vw_loss = (vw_error**2).mean()
 
-            loss = charge_loss + dipole_loss + qpole_loss + hfvr_loss + vw_loss
+            loss = hfvr_loss + vw_loss
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-            total_count += q_error.numel()
+            total_count += hfvr_error.numel()
 
-            total_charge_error += q_error.detach().abs().sum()
-            total_dipole_error += d_error.detach().abs().sum()
-            total_qpole_error += qp_error.detach().abs().sum()
             total_hfvr_error += hfvr_error.detach().abs().sum()
             total_vw_error += vw_error.detach().abs().sum()
 
         final_count = total_count.item()
 
         # Calculating MAEs
-        charge_mae = total_charge_error.item() / final_count
-        dipole_mae = total_dipole_error.item() / (final_count * 3)
-        qpole_mae = total_qpole_error.item() / (final_count * 9)
         hfvr_mae = total_hfvr_error.item() / final_count
         vw_mae = total_vw_error.item() / final_count
-        return total_loss, charge_mae, dipole_mae, qpole_mae, hfvr_mae, vw_mae
+        return total_loss, hfvr_mae, vw_mae
 
     def train_batches(self, rank, dataloader, criterion, optimizer, rank_device):
         self.model.train()
-        total_charge_error = 0
-        total_dipole_error = 0
-        total_qpole_error = 0
         total_hfvr_error = 0
         total_vw_error = 0
         total_loss = 0
@@ -2395,44 +2343,26 @@ class AtomTypeParamModel:
         for batch in dataloader:
             batch = batch.to(rank_device)
             optimizer.zero_grad()
-            charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, _ = (
-                self.eval_fn(batch)
-            )
+            params = self.model(batch)[-1]
+            hirshfeld_volume_ratios = params[:, 0]
+            valence_widths = params[:, 1]
 
-            q_error = charge - batch.charges
-            d_error = dipole - batch.dipoles
-            qp_error = qpole - batch.quadrupoles
             hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
             vw_error = valence_widths - batch.valence_widths
 
-            charge_loss = torch.mean(torch.square(q_error))
-            dipole_loss = torch.mean(torch.square(d_error))
-            qpole_loss = torch.mean(torch.square(qp_error))
             hfvr_loss = torch.mean(torch.square(hfvr_error))
             vw_loss = torch.mean(torch.square(vw_error))
 
-            loss = charge_loss + dipole_loss + qpole_loss + hfvr_loss + vw_loss
+            loss = hfvr_loss + vw_loss
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-            count += q_error.numel()
+            count += hfvr_error.numel()
 
-            total_charge_error += torch.sum(torch.abs(q_error)).item()
-            total_dipole_error += torch.sum(torch.abs(d_error)).item()
-            total_qpole_error += torch.sum(torch.abs(qp_error)).item()
             total_hfvr_error += torch.sum(torch.abs(hfvr_error)).item()
             total_vw_error += torch.sum(torch.abs(vw_error)).item()
 
         # Converting to tensors for all-reduce
-        total_charge_error = torch.tensor(
-            total_charge_error, dtype=torch.float32, device=rank_device
-        )
-        total_dipole_error = torch.tensor(
-            total_dipole_error, dtype=torch.float32, device=rank_device
-        )
-        total_qpole_error = torch.tensor(
-            total_qpole_error, dtype=torch.float32, device=rank_device
-        )
         total_hfvr_error = torch.tensor(
             total_hfvr_error, dtype=torch.float32, device=rank_device
         )
@@ -2442,21 +2372,15 @@ class AtomTypeParamModel:
         count = torch.tensor(count, dtype=torch.int, device=rank_device)
 
         # All-reduce across processes
-        dist.all_reduce(total_charge_error, op=dist.ReduceOp.SUM)
-        dist.all_reduce(total_dipole_error, op=dist.ReduceOp.SUM)
-        dist.all_reduce(total_qpole_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(total_hfvr_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(total_vw_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(count, op=dist.ReduceOp.SUM)
 
         # Calculating MAEs
-        charge_mae = total_charge_error.item() / count.item()
-        dipole_mae = total_dipole_error.item() / (count.item() * 3)
-        qpole_mae = total_qpole_error.item() / (count.item() * 9)
         hfvr_mae = total_hfvr_error.item() / count.item()
         vw_mae = total_vw_error.item() / count.item()
 
-        return total_loss, charge_mae, dipole_mae, qpole_mae, hfvr_mae, vw_mae
+        return total_loss, hfvr_mae, vw_mae
 
     def evaluate_batches_single_proc(self, rank, dataloader, criterion, rank_device):
         self.model.eval()
@@ -2469,47 +2393,32 @@ class AtomTypeParamModel:
         with torch.no_grad():
             for batch in dataloader:
                 batch = batch.to(rank_device, non_blocking=True)
-                charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, _ = (
-                    self.eval_fn(batch)
-                )
+                params = self.model(batch)[-1]
+                hirshfeld_volume_ratios = params[:, 0]
+                valence_widths = params[:, 1]
 
-                q_error = charge - batch.charges
-                d_error = dipole - batch.dipoles
-                qp_error = qpole - batch.quadrupoles
                 hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
                 vw_error = valence_widths - batch.valence_widths
 
-                charge_loss = (q_error**2).mean()
-                dipole_loss = (d_error**2).mean()
-                qpole_loss = (qp_error**2).mean()
                 hfvr_loss = (hfvr_error**2).mean()
                 vw_loss = (vw_error**2).mean()
 
-                loss = charge_loss + dipole_loss + qpole_loss + hfvr_loss + vw_loss
+                loss = hfvr_loss + vw_loss
                 total_loss += loss.item()
-                total_count += q_error.numel()
+                total_count += hfvr_error.numel()
 
-                total_charge_error += q_error.abs().sum()
-                total_dipole_error += d_error.abs().sum()
-                total_qpole_error += qp_error.abs().sum()
                 total_hfvr_error += hfvr_error.abs().sum()
                 total_vw_error += vw_error.abs().sum()
 
         final_count = total_count.item()
 
         # Calculating MAEs
-        charge_mae = total_charge_error.item() / final_count
-        dipole_mae = total_dipole_error.item() / (final_count * 3)
-        qpole_mae = total_qpole_error.item() / (final_count * 9)
         hfvr_mae = total_hfvr_error.item() / final_count
         vw_mae = total_vw_error.item() / final_count
-        return total_loss, charge_mae, dipole_mae, qpole_mae, hfvr_mae, vw_mae
+        return total_loss, hfvr_mae, vw_mae
 
     def evaluate_batches(self, rank, dataloader, criterion, rank_device):
         self.model.eval()
-        total_charge_error = 0
-        total_dipole_error = 0
-        total_qpole_error = 0
         total_hfvr_error = 0
         total_vw_error = 0
         total_loss = 0
@@ -2518,43 +2427,28 @@ class AtomTypeParamModel:
         with torch.no_grad():
             for batch in dataloader:
                 batch = batch.to(rank_device)
-                charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, _ = (
-                    self.eval_fn(batch)
-                )
+                params = self.model(batch)[-1]
+                hirshfeld_volume_ratios = params[:, 0]
+                valence_widths = params[:, 1]
 
-                q_error = charge - batch.charges
-                d_error = dipole - batch.dipoles
-                qp_error = qpole - batch.quadrupoles
                 hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
                 vw_error = valence_widths - batch.valence_widths
 
-                total_charge_error += torch.sum(torch.abs(q_error)).item()
-                total_dipole_error += torch.sum(torch.abs(d_error)).item()
-                total_qpole_error += torch.sum(torch.abs(qp_error)).item()
+                hfvr_loss = (hfvr_error**2).mean()
+                vw_loss = (vw_error**2).mean()
+                hfvr_error = hirshfeld_volume_ratios - batch.volume_ratios
+                vw_error = valence_widths - batch.valence_widths
+
                 total_hfvr_error += torch.sum(torch.abs(hfvr_error)).item()
                 total_vw_error += torch.sum(torch.abs(vw_error)).item()
 
-                charge_loss = torch.mean(torch.square(q_error))
-                dipole_loss = torch.mean(torch.square(d_error))
-                qpole_loss = torch.mean(torch.square(qp_error))
                 hfvr_loss = torch.mean(torch.square(hfvr_error))
                 vw_loss = torch.mean(torch.square(vw_error))
 
-                total_loss += (
-                    charge_loss + dipole_loss + qpole_loss + hfvr_loss + vw_loss
-                )
-                count += q_error.numel()
+                total_loss += hfvr_loss + vw_loss
+                count += hfvr_error.numel()
 
         # Converting to tensors for all-reduce
-        total_charge_error = torch.tensor(
-            total_charge_error, dtype=torch.float32, device=rank_device
-        )
-        total_dipole_error = torch.tensor(
-            total_dipole_error, dtype=torch.float32, device=rank_device
-        )
-        total_qpole_error = torch.tensor(
-            total_qpole_error, dtype=torch.float32, device=rank_device
-        )
         total_hfvr_error = torch.tensor(
             total_hfvr_error, dtype=torch.float32, device=rank_device
         )
@@ -2564,9 +2458,6 @@ class AtomTypeParamModel:
         count = torch.tensor(count, dtype=torch.int, device=rank_device)
 
         # All-reduce across processes
-        dist.all_reduce(total_charge_error, op=dist.ReduceOp.SUM)
-        dist.all_reduce(total_dipole_error, op=dist.ReduceOp.SUM)
-        dist.all_reduce(total_qpole_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(total_hfvr_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(total_vw_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(count, op=dist.ReduceOp.SUM)
@@ -2575,12 +2466,9 @@ class AtomTypeParamModel:
         dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
 
         # Calculating MAEs
-        charge_mae = total_charge_error.item() / count.item()
-        dipole_mae = total_dipole_error.item() / (count.item() * 3)
-        qpole_mae = total_qpole_error.item() / (count.item() * 9)
         hfvr_mae = total_hfvr_error.item() / count.item()
         vw_mae = total_vw_error.item() / count.item()
-        return total_loss, charge_mae, dipole_mae, qpole_mae, hfvr_mae, vw_mae
+        return total_loss, hfvr_mae, vw_mae
 
     def ddp_train(
         self,
@@ -2680,10 +2568,11 @@ class AtomTypeParamModel:
                                 "model_state_dict": cpu_model.state_dict(),
                                 "config": {
                                     "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
                                     "n_neuron": cpu_model.n_neuron,
                                     "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
+                                    "param_start_mean": cpu_model.param_start_mean,
+                                    "param_start_std": cpu_model.param_start_std,
+                                    "n_params": cpu_model.n_params,
                                 },
                             },
                             self.model_save_path,
@@ -2695,7 +2584,7 @@ class AtomTypeParamModel:
                 test_loss = 0.0
                 # if (world_size==1 or rank == 0):
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {test_lowered}",
+                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {test_lowered}",
                     flush=True,
                 )
         if world_size > 1:
@@ -2749,19 +2638,18 @@ class AtomTypeParamModel:
 
         lowest_test_loss = torch.tensor(float("inf"))
         t1 = time.time()
-        train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t, hfvr_MAE_t, vw_MAE_t = (
-            self.evaluate_batches_single_proc(
-                rank, train_loader, criterion, rank_device
-            )
+        train_loss, hfvr_MAE_t, vw_MAE_t = self.evaluate_batches_single_proc(
+            rank, train_loader, criterion, rank_device
         )
-        test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v, vw_MAE_v = (
-            self.evaluate_batches_single_proc(
-                rank, test_loader, criterion, rank_device
-            )
+        test_loss, hfvr_MAE_v, vw_MAE_v = self.evaluate_batches_single_proc(
+            rank, test_loader, criterion, rank_device
         )
         dt = time.time() - t1
         print(
-            f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f}",
+            f"                                Hirshfeld Vol Ratio   Valence Width"
+        )
+        print(
+            f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f}",
             flush=True,
         )
         for epoch in range(n_epochs):
@@ -2769,18 +2657,13 @@ class AtomTypeParamModel:
             test_lowered = False
             (
                 train_loss,
-                charge_MAE_t,
-                dipole_MAE_t,
-                qpole_MAE_t,
                 hfvr_MAE_t,
                 vw_MAE_t,
             ) = self.train_batches_single_proc(
                 rank, train_loader, criterion, optimizer, rank_device
             )
-            test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v, vw_MAE_v = (
-                self.evaluate_batches_single_proc(
-                    rank, test_loader, criterion, rank_device
-                )
+            test_loss, hfvr_MAE_v, vw_MAE_v = self.evaluate_batches_single_proc(
+                rank, test_loader, criterion, rank_device
             )
 
             if rank == 0:
@@ -2795,10 +2678,11 @@ class AtomTypeParamModel:
                                 "model_state_dict": cpu_model.state_dict(),
                                 "config": {
                                     "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
                                     "n_neuron": cpu_model.n_neuron,
                                     "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
+                                    "param_start_mean": cpu_model.param_start_mean,
+                                    "param_start_std": cpu_model.param_start_std,
+                                    "n_params": cpu_model.n_params,
                                 },
                             },
                             self.model_save_path,
@@ -2809,7 +2693,7 @@ class AtomTypeParamModel:
                 dt = time.time() - t1
                 test_loss = 0.0
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f} {test_lowered}",
+                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f} {test_lowered}",
                     flush=True,
                 )
 
@@ -2998,7 +2882,7 @@ class AtomTypeParamModel:
             if len(mol_data) == batch_size or cnt == len(mols):
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
-                    charge, dipole, qpole, hfvr, vw, hlist = self.eval_fn(batch)
+                    charge, dipole, qpole, hfvr, vw, hlist = self.model(batch)
                     # Isolate atomic properties by molecule
                     (
                         mol_charges,
@@ -3028,8 +2912,6 @@ class AtomTypeParamModel:
     @torch.inference_mode()
     def model_predict(self, data):
         charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = (
-            self.model(
-                data
-            )
+            self.model(data)
         )
         return charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist

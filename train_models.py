@@ -110,6 +110,9 @@ def train_pairwise_model(
             pre_trained_model_path=pre_trained_model_path,
         )
         apnet2_model.model.return_hidden_states = True
+    elif apnet_model_type == "AtomTypeParamModel":
+        APNet = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel
+        batch_size = 1
     else:
         raise ValueError("Invalid Atom Model Type")
     print("Training {}...".format(apnet_model_type))
@@ -147,7 +150,7 @@ def train_pairwise_model(
             ds_m1=m1,
             ds_m2=m2,
         )
-    elif apnet_model_type.startswith("AM-DimerParam"):
+    elif apnet_model_type in ["AM-DimerParam"]:
         apnet2 = APNet(
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
@@ -167,6 +170,22 @@ def train_pairwise_model(
             param_start_mean=param_start_mean,
             param_start_std=param_start_std,
             dimer_eval_type=dimer_eval_type,
+        )
+    elif apnet_model_type in ["AtomTypeParamModel"]:
+        apnet2 = APNet(
+            atom_model_pre_trained_path=am_model_path,
+            pre_trained_model_path=pretrained_model,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            ds_spec_type=spec_type,
+            ds_root=data_dir,
+            ignore_database_null=False,
+            ds_in_memory=True,
+            use_GPU=True,
+            param_start_mean=param_start_mean,
+            param_start_std=param_start_std,
         )
     else:
         apnet2 = APNet(
@@ -193,7 +212,7 @@ def train_pairwise_model(
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads_per_process,
         lr=lr,
-        lr_decay=lr_decay,
+        # lr_decay=lr_decay,
         dataloader_num_workers=4,
         random_seed=random_seed,
     )

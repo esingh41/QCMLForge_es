@@ -1,21 +1,21 @@
-# export iter=0
+export iter=0
 
 
-for seed in 0 # 1 2 3 4
-do
-    export iter=$seed
-    python3 -u ./train_models.py \
-        --train_am "AtomHirshfeldModel" \
-        --am_model_path ./models/am_ap3_HF_ensemble/am_$iter.pt \
-        --spec_type_am 10 \
-        --random_seed $iter \
-        --n_epochs 500 \
-        --lr 5e-5 \
-        --data_dir ./data_dimer_0 \
-        --data_dir_atom ./data_dimer_0 \
-        --world_size 1 \
-        --omp_num_threads 16
-done
+# for seed in 0 # 1 2 3 4
+# do
+#     export iter=$seed
+#     python3 -u ./train_models.py \
+#         --train_am "AtomHirshfeldModel" \
+#         --am_model_path ./models/am_ap3_HF_ensemble/am_$iter.pt \
+#         --spec_type_am 10 \
+#         --random_seed $iter \
+#         --n_epochs 500 \
+#         --lr 5e-5 \
+#         --data_dir ./data_dimer_0 \
+#         --data_dir_atom ./data_dimer_0 \
+#         --world_size 1 \
+#         --omp_num_threads 16
+# done
 
 # for seed in 0 1 2 3 4
 # do
@@ -31,6 +31,27 @@ done
 #         --world_size 1 \
 #         --omp_num_threads 16 
 # done
+
+python3 -u ./train_models.py \
+    --train_apnet AtomTypeParamModel \
+    --am_model_path ./models/am_ensemble/am_$iter.pt \
+    --random_seed $iter \
+    --ap_model_path ./models/ap_atomTypeParamModel/am_$iter.pt \
+    --n_epochs 100 \
+    --n_neuron 64 \
+    --data_dir ./data_dimer_$iter \
+    --spec_type_ap 10 \
+
+# python3 -u ./train_models.py \
+#     --train_apnet AM-DimerParam \
+#     --am_model_path ./models/am_hirshfeld_ensemble/am_$iter.pt \
+#     --random_seed $iter \
+#     --lr 5e-5 \
+#     --ap_model_path ./models/am_dimer_ensemble/am_dimer_induced_dipole_$iter.pt \
+#     --n_epochs 50 \
+#     --n_neuron 64 \
+#     --data_dir ./data_dimer_$iter \
+#     --spec_type_ap 2 \
 
 # python3 -u ./train_models.py \
 #     --train_apnet AM-DimerParam \

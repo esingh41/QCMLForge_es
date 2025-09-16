@@ -1241,7 +1241,6 @@ def test_atom_model_train():
     return
 
 
-
 def test_AtomTypeParamModel_train():
     """
     AtomTypeParamModel hirsfhfeld_valencewidth uses atomic_hirshfeld_module_dataset with ap2_atom_model
@@ -1279,6 +1278,49 @@ def test_AtomTypeParamModel_train():
     )
 
 
+def test_AtomTypeParamModel_AM_DimerProp_train():
+    """
+    AtomTypeParamModel hirsfhfeld_valencewidth uses atomic_hirshfeld_module_dataset with ap2_atom_model
+    """
+    qcel_molecules = [mol_cliff_water_close] * 4
+    energy_labels = [np.array([-10.779292828139122, -500, -3.414543432719425, 10000]) for _ in range(len(qcel_molecules))]
+    am = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=current_file_path + "/../models/am_ensemble/am_0.pt",
+        pre_trained_model_path=current_file_path + "/../models/ap_atomTypeParamModel/am_0.pt",
+    )
+    print(am)
+    # am.set_pretrained_model(current_file_path + "/../models/ap_atomTypeParamModel/am_0.pt")
+    print('set_pretrained')
+    print(am.atom_model)
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        atom_model_type='AtomTypeParamNN',
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        use_GPU=False,
+        ds_spec_type=None,
+        ds_qcel_molecules=qcel_molecules,
+        ds_energy_labels=energy_labels,
+        param_start_mean=1.3,
+        param_start_std=0.05,
+        n_neuron=32,
+        dimer_eval_type="elst_damping__induced_dipole",
+    )
+    print(param_mod)
+    param_mod.train(
+        n_epochs=10,
+        # skip_compile=True,
+        skip_compile=False,
+        lr=5e-4,
+        split_percent=0.5,
+    )
+
+
+
 def test_atomhirshfeld_model_train():
     ds = atomic_datasets.atomic_hirshfeld_module_dataset(
         root=data_path,
@@ -1312,7 +1354,6 @@ def test_atomhirshfeld_model_train():
         random_seed=42,
     )
     return
-
 
 def test_atomhirshfeld_model_train():
     ds = atomic_datasets.atomic_hirshfeld_module_dataset(
@@ -1703,8 +1744,8 @@ def test_ap2_elst_dataset():
     )
 
 if __name__ == "__main__":
-    test_AtomTypeParamModel_train()
-
+    # test_AtomTypeParamModel_train()
+    test_AtomTypeParamModel_AM_DimerProp_train()
     # test_induced_dipole_qcel_mols()
     # test_induced_dipole_eval()
     # test_induced_dipole_dataset()
