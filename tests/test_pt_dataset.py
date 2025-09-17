@@ -1307,9 +1307,6 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         n_params=2,
         dimer_eval_type="elst_damping__induced_dipole",
     )
-    print("Param model:")
-    print(param_mod)
-    print(param_mod.model)
     param_mod.train(
         n_epochs=10,
         # skip_compile=True,

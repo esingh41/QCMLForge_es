@@ -69,6 +69,7 @@ def train_pairwise_model(
     apnet_model_type="APNet2",
     model_out="./models/ap2_ensemble/ap2_1.pt",
     am_model_path="./models/ap2_ensemble/am_1.pt",
+    atom_type_param_model_path="./models/ap_atomTypeParamModel/am_0.pt",
     data_dir="./data_pairwise",
     n_epochs=50,
     lr=5e-4,
@@ -172,7 +173,20 @@ def train_pairwise_model(
             dimer_eval_type=dimer_eval_type,
         )
     elif apnet_model_type in ["AtomTypeParamModel"]:
+        if dimer_eval_type in ['elst_damping__induced_dipole']:
+            atom_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+                ds_root=None,
+                use_GPU=False,
+                ignore_database_null=True,
+                atom_model_pre_trained_path=am_model_path,
+                pre_trained_model_path=atom_type_param_model_path,
+            )
+            am_model_path = None
+        else:
+            atom_model = None
+
         apnet2 = APNet(
+            atom_model=atom_model,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
             n_rbf=n_rbf,
@@ -244,6 +258,12 @@ def main():
         type=str,
         default="./models/am_ensemble/am_0.pt",
         help="specify where to save output model (default: ./models/am_ensemble/am_1.pt)"
+    )
+    args.add_argument(
+        "--ap_monomer_params_model_path",
+        type=str,
+        default="./models/ap_atomTypeParamModel/am_0.pt",
+        help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props (default: ./models/ap_atomTypeParamModel/am_0.pt)"
     )
     args.add_argument(
         "--ap_model_path",
@@ -422,6 +442,7 @@ def main():
             apnet_model_type=args.train_apnet,
             model_out=args.ap_model_path,
             am_model_path=args.am_model_path,
+            atom_type_param_model_path=args.ap_monomer_params_model_path,
             data_dir=args.data_dir,
             n_epochs=args.n_epochs,
             lr=args.lr,

@@ -228,22 +228,6 @@ class DimerProp(nn.Module):
         )
         # print(f"{v_A[-1]=}")
         # print(f"{v_A[-2]=}")
-        Elst = mtp_elst_damping(
-            ZA=batch.ZA,
-            RA=batch.RA,
-            qA=v_A[0],
-            muA=v_A[1],
-            quadA=v_A[2],
-            Ka=v_A[-1][:, 0],
-            ZB=batch.ZB,
-            RB=batch.RB,
-            qB=v_B[0],
-            muB=v_B[1],
-            quadB=v_B[2],
-            Kb=v_B[-1][:, 0],
-            e_AB_source=batch.e_ABsr_source,
-            e_AB_target=batch.e_ABsr_target,
-        )
         # print(f"{v_A[-1][:2]=}")
         # print(f"{qB=}, {muB=}, {thetaB=}, {K_j=}, {hB=}")
         Indu = induced_dipole_induction(
@@ -272,8 +256,23 @@ class DimerProp(nn.Module):
             valence_widths_B=v_B[-2][:, 1],
             polarizability_table=self.polarizability_table,
         )
-        # print(f"{Indu = }")
-        # Need to return (N, 2) for N (elst, indu)
+        # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
+        Elst = mtp_elst_damping(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=v_A[-1][:, 0],
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=v_B[-1][:, 0],
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+        )
         return torch.vstack((Elst, Indu)).T
 
 
@@ -291,8 +290,13 @@ class AtomTypeParamNN(nn.Module):
         super().__init__()
         self.atom_model = atom_model
         self.atom_model.requires_grad_(False)
-
         self.n_message = n_message
+        if type(self.atom_model) in [AtomMPNN, AtomHirshfeldMPNN]:
+            self.h_list_ind = -1
+        elif type(self.atom_model) is AtomTypeParamNN:
+            self.h_list_ind = 3
+        else:
+            raise ValueError("Unknown atom_model type")
         self.n_neuron = n_neuron
         self.n_embed = n_embed
         self.param_start_mean = param_start_mean
@@ -351,7 +355,7 @@ class AtomTypeParamNN(nn.Module):
         edge_index = batch.edge_index
         molecule_ind = batch.molecule_ind
         am_out = self.atom_model(batch)
-        charge, dipole, qpole, h_list = am_out[0], am_out[1], am_out[2], am_out[-1]
+        charge, dipole, qpole, h_list = am_out[0], am_out[1], am_out[2], am_out[self.h_list_ind]
         Z = x
         K_list = [self.guess_layer[p](Z) for p in range(self.n_params)]
         K = torch.cat(K_list, dim=-1)  # shape (n_atoms, n_params)
@@ -695,10 +699,6 @@ def induced_dipole_induction(
     induction model from this paper:
     https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
     """
-    print(f"{hirshfeld_volume_ratio_A=}, {hirshfeld_volume_ratio_B=}")
-    print(f"{valence_widths_A=}, {valence_widths_B=}")
-    print(f"{Ka=}, {Kb=}")
-
     delta = torch.eye(3, device=qA.device)
     h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
 
@@ -745,16 +745,13 @@ def induced_dipole_induction(
 
     K_A_source = Ka.index_select(0, e_AB_source)
     K_B_target = Kb.index_select(0, e_AB_target)
-    # print(f"{K_A_source=}, {K_B_target=}")
     # Must have sigma be > 0 to avoid NaNs
     sigma_A_source = valence_widths_A.index_select(0, e_AB_source)
     sigma_B_target = valence_widths_B.index_select(0, e_AB_target)
     B_ij = torch.sqrt(1.0 / (sigma_A_source * sigma_B_target))
-    # print(f"{sigma_A_source=}, {sigma_B_target=}, {B_ij=}, {dR_AB=}")
     S_ij = (1.0 / 3.0 * (B_ij * dR_AB) ** 2 + B_ij * dR_AB + 1.0) * torch.exp(
         -B_ij * dR_AB
     )
-    # print(f"{S_ij=}")
     E_ind_overlap = K_A_source * S_ij * K_B_target * h2kcalmol
 
     # Calculate initial induced dipoles
@@ -846,7 +843,6 @@ def induced_dipole_induction(
         delta_B = torch.norm(mu_induced_B - mu_induced_B_old)
         delta = max(delta_A, delta_B)
         if delta < convergence_threshold:
-            # print(f"   Converged after {iteration + 1} iterations.")
             break
     muA_induced_source = mu_induced_A.index_select(0, e_AB_source)
     muB_induced_target = mu_induced_B.index_select(0, e_AB_target)
@@ -863,7 +859,6 @@ def induced_dipole_induction(
         * h2kcalmol
     )
     E_ind = (E_qu + E_uu) / 2.0
-    # print(f"{E_ind=}, {torch.sum(E_ind_overlap)=}")
     E_ind -= E_ind_overlap
     return E_ind
 
@@ -1089,8 +1084,6 @@ def isolate_atom_parameter_predictions(batch, output):
 
 
 def isolate_atom_parameter_predictions_ap3(batch, output):
-    print(f"{len(output)=}")
-    print(f"{output=}")
     batch_size = batch.natom_per_mol.size(0)
     q = output[0]
     mu = output[1]
@@ -1178,9 +1171,6 @@ class AM_DimerParam_Model:
             am_type = AtomTypeParamNN
         else:
             raise ValueError(f"Unknown atom_model_type: {atom_model_type}")
-
-        print(f"Atom model type: {atom_model_type}")
-        print(f"Atom model: {self.atom_model}")
 
         if atom_model_pre_trained_path:
             print(
@@ -1666,9 +1656,6 @@ class AM_DimerParam_Model:
                 natom_per_mol=dimer_batch.natom_per_mol_A,
             )
             with torch.no_grad():
-                print(self.model)
-                print(self.model.n_params)
-                print(batch_A)
                 v = isolate_fn(batch_A, self.model(batch_A))
                 output_A.extend(list(zip(*v)))
             batch_B = Data(
@@ -1740,8 +1727,6 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             ref = batch.y[:, y_ind]
             preds = self.dimer_model(batch)
-            print(f"{ref = }")
-            print(f"{preds = }")
             preds = scatter(
                 preds,
                 batch.dimer_ind,
@@ -1749,7 +1734,6 @@ units angstrom
                 reduce="add",
                 dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long),
             )
-            print(f"{preds = }")
             comp_errors = preds - ref
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
@@ -1763,9 +1747,8 @@ units angstrom
             comp_errors_t.append(comp_errors.detach().cpu())
         if scheduler is not None:
             scheduler.step()
-
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t), dim=0)
         return total_loss, total_MAE_t
 
     # @torch.inference_mode()
@@ -1796,7 +1779,7 @@ units angstrom
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t), dim=0)
         return total_loss, total_MAE_t
 
     def __evaluate_batches_single_proc_elst_no_damping(
@@ -1828,7 +1811,7 @@ units angstrom
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
-        total_MAE_t = torch.mean(torch.abs(comp_errors_t))
+        total_MAE_t = torch.mean(torch.abs(comp_errors_t), dim=0)
         return total_loss, total_MAE_t
 
     ########################################################################
@@ -1850,8 +1833,6 @@ units angstrom
         # self.model.to(rank_device)
         batch = self.example_input()
         batch.to(rank_device)
-        print(batch)
-        print(self.model)
         self.model(batch)
         best_model = deepcopy(self.model)
         if not skip_compile:
@@ -1929,9 +1910,10 @@ units angstrom
         v_out = __evaluate_batch(test_loader, criterion, rank_device, y_ind=y_ind)
         train_loss, total_MAE_t = t_out
         test_loss, total_MAE_v = v_out
+        mae_string = " ".join([f"{mae_t: > 7.3f}/{mae_v: < 7.3f}" for mae_t, mae_v in zip(total_MAE_t, total_MAE_v)])
         print(
             f" (Pre-training)({time.time() - t0: < 7.2f}s)"
-            f" MAE: {total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}",
+            f" MAE: {mae_string}",
             flush=True,
         )
 
@@ -1968,14 +1950,15 @@ units angstrom
                     )
                 self.model.to(rank_device)
 
+            mae_string = " ".join([f"{mae_t: > 7.3f}/{mae_v: < 7.3f}" for mae_t, mae_v in zip(total_MAE_t, total_MAE_v)])
             print(
                 f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
-                f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {star_marker}",
+                f"{mae_string} {star_marker}",
                 flush=True,
             )
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
-            if torch.isnan(total_MAE_t) or torch.isnan(total_MAE_v):
+            if torch.any(total_MAE_t.isnan()) or torch.any(total_MAE_v.isnan()):
                 print("NaN detected, stopping training")
                 torch.save(
                     {
