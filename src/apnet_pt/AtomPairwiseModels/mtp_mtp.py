@@ -81,7 +81,6 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_A,
             )
         )
-        # print(f"{qA=}, {muA=}, {thetaA=}, {K_i=}, {hA=}")
         v_B = self.AtomTypeParam(
             Data(
                 x=batch.ZB,
@@ -92,7 +91,6 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        # print(f"{qB=}, {muB=}, {thetaB=}, {K_j=}, {hB=}")
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -165,7 +163,6 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_A,
             )
         )
-        # print(f"{qA=}, {muA=}, {thetaA=}, {K_i=}, {hA=}")
         v_B = self.AtomTypeParam(
             Data(
                 x=batch.ZB,
@@ -176,8 +173,6 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        # print(f"{v_A[-1][:2]=}")
-        # print(f"{qB=}, {muB=}, {thetaB=}, {K_j=}, {hB=}")
         Indu = induced_dipole_induction(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -204,7 +199,6 @@ class DimerProp(nn.Module):
             valence_widths_B=v_B[4],
             polarizability_table=self.polarizability_table,
         )
-        # print(f"{Indu = }")
         return Indu
 
 
@@ -222,7 +216,6 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_A,
             )
         )
-        # print(f"{qA=}, {muA=}, {thetaA=}, {K_i=}, {hA=}")
         v_B = self.AtomTypeParam(
             Data(
                 x=batch.ZB,
@@ -233,6 +226,8 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
+        # print(f"{v_A[-1]=}")
+        # print(f"{v_A[-2]=}")
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -257,13 +252,13 @@ class DimerProp(nn.Module):
             qA=v_A[0],
             muA=v_A[1],
             quadA=v_A[2],
-            Ka=v_A[-1],
+            Ka=v_A[-1][:, 1],
             ZB=batch.ZB,
             RB=batch.RB,
             qB=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
-            Kb=v_B[-1],
+            Kb=v_B[-1][:, 1],
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
             # Additional parameters for induction
@@ -271,10 +266,10 @@ class DimerProp(nn.Module):
             e_BB_source=batch.e_BB_source,
             e_AA_target=batch.e_AA_target,
             e_BB_target=batch.e_BB_target,
-            hirshfeld_volume_ratio_A=v_A[3],
-            hirshfeld_volume_ratio_B=v_B[3],
-            valence_widths_A=v_A[4],
-            valence_widths_B=v_B[4],
+            hirshfeld_volume_ratio_A=v_A[-2][:, 0],
+            hirshfeld_volume_ratio_B=v_B[-2][:, 0],
+            valence_widths_A=v_A[-2][:, 1],
+            valence_widths_B=v_B[-2][:, 1],
             polarizability_table=self.polarizability_table,
         )
         # print(f"{Indu = }")
@@ -366,15 +361,11 @@ class AtomTypeParamNN(nn.Module):
             atoms_with_edges,
         )
         K_filtered = K[keep_mask]  # shape (n_atoms_filtered, n_params)
-        # print(f"{K_filtered=}")
         for p in range(self.n_params):
             for i in range(self.n_message):
                 param_update = self.param_readout_layers[p][i](h_list[i + 1])
                 K_filtered[:, p] += param_update.squeeze(-1)
-                # print(f"Param {p}, Layer {i}, {param_update=}, {K_filtered=}")
         K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
-        # print(f"Final {K=}")
-        # TODO: make this not a squeeze...
         return (
             charge,
             dipole,
@@ -704,6 +695,9 @@ def induced_dipole_induction(
     induction model from this paper:
     https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
     """
+    print(f"{hirshfeld_volume_ratio_A=}, {hirshfeld_volume_ratio_B=}")
+    print(f"{valence_widths_A=}, {valence_widths_B=}")
+    print(f"{Ka=}, {Kb=}")
 
     delta = torch.eye(3, device=qA.device)
     h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
@@ -1095,6 +1089,8 @@ def isolate_atom_parameter_predictions(batch, output):
 
 
 def isolate_atom_parameter_predictions_ap3(batch, output):
+    print(f"{len(output)=}")
+    print(f"{output=}")
     batch_size = batch.natom_per_mol.size(0)
     q = output[0]
     mu = output[1]
@@ -1670,6 +1666,9 @@ class AM_DimerParam_Model:
                 natom_per_mol=dimer_batch.natom_per_mol_A,
             )
             with torch.no_grad():
+                print(self.model)
+                print(self.model.n_params)
+                print(batch_A)
                 v = isolate_fn(batch_A, self.model(batch_A))
                 output_A.extend(list(zip(*v)))
             batch_B = Data(
@@ -1741,6 +1740,8 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             ref = batch.y[:, y_ind]
             preds = self.dimer_model(batch)
+            print(f"{ref = }")
+            print(f"{preds = }")
             preds = scatter(
                 preds,
                 batch.dimer_ind,
@@ -1748,6 +1749,7 @@ units angstrom
                 reduce="add",
                 dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long),
             )
+            print(f"{preds = }")
             comp_errors = preds - ref
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
@@ -1895,10 +1897,16 @@ units angstrom
             self.dimer_model.polarizability_table = (
                 self.dimer_model.polarizability_table.to(self.device)
             )
+        elif self.dimer_eval_type == "elst_damping__induced_dipole":
+            y_ind = torch.tensor([0, 2])
+            term = "Elst      Ind"
+            self.dimer_model.polarizability_table = (
+                self.dimer_model.polarizability_table.to(self.device)
+            )
         else:
             raise ValueError(f"Unknown dimer_eval_type: {self.dimer_eval_type}")
         print(
-            f"                                       {term}:{y_ind}",
+            f"                                       {term}",
             flush=True,
         )
 

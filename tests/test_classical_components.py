@@ -1159,6 +1159,15 @@ def test_induced_dipole_torch_alphas_dimer_eval():
 
 def test_induced_dipole_torch_df():
     # check here for CLIFF eval: /home/awallace43/projects/multipoles/cliff_tests
+    """
+vrA=array([1.3908595 , 0.18787692, 0.19180904]), vrB=array([1.39145891, 0.1882568 , 0.18826201]
+)
+vwA=array([0.41118342, 0.35029466, 0.35229699]), vwB=array([0.41117481, 0.35060148, 0.35060415]
+)
+Ks=[[1.14769962, 0.685558974, 0.685558974], [1.14769962, 0.685558974, 0.685558974]]
+hirshfeld_volume_ratio_A=tensor([1.3909, 0.1879, 0.1918])
+hirshfeld_volume_ratio_B=tensor([1.3915, 0.1883, 0.1883])
+    """
     import torch
 
     df = pd.read_pickle(
@@ -1219,6 +1228,10 @@ def test_induced_dipole_torch_df():
         dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
         dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
 
+        print(f"{vrA=}, {vrB=}")
+        print(f"{vwA=}, {vwB=}")
+        print(f"{Ks=}")
+
         ap_q_mu_induction = apnet_pt.multipole.dimer_induced_dipole_torch(
             ZA=dimer_batch.ZA,
             RA=dimer_batch.RA,
@@ -1269,5 +1282,5 @@ if __name__ == "__main__":
     # test_induced_dipole_torch()
     # test_induced_dipole_torch_alphas()
 
-    test_induced_dipole()
+    # test_induced_dipole()
     test_induced_dipole_torch_df()

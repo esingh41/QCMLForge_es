@@ -103,6 +103,7 @@ def test_elst_multipoles_MTP_torch_AM_DimerParam():
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ignore_database_null=False,
+        atom_model_type='AtomMPNN',
         # pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_elst_damp_0.pt",
         ds_spec_type=7,
         use_GPU=False,
@@ -166,6 +167,7 @@ def test_AM_hirshfeld_induction_DimerParam():
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         ignore_database_null=True,
+        atom_model_type='AtomHirshfeldMPNN',
         # pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_ind_0.pt",
         ds_spec_type=7,
         use_GPU=False,
@@ -173,6 +175,7 @@ def test_AM_hirshfeld_induction_DimerParam():
         param_start_mean=1.3,
         param_start_std=0.05,
         n_neuron=32,
+        n_params=1,
         dimer_eval_type="induced_dipole",
     )
     monA_props, monB_props = param_mod.predict_qcel_mols_monomer_props(
@@ -257,7 +260,7 @@ def test_AM_hirshfeld_induction_DimerParam():
     print(f"Torch indu = {torch.sum(torch_indu):.6f} kcal/mol")
     pred = param_mod.predict_qcel_mols_dimer([mol, mol])
     print(pred)
-    ref = np.array([[-3.44164515], [-3.44164515]])
+    ref = np.array([[-3.38611817], [-3.38611817]])
     assert np.allclose(pred, ref, atol=1e-4)
     print(f"Indu time: {time.time() - t1:.4f} s")
     t1 = time.time()
@@ -373,7 +376,7 @@ def test_AtomTypeParamNN_Dimer():
 
 
 if __name__ == "__main__":
-    # test_AM_hirshfeld_induction_DimerParam()
-    # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
+    test_AM_hirshfeld_induction_DimerParam()
     # test_elst_multipoles_MTP_torch_AM_DimerParam()
-    test_AtomTypeParamNN()
+    # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
+    # test_AtomTypeParamNN()

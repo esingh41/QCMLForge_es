@@ -1378,7 +1378,6 @@ def dimer_induced_dipole_torch(
         dR = dR_ang / constants.au2ang
         alpha_i = alpha_A.index_select(0, e_source)
         alpha_j = alpha_B.index_select(0, e_target)
-        print(f"{e_source=}, {e_target=}")
         au3, lam_3, lam_5 = thole_damping_torch(dR, alpha_i, alpha_j, thole_damping_param)
         print(dR, alpha_i, alpha_j, sep='\n')
         # lam_5 = torch.ones_like(lam_5)
