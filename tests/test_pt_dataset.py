@@ -1291,10 +1291,6 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         atom_model_pre_trained_path=current_file_path + "/../models/am_ensemble/am_0.pt",
         pre_trained_model_path=current_file_path + "/../models/ap_atomTypeParamModel/am_0.pt",
     )
-    print(am)
-    # am.set_pretrained_model(current_file_path + "/../models/ap_atomTypeParamModel/am_0.pt")
-    print('set_pretrained')
-    print(am.atom_model)
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         atom_model_type='AtomTypeParamNN',

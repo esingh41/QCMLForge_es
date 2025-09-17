@@ -61,7 +61,7 @@ class DimerProp(nn.Module):
             self.forward = self._indu_induced_dipole_forward
             self.polarizability_table = constants.polarizability_table.clone()
         elif dimer_eval == "elst_damping__induced_dipole":
-            self.forward = self._indu_induced_dipole_forward
+            self.forward = self._elst_damping_indu_induced_dipole_forward
             self.polarizability_table = constants.polarizability_table.clone()
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
@@ -206,6 +206,80 @@ class DimerProp(nn.Module):
         )
         # print(f"{Indu = }")
         return Indu
+
+
+    def _elst_damping_indu_induced_dipole_forward(
+        self,
+        batch,
+    ):
+        v_A = self.AtomTypeParam(
+            Data(
+                x=batch.ZA,
+                R=batch.RA,
+                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
+                molecule_ind=batch.molecule_ind_A,
+                total_charge=batch.total_charge_A,
+                natom_per_mol=batch.natom_per_mol_A,
+            )
+        )
+        # print(f"{qA=}, {muA=}, {thetaA=}, {K_i=}, {hA=}")
+        v_B = self.AtomTypeParam(
+            Data(
+                x=batch.ZB,
+                R=batch.RB,
+                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
+                molecule_ind=batch.molecule_ind_B,
+                total_charge=batch.total_charge_B,
+                natom_per_mol=batch.natom_per_mol_B,
+            )
+        )
+        Elst = mtp_elst_damping(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=v_A[-1][:, 0],
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=v_B[-1][:, 0],
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+        )
+        # print(f"{v_A[-1][:2]=}")
+        # print(f"{qB=}, {muB=}, {thetaB=}, {K_j=}, {hB=}")
+        Indu = induced_dipole_induction(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=v_A[-1],
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=v_B[-1],
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+            # Additional parameters for induction
+            e_AA_source=batch.e_AA_source,
+            e_BB_source=batch.e_BB_source,
+            e_AA_target=batch.e_AA_target,
+            e_BB_target=batch.e_BB_target,
+            hirshfeld_volume_ratio_A=v_A[3],
+            hirshfeld_volume_ratio_B=v_B[3],
+            valence_widths_A=v_A[4],
+            valence_widths_B=v_B[4],
+            polarizability_table=self.polarizability_table,
+        )
+        # print(f"{Indu = }")
+        # Need to return (N, 2) for N (elst, indu)
+        return torch.vstack((Elst, Indu)).T
 
 
 class AtomTypeParamNN(nn.Module):
@@ -1781,7 +1855,9 @@ units angstrom
         # self.model.to(rank_device)
         batch = self.example_input()
         batch.to(rank_device)
+        print(batch)
         self.model(batch)
+        print('after')
         best_model = deepcopy(self.model)
         if not skip_compile:
             print("Compiling model")
