@@ -201,7 +201,6 @@ class DimerProp(nn.Module):
         )
         return Indu
 
-
     def _elst_damping_indu_induced_dipole_forward(
         self,
         batch,
@@ -1906,7 +1905,10 @@ units angstrom
         v_out = __evaluate_batch(test_loader, criterion, rank_device, y_ind=y_ind)
         train_loss, total_MAE_t = t_out
         test_loss, total_MAE_v = v_out
-        mae_string = " ".join([f"{mae_t: > 7.3f}/{mae_v: < 7.3f}" for mae_t, mae_v in zip(total_MAE_t, total_MAE_v)])
+        if isinstance(y_ind, torch.Tensor):
+            mae_string = " ".join([f"{mae_t: > 7.3f}/{mae_v: < 7.3f}" for mae_t, mae_v in zip(total_MAE_t, total_MAE_v)])
+        else:
+            mae_string = f"{total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}"
         print(
             f" (Pre-training)({time.time() - t0: < 7.2f}s)"
             f" MAE: {mae_string}",
@@ -1946,7 +1948,10 @@ units angstrom
                     )
                 self.model.to(rank_device)
 
-            mae_string = " ".join([f"{mae_t: > 7.3f}/{mae_v: < 7.3f}" for mae_t, mae_v in zip(total_MAE_t, total_MAE_v)])
+            if isinstance(y_ind, torch.Tensor):
+                mae_string = " ".join([f"{mae_t: > 7.3f}/{mae_v: < 7.3f}" for mae_t, mae_v in zip(total_MAE_t, total_MAE_v)])
+            else:
+                mae_string = f"{total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}"
             print(
                 f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
                 f"{mae_string} {star_marker}",

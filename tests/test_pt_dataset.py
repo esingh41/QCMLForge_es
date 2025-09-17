@@ -1548,7 +1548,7 @@ def test_mtp_mtp_elst_qcel_mols():
     )
     print(param_mod)
     param_mod.train(
-        n_epochs=1000,
+        n_epochs=50,
         skip_compile=True,
         lr=5e-4,
         split_percent=0.5,
@@ -1741,13 +1741,13 @@ def test_ap2_elst_dataset():
 if __name__ == "__main__":
     # test_AtomTypeParamModel_train()
     # test_induced_dipole_qcel_mols()
-    test_AtomTypeParamModel_AM_DimerProp_train()
+    # test_AtomTypeParamModel_AM_DimerProp_train()
     # test_induced_dipole_eval()
     # test_induced_dipole_dataset()
 
     # test_atomhirshfeld_model_train()
 
-    # test_mtp_mtp_elst_qcel_mols()
+    test_mtp_mtp_elst_qcel_mols()
     # test_mtp_mtp_elst_eval()
     # test_atom_model_train()
     # test_mtp_mtp_elst_dataset()
