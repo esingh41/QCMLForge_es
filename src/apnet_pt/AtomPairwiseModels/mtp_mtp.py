@@ -173,6 +173,7 @@ class AtomTypeParamNN(nn.Module):
             self.damping_elst_readout_layers.append(
                 self._make_layers(layer_nodes_readout, layer_activations)
             )
+        # print(self.damping_elst_readout_layers)
 
     def _make_layers(self, layer_nodes, activations):
         layers = []
@@ -211,9 +212,16 @@ class AtomTypeParamNN(nn.Module):
             atoms_with_edges,
         )
         K_filtered = K[keep_mask]
-        # print(f"{K_filtered=}")
+        # print(f"{h_list.size()=}")
+        # print(f"{K.size()=}")
+        # print(f"{K_filtered.size()=}")
+        # print(f"{x.size()=}")
+
+        # h_list is actually n_messages+1 for initial embedding, dim of stacking is 1
         for i in range(self.n_message):
-            param_update = self.damping_elst_readout_layers[i](h_list[i + 1])
+            # print(h_list[:, i, :].size())
+            param_update = self.damping_elst_readout_layers[i](h_list[:, i + 1, :])
+            # print(f"{param_update.size()=}")
             K_filtered += param_update
             # print(f"Layer {i}, {param_update=}, {K_filtered=}")
         K[keep_mask] = torch.relu(K_filtered)  # + 1.00001

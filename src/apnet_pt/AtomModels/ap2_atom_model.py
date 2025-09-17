@@ -421,7 +421,9 @@ class AtomMPNN(MessagePassing):
         # changed to dim=0 from dim=1 for usage in Param fitting # AMW 8/20/25
         # Breaks test_apnet2_train_qcel_molecules_in_memory_transfer test,
         # dimensions no longer correct... figure out another way to fix this # AMW 9/17/25
+        # print(len(h_list), h_list[0].size())
         h_list = torch.stack(h_list, dim=1)
+        # print(h_list.size())
         return charge, dipole, qpole, h_list
 
 

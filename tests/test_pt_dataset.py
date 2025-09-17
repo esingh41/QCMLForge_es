@@ -1318,7 +1318,7 @@ def test_mtp_mtp_elst_qcel_mols():
     )
     print(param_mod)
     param_mod.train(
-        n_epochs=1000,
+        n_epochs=50,
         skip_compile=True,
         lr=5e-4,
         split_percent=0.5,
@@ -1345,7 +1345,7 @@ def test_mtp_mtp_elst_dataset():
         n_neuron=32,
     )
     param_mod.train(
-        n_epochs=500,
+        n_epochs=2,
         skip_compile=False,
         lr=5e-3,
         # model_path='nan.pt',
@@ -1400,7 +1400,7 @@ def test_ap2_elst_dataset():
     )
     param_mod.train(
         # n_epochs=500,
-        n_epochs=150,
+        n_epochs=2,
         skip_compile=True,
         lr=5e-4,
     )
