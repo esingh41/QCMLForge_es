@@ -294,7 +294,7 @@ class AtomMPNN(MessagePassing):
         if edge_index.size(1) == 0:
             # need h_list to have the same number of dimensions as the number of message passing layers
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
-            h_list = torch.stack(h_list, dim=0)
+            h_list = torch.stack(h_list, dim=1)
             molecule_ind.requires_grad_(False)
             molecule_ind = molecule_ind.long()
             total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
@@ -419,7 +419,9 @@ class AtomMPNN(MessagePassing):
         charge = charge - charge_err
         charge = charge.squeeze()
         # changed to dim=0 from dim=1 for usage in Param fitting # AMW 8/20/25
-        h_list = torch.stack(h_list, dim=0)
+        # Breaks test_apnet2_train_qcel_molecules_in_memory_transfer test,
+        # dimensions no longer correct... figure out another way to fix this # AMW 9/17/25
+        h_list = torch.stack(h_list, dim=1)
         return charge, dipole, qpole, h_list
 
 

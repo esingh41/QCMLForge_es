@@ -178,7 +178,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         if edge_index.size(0) == 0:
             # need h_list to have the same number of dimensions as the number of message passing layers
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
-            h_list = torch.stack(h_list, dim=1)
+            h_list = torch.stack(h_list, dim=0)
             # if we get a single atom, we should return ones for volume_ratio, valence_width
             return (
                 charge.squeeze(),
@@ -322,7 +322,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         ).unsqueeze(1)
         charge = charge - charge_err
         charge = charge.squeeze()
-        h_list = torch.stack(h_list, dim=1)
+        h_list = torch.stack(h_list, dim=0)
         volume_ratio[keep_mask] = filtered_volume_ratio
         volume_ratio = volume_ratio.squeeze()
         valence_width[keep_mask] = filtered_valence_width

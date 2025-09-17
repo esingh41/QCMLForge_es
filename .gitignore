@@ -209,3 +209,5 @@ GEMINI.md
 OpenCode.md
 data/
 data_dimer*
+tests/dataset_data/ap2_ensemble_test.pt
+tests/dataset_data/ap2_fused_ensemble_test.pt
