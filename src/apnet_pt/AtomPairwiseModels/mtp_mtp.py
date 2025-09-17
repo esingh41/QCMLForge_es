@@ -226,10 +226,6 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        # print(f"{v_A[-1]=}")
-        # print(f"{v_A[-2]=}")
-        # print(f"{v_A[-1][:2]=}")
-        # print(f"{qB=}, {muB=}, {thetaB=}, {K_j=}, {hB=}")
         Indu = induced_dipole_induction(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -2033,7 +2029,7 @@ units angstrom
         print("~~ Training Dimer Param ~~", flush=True)
         print(
             f"    Training on {len(train_dataset)} samples,"
-            " Testing on {len(test_dataset)} samples"
+            f" Testing on {len(test_dataset)} samples"
         )
         print("\nNetwork Hyperparameters:", flush=True)
         print(f"  {self.model.n_message=}", flush=True)

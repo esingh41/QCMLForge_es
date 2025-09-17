@@ -81,6 +81,7 @@ def train_pairwise_model(
     n_rbf=8,
     n_neuron=128,
     n_embed=8,
+    n_params=2,
     m1="",
     m2="",
     pre_trained_model_path="./models/dapnet2/ap2_0.pt",
@@ -152,7 +153,20 @@ def train_pairwise_model(
             ds_m2=m2,
         )
     elif apnet_model_type in ["AM-DimerParam"]:
+        if dimer_eval_type in ['elst_damping__induced_dipole']:
+            atom_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+                ds_root=None,
+                use_GPU=False,
+                ignore_database_null=True,
+                atom_model_pre_trained_path=am_model_path,
+                pre_trained_model_path=atom_type_param_model_path,
+            ).model
+            am_model_path = None
+        else:
+            atom_model = None
+
         apnet2 = APNet(
+            atom_model=atom_model,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
             n_rbf=n_rbf,
@@ -171,22 +185,10 @@ def train_pairwise_model(
             param_start_mean=param_start_mean,
             param_start_std=param_start_std,
             dimer_eval_type=dimer_eval_type,
+            n_params=n_params,
         )
     elif apnet_model_type in ["AtomTypeParamModel"]:
-        if dimer_eval_type in ['elst_damping__induced_dipole']:
-            atom_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
-                ds_root=None,
-                use_GPU=False,
-                ignore_database_null=True,
-                atom_model_pre_trained_path=am_model_path,
-                pre_trained_model_path=atom_type_param_model_path,
-            )
-            am_model_path = None
-        else:
-            atom_model = None
-
         apnet2 = APNet(
-            atom_model=atom_model,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
             n_rbf=n_rbf,
@@ -260,7 +262,7 @@ def main():
         help="specify where to save output model (default: ./models/am_ensemble/am_1.pt)"
     )
     args.add_argument(
-        "--ap_monomer_params_model_path",
+        "--atom_type_param_model_path",
         type=str,
         default="./models/ap_atomTypeParamModel/am_0.pt",
         help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props (default: ./models/ap_atomTypeParamModel/am_0.pt)"
@@ -399,6 +401,12 @@ def main():
         help="specify AP n_embed (default: 8)"
     )
     args.add_argument(
+        "--n_params",
+        type=int,
+        default=2,
+        help="specify AP n_params (default: 2)"
+    )
+    args.add_argument(
         "--param_start_mean",
         type=float,
         default=2.0,
@@ -442,7 +450,7 @@ def main():
             apnet_model_type=args.train_apnet,
             model_out=args.ap_model_path,
             am_model_path=args.am_model_path,
-            atom_type_param_model_path=args.ap_monomer_params_model_path,
+            atom_type_param_model_path=args.atom_type_param_model_path,
             data_dir=args.data_dir,
             n_epochs=args.n_epochs,
             lr=args.lr,
@@ -454,6 +462,7 @@ def main():
             n_rbf=args.n_rbf,
             n_neuron=args.n_neuron,
             n_embed=args.n_embed,
+            n_params=args.n_params,
             m1=args.m1,
             m2=args.m2,
             pre_trained_model_path=args.ap_pretrained_model_path,
