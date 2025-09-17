@@ -1003,22 +1003,8 @@ class APNet3Model:
             batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
             batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
             with torch.no_grad():
-                am_out_A = self.atom_model(
-                    batch_A.x,
-                    batch_A.edge_index,
-                    R=batch_A.R,
-                    molecule_ind=batch_A.molecule_ind,
-                    total_charge=batch_A.total_charge,
-                    natom_per_mol=batch_A.natom_per_mol,
-                )
-                am_out_B = self.atom_model(
-                    batch_B.x,
-                    batch_B.edge_index,
-                    R=batch_B.R,
-                    molecule_ind=batch_B.molecule_ind,
-                    total_charge=batch_B.total_charge,
-                    natom_per_mol=batch_B.natom_per_mol,
-                )
+                am_out_A = self.atom_model(batch_A)
+                am_out_B = self.atom_model(batch_B)
                 qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = (
                     isolate_atomic_property_predictions(batch_A, am_out_A)
                 )
@@ -1156,22 +1142,8 @@ class APNet3Model:
             batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
             batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
             with torch.no_grad():
-                am_out_A = self.atom_model(
-                    batch_A.x,
-                    batch_A.edge_index,
-                    R=batch_A.R,
-                    molecule_ind=batch_A.molecule_ind,
-                    total_charge=batch_A.total_charge,
-                    natom_per_mol=batch_A.natom_per_mol,
-                )
-                am_out_B = self.atom_model(
-                    batch_B.x,
-                    batch_B.edge_index,
-                    R=batch_B.R,
-                    molecule_ind=batch_B.molecule_ind,
-                    total_charge=batch_B.total_charge,
-                    natom_per_mol=batch_B.natom_per_mol,
-                )
+                am_out_A = self.atom_model(batch_A)
+                am_out_B = self.atom_model(batch_B)
                 qAs, muAs, quadAs, hfvrAs, vwAs, hlistAs = (
                     isolate_atomic_property_predictions(batch_A, am_out_A)
                 )

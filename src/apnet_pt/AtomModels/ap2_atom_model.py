@@ -271,14 +271,16 @@ class AtomMPNN(MessagePassing):
     # @torch.jit.trace
     def forward(
         self,
-        x,
-        edge_index,
-        # edge_attr,
-        R,
-        molecule_ind,
-        total_charge,
-        natom_per_mol,
+        batch,
     ):
+        # Extract variables from batch
+        x = batch.x
+        edge_index = batch.edge_index
+        R = batch.R
+        molecule_ind = batch.molecule_ind
+        total_charge = batch.total_charge
+        natom_per_mol = batch.natom_per_mol
+
         # edge_index has shape [(e_source, e_target), n_edges]
         Z = x
         natom = Z.size(0)
@@ -590,18 +592,6 @@ class AtomModel:
     def cleanup(self):
         dist.destroy_process_group()
 
-    def eval_fn(self, batch):
-        charge, dipole, qpole, hlist = self.model(
-            batch.x,
-            batch.edge_index,
-            # batch.edge_attr,
-            R=batch.R,
-            molecule_ind=batch.molecule_ind,
-            total_charge=batch.total_charge,
-            natom_per_mol=batch.natom_per_mol,
-        )
-        return charge, dipole, qpole, hlist
-
     def _qcel_example_input(self, mols, batch_size=1):
         mol_data = [qcel_mon_to_pyg_data(mol) for mol in mols]
         batches = []
@@ -629,14 +619,7 @@ units angstrom
             batch_loss = 0.0
             batch = batch.to(self.device)
             optimizer.zero_grad()
-            charge, dipole, qpole, _ = self.model(
-                batch.x,
-                batch.edge_index,
-                # batch.edge_attr,
-                R=batch.R,
-                molecule_ind=batch.molecule_ind,
-                total_charge=batch.total_charge,
-            )
+            charge, dipole, qpole, _ = self.model(batch)
 
             # Errors
             q_error = charge - batch.charges
@@ -674,15 +657,7 @@ units angstrom
             for batch in data_loader:
                 batch_loss = 0.0
                 batch = batch.to(self.device)
-                charge, dipole, qpole, hlist = self.model(
-                    batch.x,
-                    batch.edge_index,
-                    # batch.edge_attr,
-                    R=batch.R,
-                    molecule_ind=batch.molecule_ind,
-                    total_charge=batch.total_charge,
-                    natom_per_mol=batch.natom_per_mol,
-                )
+                charge, dipole, qpole, hlist = self.model(batch)
 
                 # Errors
                 q_error = charge - batch.charges
@@ -754,7 +729,7 @@ units angstrom
         for batch in dataloader:
             batch = batch.to(rank_device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            charge, dipole, qpole, _ = self.eval_fn(batch)
+            charge, dipole, qpole, _ = self.model(batch)
 
             q_error = charge - batch.charges
             d_error = dipole - batch.dipoles
@@ -793,7 +768,7 @@ units angstrom
         for batch in dataloader:
             batch = batch.to(rank_device)
             optimizer.zero_grad()
-            charge, dipole, qpole, _ = self.eval_fn(batch)
+            charge, dipole, qpole, _ = self.model(batch)
 
             q_error = charge - batch.charges
             d_error = dipole - batch.dipoles
@@ -850,7 +825,7 @@ units angstrom
         with torch.no_grad():
             for batch in dataloader:
                 batch = batch.to(rank_device, non_blocking=True)
-                charge, dipole, qpole, _ = self.eval_fn(batch)
+                charge, dipole, qpole, _ = self.model(batch)
 
                 q_error = charge - batch.charges
                 d_error = dipole - batch.dipoles
@@ -887,7 +862,7 @@ units angstrom
         with torch.no_grad():
             for batch in dataloader:
                 batch = batch.to(rank_device)
-                charge, dipole, qpole, _ = self.eval_fn(batch)
+                charge, dipole, qpole, _ = self.model(batch)
 
                 q_error = charge - batch.charges
                 d_error = dipole - batch.dipoles
@@ -1270,7 +1245,7 @@ units angstrom
     def predict_multipoles_batch(self, batch, isolate_predictions=True):
         batch.to(self.device)
         self.model.to(self.device)
-        qA, muA, thA, hlistA = self.eval_fn(batch)
+        qA, muA, thA, hlistA = self.model(batch)
         batch = batch.cpu()
         qA = qA.detach().detach().cpu()
         # print("predict_multipoles_batch")
@@ -1329,7 +1304,7 @@ units angstrom
             if len(mol_data) == batch_size or cnt == len(mols):
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
-                    charge, dipole, qpole, hlist = self.eval_fn(batch)
+                    charge, dipole, qpole, hlist = self.model(batch)
                     # Isolate atomic properties by molecule
                     mol_charges, mol_dipoles, mol_qpoles, mol_hlists = isolate_atomic_property_predictions(
                         batch, (charge, dipole, qpole, hlist)

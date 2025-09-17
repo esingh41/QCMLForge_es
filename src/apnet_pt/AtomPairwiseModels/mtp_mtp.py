@@ -355,14 +355,7 @@ class AtomTypeParamNN(nn.Module):
         x = batch.x
         edge_index = batch.edge_index
         molecule_ind = batch.molecule_ind
-        am_out = self.atom_model(
-            batch.x,
-            batch.edge_index,
-            R=batch.R,
-            molecule_ind=batch.molecule_ind,
-            total_charge=batch.total_charge,
-            natom_per_mol=batch.natom_per_mol,
-        )
+        am_out = self.atom_model(batch)
         charge, dipole, qpole, h_list = am_out[0], am_out[1], am_out[2], am_out[-1]
         Z = x
         K_list = [self.guess_layer[p](Z) for p in range(self.n_params)]
@@ -1856,8 +1849,8 @@ units angstrom
         batch = self.example_input()
         batch.to(rank_device)
         print(batch)
+        print(self.model)
         self.model(batch)
-        print('after')
         best_model = deepcopy(self.model)
         if not skip_compile:
             print("Compiling model")

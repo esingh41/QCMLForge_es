@@ -1304,9 +1304,12 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         param_start_mean=1.3,
         param_start_std=0.05,
         n_neuron=32,
+        n_params=2,
         dimer_eval_type="elst_damping__induced_dipole",
     )
+    print("Param model:")
     print(param_mod)
+    print(param_mod.model)
     param_mod.train(
         n_epochs=10,
         # skip_compile=True,
@@ -1314,7 +1317,6 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         lr=5e-4,
         split_percent=0.5,
     )
-
 
 
 def test_atomhirshfeld_model_train():
@@ -1741,8 +1743,8 @@ def test_ap2_elst_dataset():
 
 if __name__ == "__main__":
     # test_AtomTypeParamModel_train()
-    test_AtomTypeParamModel_AM_DimerProp_train()
     # test_induced_dipole_qcel_mols()
+    test_AtomTypeParamModel_AM_DimerProp_train()
     # test_induced_dipole_eval()
     # test_induced_dipole_dataset()
 
