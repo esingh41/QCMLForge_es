@@ -1227,10 +1227,6 @@ class AM_DimerParam_Model:
                 k.replace("_orig_mod.", ""): v
                 for k, v in checkpoint["model_state_dict"].items()
             }
-            from pprint import pprint
-            pprint(model_state_dict)
-            print(self.model)
-            pprint(self.model.state_dict())
             self.model.load_state_dict(model_state_dict)
         else:
             self.model = AtomTypeParamNN(
@@ -1954,12 +1950,12 @@ units angstrom
                 if self.model_save_path:
                     torch.save(
                         {
-                            "atom_model_state_dict": cpu_atom_model.state_dict(),
                             "model_state_dict": cpu_model.state_dict(),
                             "config": {
                                 "n_message": cpu_model.n_message,
                                 "n_neuron": cpu_model.n_neuron,
                                 "n_embed": cpu_model.n_embed,
+                                "n_params": cpu_model.n_params,
                                 "param_start_mean": cpu_model.param_start_mean,
                                 "param_start_std": cpu_model.param_start_std,
                             },
@@ -1989,6 +1985,7 @@ units angstrom
                             "n_message": cpu_model.n_message,
                             "n_neuron": cpu_model.n_neuron,
                             "n_embed": cpu_model.n_embed,
+                            "n_params": cpu_model.n_params,
                             "param_start_mean": cpu_model.param_start_mean,
                             "param_start_std": cpu_model.param_start_std,
                         },

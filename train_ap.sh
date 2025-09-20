@@ -42,7 +42,7 @@ python3 -u ./train_models.py \
     --n_neuron 32 \
     --data_dir ./data_dimer_$iter \
     --spec_type_ap 6 \
-    --lr 5e-6 \
+    --lr 2e-5 \
     --dimer_eval_type elst_damping__induced_dipole \
 
 # Hirshfeld + Valence widths
