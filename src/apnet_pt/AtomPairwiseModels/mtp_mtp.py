@@ -402,12 +402,21 @@ class AtomTypeParamNN(nn.Module):
             torch.arange(len(molecule_ind), device=molecule_ind.device),
             atoms_with_edges,
         )
+        if K.isnan().any():
+            print("K has NaN values before readouts, debugging info:")
+            print(f"{K =}")
+            raise ValueError("K has NaN values")
         K_filtered = K[keep_mask]  # shape (n_atoms_filtered, n_params)
         for p in range(self.n_params):
             for i in range(self.n_message):
                 param_update = self.param_readout_layers[p][i](h_list[:, i + 1, :])
                 K_filtered[:, p] += param_update.squeeze(-1)
         K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
+        if K.isnan().any():
+            print("K has NaN values, debugging info:")
+            print(f"{K_filtered =}")
+            print(f"{h_list=}")
+            raise ValueError("K has NaN values")
         return (
             charge,
             dipole,
@@ -1352,6 +1361,8 @@ class AM_DimerParam_Model:
                     print_level=print_lvl,
                     qcel_molecules=ds_qcel_molecules,
                     energy_labels=ds_energy_labels,
+                    # storage_type="h5",  # "pt" or "h5" for storage format
+                    
                 )
 
             self.dataset = setup_ds()
@@ -1388,6 +1399,7 @@ class AM_DimerParam_Model:
                         print_level=print_lvl,
                         qcel_molecules=ds_qcel_molecules[0],
                         energy_labels=ds_energy_labels[0],
+                        # storage_type="h5",  # "pt" or "h5" for storage format
                     ),
                     ap2_fused_module_dataset(
                         root=ds_root,
@@ -1407,6 +1419,7 @@ class AM_DimerParam_Model:
                         print_level=print_lvl,
                         qcel_molecules=ds_qcel_molecules[1],
                         energy_labels=ds_energy_labels[1],
+                        # storage_type="h5",  # "pt" or "h5" for storage format
                     ),
                 ]
 
@@ -1798,7 +1811,7 @@ units angstrom
                 else loss_fn(preds, ref)
             )
             batch_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.dimer_model.parameters(), max_norm=0.3)
+            torch.nn.utils.clip_grad_norm_(self.dimer_model.parameters(), max_norm=0.2)
             optimizer.step()
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
@@ -1980,8 +1993,8 @@ units angstrom
             f" MAE: {mae_string}",
             flush=True,
         )
-
         lowest_test_loss = test_loss
+        # lowest_test_loss = float("inf")
         cpu_model = self.model.to("cpu")
         for epoch in range(n_epochs):
             t1 = time.time()

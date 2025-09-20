@@ -1310,7 +1310,7 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         n_epochs=100,
         # skip_compile=True,
         skip_compile=False,
-        lr=5e-5,
+        lr=5e-4,
         split_percent=0.5,
     )
 

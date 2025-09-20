@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 from importlib import resources
 from apnet_pt import constants
+import h5py
 
 
 def qcel_dimer_to_fused_data(dimer, r_cut=5.0, r_cut_im=8.0, **kwargs):
@@ -524,6 +525,52 @@ def ap2_fused_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
     return dimer_data
 
 
+def save_hdf5_data_objects(data_objects, filepath):
+    """Save list of data objects to HDF5 format"""
+    with h5py.File(filepath, 'w') as f:
+        for i, data_obj in enumerate(data_objects):
+            group = f.create_group(f'data_{i}')
+            # Save essential tensor and scalar attributes
+            essential_attrs = [
+                'ZA', 'RA', 'ZB', 'RB', 'e_ABsr_source', 'e_ABsr_target',
+                'e_ABlr_source', 'e_ABlr_target', 'e_AA_source', 'e_AA_target',
+                'e_BB_source', 'e_BB_target', 'dimer_ind', 'dimer_ind_lr',
+                'molecule_ind_A', 'molecule_ind_B', 'total_charge_A', 'total_charge_B',
+                'qA', 'muA', 'quadA', 'hlistA', 'qB', 'muB', 'quadB', 'hlistB',
+                'y'  # Essential for training
+            ]
+            for attr_name in essential_attrs:
+                if hasattr(data_obj, attr_name):
+                    attr_value = getattr(data_obj, attr_name)
+                    if isinstance(attr_value, torch.Tensor):
+                        group.create_dataset(attr_name, data=attr_value.numpy())
+                    elif isinstance(attr_value, (int, float)):
+                        group.attrs[attr_name] = attr_value
+
+
+def load_hdf5_data_objects(filepath):  # type: ignore
+    """Load list of data objects from HDF5 format"""
+    data_objects = []
+    with h5py.File(filepath, 'r') as f:
+        for key in sorted(f.keys()):
+            if key.startswith('data_'):
+                group = f[key]
+                data_dict = {}
+                # Load datasets (tensor data)
+                for ds_name in group.keys():
+                    try:
+                        # Try to load as array first
+                        data_dict[ds_name] = torch.from_numpy(group[ds_name][:])
+                    except ValueError:
+                        # If that fails, it's a scalar
+                        data_dict[ds_name] = torch.tensor(group[ds_name][()])
+                # Load attributes (scalar data)
+                for attr_name, attr_value in group.attrs.items():
+                    data_dict[attr_name] = attr_value
+                data_objects.append(Data(**data_dict))
+    return data_objects
+
+
 class ap2_fused_module_dataset(Dataset):
     def __init__(
         self,
@@ -554,6 +601,7 @@ class ap2_fused_module_dataset(Dataset):
         energy_labels: Optional[List[float]] = None,
         random_seed=42,
         check_monomer_validity=True,
+        storage_type="pt",  # "pt" or "h5" for storage format
     ):
         """
         spec_type definitions:
@@ -571,6 +619,11 @@ class ap2_fused_module_dataset(Dataset):
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
         self.spec_type = spec_type
+
+        # Validate storage_type
+        if storage_type not in ["pt", "h5"]:
+            raise ValueError("storage_type must be 'pt' or 'h5'")
+        self.storage_type = storage_type
 
         self.qcel_molecules = None
         self.energy_labels = None
@@ -648,6 +701,11 @@ class ap2_fused_module_dataset(Dataset):
         self.active_data = None
 
     @property
+    def file_extension(self):
+        """Return the file extension based on storage type"""
+        return ".h5" if self.storage_type == "h5" else ".pt"
+
+    @property
     def raw_file_names(self):
         # TODO: enable users to specify data source via QCArchive, url, or local file
         # spec_1 = "spec_1" # 'SAPT0/jun-cc-pVDZ'
@@ -695,14 +753,14 @@ class ap2_fused_module_dataset(Dataset):
             if self.split == "train":
                 file_cmd = f"{self.root}/processed/dimer_ap2_fused_train_spec_{
                     self.spec_type
-                }_*.pt"
+                }_*{self.file_extension}"
             elif self.split == "test":
                 file_cmd = f"{self.root}/processed/dimer_ap2_fused_test_spec_{
                     self.spec_type
-                }_*.pt"
+                }_*{self.file_extension}"
             else:
                 file_cmd = (
-                    f"{self.root}/processed/dimer_ap2_fused_spec_{self.spec_type}_*.pt"
+                    f"{self.root}/processed/dimer_ap2_fused_spec_{self.spec_type}_*{self.file_extension}"
                 )
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]
@@ -723,7 +781,7 @@ class ap2_fused_module_dataset(Dataset):
                 return spec_files
             else:
                 # Forces a re-processing of the dataset
-                return ["dimer_missing.pt"]
+                return [f"dimer_missing{self.file_extension}"]
 
     @property
     def processed_file_names(self):
@@ -841,7 +899,7 @@ class ap2_fused_module_dataset(Dataset):
                     self.processed_dir,
                     f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
-                    }.pt",
+                    }{self.file_extension}",
                 )
                 if osp.exists(datapath):
                     idx += 1
@@ -878,15 +936,18 @@ class ap2_fused_module_dataset(Dataset):
                     self.data.append(data_objects)
                 else:
                     datapath = osp.join(
-                        self.processed_dir,
-                        f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
-                            idx // self.points_per_file
-                        }.pt",
+                    self.processed_dir,
+                    f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
+                        idx // self.points_per_file
+                    }{self.file_extension}",
                     )
                     if self.print_level >= 2:
                         print(f"Saving to {datapath}")
                         print(len(data_objects))
-                    torch.save(data_objects, datapath)
+                    if self.storage_type == "h5":
+                        save_hdf5_data_objects(data_objects, datapath)
+                    else:
+                        torch.save(data_objects, datapath)
                 data_objects = []
                 if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
                     break
@@ -906,22 +967,30 @@ class ap2_fused_module_dataset(Dataset):
                     self.processed_dir,
                     f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
-                    }.pt",
+                    }{self.file_extension}",
                 )
                 if self.print_level >= 2:
                     print(f"Final Saving to {datapath}")
                     print(len(data_objects))
-                torch.save(data_objects, datapath)
+                if self.storage_type == "h5":
+                    save_hdf5_data_objects(data_objects, datapath)
+                else:
+                    torch.save(data_objects, datapath)
         return
 
     def len(self):
         if self.in_memory:
             return len(self.data)
 
-        d = torch.load(
-            osp.join(self.processed_dir, self.processed_file_names[-1]),
-            weights_only=False,
-        )
+        if self.storage_type == "h5":
+            d = load_hdf5_data_objects(
+                osp.join(self.processed_dir, self.processed_file_names[-1])
+            )
+        else:
+            d = torch.load(
+                osp.join(self.processed_dir, self.processed_file_names[-1]),
+                weights_only=False,
+            )
         return (
             len(self.processed_file_names) - 1
         ) * self.datapoint_storage_n_objects + len(d)
@@ -936,9 +1005,12 @@ class ap2_fused_module_dataset(Dataset):
             split_name = f"_{self.split}" if self.split != "all" else ""
         datapath = osp.join(
             self.processed_dir,
-            f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{idx_datapath}.pt",
+            f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{idx_datapath}{self.file_extension}",
         )
-        self.active_data = torch.load(datapath, weights_only=False)
+        if self.storage_type == "h5":
+            self.active_data = load_hdf5_data_objects(datapath)
+        else:
+            self.active_data = torch.load(datapath, weights_only=False)
         try:
             self.active_data[obj_ind]
         except Exception:
