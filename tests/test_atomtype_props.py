@@ -345,6 +345,5 @@ if __name__ == "__main__":
     # test_AM_hirshfeld_induction_DimerParam()
     # test_AM_hirshfeld_induction_DimerParam()
     # test_elst_multipoles_MTP_torch_aM_DimerParam()
-    test_AM_hirshfeld_induction_DimerParam()
-    # test_AtomTypeParamNN_Dimer()
+    test_AtomTypeParamNN_Dimer()
     # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()

@@ -173,8 +173,8 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        print(f"{v_A[3] =}")
-        print(f"{v_A[4] =}")
+        # print(f"{v_A[3] =}")
+        # print(f"{v_A[4] =}")
         Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -227,8 +227,8 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        print(f"{v_A[-1] =}")
-        print(f"{v_A[-2] =}")
+        # print(f"{v_A[-1] =}")
+        # print(f"{v_A[-2] =}")
         Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -1227,6 +1227,10 @@ class AM_DimerParam_Model:
                 k.replace("_orig_mod.", ""): v
                 for k, v in checkpoint["model_state_dict"].items()
             }
+            from pprint import pprint
+            pprint(model_state_dict)
+            print(self.model)
+            pprint(self.model.state_dict())
             self.model.load_state_dict(model_state_dict)
         else:
             self.model = AtomTypeParamNN(
@@ -1929,6 +1933,7 @@ units angstrom
         )
 
         lowest_test_loss = test_loss
+        cpu_model = self.model.to("cpu")
         for epoch in range(n_epochs):
             t1 = time.time()
             t_out = __train_batch(
@@ -1944,10 +1949,12 @@ units angstrom
                 lowest_test_loss = test_loss
                 star_marker = "*"
                 cpu_model = self.model.to("cpu")
+                cpu_atom_model = self.atom_model.to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
                     torch.save(
                         {
+                            "atom_model_state_dict": cpu_atom_model.state_dict(),
                             "model_state_dict": cpu_model.state_dict(),
                             "config": {
                                 "n_message": cpu_model.n_message,
@@ -1976,6 +1983,7 @@ units angstrom
                 print("NaN detected, stopping training")
                 torch.save(
                     {
+                        "atom_model_state_dict": cpu_atom_model.state_dict(),
                         "model_state_dict": cpu_model.state_dict(),
                         "config": {
                             "n_message": cpu_model.n_message,

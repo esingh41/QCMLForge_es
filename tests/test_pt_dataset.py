@@ -1307,10 +1307,10 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         dimer_eval_type="elst_damping__induced_dipole",
     )
     param_mod.train(
-        n_epochs=10,
+        n_epochs=100,
         # skip_compile=True,
         skip_compile=False,
-        lr=5e-4,
+        lr=5e-5,
         split_percent=0.5,
     )
 
@@ -1638,7 +1638,9 @@ if __name__ == "__main__":
 
     # test_atomhirshfeld_model_train()
 
-    test_mtp_mtp_elst_qcel_mols()
+    test_AtomTypeParamModel_AM_DimerProp_train()
+
+    # test_mtp_mtp_elst_qcel_mols()
     # test_mtp_mtp_elst_eval()
     # test_atom_model_train()
     # test_mtp_mtp_elst_dataset()
