@@ -89,6 +89,11 @@ def train_pairwise_model(
     param_start_std=0.1,
     dimer_eval_type="elst_damping",
 ):
+    # Ensure param_start_mean and param_start_std are lists
+    if not isinstance(param_start_mean, (list, tuple)):
+        param_start_mean = [param_start_mean] * n_params
+    if not isinstance(param_start_std, (list, tuple)):
+        param_start_std = [param_start_std] * n_params
     ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
     if apnet_model_type == "APNet2":
@@ -253,6 +258,13 @@ def set_all_seeds(seed=42, cudnn_reproducibility=False):
     return
 
 
+def parse_param_list(param_str):
+    """Parse comma-separated string to list of floats, or single float if no comma."""
+    if ',' in param_str:
+        return [float(x.strip()) for x in param_str.split(',')]
+    else:
+        return float(param_str)
+
 def main():
     args = argparse.ArgumentParser()
     args.add_argument(
@@ -408,15 +420,15 @@ def main():
     )
     args.add_argument(
         "--param_start_mean",
-        type=float,
-        default=2.0,
-        help="specify AM-DimerParam Embedding Start Mean (default: 2.0)"
+        type=str,
+        default="2.0",
+        help="specify AM-DimerParam Embedding Start Mean (default: 2.0, or comma-separated list)"
     )
     args.add_argument(
         "--param_start_std",
-        type=float,
-        default=0.1,
-        help="specify AM-DimerParam Embedding Start std (default: 0.1)"
+        type=str,
+        default="0.1",
+        help="specify AM-DimerParam Embedding Start std (default: 0.1, or comma-separated list)"
     )
     args.add_argument(
         "--world_size_ddp",
@@ -431,6 +443,9 @@ def main():
         help="specify omp_num_threads for DDP only for AtomModels currently (default: 1)"
     )
     args = args.parse_args()
+    # Parse param_start_mean and param_start_std
+    args.param_start_mean = parse_param_list(args.param_start_mean)
+    args.param_start_std = parse_param_list(args.param_start_std)
     pprint(args)
     set_all_seeds(args.random_seed)
     if args.train_am != "":

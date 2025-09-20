@@ -46,7 +46,19 @@ class NoisyConstantEmbedding(nn.Embedding):
     def __init__(self, num_embeddings, embedding_dim, mean=3.0, std=0.01):
         super().__init__(num_embeddings, embedding_dim)
         with torch.no_grad():
-            self.weight.copy_(mean + std * torch.randn_like(self.weight))
+            if isinstance(mean, (list, tuple)):
+                # If mean is a list, use it directly (assuming it's the right shape)
+                mean_tensor = torch.tensor(mean, dtype=self.weight.dtype, device=self.weight.device)
+                if len(mean_tensor) == 1:
+                    mean_tensor = mean_tensor.expand_as(self.weight)
+                elif len(mean_tensor) == self.weight.shape[0]:
+                    mean_tensor = mean_tensor.unsqueeze(-1).expand_as(self.weight)
+                else:
+                    raise ValueError(f"mean list length {len(mean_tensor)} doesn't match num_embeddings {num_embeddings}")
+                self.weight.copy_(mean_tensor + std * torch.randn_like(self.weight))
+            else:
+                # Scalar case
+                self.weight.copy_(mean + std * torch.randn_like(self.weight))
 
 
 class DimerProp(nn.Module):
@@ -94,13 +106,13 @@ class DimerProp(nn.Module):
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
             RA=batch.RA,
-            qA=v_A[0],
+            qA_0=v_A[0],
             muA=v_A[1],
             quadA=v_A[2],
             Ka=v_A[-1],
             ZB=batch.ZB,
             RB=batch.RB,
-            qB=v_B[0],
+            qB_0=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
             Kb=v_B[-1],
@@ -229,19 +241,21 @@ class DimerProp(nn.Module):
         )
         # print(f"{v_A[-1] =}")
         # print(f"{v_A[-2] =}")
+        Ka = torch.clamp(v_A[-1][:, 1], min=0.05, max=4.0)
+        Kb = torch.clamp(v_B[-1][:, 1], min=0.05, max=4.0)
         Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
             qA=v_A[0],
             muA=v_A[1],
             quadA=v_A[2],
-            Ka=v_A[-1][:, 1],
+            Ka=Ka,
             ZB=batch.ZB,
             RB=batch.RB,
             qB=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
-            Kb=v_B[-1][:, 1],
+            Kb=Kb,
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
             # Additional parameters for induction
@@ -255,23 +269,37 @@ class DimerProp(nn.Module):
             valence_widths_B=v_B[-2][:, 1],
             polarizability_table=self.polarizability_table,
         )
+        if Indu.isnan().any():
+            print("Induced dipole energy is NaN, debugging info:")
+            print(f"{v_A[-2] =}")
+            print(f"{v_B[-2] =}")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            print(f"{Ka =}")
+            print(f"{Kb =}")
+            raise ValueError("Induced dipole energy is NaN")
         # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
             RA=batch.RA,
-            qA=v_A[0],
+            qA_0=v_A[0],
             muA=v_A[1],
             quadA=v_A[2],
             Ka=v_A[-1][:, 0],
             ZB=batch.ZB,
             RB=batch.RB,
-            qB=v_B[0],
+            qB_0=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
             Kb=v_B[-1][:, 0],
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
+        if Elst.isnan().any():
+            print("Electrostatic energy is NaN, debugging info:")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            raise ValueError("Electrostatic energy is NaN")
         return torch.vstack((Elst, Indu)).T
 
 
@@ -298,15 +326,26 @@ class AtomTypeParamNN(nn.Module):
             raise ValueError("Unknown atom_model type")
         self.n_neuron = n_neuron
         self.n_embed = n_embed
+        # Convert to lists if scalars
+        if not isinstance(param_start_mean, (list, tuple)):
+            param_start_mean = [param_start_mean] * n_params
+        if not isinstance(param_start_std, (list, tuple)):
+            param_start_std = [param_start_std] * n_params
+        # Ensure they are the right length
+        if len(param_start_mean) != n_params:
+            raise ValueError(f"param_start_mean length {len(param_start_mean)} doesn't match n_params {n_params}")
+        if len(param_start_std) != n_params:
+            raise ValueError(f"param_start_std length {len(param_start_std)} doesn't match n_params {n_params}")
+
         self.param_start_mean = param_start_mean
         self.param_start_std = param_start_std
         self.n_params = n_params
         self.guess_layer = nn.ModuleList(
             [
                 NoisyConstantEmbedding(
-                    max_Z + 1, 1, mean=self.param_start_mean, std=self.param_start_std
+                    max_Z + 1, 1, mean=self.param_start_mean[p], std=self.param_start_std[p]
                 )
-                for _ in range(n_params)
+                for p in range(n_params)
             ]
         )
 
@@ -549,13 +588,13 @@ def mtp_elst(
 def mtp_elst_damping(
     ZA,
     RA,
-    qA,
+    qA_0,
     muA,
     quadA,
     Ka,
     ZB,
     RB,
-    qB,
+    qB_0,
     muB,
     quadB,
     Kb,
@@ -567,7 +606,7 @@ def mtp_elst_damping(
     dR = dR_ang / constants.au2ang
     dR_xyz = dR_xyz_ang / constants.au2ang
     oodR = 1.0 / dR
-    delta = torch.eye(3, device=qA.device)
+    delta = torch.eye(3, device=qA_0.device)
 
     lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
     lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = (
@@ -577,8 +616,8 @@ def mtp_elst_damping(
     # Nuclear Charge Subtraction - pre-compute all index selections
     ZA_q = ZA.index_select(0, e_AB_source)
     ZB_q = ZB.index_select(0, e_AB_target)
-    qA -= ZA
-    qB -= ZB
+    qA = qA_0 - ZA
+    qB = qB_0 - ZB
     # Extracting tensor elements - pre-compute all selections
     qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
     qB_source = qB.squeeze(-1).index_select(0, e_AB_target)
@@ -1124,8 +1163,8 @@ class AM_DimerParam_Model:
         n_neuron=128,
         n_embed=8,
         r_cut=5.0,
-        param_start_mean=1.7,
-        param_start_std=0.01,
+        param_start_mean=[1.7],
+        param_start_std=[0.01],
         n_params=1,
         use_GPU=None,
         ignore_database_null=True,
@@ -1255,12 +1294,26 @@ class AM_DimerParam_Model:
         if n_embed != self.model.n_embed:
             print(f"Changing n_embed from {self.model.n_embed} to {n_embed}")
             self.model.n_embed = n_embed
-        if param_start_mean != self.model.param_start_mean:
-            print(f"Changing param_start_mean to {param_start_mean}")
-            self.model.param_start_mean = param_start_mean
-        if param_start_std != self.model.param_start_std:
-            print(f"Changing param_start_std to {param_start_std}")
-            self.model.param_start_std = param_start_std
+        # Handle param_start_mean/std as lists
+        if isinstance(param_start_mean, (list, tuple)):
+            if param_start_mean != self.model.param_start_mean:
+                print(f"Changing param_start_mean to {param_start_mean}")
+                self.model.param_start_mean = param_start_mean
+        else:
+            # Scalar case, check if different from all current values
+            if not all(p == param_start_mean for p in self.model.param_start_mean):
+                print(f"Changing param_start_mean to {param_start_mean}")
+                self.model.param_start_mean = [param_start_mean] * self.model.n_params
+
+        if isinstance(param_start_std, (list, tuple)):
+            if param_start_std != self.model.param_start_std:
+                print(f"Changing param_start_std to {param_start_std}")
+                self.model.param_start_std = param_start_std
+        else:
+            # Scalar case
+            if not all(p == param_start_std for p in self.model.param_start_std):
+                print(f"Changing param_start_std to {param_start_std}")
+                self.model.param_start_std = [param_start_std] * self.model.n_params
 
         self.device = device
         self.atom_model.to(device)
@@ -1745,7 +1798,7 @@ units angstrom
                 else loss_fn(preds, ref)
             )
             batch_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.dimer_model.parameters(), max_norm=0.5)
+            torch.nn.utils.clip_grad_norm_(self.dimer_model.parameters(), max_norm=0.3)
             optimizer.step()
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
@@ -1945,7 +1998,6 @@ units angstrom
                 lowest_test_loss = test_loss
                 star_marker = "*"
                 cpu_model = self.model.to("cpu")
-                cpu_atom_model = self.atom_model.to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
                     torch.save(
@@ -1979,7 +2031,6 @@ units angstrom
                 print("NaN detected, stopping training")
                 torch.save(
                     {
-                        "atom_model_state_dict": cpu_atom_model.state_dict(),
                         "model_state_dict": cpu_model.state_dict(),
                         "config": {
                             "n_message": cpu_model.n_message,
