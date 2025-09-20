@@ -206,8 +206,6 @@ def test_AM_hirshfeld_induction_DimerParam():
     dimer_batch.Kb = torch.tensor(monB_props[0][-1], dtype=torch.float32)
     # dimer_batch.Ka = torch.zeros_like(dimer_batch.Ka)
     # dimer_batch.Kb = torch.zeros_like(dimer_batch.Kb)
-    print(f"Ka = {dimer_batch.Ka}")
-    print(f"Kb = {dimer_batch.Kb}")
     torch_indu = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction(
         ZA=dimer_batch.ZA,
         RA=dimer_batch.RA,
@@ -297,70 +295,34 @@ def test_AM_hirshfeld_induction_DimerParam():
     return
 
 
-def test_AtomTypeParamNN():
-    df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
-    )
-    r = df.iloc[0]
-    mol = r["qcel_molecule"]
-    print(r["SAPT0 ELST ENERGY adz"])
-    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
-        ds_root=None,
-        ignore_database_null=True,
-        use_GPU=False,
-    )
-    am.set_pretrained_model(model_id=0)
-    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
-        atom_model=am.model,
-        ignore_database_null=False,
-        # pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_elst_damp_0.pt",
-        ds_spec_type=7,
-        use_GPU=False,
-        ds_root=data_path,
-        param_start_mean=1.5,
-        param_start_std=0.1,
-        n_neuron=32,
-        n_params=2,
-        atom_model_type="AtomMPNN",
-        dimer_eval_type="elst_damping__induced_dipole",
-    )
-    print(param_mod)
-    monA_props, monB_props = param_mod.predict_qcel_mols_monomer_props([mol])
-    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
-        [
-            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
-                mol, r_cut_im=99999.0, dimer_ind=0
-            )
-        ]
-    )
-    pred = param_mod.predict_qcel_mols_dimer([mol, mol])
-
-
 def test_AtomTypeParamNN_Dimer():
     df = pd.read_pickle(
         file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
-    print(r["SAPT0 ELST ENERGY adz"])
-    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+    am = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
-        ignore_database_null=True,
         use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=current_file_path + "/../models/am_ensemble/am_0.pt",
+        pre_trained_model_path=current_file_path + "/../models/ap_atomTypeParamModel/am_0.pt",
     )
-    am.set_pretrained_model(model_id=0)
+    # am.set_pretrained_model(model_id=0)
+    # am.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
+        atom_model_type='AtomTypeParamNN',
+        # atom_model_type="AtomHirshfeldMPNN",
         ignore_database_null=False,
         # pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_elst_damp_0.pt",
         ds_spec_type=7,
         use_GPU=False,
         ds_root=data_path,
-        param_start_mean=1.5,
+        param_start_mean=1.8,
         param_start_std=0.1,
         n_neuron=32,
         n_params=2,
-        atom_model_type="AtomMPNN",
         dimer_eval_type="elst_damping__induced_dipole",
     )
     print(param_mod)
@@ -373,10 +335,16 @@ def test_AtomTypeParamNN_Dimer():
         ]
     )
     pred = param_mod.predict_qcel_mols_dimer([mol, mol])
+    print(pred)
+    print(r["SAPT0 ELST ENERGY adz"])
+    print(r["SAPT0 IND ENERGY adz"] * qcel.constants.hartree2kcalmol)
+    return
 
 
 if __name__ == "__main__":
-    test_AM_hirshfeld_induction_DimerParam()
+    # test_AM_hirshfeld_induction_DimerParam()
+    # test_AM_hirshfeld_induction_DimerParam()
     # test_elst_multipoles_MTP_torch_aM_DimerParam()
+    test_AM_hirshfeld_induction_DimerParam()
+    # test_AtomTypeParamNN_Dimer()
     # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
-    # test_AtomTypeParamNN()

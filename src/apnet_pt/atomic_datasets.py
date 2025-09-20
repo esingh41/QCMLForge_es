@@ -480,12 +480,6 @@ class atomic_module_dataset(Dataset):
                 return [
                     "monomers_apnet2_spec_3_62.pkl",
                 ]
-            # Must implement split logic...
-            elif self.spec_type == 7:
-                return [
-                    "neq_damping_train.pkl",
-                    "neq_damping_test.pkl",
-                ]
             elif self.spec_type == 9:
                 print('Using spec_type 9 for AP3 PBE0/aug-cc-pVDZ (with Hirshfeld volumes and widths')
                 return [

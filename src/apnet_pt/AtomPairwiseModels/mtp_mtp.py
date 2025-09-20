@@ -173,7 +173,9 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        Indu = induced_dipole_induction(
+        print(f"{v_A[3] =}")
+        print(f"{v_A[4] =}")
+        Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
             qA=v_A[0],
@@ -225,7 +227,9 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        Indu = induced_dipole_induction(
+        print(f"{v_A[-1] =}")
+        print(f"{v_A[-2] =}")
+        Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
             qA=v_A[0],
@@ -362,7 +366,7 @@ class AtomTypeParamNN(nn.Module):
         K_filtered = K[keep_mask]  # shape (n_atoms_filtered, n_params)
         for p in range(self.n_params):
             for i in range(self.n_message):
-                param_update = self.param_readout_layers[p][i](h_list[i + 1])
+                param_update = self.param_readout_layers[p][i](h_list[:, i + 1, :])
                 K_filtered[:, p] += param_update.squeeze(-1)
         K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
         return (
@@ -1573,8 +1577,10 @@ class AM_DimerParam_Model:
         assert not (return_elst and return_pairs), (
             "return_elst and return_pairs are not compatible"
         )
-        if r_cut is None:
+        if r_cut is None and hasattr(self.atom_model, "r_cut"):
             r_cut = self.atom_model.r_cut
+        elif hasattr(self.atom_model.atom_model, "r_cut"):
+            r_cut = self.atom_model.atom_model.r_cut
 
         N = len(mols)
         predictions = np.zeros((N, self.n_params))
@@ -1620,8 +1626,11 @@ class AM_DimerParam_Model:
     ):
         output_A = []
         output_B = []
-        if r_cut is None:
+        # check if atom_model has r_cut attribute
+        if r_cut is None and hasattr(self.atom_model, "r_cut"):
             r_cut = self.atom_model.r_cut
+        elif hasattr(self.atom_model.atom_model, "r_cut"):
+            r_cut = self.atom_model.atom_model.r_cut
         N = len(mols)
         self.atom_model.to(self.device)
         if am_type == "ap2":
@@ -1874,6 +1883,10 @@ units angstrom
                 self.dimer_model.polarizability_table.to(self.device)
             )
         elif self.dimer_eval_type == "elst_damping__induced_dipole":
+            assert isinstance(self.atom_model, AtomTypeParamNN), (
+                "elst_damping__induced_dipole is only compatible with "
+                "AtomTypeParamNN atom models presently."
+            )
             y_ind = torch.tensor([0, 2])
             term = "Elst      Ind"
             self.dimer_model.polarizability_table = (

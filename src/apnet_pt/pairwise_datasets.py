@@ -154,6 +154,7 @@ def apnet2_collate_update(batch):
 
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
+        print(data.hlistA.size(), data.hlistB.size())
     y = torch.stack([data.y for data in batch], dim=0)
     batched_data = Data(
         y=y,

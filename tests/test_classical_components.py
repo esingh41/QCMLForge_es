@@ -1266,12 +1266,86 @@ hirshfeld_volume_ratio_B=tensor([1.3915, 0.1883, 0.1883])
         print(f"CLIFF induction  = {cliff_ind:.6f}")
 
 
+def test_elst_damping_dipole_torch_df():
+    import torch
+
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    Ks = [
+        [1.14769962, 0.685558974, 0.685558974],
+        [1.14769962, 0.685558974, 0.685558974],
+    ]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    for n, r in df.iterrows():
+        sapt0_ind = r["SAPT0 ELST ENERGY adz"]
+        cliff_ind = r["cliff_indu_q_mu"]
+        mol = r["qcel_molecule"]
+        monA = mol.get_fragment(0).copy()
+        monB = mol.get_fragment(1).copy()
+        dist = np.sqrt(
+            np.sum((monA.geometry[:, None] - monB.geometry) ** 2, axis=2)
+        ).min()
+        bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
+        qA = r["q_A pbe0/atz"]
+        muA = r["mu_A pbe0/atz"]
+        # muA = np.zeros_like(muA)
+        thetaA = r["theta_A pbe0/atz"]
+        thetaA = np.zeros_like(thetaA)
+        qB = r["q_B pbe0/atz"]
+        muB = r["mu_B pbe0/atz"]
+        # muB = np.zeros_like(muB)
+        thetaB = r["theta_B pbe0/atz"]
+        thetaB = np.zeros_like(thetaB)
+        thetaA = np.zeros_like(thetaA)
+        thetaB = np.zeros_like(thetaB)
+
+        (
+            ref_elst_q,
+            E_qqs_q,
+            E_qus_q,
+            E_uus_q,
+            E_qQs_q,
+            E_uQs_q,
+            E_QQs_q,
+            E_ZA_ZBs_q,
+            E_ZA_MBs_q,
+            E_ZB_MAs_q,
+        ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=mol,
+            qA=qA,
+            qB=qB,
+            muA=muA,
+            muB=muB,
+            # muA=np.zeros_like(muA),
+            # muB=np.zeros_like(muB),
+            thetaA=thetaA,
+            thetaB=thetaB,
+            # thetaA=np.zeros_like(thetaA),
+            # thetaB=np.zeros_like(thetaB),
+            alphaA=alphaA,
+            alphaB=alphaB,
+            traceless=False,
+            amoeba_eq=True,
+            match_cliff=False,
+        )
+        elst = ref_elst_q
+        print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
+        print(f"SAPT ELST   = {sapt0_ind:.6f} kcal/mol")
+        print(f"ELST Pred   = {elst:.6f} kcal/mol")
+
+
 if __name__ == "__main__":
+    test_elst_damping_dipole_torch_df()
     # test_elst_charge_dipole_qpole()
     # test_elst_multipoles()
     # test_classical_cliff()
     # test_elst_ameoba()
     # test_elst_damping()
+    # test_elst_multipoles_MTP_torch_damping()
     # test_elst_multipoles_MTP_torch()
     # test_elst_multipoles_MTP_torch_no_damping()
     # test_elst_multipoles_MTP_torch_damping()
@@ -1283,4 +1357,4 @@ if __name__ == "__main__":
     # test_induced_dipole_torch_alphas()
 
     # test_induced_dipole()
-    test_induced_dipole_torch_df()
+    # test_induced_dipole_torch_df()

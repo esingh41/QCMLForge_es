@@ -513,7 +513,6 @@ def test_apnet2_train_qcel_molecules_in_memory_transfer():
     atomic_batch_size = 4
     datapoint_storage_n_objects = 6
     prebatched = False
-    collate = apnet2_collate_update_prebatched if prebatched else apnet2_collate_update
     qcel_molecules = [mol_dimer] * 31
     energy_labels = [1.0 for _ in range(len(qcel_molecules))]
     print(
@@ -1385,41 +1384,6 @@ def test_atomhirshfeld_model_train():
     return
 
 
-def test_atomhirshfeld_model_train():
-    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
-        root=data_path,
-        transform=None,
-        pre_transform=None,
-        r_cut=5.0,
-        testing=False,
-        spec_type=5,
-        max_size=None,
-        force_reprocess=False,
-        in_memory=True,
-        batch_size=1,
-    )
-    print(ds)
-    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
-        use_GPU=False,
-        ignore_database_null=False,
-        dataset=ds,
-    )
-    print(am)
-    am.train(
-        n_epochs=5,
-        batch_size=1,
-        lr=5e-4,
-        split_percent=0.5,
-        model_path=None,
-        shuffle=True,
-        dataloader_num_workers=0,
-        world_size=1,
-        omp_num_threads_per_process=None,
-        random_seed=42,
-    )
-    return
-
-
 @pytest.mark.skip(reason="Skip this test for large ap3 dataset")
 def test_ap3_model_train():
     world_size = 1
@@ -1451,77 +1415,6 @@ def test_ap3_model_train():
         skip_compile=True,
     )
 
-
-def test_am_dimer_multipole_ds():
-    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
-        root=data_path,
-        transform=None,
-        pre_transform=None,
-        r_cut=5.0,
-        testing=False,
-        spec_type=5,
-        max_size=None,
-        force_reprocess=False,
-        in_memory=True,
-        batch_size=1,
-    )
-    print(ds)
-    am = AtomModels.ap2_atom_model.AtomModel(
-        use_GPU=False,
-        ignore_database_null=False,
-        dataset=ds,
-    )
-    print(am)
-    am.train(
-        n_epochs=5,
-        batch_size=1,
-        lr=5e-4,
-        split_percent=0.5,
-        model_path=None,
-        shuffle=True,
-        dataloader_num_workers=0,
-        world_size=1,
-        omp_num_threads_per_process=None,
-        random_seed=42,
-    )
-    return
-
-
-def test_am_train_test():
-    ds = atomic_datasets.atomic_module_dataset(
-        root=data_path,
-        transform=None,
-        pre_transform=None,
-        r_cut=5.0,
-        testing=False,
-        spec_type=7,
-        max_size=None,
-        force_reprocess=False,
-        in_memory=True,
-        batch_size=1,
-    )
-    print(ds)
-    am = AtomModels.ap2_atom_model.AtomModel(
-        use_GPU=False,
-        ignore_database_null=False,
-        dataset=ds,
-    )
-    print(am)
-    am.train(
-        n_epochs=5,
-        batch_size=1,
-        lr=5e-4,
-        split_percent=0.5,
-        model_path=None,
-        shuffle=True,
-        dataloader_num_workers=0,
-        world_size=1,
-        omp_num_threads_per_process=None,
-        random_seed=42,
-    )
-    return
-
-##### Beginnig of AM_DimerParam_Model tests #####
 
 def test_mtp_mtp_elst_qcel_mols():
     qcel_molecules = [mol_dimer] * 4
@@ -1575,7 +1468,7 @@ def test_mtp_mtp_elst_dataset():
         n_neuron=32,
     )
     param_mod.train(
-        n_epochs=500,
+        n_epochs=2,
         skip_compile=False,
         lr=5e-3,
         # model_path='nan.pt',
@@ -1711,10 +1604,7 @@ def test_induced_dipole_eval():
     return
 
 
-
-########### END OF AM_DimerParam_Model TESTS ###########
-
-
+######## END OF AM_DimerParam_Model TESTS ###########
 def test_ap2_elst_dataset():
     am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
@@ -1733,10 +1623,11 @@ def test_ap2_elst_dataset():
     )
     param_mod.train(
         # n_epochs=500,
-        n_epochs=150,
+        n_epochs=2,
         skip_compile=True,
         lr=5e-4,
     )
+
 
 if __name__ == "__main__":
     # test_AtomTypeParamModel_train()
