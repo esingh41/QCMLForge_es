@@ -72,6 +72,9 @@ class DimerProp(nn.Module):
         elif dimer_eval == "induced_dipole":
             self.forward = self._indu_induced_dipole_forward
             self.polarizability_table = constants.polarizability_table.clone()
+        elif dimer_eval == "induced_dipole_param":
+            self.forward = self._indu_induced_dipole_param_forward
+            self.polarizability_table = constants.polarizability_table.clone()
         elif dimer_eval == "elst_damping__induced_dipole":
             self.forward = self._elst_damping_indu_induced_dipole_forward
             self.polarizability_table = constants.polarizability_table.clone()
@@ -187,19 +190,25 @@ class DimerProp(nn.Module):
         )
         # print(f"{v_A[3] =}")
         # print(f"{v_A[4] =}")
+        # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
+        # Kb = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
+        Ka = v_A[-1]
+        Kb = v_B[-1]
         Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
             qA=v_A[0],
             muA=v_A[1],
             quadA=v_A[2],
-            Ka=v_A[-1],
+            # Ka=v_A[-1],
+            Ka=Ka,
             ZB=batch.ZB,
             RB=batch.RB,
             qB=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
-            Kb=v_B[-1],
+            # Kb=v_B[-1],
+            Kb=Kb,
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
             # Additional parameters for induction
@@ -213,6 +222,73 @@ class DimerProp(nn.Module):
             valence_widths_B=v_B[4],
             polarizability_table=self.polarizability_table,
         )
+        return Indu
+
+
+    def _indu_induced_dipole_param_forward(
+        self,
+        batch,
+    ):
+        v_A = self.AtomTypeParam(
+            Data(
+                x=batch.ZA,
+                R=batch.RA,
+                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
+                molecule_ind=batch.molecule_ind_A,
+                total_charge=batch.total_charge_A,
+                natom_per_mol=batch.natom_per_mol_A,
+            )
+        )
+        v_B = self.AtomTypeParam(
+            Data(
+                x=batch.ZB,
+                R=batch.RB,
+                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
+                molecule_ind=batch.molecule_ind_B,
+                total_charge=batch.total_charge_B,
+                natom_per_mol=batch.natom_per_mol_B,
+            )
+        )
+        # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
+        # Kb = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
+        # print(f"{Ka =}")
+        Ka = v_A[-1]
+        Kb = v_B[-1]
+        Indu = induced_dipole_induction_optimized(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=Ka,
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=Kb,
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+            # Additional parameters for induction
+            e_AA_source=batch.e_AA_source,
+            e_BB_source=batch.e_BB_source,
+            e_AA_target=batch.e_AA_target,
+            e_BB_target=batch.e_BB_target,
+            hirshfeld_volume_ratio_A=v_A[-2][:, 0],
+            hirshfeld_volume_ratio_B=v_B[-2][:, 0],
+            valence_widths_A=v_A[-2][:, 1],
+            valence_widths_B=v_B[-2][:, 1],
+            polarizability_table=self.polarizability_table,
+        )
+        if Indu.isnan().any():
+            print("Induced dipole energy is NaN, debugging info:")
+            print(f"{v_A[-2] =}")
+            print(f"{v_B[-2] =}")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            print(f"{Ka =}")
+            print(f"{Kb =}")
+            raise ValueError("Induced dipole energy is NaN")
         return Indu
 
     def _elst_damping_indu_induced_dipole_forward(
@@ -241,8 +317,13 @@ class DimerProp(nn.Module):
         )
         # print(f"{v_A[-1] =}")
         # print(f"{v_A[-2] =}")
-        Ka = torch.clamp(v_A[-1][:, 1], min=0.05, max=4.0)
-        Kb = torch.clamp(v_B[-1][:, 1], min=0.05, max=4.0)
+        Ka = v_A[-1][:, 1]
+        Kb = v_B[-1][:, 1]
+        # Ka = torch.clamp(v_A[-1][:, 1], min=0.0001, max=20.0)
+        # Kb = torch.clamp(v_B[-1][:, 1], min=0.0001, max=20.0)
+        # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
+        # Kb = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
+        # print(f"{Ka =}")
         Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -411,12 +492,14 @@ class AtomTypeParamNN(nn.Module):
             for i in range(self.n_message):
                 param_update = self.param_readout_layers[p][i](h_list[:, i + 1, :])
                 K_filtered[:, p] += param_update.squeeze(-1)
-        K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
+        # K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
+        K[keep_mask] = K_filtered  # + 1.00001
         if K.isnan().any():
             print("K has NaN values, debugging info:")
             print(f"{K_filtered =}")
             print(f"{h_list=}")
             raise ValueError("K has NaN values")
+        # print(f"{K_filtered =}")
         return (
             charge,
             dipole,
@@ -1805,13 +1888,14 @@ units angstrom
                 dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long),
             )
             comp_errors = preds - ref
+            # print(f"{preds = }")
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
                 else loss_fn(preds, ref)
             )
             batch_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.dimer_model.parameters(), max_norm=0.2)
+            # torch.nn.utils.clip_grad_norm_(self.dimer_model.parameters(), max_norm=0.2)
             optimizer.step()
             total_loss += batch_loss.item()
             comp_errors_t.append(comp_errors.detach().cpu())
@@ -1942,7 +2026,7 @@ units angstrom
         if self.dimer_eval_type == "elst_damping":
             y_ind = 0
             term = "Elst"
-        elif self.dimer_eval_type == "induced_dipole":
+        elif self.dimer_eval_type in ["induced_dipole", "induced_dipole_param"]:
             y_ind = 2
             term = "Indu"
             self.dimer_model.polarizability_table = (

@@ -105,6 +105,73 @@ no_com
 no_reorient
 """)
 
+mol3 = qcel.models.Molecule.from_data(
+    """
+    1 1
+    C       0.0545060001    -0.1631290019   -1.1141539812
+    C       -0.9692260027   -1.0918780565   0.6940879822
+    C       0.3839910030    0.5769280195    -0.0021170001
+    C       1.3586950302    1.7358809710    0.0758149996
+    N       -0.1661809981   -0.0093130004   1.0584640503
+    N       -0.8175240159   -1.0993789434   -0.7090409994
+    H       0.3965460062    -0.1201139987   -2.1653149128
+    H       -1.5147459507   -1.6961929798   1.3000769615
+    H       0.7564010024    2.6179349422    0.4376020133
+    H       2.2080008984    1.5715960264    0.7005280256
+    H       1.7567750216    2.0432629585    -0.9004560113
+    H       -0.1571149975   0.2784340084    1.9974440336
+    H       -1.2523859739   -1.9090379477   -1.2904200554
+    --
+    -1 1
+    C       -5.6793351173   2.6897408962    7.4496979713
+    C       -4.5188479424   3.5724110603    6.9706201553
+    N       -6.1935510635   1.6698499918    6.8358440399
+    N       -6.2523350716   2.9488639832    8.6100416183
+    N       -7.1709971428   1.1798499823    7.7206158638
+    N       -7.2111191750   1.9820170403    8.7515516281
+    H       -4.9275932312   4.5184249878    6.4953727722
+    H       -3.8300020695   3.8421258926    7.6719899178
+    H       -4.1228170395   3.0444390774    6.1303391457
+    units angstrom
+                """
+)
+mol_fsapt = qcel.models.Molecule.from_data("""
+0 1
+C   11.54100       27.68600       13.69600
+H   12.45900       27.15000       13.44600
+C   10.79000       27.96500       12.40600
+H   10.55700       27.01400       11.92400
+H   9.879000       28.51400       12.64300
+H   11.44300       28.56800       11.76200
+H   10.90337       27.06487       14.34224
+H   11.78789       28.62476       14.21347
+--
+0 1
+C   10.60200       24.81800       6.466000
+O   10.95600       23.84000       7.103000
+N   10.17800       25.94300       7.070000
+C   10.09100       26.25600       8.476000
+C   9.372000       27.59000       8.640000
+C   11.44600       26.35600       9.091000
+C   9.333000       25.25000       9.282000
+H   9.874000       26.68900       6.497000
+H   9.908000       28.37100       8.093000
+H   8.364000       27.46400       8.233000
+H   9.317000       27.84600       9.706000
+H   9.807000       24.28200       9.160000
+H   9.371000       25.57400       10.32900
+H   8.328000       25.26700       8.900000
+H   11.28800       26.57600       10.14400
+H   11.97000       27.14900       8.585000
+H   11.93200       25.39300       8.957000
+H   10.61998       24.85900       5.366911
+units angstrom
+
+symmetry c1
+no_reorient
+no_com
+""")
+
 
 def test_apnet2_dataset_size_no_prebatched():
     batch_size = 2
@@ -1277,9 +1344,53 @@ def test_AtomTypeParamModel_train():
     )
 
 
-def test_AtomTypeParamModel_AM_DimerProp_train():
+def test_AtomTypeParamModel_elst_train():
     """
     AtomTypeParamModel hirsfhfeld_valencewidth uses atomic_hirshfeld_module_dataset with ap2_atom_model
+    """
+    qcel_molecules = [mol_cliff_water_close] * 4
+    energy_labels = [np.array([-10.779292828139122, -500, -3.414543432719425, 10000]) for _ in range(len(qcel_molecules))]
+    # am = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+    #     ds_root=None,
+    #     use_GPU=False,
+    #     ignore_database_null=True,
+    #     atom_model_pre_trained_path=current_file_path + "/../models/am_ensemble/am_0.pt",
+    #     pre_trained_model_path=current_file_path + "/../models/ap_atomTypeParamModel/am_0.pt",
+    # )
+    am = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+    am.set_pretrained_model(model_id=0)
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        # atom_model_type='AtomTypeParamNN',
+        atom_model_type='AtomMPNN',
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        use_GPU=False,
+        ds_spec_type=None,
+        ds_qcel_molecules=qcel_molecules,
+        ds_energy_labels=energy_labels,
+        param_start_mean=[3.2],
+        param_start_std=[0.2],
+        n_neuron=32,
+        n_params=1,
+        dimer_eval_type="elst_damping",
+    )
+    param_mod.train(
+        n_epochs=100,
+        # skip_compile=True,
+        skip_compile=False,
+        lr=5e-4,
+        split_percent=0.5,
+    )
+
+
+def test_AtomTypeParamModel_ind_train():
+    """
     """
     qcel_molecules = [mol_cliff_water_close] * 4
     energy_labels = [np.array([-10.779292828139122, -500, -3.414543432719425, 10000]) for _ in range(len(qcel_molecules))]
@@ -1300,14 +1411,55 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         ds_spec_type=None,
         ds_qcel_molecules=qcel_molecules,
         ds_energy_labels=energy_labels,
-        param_start_mean=[1.8, 1.8],
-        param_start_std=[0.05, 0.05],
+        param_start_mean=[1.8],
+        param_start_std=[0.05],
+        n_neuron=32,
+        n_params=1,
+        dimer_eval_type="induced_dipole_param",
+    )
+    param_mod.train(
+        # n_epochs=100,
+        n_epochs=1,
+        # skip_compile=True,
+        skip_compile=False,
+        lr=5e-4,
+        split_percent=0.5,
+    )
+
+
+def test_AtomTypeParamModel_AM_DimerProp_train():
+    """
+    AtomTypeParamModel hirsfhfeld_valencewidth uses atomic_hirshfeld_module_dataset with ap2_atom_model
+    """
+    # qcel_molecules = [mol_cliff_water_close, mol3, mol_fsapt, mol_dimer_ion] * 2
+    qcel_molecules = [mol_cliff_water_close] * 4
+    energy_labels = [np.array([-10.779292828139122, -500, -3.414543432719425, 10000]) for _ in range(len(qcel_molecules))]
+    am = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=current_file_path + "/../models/am_ensemble/am_0.pt",
+        pre_trained_model_path=current_file_path + "/../models/ap_atomTypeParamModel/am_0.pt",
+    )
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        atom_model_type='AtomTypeParamNN',
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        use_GPU=False,
+        ds_spec_type=None,
+        ds_qcel_molecules=qcel_molecules,
+        ds_energy_labels=energy_labels,
+        param_start_mean=[0.9, 1.8],
+        param_start_std=[0.15, 0.05],
         n_neuron=32,
         n_params=2,
         dimer_eval_type="elst_damping__induced_dipole",
     )
     param_mod.train(
-        n_epochs=100,
+        # n_epochs=400,
+        n_epochs=25,
         # skip_compile=True,
         skip_compile=False,
         lr=5e-4,
@@ -1637,8 +1789,9 @@ if __name__ == "__main__":
     # test_induced_dipole_dataset()
 
     # test_atomhirshfeld_model_train()
-
+    # test_AtomTypeParamModel_elst_train()
     test_AtomTypeParamModel_AM_DimerProp_train()
+    # test_AtomTypeParamModel_ind_train()
 
     # test_mtp_mtp_elst_qcel_mols()
     # test_mtp_mtp_elst_eval()
