@@ -1409,7 +1409,6 @@ class AM_DimerParam_Model:
 
         self.device = device
         self.atom_model.to(device)
-        self.atom_model.atom_model.to(device)
         self.model.to(device)
         self.dimer_model.to(device)
 
@@ -2038,6 +2037,10 @@ units angstrom
                 "elst_damping__induced_dipole is only compatible with "
                 "AtomTypeParamNN atom models presently."
             )
+            self.model.to(self.device)
+            self.model.atom_model.to(self.device)
+            self.model.atom_model.atom_model.to(self.device)
+            print(self.device)
             y_ind = torch.tensor([0, 2])
             term = "Elst      Ind"
             self.dimer_model.polarizability_table = (

@@ -42,7 +42,7 @@ python3 -u ./train_models.py \
     --n_epochs 400 \
     --n_neuron 32 \
     --data_dir ./data_dimer_$iter \
-    --spec_type_ap 7 \
+    --spec_type_ap 5 \
     --lr 5e-4 \
     --dimer_eval_type elst_damping__induced_dipole \
     --param_start_mean "0.9,1.8" \
