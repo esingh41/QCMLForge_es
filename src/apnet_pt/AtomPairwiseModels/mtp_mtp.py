@@ -676,7 +676,7 @@ def mtp_elst(
     return E_elst
 
 
-# @torch.compile
+@torch.compile
 def mtp_elst_damping(
     ZA,
     RA,
@@ -1409,6 +1409,7 @@ class AM_DimerParam_Model:
 
         self.device = device
         self.atom_model.to(device)
+        self.atom_model.atom_model.to(device)
         self.model.to(device)
         self.dimer_model.to(device)
 
@@ -2064,21 +2065,21 @@ units angstrom
                 flush=True,
             )
         t0 = time.time()
-        t_out = __evaluate_batch(train_loader, criterion, rank_device, y_ind=y_ind)
-        v_out = __evaluate_batch(test_loader, criterion, rank_device, y_ind=y_ind)
-        train_loss, total_MAE_t = t_out
-        test_loss, total_MAE_v = v_out
-        if isinstance(y_ind, torch.Tensor):
-            mae_string = " ".join([f"{mae_t: > 7.3f}/{mae_v: < 7.3f}" for mae_t, mae_v in zip(total_MAE_t, total_MAE_v)])
-        else:
-            mae_string = f"{total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}"
-        print(
-            f" (Pre-training)({time.time() - t0: < 7.2f}s)"
-            f" MAE: {mae_string}",
-            flush=True,
-        )
-        lowest_test_loss = test_loss
-        # lowest_test_loss = float("inf")
+        # t_out = __evaluate_batch(train_loader, criterion, rank_device, y_ind=y_ind)
+        # v_out = __evaluate_batch(test_loader, criterion, rank_device, y_ind=y_ind)
+        # train_loss, total_MAE_t = t_out
+        # test_loss, total_MAE_v = v_out
+        # if isinstance(y_ind, torch.Tensor):
+        #     mae_string = " ".join([f"{mae_t: > 7.3f}/{mae_v: < 7.3f}" for mae_t, mae_v in zip(total_MAE_t, total_MAE_v)])
+        # else:
+        #     mae_string = f"{total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}"
+        # print(
+        #     f" (Pre-training)({time.time() - t0: < 7.2f}s)"
+        #     f" MAE: {mae_string}",
+        #     flush=True,
+        # )
+        # lowest_test_loss = test_loss
+        lowest_test_loss = float("inf")
         cpu_model = self.model.to("cpu")
         for epoch in range(n_epochs):
             t1 = time.time()
