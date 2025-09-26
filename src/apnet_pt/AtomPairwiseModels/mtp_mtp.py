@@ -448,7 +448,7 @@ class AtomTypeParamNN(nn.Module):
             None,
         ]
         for p in range(n_params):
-            for i in range(n_message):
+            for i in range(n_message + 1):
                 self.param_readout_layers[p].append(
                     self._make_layers(layer_nodes_readout, layer_activations)
                 )
@@ -489,8 +489,8 @@ class AtomTypeParamNN(nn.Module):
             raise ValueError("K has NaN values")
         K_filtered = K[keep_mask]  # shape (n_atoms_filtered, n_params)
         for p in range(self.n_params):
-            for i in range(self.n_message):
-                param_update = self.param_readout_layers[p][i](h_list[:, i + 1, :])
+            for i in range(self.n_message + 1):
+                param_update = self.param_readout_layers[p][i](h_list[:, i, :])
                 K_filtered[:, p] += param_update.squeeze(-1)
         # K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
         K[keep_mask] = K_filtered  # + 1.00001
@@ -1271,6 +1271,7 @@ class AM_DimerParam_Model:
         ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
         ds_random_seed=42,
+        ds_in_memory=False,
         print_lvl=0,
         ds_qcel_molecules=None,
         ds_energy_labels=None,
@@ -1440,6 +1441,7 @@ class AM_DimerParam_Model:
                     skip_processed=ds_skip_process,
                     skip_compile=ds_skip_compile,
                     random_seed=ds_random_seed,
+                    in_memory=ds_in_memory,
                     datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                     print_level=print_lvl,
                     qcel_molecules=ds_qcel_molecules,
@@ -1476,6 +1478,7 @@ class AM_DimerParam_Model:
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         skip_compile=ds_skip_compile,
+                        in_memory=ds_in_memory,
                         random_seed=ds_random_seed,
                         split="train",
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
@@ -1497,6 +1500,7 @@ class AM_DimerParam_Model:
                         skip_processed=ds_skip_process,
                         skip_compile=ds_skip_compile,
                         random_seed=ds_random_seed,
+                        in_memory=ds_in_memory,
                         split="test",
                         datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                         print_level=print_lvl,
