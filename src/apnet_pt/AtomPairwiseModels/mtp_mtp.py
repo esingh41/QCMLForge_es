@@ -315,10 +315,13 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
+        Kas = torch.abs(v_A[-1])
+        Kbs = torch.abs(v_B[-1])
         # print(f"{v_A[-1] =}")
         # print(f"{v_A[-2] =}")
-        Ka = v_A[-1][:, 1]
-        Kb = v_B[-1][:, 1]
+        Ka = Kas[:, 1]
+        Kb = Kbs[:, 1]
+        # print(f"{Kas =}")
         # Ka = torch.clamp(v_A[-1][:, 1], min=0.0001, max=20.0)
         # Kb = torch.clamp(v_B[-1][:, 1], min=0.0001, max=20.0)
         # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
@@ -360,19 +363,20 @@ class DimerProp(nn.Module):
             print(f"{Kb =}")
             raise ValueError("Induced dipole energy is NaN")
         # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
+
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
             RA=batch.RA,
             qA_0=v_A[0],
             muA=v_A[1],
             quadA=v_A[2],
-            Ka=v_A[-1][:, 0],
+            Ka=Kas[:, 0],
             ZB=batch.ZB,
             RB=batch.RB,
             qB_0=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
-            Kb=v_B[-1][:, 0],
+            Kb=Kbs[:, 0],
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
