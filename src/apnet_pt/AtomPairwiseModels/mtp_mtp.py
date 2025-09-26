@@ -237,7 +237,7 @@ class DimerProp(nn.Module):
                 molecule_ind=batch.molecule_ind_A,
                 total_charge=batch.total_charge_A,
                 natom_per_mol=batch.natom_per_mol_A,
-            )
+            ) #.to(batch.ZA.device)
         )
         v_B = self.AtomTypeParam(
             Data(
@@ -247,7 +247,7 @@ class DimerProp(nn.Module):
                 molecule_ind=batch.molecule_ind_B,
                 total_charge=batch.total_charge_B,
                 natom_per_mol=batch.natom_per_mol_B,
-            )
+            ) #.to(batch.ZA.device)
         )
         # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
         # Kb = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
@@ -473,6 +473,11 @@ class AtomTypeParamNN(nn.Module):
         x = batch.x
         edge_index = batch.edge_index
         molecule_ind = batch.molecule_ind
+        # print(f"{batch.x.device = }")
+        # current_model_device = next(self.parameters()).device
+        # model_device = next(self.atom_model.parameters()).device
+        # print(f"{current_model_device = }")
+        # print(f"{model_device = }")
         am_out = self.atom_model(batch)
         charge, dipole, qpole, h_list = am_out[0], am_out[1], am_out[2], am_out[self.h_list_ind]
         Z = x
@@ -497,6 +502,7 @@ class AtomTypeParamNN(nn.Module):
         if K.isnan().any():
             print("K has NaN values, debugging info:")
             print(f"{K_filtered =}")
+            print(f"{Z =}")
             print(f"{h_list=}")
             raise ValueError("K has NaN values")
         # print(f"{K_filtered =}")
@@ -1411,6 +1417,9 @@ class AM_DimerParam_Model:
         self.atom_model.to(device)
         self.model.to(device)
         self.dimer_model.to(device)
+        self.dimer_model.AtomTypeParam.to(device)
+        if hasattr(self.dimer_model.AtomTypeParam, "atom_model"):
+            self.dimer_model.AtomTypeParam.atom_model.to(device)
 
         split_dbs = [2, 5, 6, 7]
         ds_qcel_split_db = (
@@ -2021,8 +2030,6 @@ units angstrom
         criterion = torch.nn.MSELoss()
 
         # (4) Set eval functions
-        __evaluate_batch = self.__evaluate_batches_single_proc
-        __train_batch = self.__train_batches_single_proc
         if self.dimer_eval_type == "elst_damping":
             y_ind = 0
             term = "Elst"
@@ -2046,6 +2053,10 @@ units angstrom
             self.dimer_model.polarizability_table = (
                 self.dimer_model.polarizability_table.to(self.device)
             )
+            self.dimer_model.to(rank_device)
+            self.dimer_model.AtomTypeParam.to(rank_device)
+            if hasattr(self.dimer_model.AtomTypeParam, "atom_model"):
+                self.dimer_model.AtomTypeParam.atom_model.to(rank_device)
         else:
             raise ValueError(f"Unknown dimer_eval_type: {self.dimer_eval_type}")
         print(
@@ -2068,8 +2079,8 @@ units angstrom
                 flush=True,
             )
         t0 = time.time()
-        # t_out = __evaluate_batch(train_loader, criterion, rank_device, y_ind=y_ind)
-        # v_out = __evaluate_batch(test_loader, criterion, rank_device, y_ind=y_ind)
+        # t_out = self.__evaluate_batches_single_proc(train_loader, criterion, rank_device, y_ind=y_ind)
+        # v_out = self.__evaluate_batches_single_proc(test_loader, criterion, rank_device, y_ind=y_ind)
         # train_loss, total_MAE_t = t_out
         # test_loss, total_MAE_v = v_out
         # if isinstance(y_ind, torch.Tensor):
@@ -2083,13 +2094,14 @@ units angstrom
         # )
         # lowest_test_loss = test_loss
         lowest_test_loss = float("inf")
-        cpu_model = self.model.to("cpu")
+        # cpu_model = self.model.to("cpu")
+        # self.model.to(rank_device)
         for epoch in range(n_epochs):
             t1 = time.time()
-            t_out = __train_batch(
-                train_loader, criterion, optimizer, rank_device, scheduler, y_ind=y_ind
+            t_out = self.__train_batches_single_proc(
+                train_loader, loss_fn=criterion, optimizer=optimizer, rank_device=rank_device, scheduler=scheduler, y_ind=y_ind
             )
-            v_out = __evaluate_batch(test_loader, criterion, rank_device, y_ind=y_ind)
+            v_out = self.__evaluate_batches_single_proc(test_loader, loss_fn=criterion, rank_device=rank_device, y_ind=y_ind)
             train_loss, total_MAE_t = t_out
             test_loss, total_MAE_v = v_out
 
@@ -2129,6 +2141,7 @@ units angstrom
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
             if torch.any(total_MAE_t.isnan()) or torch.any(total_MAE_v.isnan()):
+                cpu_model = self.model.to("cpu")
                 print("NaN detected, stopping training")
                 torch.save(
                     {
