@@ -299,14 +299,13 @@ def test_AtomTypeParamNN_Dimer():
     df = pd.read_pickle(
         file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
-    r = df.iloc[0]
-    mol = r["qcel_molecule"]
+    mols = df["qcel_molecule"].to_list()
     am = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
         ignore_database_null=True,
-        atom_model_pre_trained_path=current_file_path + "/../models/am_ensemble/am_0.pt",
-        pre_trained_model_path=current_file_path + "/../models/ap_atomTypeParamModel/am_0.pt",
+        atom_model_pre_trained_path=current_file_path + "/../models/am_ensemble/am_1.pt",
+        pre_trained_model_path=current_file_path + "/../models/ap_atomTypeParamModel/am_h+1_1.pt",
     )
     # am.set_pretrained_model(model_id=0)
     # am.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
@@ -315,7 +314,7 @@ def test_AtomTypeParamNN_Dimer():
         atom_model_type='AtomTypeParamNN',
         # atom_model_type="AtomHirshfeldMPNN",
         ignore_database_null=False,
-        # pre_trained_model_path="./models/am_dimer_ensemble/am_dimer_elst_damp_0.pt",
+        pre_trained_model_path="./models/ap_atomTypeParamModel_elst_ind_1/am_h+1_1.pt",
         ds_spec_type=7,
         use_GPU=False,
         ds_root=data_path,
@@ -326,18 +325,15 @@ def test_AtomTypeParamNN_Dimer():
         dimer_eval_type="elst_damping__induced_dipole",
     )
     print(param_mod)
-    monA_props, monB_props = param_mod.predict_qcel_mols_monomer_props([mol])
-    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
-        [
-            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
-                mol, r_cut_im=99999.0, dimer_ind=0
-            )
-        ]
-    )
-    pred = param_mod.predict_qcel_mols_dimer([mol, mol])
-    print(pred)
-    print(r["SAPT0 ELST ENERGY adz"])
-    print(r["SAPT0 IND ENERGY adz"] * qcel.constants.hartree2kcalmol)
+    monA_props, monB_props = param_mod.predict_qcel_mols_monomer_props(mols)
+    pred = param_mod.predict_qcel_mols_dimer(mols)
+    data = {
+        "ref_elst": df["SAPT0 ELST ENERGY adz"].to_numpy(),
+        "pred_elst": pred[:, 0],
+        "ref_indu": df["SAPT0 IND ENERGY adz"].to_numpy() * qcel.constants.hartree2kcalmol,
+        "pred_indu": pred[:, 1],
+    }
+    print(pd.DataFrame(data))
     return
 
 

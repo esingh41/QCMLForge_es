@@ -32,21 +32,21 @@ export iter=1
 #         --omp_num_threads 16 
 # done
 
-export iter=1
+export iter=0
 # Hirshfeld + Valence widths
-# python3 -u ./train_models.py \
-#     --train_apnet AtomTypeParamModel \
-#     --am_model_path ./models/am_ensemble/am_$iter.pt \
-#     --random_seed $iter \
-#     --lr 5e-5 \
-#     --ap_model_path ./models/ap_atomTypeParamModel/am_h+1_$iter.pt \
-#     --n_epochs 150 \
-#     --n_neuron 32 \
-#     --data_dir ./data_dimer_$iter \
-#     --spec_type_ap 10 \
+python3 -u ./train_models.py \
+    --train_apnet AtomTypeParamModel \
+    --am_model_path ./models/am_ensemble/am_$iter.pt \
+    --random_seed $iter \
+    --lr 5e-5 \
+    --ap_model_path ./models/ap_atomTypeParamModel/am_h+1_$iter.pt \
+    --n_epochs 250 \
+    --n_neuron 32 \
+    --data_dir ./data_dimer_$iter \
+    --spec_type_ap 10 \
 
 # Elst + Induced dipole
-rm ./models/ap_atomTypeParamModel_elst_ind_1/am_h+1_$iter.pt
+# rm ./models/ap_atomTypeParamModel_elst_ind_1/am_h+1_$iter.pt
 python3 -u ./train_models.py \
     --train_apnet AM-DimerParam \
     --am_model_path ./models/am_ensemble/am_$iter.pt \
@@ -59,8 +59,8 @@ python3 -u ./train_models.py \
     --spec_type_ap 5 \
     --lr 5e-4 \
     --dimer_eval_type elst_damping__induced_dipole \
-    --param_start_mean "1.8,1.1" \
-    --param_start_std "0.20,0.05" \
+    --param_start_mean "1.8,0.9" \
+    --param_start_std "0.20,0.55" \
     --ds_in_memory True
 
 # python3 -u ./train_models.py \

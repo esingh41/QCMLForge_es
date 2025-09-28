@@ -322,6 +322,7 @@ class DimerProp(nn.Module):
         Ka = Kas[:, 1]
         Kb = Kbs[:, 1]
         # print(f"{Kas =}")
+        # print(f"{Kbs =}")
         # Ka = torch.clamp(v_A[-1][:, 1], min=0.0001, max=20.0)
         # Kb = torch.clamp(v_B[-1][:, 1], min=0.0001, max=20.0)
         # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
@@ -1586,7 +1587,7 @@ class AM_DimerParam_Model:
         self,
         mols,
         batch_size=1,
-        r_cut=999999,
+        r_cut=5,
     ):
         dimer_batch = ap2_fused_collate_update_no_target(
             [
@@ -1611,7 +1612,7 @@ class AM_DimerParam_Model:
         self,
         mols,
         batch_size=1,
-        r_cut=999999,
+        r_cut=5,
     ):
         batch = ap2_fused_collate_update_no_target(
             [

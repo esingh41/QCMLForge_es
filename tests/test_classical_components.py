@@ -1339,7 +1339,8 @@ def test_elst_damping_dipole_torch_df():
 
 
 if __name__ == "__main__":
-    test_elst_damping_dipole_torch_df()
+    # test_elst_damping_dipole_torch_df()
+    test_induced_dipole_torch_df()
     # test_elst_charge_dipole_qpole()
     # test_elst_multipoles()
     # test_classical_cliff()
