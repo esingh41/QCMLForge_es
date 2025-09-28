@@ -34,16 +34,16 @@ export iter=1
 
 export iter=0
 # Hirshfeld + Valence widths
-python3 -u ./train_models.py \
-    --train_apnet AtomTypeParamModel \
-    --am_model_path ./models/am_ensemble/am_$iter.pt \
-    --random_seed $iter \
-    --lr 5e-5 \
-    --ap_model_path ./models/ap_atomTypeParamModel/am_h+1_$iter.pt \
-    --n_epochs 250 \
-    --n_neuron 32 \
-    --data_dir ./data_dimer_$iter \
-    --spec_type_ap 10 \
+# python3 -u ./train_models.py \
+#     --train_apnet AtomTypeParamModel \
+#     --am_model_path ./models/am_ensemble/am_$iter.pt \
+#     --random_seed $iter \
+#     --lr 5e-5 \
+#     --ap_model_path ./models/ap_atomTypeParamModel/am_h+1_$iter.pt \
+#     --n_epochs 2 \
+#     --n_neuron 32 \
+#     --data_dir ./data_dimer_$iter \
+#     --spec_type_ap 10 \
 
 # Elst + Induced dipole
 # rm ./models/ap_atomTypeParamModel_elst_ind_1/am_h+1_$iter.pt
@@ -53,7 +53,7 @@ python3 -u ./train_models.py \
     --atom_type_param_model_path ./models/ap_atomTypeParamModel/am_h+1_$iter.pt \
     --random_seed $iter \
     --ap_model_path ./models/ap_atomTypeParamModel_elst_ind_1/am_h+1_$iter.pt \
-    --n_epochs 400 \
+    --n_epochs 100 \
     --n_neuron 64 \
     --data_dir ./data_dimer_$iter \
     --spec_type_ap 5 \
