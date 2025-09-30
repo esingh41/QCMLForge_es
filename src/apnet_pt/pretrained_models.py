@@ -161,7 +161,7 @@ def apnet2_model_predict_pairs(
     fAs: [{str: [int]}] = None,
     fBs: [{str: [int]}] = None,
     print_results: bool = False,
-    ap2_fused: bool = False,
+    ap2_fused: bool = True,
 ):
     """
     Predicts AP2 pairwise energies that correspond to an FSAPT calculation. fA
