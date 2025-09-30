@@ -148,6 +148,7 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
+        print(f"{v_A[-1] =}")
         Elst = mtp_elst(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -317,30 +318,30 @@ class DimerProp(nn.Module):
         )
         Kas = torch.abs(v_A[-1])
         Kbs = torch.abs(v_B[-1])
+        print(f"{Kas =}")
         # print(f"{v_A[-1] =}")
         # print(f"{v_A[-2] =}")
-        Ka = Kas[:, 1]
-        Kb = Kbs[:, 1]
+        # Ka = Kas[:, 1]
+        # Kb = Kbs[:, 1]
         # print(f"{Kas =}")
         # print(f"{Kbs =}")
         # Ka = torch.clamp(v_A[-1][:, 1], min=0.0001, max=20.0)
         # Kb = torch.clamp(v_B[-1][:, 1], min=0.0001, max=20.0)
         # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
         # Kb = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
-        # print(f"{Ka =}")
         Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
             qA=v_A[0],
             muA=v_A[1],
             quadA=v_A[2],
-            Ka=Ka,
+            Ka=Kas[:, 1],
             ZB=batch.ZB,
             RB=batch.RB,
             qB=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
-            Kb=Kb,
+            Kb=Kbs[:, 1],
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
             # Additional parameters for induction
@@ -1907,6 +1908,7 @@ units angstrom
             )
             comp_errors = preds - ref
             # print(f"{preds = }")
+            # print(f"{ref = }")
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
