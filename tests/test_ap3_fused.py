@@ -1,0 +1,160 @@
+import apnet_pt
+import numpy as np
+import qcelemental as qcel
+import torch
+import os
+from apnet_pt.pt_datasets.ap2_fused_ds import (
+    ap2_fused_module_dataset,
+    ap2_fused_collate_update,
+    APNet2_fused_DataLoader,
+)
+from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
+from glob import glob
+
+torch.manual_seed(42)
+spec_type = 5
+current_file_path = os.path.dirname(os.path.realpath(__file__))
+data_path = f"{current_file_path}/test_data_path"
+
+am_path = f"{current_file_path}/../models/ap3_ensemble/0/am_1.pt"
+at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/0/am_h+1_1.pt"
+at_elst_path = f"{current_file_path}/../models/ap3_ensemble/0/am_dimer_elst_damped_3.pt"
+
+mol_dimer = qcel.models.Molecule.from_data("""
+0 1
+8   -0.702196054   -0.056060256   0.009942262
+1   -1.022193224   0.846775782   -0.011488714
+1   0.257521062   0.042121496   0.005218999
+--
+0 1
+8   2.268880784   0.026340101   0.000508029
+1   2.645502399   -0.412039965   0.766632411
+1   2.641145101   -0.449872874   -0.744894473
+""")
+
+mol_element = qcel.models.Molecule.from_data("""
+1 1
+11   -0.902196054   -0.106060256   0.009942262
+--
+0 1
+8   2.268880784   0.026340101   0.000508029
+1   2.645502399   -0.412039965   0.766632411
+1   2.641145101   -0.449872874   -0.744894473
+""")
+
+mol3 = qcel.models.Molecule.from_data(
+    """
+    1 1
+    C       0.0545060001    -0.1631290019   -1.1141539812
+    C       -0.9692260027   -1.0918780565   0.6940879822
+    C       0.3839910030    0.5769280195    -0.0021170001
+    C       1.3586950302    1.7358809710    0.0758149996
+    N       -0.1661809981   -0.0093130004   1.0584640503
+    N       -0.8175240159   -1.0993789434   -0.7090409994
+    H       0.3965460062    -0.1201139987   -2.1653149128
+    H       -1.5147459507   -1.6961929798   1.3000769615
+    H       0.7564010024    2.6179349422    0.4376020133
+    H       2.2080008984    1.5715960264    0.7005280256
+    H       1.7567750216    2.0432629585    -0.9004560113
+    H       -0.1571149975   0.2784340084    1.9974440336
+    H       -1.2523859739   -1.9090379477   -1.2904200554
+    --
+    -1 1
+    C       -5.6793351173   2.6897408962    7.4496979713
+    C       -4.5188479424   3.5724110603    6.9706201553
+    N       -6.1935510635   1.6698499918    6.8358440399
+    N       -6.2523350716   2.9488639832    8.6100416183
+    N       -7.1709971428   1.1798499823    7.7206158638
+    N       -7.2111191750   1.9820170403    8.7515516281
+    H       -4.9275932312   4.5184249878    6.4953727722
+    H       -3.8300020695   3.8421258926    7.6719899178
+    H       -4.1228170395   3.0444390774    6.1303391457
+    units angstrom
+                """
+)
+
+
+def set_weights_to_value(model, value=0.9):
+    """Sets all weights and biases in the model to a specific value."""
+    with torch.no_grad():  # Disable gradient tracking
+        for param in model.parameters():
+            param.fill_(value)  # Set all elements to the given value
+    return
+
+
+def test_ap3_fused_train_qcel_molecules_in_memory():
+    batch_size = 2
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 6
+    qcel_molecules = [mol_element] * 16
+    qcel_molecules.extend([mol_dimer] * 15)
+    energy_labels = [[1.0] * 4 for _ in range(len(qcel_molecules))]
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=am_path,
+    )
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_elst_path,
+    )
+    ds = ap2_fused_module_dataset(
+        root=data_path,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=None,
+        max_size=None,
+        force_reprocess=True,
+        atom_model=atom_model,
+        atomic_batch_size=atomic_batch_size,
+        datapoint_storage_n_objects=datapoint_storage_n_objects,
+        batch_size=batch_size,
+        num_devices=1,
+        skip_processed=False,
+        skip_compile=True,
+        print_level=2,
+        qcel_molecules=qcel_molecules,
+        energy_labels=energy_labels,
+        in_memory=True,
+        random_seed=None,
+    )
+    ap3 = APNet3_AtomType_Model(
+        ds_root=None,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+    )
+    print(ap3)
+    ap3.train(
+        ds,
+        n_epochs=5,
+        skip_compile=True,
+        transfer_learning=False,
+        lr=0.005,
+    )
+    # This also tests to make sure only best model is returned
+    v_0 = ap3.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
+    ap3.train(
+        ds,
+        n_epochs=1,
+        skip_compile=True,
+        transfer_learning=False,
+        lr=0.05,
+    )
+    v = ap3.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
+    print(v_0, v)
+    assert np.allclose(v_0, v, atol=1e-6)
+
+
+if __name__ == "__main__":
+    test_ap3_fused_train_qcel_molecules_in_memory()
