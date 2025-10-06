@@ -464,6 +464,7 @@ class DimerProp(nn.Module):
         )
         Kas = torch.abs(v_A[-1])
         Kbs = torch.abs(v_B[-1])
+        # print(f"{Kas =}")
         Indu = induced_dipole_induction_optimized_no_correction(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -1536,7 +1537,6 @@ def induced_dipole_induction_optimized_no_correction(
         * h2kcalmol
     )
     E_ind = (E_qu + E_uu) / 2.0
-    E_ind -= E_ind_overlap
     return E_ind
 
 
@@ -1778,7 +1778,6 @@ class AM_DimerParam_Model:
             and self.ds_spec_type not in split_dbs
             and not ds_qcel_split_db
         ):
-
             def setup_ds(fp=ds_force_reprocess):
                 return ap2_fused_module_dataset(
                     root=ds_root,

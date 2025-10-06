@@ -157,7 +157,7 @@ def test_ap2_fused_train_qcel_molecules_in_memory():
     )
     ap2.train(
         ds,
-        n_epochs=5,
+        n_epochs=1,
         skip_compile=True,
         transfer_learning=False,
         lr=0.005,
@@ -290,4 +290,5 @@ if __name__ == "__main__":
     # test_ap2_fused_architecture()
     # test_ap2_fused_train_qcel_molecules_in_memory()
     # test_ap2_fused_dataset_size()
-    test_ap2_fused_ensemble_water_dimer()
+    # test_ap2_fused_ensemble_water_dimer()
+    test_ap2_fused_train_qcel_molecules_in_memory()

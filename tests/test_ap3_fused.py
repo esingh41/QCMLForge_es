@@ -89,12 +89,6 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
     qcel_molecules = [mol_element] * 16
     qcel_molecules.extend([mol_dimer] * 15)
     energy_labels = [[1.0] * 4 for _ in range(len(qcel_molecules))]
-    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
-        ds_root=None,
-        use_GPU=False,
-        ignore_database_null=True,
-        pre_trained_model_path=am_path,
-    )
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -107,9 +101,11 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
         use_GPU=False,
         ignore_database_null=True,
         atom_model=atom_type_hf_vw_model.model,
-        atom_model_pre_trained_path=am_path,
-        pre_trained_model_path=at_elst_path,
+        atom_model_type="AtomTypeParamNN",
+        # pre_trained_model_path=at_elst_path,
     )
+    # print(atom_type_elst_model.atom_model)
+    print(atom_type_elst_model.dimer_model.AtomTypeParam)
     ds = ap2_fused_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -117,7 +113,6 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
         spec_type=None,
         max_size=None,
         force_reprocess=True,
-        atom_model=atom_model,
         atomic_batch_size=atomic_batch_size,
         datapoint_storage_n_objects=datapoint_storage_n_objects,
         batch_size=batch_size,
@@ -132,15 +127,16 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
     )
     ap3 = APNet3_AtomType_Model(
         ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
     )
     print(ap3)
     ap3.train(
         ds,
-        n_epochs=5,
+        n_epochs=50,
         skip_compile=True,
         transfer_learning=False,
-        lr=0.005,
+        lr=0.0005,
     )
     # This also tests to make sure only best model is returned
     v_0 = ap3.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)

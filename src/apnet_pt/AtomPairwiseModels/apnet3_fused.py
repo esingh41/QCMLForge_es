@@ -377,7 +377,10 @@ class APNet3_AtomType_MPNN(nn.Module):
         # batch.e_ABsr_target = torch.cat([e_ABsr_target, e_ABlr_target], dim=0)
 
         # print(batch)
-        E_elst, mA, mB = self.dimer_prop_model(batch)
+        E_classical, mA, mB = self.dimer_prop_model(batch)
+        E_elst = E_classical[:, 0]
+        E_ind = E_classical[:, 1]
+        # print(f"{E_elst.shape = }, {E_ind.shape = }")
         qA, muA, quadA = mA[0], mA[1], mA[2]
         qB, muB, quadB = mB[0], mB[1], mB[2]
         qA = qA.view(-1, 1)
@@ -481,25 +484,46 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_elst_full_dimer = scatter(
             E_elst, dimer_ind, dim=0, reduce="add", dim_size=ndimer
         )
+        # print(f"{E_elst_full_dimer.shape = }")
         E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
+        # print(f"{E_elst_full_dimer.shape = }")
         N_full, num_cols = E_elst_full_dimer.shape
+        # print(f"{ndimer = }, {num_cols =}")
         full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
         full_expanded[:N_full] = E_elst_full_dimer
         E_elst_dimer = full_expanded
+        rows, cols = E_elst_dimer.shape
+        padded = E_elst_dimer.new_zeros((rows, cols + 3))
+        padded[:, :cols] = E_elst_dimer
+        E_elst_dimer = padded
 
-        E_output = E_sr_dimer + E_elst_dimer
+        E_ind_full_dimer = scatter(
+            E_ind, dimer_ind, dim=0, reduce="add", dim_size=ndimer
+        )
+        E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
+        N_full, num_cols = E_ind_full_dimer.shape
+        full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
+        full_expanded[:N_full] = E_ind_full_dimer
+        E_ind_dimer = full_expanded
+
+        rows, cols = E_ind_dimer.shape
+        padded = E_ind_dimer.new_zeros((rows, cols + 3))
+        padded[:, :cols] = E_ind_dimer
+        E_ind_dimer = padded
+
+        E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
 
         if self.return_hidden_states:
             return (
                 E_output,
                 E_sr_dimer,
-                E_elst_dimer,
-                E_elst_dimer,
+                E_elst,
+                E_ind,
                 hAB,
                 hBA,
                 cutoff,
             )
-        return E_output, E_sr, E_elst_dimer, E_elst_dimer, hAB, hBA
+        return E_output, E_sr, E_elst, E_ind, hAB, hBA
 
 
 class APNet3_AtomType_Model:
@@ -554,7 +578,9 @@ class APNet3_AtomType_Model:
                 f"Loading pre-trained DimerProp model from {dimer_prop_model_pre_trained_path}"
             )
             checkpoint = torch.load(
-                dimer_prop_model_pre_trained_path, map_location=device, weights_only=False
+                dimer_prop_model_pre_trained_path,
+                map_location=device,
+                weights_only=False,
             )
             self.dimer_prop_model = DimerProp(
                 n_message=checkpoint["config"]["n_message"],
@@ -751,7 +777,6 @@ class APNet3_AtomType_Model:
         self.model = torch.compile(self.model, dynamic=True)
         return
 
-
     def set_all_weights_to_value(self, value: float):
         """
         Sets the weights of the model to a constant value for debugging.
@@ -761,7 +786,6 @@ class APNet3_AtomType_Model:
         self.model(batch)
         set_weights_to_value(self.model, value)
         return
-
 
     def set_pretrained_model(
         self, ap2_model_path=None, am_model_path=None, model_id=None
@@ -1377,7 +1401,7 @@ units angstrom
             dt = time.time() - t1
             if rank == 0:
                 print(
-                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{ total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} { exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{ indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
                     flush=True,
                 )
         for epoch in range(n_epochs):
@@ -1424,12 +1448,11 @@ units angstrom
                 dt = time.time() - t1
                 test_loss = 0.0
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{
-                        total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {
-                        exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{
-                        indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {
-                        test_lowered
-                    }",
+                    f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
+                        total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} {
+                        elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{
+                        exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
+                        disp_MAE_t: > 7.3f}/{disp_MAE_v: < 7.3f} {test_lowered}",
                     flush=True,
                 )
 
@@ -1524,8 +1547,8 @@ units angstrom
                 v_out
             )
             print(
-                f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {
-                    total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} "
+                f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
+                    total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} "
                 f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
                 f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
                 flush=True,
@@ -1534,8 +1557,8 @@ units angstrom
             train_loss, total_MAE_t = t_out
             test_loss, total_MAE_v = v_out
             print(
-                f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {
-                    total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+                f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
+                    total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}",
                 flush=True,
             )
 
