@@ -69,6 +69,10 @@ class DimerProp(nn.Module):
     def __init__(self, ATParam, dimer_eval="elst_damping"):
         super().__init__()
         self.AtomTypeParam = ATParam
+        self.set_forward(dimer_eval)
+        return
+
+    def set_forward(self, dimer_eval):
         if dimer_eval == "elst_damping":
             self.forward = self._elst_damping_forward
         elif dimer_eval == "elst":
@@ -87,7 +91,6 @@ class DimerProp(nn.Module):
             self.polarizability_table = constants.polarizability_table.clone()
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
-        return
 
     def _elst_damping_forward(
         self,
@@ -129,7 +132,7 @@ class DimerProp(nn.Module):
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
-        return Elst
+        return Elst, v_A, v_B
 
     def _elst_forward(
         self,
@@ -155,7 +158,7 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        print(f"{v_A[-1] =}")
+        # print(f"{v_A[-1] =}")
         Elst = mtp_elst(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -170,7 +173,7 @@ class DimerProp(nn.Module):
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
-        return Elst
+        return Elst, v_A, v_B
 
     def _elst_ind_ap3_forward(
         self,
@@ -196,7 +199,7 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        print(f"{v_A[-1] =}")
+        # print(f"{v_A[-1] =}")
         Elst = mtp_elst(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -211,7 +214,7 @@ class DimerProp(nn.Module):
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
-        return Elst
+        return Elst, v_A, v_B
 
     def _indu_induced_dipole_forward(
         self,
@@ -271,7 +274,7 @@ class DimerProp(nn.Module):
             valence_widths_B=v_B[4],
             polarizability_table=self.polarizability_table,
         )
-        return Indu
+        return Indu, v_A, v_B
 
     def _indu_induced_dipole_param_forward(
         self,
@@ -337,7 +340,7 @@ class DimerProp(nn.Module):
             print(f"{Ka =}")
             print(f"{Kb =}")
             raise ValueError("Induced dipole energy is NaN")
-        return Indu
+        return Indu, v_A, v_B
 
     def _elst_damping_indu_induced_dipole_forward(
         self,
@@ -365,7 +368,7 @@ class DimerProp(nn.Module):
         )
         Kas = torch.abs(v_A[-1])
         Kbs = torch.abs(v_B[-1])
-        print(f"{Kas =}")
+        # print(f"{Kas =}")
         # print(f"{v_A[-1] =}")
         # print(f"{v_A[-2] =}")
         # Ka = Kas[:, 1]
@@ -408,8 +411,6 @@ class DimerProp(nn.Module):
             print(f"{v_B[-2] =}")
             print(f"{v_A[-1] =}")
             print(f"{v_B[-1] =}")
-            print(f"{Ka =}")
-            print(f"{Kb =}")
             raise ValueError("Induced dipole energy is NaN")
         # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
 
@@ -434,7 +435,8 @@ class DimerProp(nn.Module):
             print(f"{v_A[-1] =}")
             print(f"{v_B[-1] =}")
             raise ValueError("Electrostatic energy is NaN")
-        return torch.vstack((Elst, Indu)).T
+        return torch.vstack((Elst, Indu)).T, v_A, v_B
+
 
     def _ap3_elst_damping_indu_induced_dipole_forward(
         self,
@@ -460,7 +462,9 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
-        Indu = induced_dipole_induction_optimized(
+        Kas = torch.abs(v_A[-1])
+        Kbs = torch.abs(v_B[-1])
+        Indu = induced_dipole_induction_optimized_no_correction(
             ZA=batch.ZA,
             RA=batch.RA,
             qA=v_A[0],
@@ -473,6 +477,7 @@ class DimerProp(nn.Module):
             quadB=v_B[2],
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
+            # Additional parameters for induction
             e_AA_source=batch.e_AA_source,
             e_BB_source=batch.e_BB_source,
             e_AA_target=batch.e_AA_target,
@@ -481,8 +486,15 @@ class DimerProp(nn.Module):
             hirshfeld_volume_ratio_B=v_B[-2][:, 0],
             polarizability_table=self.polarizability_table,
         )
-        Kas = torch.abs(v_A[-1])
-        Kbs = torch.abs(v_B[-1])
+        if Indu.isnan().any():
+            print("Induced dipole energy is NaN, debugging info:")
+            print(f"{v_A[-2] =}")
+            print(f"{v_B[-2] =}")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            raise ValueError("Induced dipole energy is NaN")
+        # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
+
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -499,6 +511,11 @@ class DimerProp(nn.Module):
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
+        if Elst.isnan().any():
+            print("Electrostatic energy is NaN, debugging info:")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            raise ValueError("Electrostatic energy is NaN")
         return torch.vstack((Elst, Indu)).T, v_A, v_B
 
 
@@ -618,10 +635,23 @@ class AtomTypeParamNN(nn.Module):
             torch.arange(len(molecule_ind), device=molecule_ind.device),
             atoms_with_edges,
         )
-        if K.isnan().any():
-            print("K has NaN values before readouts, debugging info:")
-            print(f"{K =}")
-            raise ValueError("K has NaN values")
+        # print(f"{am_out[0].shape = }")
+        # print(f"{K.shape = }")
+        if not keep_mask.any():
+            # print("No atoms with edges, skipping readouts")
+            # print(f"{K.shape = }")
+            # print(f"{charge.shape = }")
+            return (
+                charge.squeeze(-1),
+                dipole,
+                qpole,
+                *am_out[3:],
+                K.squeeze(-1) if self.n_params == 1 else K,
+            )
+        # if K.isnan().any():
+        #     print("K has NaN values before readouts, debugging info:")
+        #     print(f"{K =}")
+        #     raise ValueError("K has NaN values")
         K_filtered = K[keep_mask]  # shape (n_atoms_filtered, n_params)
         for p in range(self.n_params):
             for i in range(self.n_message + 1):
@@ -844,11 +874,12 @@ def mtp_elst_damping(
     # Nuclear Charge Subtraction - pre-compute all index selections
     ZA_q = ZA.index_select(0, e_AB_source)
     ZB_q = ZB.index_select(0, e_AB_target)
+
     qA = qA_0 - ZA
     qB = qB_0 - ZB
     # Extracting tensor elements - pre-compute all selections
-    qA_source = qA.squeeze(-1).index_select(0, e_AB_source)
-    qB_source = qB.squeeze(-1).index_select(0, e_AB_target)
+    qA_source = qA.squeeze(-1).index_select(0, e_AB_source) if qA.dim() > 1 else qA.index_select(0, e_AB_source)
+    qB_source = qB.squeeze(-1).index_select(0, e_AB_target) if qB.dim() > 1 else qB.index_select(0, e_AB_target)
     muA_source = muA.index_select(0, e_AB_source)
     muB_source = muB.index_select(0, e_AB_target)
     quadA_source = quadA.index_select(0, e_AB_source)
@@ -2071,7 +2102,7 @@ class AM_DimerParam_Model:
                 ]
             )
             dimer_batch.to(device=self.device)
-            preds = self.dimer_model(dimer_batch)
+            preds = self.dimer_model(dimer_batch)[0]
             preds = scatter(
                 preds,
                 dimer_batch.dimer_ind,
@@ -2203,7 +2234,7 @@ units angstrom
             optimizer.zero_grad(set_to_none=True)  # minor speed-up
             batch = batch.to(rank_device, non_blocking=True)
             ref = batch.y[:, y_ind]
-            preds = self.dimer_model(batch)
+            preds = self.dimer_model(batch)[0]
             preds = scatter(
                 preds,
                 batch.dimer_ind,
@@ -2238,7 +2269,7 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                preds = self.dimer_model(batch)
+                preds = self.dimer_model(batch)[0]
                 ref = batch.y[:, y_ind]
                 preds = scatter(
                     preds,
@@ -2270,7 +2301,7 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                preds = self.dimer_model_elst(batch)
+                preds = self.dimer_model_elst(batch)[0]
                 ref = batch.y[:, 0]
                 preds = scatter(
                     preds,

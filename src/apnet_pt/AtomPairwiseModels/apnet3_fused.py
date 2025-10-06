@@ -123,7 +123,7 @@ def unwrap_model(model):
 class APNet3_AtomType_MPNN(nn.Module):
     def __init__(
         self,
-        atom_model: AtomMPNN,
+        dimer_prop_model: DimerProp,
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -134,8 +134,10 @@ class APNet3_AtomType_MPNN(nn.Module):
     ):
         # super().__init__(aggr="add")
         super().__init__()
-        self.atom_model = AtomTypeParamNN()
-        am_type = AtomTypeParamNN
+        self.dimer_prop_model = dimer_prop_model
+        # freeze dimer_prop_model parameters
+        for param in self.dimer_prop_model.parameters():
+            param.requires_grad = False
 
         self.n_message = n_message
         self.n_rbf = n_rbf
@@ -370,37 +372,18 @@ class APNet3_AtomType_MPNN(nn.Module):
         ### predict monomer properties w/ pretrained AtomModel ###
         ##########################################################
 
-        batch_A = Data(
-            x=ZA,
-            edge_index=torch.vstack((e_AA_source, e_AA_target)),
-            R=RA,
-            molecule_ind=batch.molecule_ind_A,
-            total_charge=batch.total_charge_A,
-            natom_per_mol=batch.natom_per_mol_A,
-        )
-        at_batch_A = self.atom_model(batch_A)
-        print(len(at_batch_A))
-        qA, muA, quadA = (
-            at_batch_A[0],
-            at_batch_A[1],
-            at_batch_A[2],
-        )
-        qA = qA.reshape(-1, 1)
-        batch_B = Data(
-            x=ZB,
-            edge_index=torch.vstack((e_BB_source, e_BB_target)),
-            R=RB,
-            molecule_ind=batch.molecule_ind_B,
-            total_charge=batch.total_charge_B,
-            natom_per_mol=batch.natom_per_mol_B,
-        )
-        at_batch_B = self.atom_model(batch_B)
-        qB, muB, quadB = (
-            at_batch_B[0],
-            at_batch_B[1],
-            at_batch_B[2],
-        )
-        qB = qB.reshape(-1, 1)
+        # concat e_ABsr_source and e_ABlr_source to get all intermolecular edges
+        # batch.e_ABsr_source = torch.cat([e_ABsr_source, e_ABlr_source], dim=0)
+        # batch.e_ABsr_target = torch.cat([e_ABsr_target, e_ABlr_target], dim=0)
+
+        # print(batch)
+        E_elst, mA, mB = self.dimer_prop_model(batch)
+        qA, muA, quadA = mA[0], mA[1], mA[2]
+        qB, muB, quadB = mB[0], mB[1], mB[2]
+        qA = qA.view(-1, 1)
+        qB = qB.view(-1, 1)
+        # print(f"{qA.shape = }, {muA.shape = }, {quadA.shape = }")
+        # print(f"{Elst.shape = }")
 
         ################################################################
         ### predict SAPT components via intramonomer message passing ###
@@ -494,82 +477,29 @@ class APNet3_AtomType_MPNN(nn.Module):
 
         cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
         E_sr *= cutoff
-        # cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
-        # E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
         E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
-
-        ####################################################
-        ### predict multipole electrostatic interactions ###
-        ####################################################
-
-        E_elst_sr = self.mtp_elst(
-            qA,
-            muA,
-            quadA,
-            qB,
-            muB,
-            quadB,
-            e_ABsr_source,
-            e_ABsr_target,
-            dR_sr,
-            dR_sr_xyz,
+        E_elst_full_dimer = scatter(
+            E_elst, dimer_ind, dim=0, reduce="add", dim_size=ndimer
         )
+        E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
+        N_full, num_cols = E_elst_full_dimer.shape
+        full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
+        full_expanded[:N_full] = E_elst_full_dimer
+        E_elst_dimer = full_expanded
 
-        E_elst_sr_dimer = scatter(
-            E_elst_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer
-        )
-        E_elst_sr_dimer = E_elst_sr_dimer.unsqueeze(-1)
-
-        E_elst_lr = self.mtp_elst(
-            qA,
-            muA,
-            quadA,
-            qB,
-            muB,
-            quadB,
-            e_ABlr_source,
-            e_ABlr_target,
-            dR_lr,
-            dR_lr_xyz,
-        )
-        E_elst_lr_dimer = scatter(
-            E_elst_lr, dimer_ind_lr, dim=0, reduce="add", dim_size=ndimer
-        )
-        E_elst_lr_dimer = E_elst_lr_dimer.unsqueeze(-1)
-
-        # 1) Expand E_elst_sr_dimer up to ndimer rows if needed
-        N_sr, num_cols = E_elst_sr_dimer.shape
-        sr_expanded = E_elst_sr_dimer.new_zeros((ndimer, num_cols))
-        sr_expanded[:N_sr] = E_elst_sr_dimer
-        E_elst_sr_dimer = sr_expanded
-
-        # 2) Expand E_elst_lr_dimer similarly
-        N_lr, num_cols = E_elst_lr_dimer.shape
-        lr_expanded = E_elst_lr_dimer.new_zeros((ndimer, num_cols))
-        lr_expanded[:N_lr] = E_elst_lr_dimer
-        E_elst_lr_dimer = lr_expanded
-
-        # 3) Sum them
-        E_elst_dimer = E_elst_sr_dimer + E_elst_lr_dimer
-
-        # 4) Finally, pad columns by 3 if you want to go from shape [ndimer, 4] to [ndimer, 7]
-        rows, cols = E_elst_dimer.shape
-        padded = E_elst_dimer.new_zeros((rows, cols + 3))
-        padded[:, :cols] = E_elst_dimer
-        E_elst_dimer = padded
-        # E_sr_dimer[:, 0] = 0.0
         E_output = E_sr_dimer + E_elst_dimer
+
         if self.return_hidden_states:
             return (
                 E_output,
                 E_sr_dimer,
-                E_elst_sr_dimer,
-                E_elst_lr_dimer,
+                E_elst_dimer,
+                E_elst_dimer,
                 hAB,
                 hBA,
                 cutoff,
             )
-        return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
+        return E_output, E_sr, E_elst_dimer, E_elst_dimer, hAB, hBA
 
 
 class APNet3_AtomType_Model:
@@ -655,7 +585,7 @@ class APNet3_AtomType_Model:
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = APNet3_AtomType_MPNN(
-                atom_model=self.dimer_prop_model,
+                dimer_prop_model=self.dimer_prop_model,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -670,7 +600,7 @@ class APNet3_AtomType_Model:
             self.model.load_state_dict(model_state_dict)
         else:
             self.model = APNet3_AtomType_MPNN(
-                atom_model=self.dimer_prop_model,
+                dimer_prop_model=self.dimer_prop_model,
                 n_message=n_message,
                 n_rbf=n_rbf,
                 n_neuron=n_neuron,
@@ -698,6 +628,7 @@ class APNet3_AtomType_Model:
             self.model.r_cut = r_cut
 
         self.device = device
+        self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
         self.dimer_prop_model.to(device)
         self.model.to(device)
 
