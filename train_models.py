@@ -159,7 +159,8 @@ def train_pairwise_model(
             ds_m2=m2,
         )
     elif apnet_model_type in ["AM-DimerParam"]:
-        if dimer_eval_type in ["elst_damping__induced_dipole"]:
+        if dimer_eval_type in ["elst_damping__induced_dipole", "elst_damping"]:
+            print("Using AtomTypeParamModel for Dimer Prop Model")
             atom_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
                 ds_root=None,
                 use_GPU=False,

@@ -61,13 +61,13 @@ def test_elst_multipoles_MTP_torch_damping_AM_DimerParam():
     torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
         ZA=dimer_batch.ZA,
         RA=dimer_batch.RA,
-        qA=dimer_batch.qA,
+        qA_0=dimer_batch.qA,
         muA=dimer_batch.muA,
         quadA=dimer_batch.quadA,
         Ka=dimer_batch.Ka,
         ZB=dimer_batch.ZB,
         RB=dimer_batch.RB,
-        qB=dimer_batch.qB,
+        qB_0=dimer_batch.qB,
         muB=dimer_batch.muB,
         quadB=dimer_batch.quadB,
         Kb=dimer_batch.Kb,
@@ -341,5 +341,6 @@ if __name__ == "__main__":
     # test_AM_hirshfeld_induction_DimerParam()
     # test_AM_hirshfeld_induction_DimerParam()
     # test_elst_multipoles_MTP_torch_aM_DimerParam()
-    test_AtomTypeParamNN_Dimer()
+    # test_AtomTypeParamNN_Dimer()
     # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
+    test_elst_multipoles_MTP_torch_damping_AM_DimerParam()

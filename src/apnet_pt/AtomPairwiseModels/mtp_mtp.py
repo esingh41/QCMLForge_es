@@ -69,6 +69,7 @@ class DimerProp(nn.Module):
     def __init__(self, ATParam, dimer_eval="elst_damping"):
         super().__init__()
         self.AtomTypeParam = ATParam
+        self.AtomTypeParam.atom_model.requires_grad_(False)
         self.set_forward(dimer_eval)
         return
 
@@ -116,19 +117,23 @@ class DimerProp(nn.Module):
                 natom_per_mol=batch.natom_per_mol_B,
             )
         )
+        Ka = torch.abs(v_A[-1])
+        Kb = torch.abs(v_B[-1])
+        # print(f"{Ka =}")
+
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
             RA=batch.RA,
             qA_0=v_A[0],
             muA=v_A[1],
             quadA=v_A[2],
-            Ka=v_A[-1],
+            Ka=Ka,
             ZB=batch.ZB,
             RB=batch.RB,
             qB_0=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
-            Kb=v_B[-1],
+            Kb=Kb,
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
@@ -2234,6 +2239,7 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             ref = batch.y[:, y_ind]
             preds = self.dimer_model(batch)[0]
+            # print(f"{preds = }")
             preds = scatter(
                 preds,
                 batch.dimer_ind,
@@ -2242,8 +2248,8 @@ units angstrom
                 dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long),
             )
             comp_errors = preds - ref
-            # print(f"{preds = }")
-            # print(f"{ref = }")
+            print(f"{preds = }")
+            print(f"{ref = }")
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
@@ -2576,6 +2582,7 @@ units angstrom
             batch_size = train_dataset.training_batch_size
         self.batch_size = batch_size
         print("~~ Training Dimer Param ~~", flush=True)
+        print(f"{self.model}", flush=True)
         print(
             f"    Training on {len(train_dataset)} samples,"
             f" Testing on {len(test_dataset)} samples"
