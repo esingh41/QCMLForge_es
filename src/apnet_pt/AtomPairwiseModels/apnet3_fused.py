@@ -1609,7 +1609,7 @@ units angstrom
         omp_num_threads_per_process=6,
         lr_decay=None,
         random_seed=42,
-        skip_compile=False,
+        skip_compile=True,
         transfer_learning=False,
     ):
         """
