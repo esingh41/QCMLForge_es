@@ -21,6 +21,20 @@ am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_1.pt"
 at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_1.pt"
 at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_1.pt"
 
+mol_cliff_water_close = qcel.models.Molecule.from_data("""
+0 1
+O                    -1.326958220000    -0.105938540000     0.018788150000
+H                    -1.931665230000     1.600174310000    -0.021710520000
+H                     0.486644270000     0.079598100000     0.009862480000
+--
+0 1
+O                     3.907523240000     0.052757410000     0.001850160000
+H                     4.619234940000    -0.775660840000     1.449615410000
+H                     4.611000850000    -0.847154680000    -1.406756420000
+units bohr
+no_com
+no_reorient
+""")
 mol_dimer = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
@@ -87,9 +101,16 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
     batch_size = 2
     atomic_batch_size = 4
     datapoint_storage_n_objects = 6
-    qcel_molecules = [mol_element] * 16
-    qcel_molecules.extend([mol_dimer] * 15)
-    energy_labels = [[1.0] * 4 for _ in range(len(qcel_molecules))]
+    qcel_molecules = [mol_cliff_water_close] * 4
+    energy_labels = [
+        np.array([
+            -10.779292828139122,
+            11.390991215401051,
+            -3.414543432719425,
+            -2.436025699701581,
+        ])
+        for _ in range(len(qcel_molecules))
+    ]
     ds = ap2_fused_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -153,13 +174,14 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
     assert np.allclose(v_0, v, atol=1e-6)
 
 
-def test_elst_ap3():
+def test_classical_ap3():
     df = pd.read_pickle(
         current_file_path  + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
     print(r["SAPT0 ELST ENERGY adz"])
+    print(r["SAPT0 IND ENERGY adz"] * 627.5094740631)
     am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_1.pt"
     at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_1.pt"
     at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_1.pt"
@@ -185,7 +207,7 @@ def test_elst_ap3():
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
     )
-    monA_props, monB_props = atom_type_elst_model.predict_qcel_mols_monomer_props([mol], model_type="model")
+    monA_props, monB_props = atom_type_elst_model.predict_qcel_mols_monomer_props([mol], model_type="model", am_type="ap3")
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
             apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
@@ -202,8 +224,16 @@ def test_elst_ap3():
 
     dimer_batch.Ka = torch.tensor(monA_props[0][-1], dtype=torch.float32)
     dimer_batch.Kb = torch.tensor(monB_props[0][-1], dtype=torch.float32)
+    dimer_batch.vw_A = torch.tensor(monA_props[0][-2], dtype=torch.float32)
+    dimer_batch.vw_B = torch.tensor(monB_props[0][-2], dtype=torch.float32)
+    dimer_batch.hfvr_A = torch.tensor(monA_props[0][-3], dtype=torch.float32)
+    dimer_batch.hfvr_B = torch.tensor(monB_props[0][-3], dtype=torch.float32)
     print(f"dimer_batch.Ka: {dimer_batch.Ka}")
     print(f"dimer_batch.Kb: {dimer_batch.Kb}")
+    print(f"dimer_batch.vw_A: {dimer_batch.vw_A}")
+    print(f"dimer_batch.vw_B: {dimer_batch.vw_B}")
+    print(f"dimer_batch.hfvr_A: {dimer_batch.hfvr_A}")
+    print(f"dimer_batch.hfvr_B: {dimer_batch.hfvr_B}")
 
     torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
         ZA=dimer_batch.ZA,
@@ -225,16 +255,47 @@ def test_elst_ap3():
     print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
     assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-4)
 
-    pred, pairwise_energies = ap3.predict_qcel_mols([mol], batch_size=1, return_elst=True)
+    torch_ind = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction_optimized_no_correction(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        hirshfeld_volume_ratio_A=dimer_batch.hfvr_A,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        hirshfeld_volume_ratio_B=dimer_batch.hfvr_B,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+        e_AA_source=dimer_batch.e_AA_source,
+        e_BB_source=dimer_batch.e_BB_source,
+        e_AA_target=dimer_batch.e_AA_target,
+        e_BB_target=dimer_batch.e_BB_target,
+    )
+    print(f"Torch ind = {torch.sum(torch_ind):.6f} kcal/mol")
+    ref = -1.264973
+    assert np.allclose(torch.sum(torch_ind).item(), ref, atol=1e-4)
+
+    pred, pair_elst, pair_ind = ap3.predict_qcel_mols([mol], batch_size=1, return_classical_pairs=True)
     print(f"AP3 elst = {pred[0][0]:.6f} kcal/mol")
-    print(torch_elst)
-    print(pairwise_energies)
-    assert np.allclose(torch_elst.cpu().numpy(), pairwise_energies[0].flatten(), atol=1e-4)
-    pred, pairwise_energies = ap3.predict_qcel_mols([mol, mol_element], batch_size=1, return_elst=True)
-    print(pairwise_energies)
-    assert np.allclose(torch_elst.cpu().numpy(), pairwise_energies[0].flatten(), atol=1e-4)
+    print(f"{torch_elst = }")
+    print(f"{pair_elst  = }")
+    assert np.allclose(torch_elst.cpu().numpy(), pair_elst[0].flatten(), atol=1e-4)
+    print(f"AP3 ind = {pred[0][2]:.6f} kcal/mol")
+    print(f"{torch_ind = }")
+    print(f"{pair_ind  = }")
+    assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
+    pred, pair_elst, pair_ind = ap3.predict_qcel_mols([mol, mol_element], batch_size=1, return_classical_pairs=True)
+    assert np.allclose(torch_elst.cpu().numpy(), pair_elst[0].flatten(), atol=1e-4)
+    assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
+    pred, pair_ind, pair_ind = ap3.predict_qcel_mols([mol, mol_element], batch_size=1, return_classical_pairs=True)
+    assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
     return
 
 
 if __name__ == "__main__":
-    test_elst_ap3()
+    test_classical_ap3()
+    # test_ap3_fused_train_qcel_molecules_in_memory()

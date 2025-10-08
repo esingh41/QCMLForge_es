@@ -1571,10 +1571,10 @@ def isolate_atom_parameter_predictions_ap3(batch, output):
     q = output[0]
     mu = output[1]
     th = output[2]
-    hfvr = output[3]
-    vw = output[4]
-    hlist = output[5]
-    K = output[6]
+    hlist = output[3]
+    K_hfvr = output[-2][:, 0]
+    K_vw = output[-2][:, 1]
+    K_elst = output[-1]
     mol_charges = [[] for i in range(batch_size)]
     mol_dipoles = [[] for i in range(batch_size)]
     mol_qpoles = [[] for i in range(batch_size)]
@@ -1587,12 +1587,12 @@ def isolate_atom_parameter_predictions_ap3(batch, output):
         mol_charges[n] = q[i_offset : i_offset + i]
         mol_dipoles[n] = mu[i_offset : i_offset + i]
         mol_qpoles[n] = th[i_offset : i_offset + i]
-        mol_hfvr[n] = hfvr[i_offset : i_offset + i]
-        mol_vw[n] = vw[i_offset : i_offset + i]
+        mol_hfvr[n] = K_hfvr[i_offset : i_offset + i]
+        mol_vw[n] = K_vw[i_offset : i_offset + i]
         mol_hlist[n] = hlist[i_offset : i_offset + i]
-        mol_K[n] = K[i_offset : i_offset + i]
+        mol_K[n] = K_elst[i_offset : i_offset + i]
         i_offset += i
-    return mol_charges, mol_dipoles, mol_qpoles, mol_hfvr, mol_vw, mol_hlist, mol_K
+    return mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_hfvr, mol_vw,  mol_K
 
 
 class AM_DimerParam_Model:

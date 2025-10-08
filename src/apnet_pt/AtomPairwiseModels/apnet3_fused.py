@@ -784,8 +784,8 @@ class APNet3_AtomType_Model:
         inp_batch,
         E_sr_dimer,
         E_sr,
-        E_elst_sr,
-        E_elst_lr,
+        E_elst_mtp,
+        E_ind_mtp,
     ):
         indA_to_dimer = []
         indB_to_dimer = []
@@ -819,38 +819,41 @@ class APNet3_AtomType_Model:
         indB_to_atom = np.concatenate(indB_to_atom)
 
         # E_sr, E_elst_sr, E_elst_lr
-        for e_pair, e_elst_sr, indA, indB in zip(E_sr, E_elst_sr, indsA_sr, indsB_sr):
+        for e_pair, e_elst, indA, indB in zip(E_sr, E_elst_mtp, indsA_sr, indsB_sr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
             pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
-            pair_energies_batch[i][0, atomA, atomB] += e_elst_sr.numpy()
+            pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
 
-        for e_elst_lr, indA, indB in zip(E_elst_lr, indsA_lr, indsB_lr):
+        for e_ind, indA, indB in zip(E_ind_mtp, indsA_lr, indsB_lr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_energies_batch[i][0, atomA, atomB] += e_elst_lr
+            pair_energies_batch[i][2, atomA, atomB] += e_ind
         return pair_energies_batch
 
     def _assemble_mtp_pairs(
         self,
         inp_batch,
-        E_elst_sr,
-        E_elst_lr,
+        E_elst_mtp,
+        E_ind_mtp,
     ):
         indA_to_dimer = []
         indB_to_dimer = []
         indA_to_atom = []
         indB_to_atom = []
-        pair_energies_batch = []
+        pair_elst_batch = []
+        pair_ind_batch = []
 
         indsA_sr = inp_batch["e_ABsr_source"]
         indsB_sr = inp_batch["e_ABsr_target"]
         indsA_lr = inp_batch["e_ABlr_source"]
         indsB_lr = inp_batch["e_ABlr_target"]
+        indsA = torch.cat([indsA_sr, indsA_lr], dim=0)
+        indsB = torch.cat([indsB_sr, indsB_lr], dim=0)
 
         dimer_inds, atoms_per_dimer = torch.unique(
             inp_batch.dimer_ind, return_counts=True
@@ -865,25 +868,26 @@ class APNet3_AtomType_Model:
             indB_to_dimer.append(np.full((size_B,), i))
             indA_to_atom.append(np.arange(size_A))
             indB_to_atom.append(np.arange(size_B))
-            pair_energies_batch.append(np.zeros((size_A, size_B)))
+            pair_elst_batch.append(np.zeros((size_A, size_B)))
+            pair_ind_batch.append(np.zeros((size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
         indB_to_dimer = np.concatenate(indB_to_dimer)
         indA_to_atom = np.concatenate(indA_to_atom)
         indB_to_atom = np.concatenate(indB_to_atom)
-        for e_elst_sr, indA, indB in zip(E_elst_sr, indsA_sr, indsB_sr):
+        for e_elst, indA, indB in zip(E_elst_mtp, indsA, indsB):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_energies_batch[i][atomA, atomB] += e_elst_sr.numpy()
-        for e_elst_lr, indA, indB in zip(E_elst_lr, indsA_lr, indsB_lr):
+            pair_elst_batch[i][atomA, atomB] += e_elst.numpy()
+        for e_ind, indA, indB in zip(E_ind_mtp, indsA, indsB):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_energies_batch[i][atomA, atomB] += e_elst_lr
-        return pair_energies_batch
+            pair_ind_batch[i][atomA, atomB] += e_ind
+        return pair_elst_batch, pair_ind_batch
 
     @torch.inference_mode()
     def predict_qcel_mols(
@@ -894,10 +898,10 @@ class APNet3_AtomType_Model:
         r_cut_im=None,
         verbose=False,
         return_pairs=False,
-        return_elst=False,
+        return_classical_pairs=False,
     ):
-        assert not (return_elst and return_pairs), (
-            "return_elst and return_pairs are not compatible"
+        assert not (return_classical_pairs and return_pairs), (
+            "return_classical_pairs and return_pairs are not compatible"
         )
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -906,8 +910,11 @@ class APNet3_AtomType_Model:
 
         N = len(mols)
         predictions = np.zeros((N, 4))
-        if return_pairs or return_elst:
+        if return_pairs:
             pairwise_energies = []
+        if return_classical_pairs:
+            pairwise_elst_energies = []
+            pairwise_ind_energies = []
         if self.model.return_hidden_states:
             # need to capture output
             h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
@@ -926,7 +933,7 @@ class APNet3_AtomType_Model:
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
             if self.model.return_hidden_states:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA, cutoff = preds
+                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA, cutoff = preds
                 h_ABs.append(hAB)
                 h_BAs.append(hBA)
                 cutoffs.append(cutoff)
@@ -936,26 +943,29 @@ class APNet3_AtomType_Model:
                 )
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
             elif return_pairs:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
+                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = preds
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-                pairwise_energies.extend(
-                    self._assemble_pairs(
+                pairwise_energies.extend(self._assemble_pairs(
                         dimer_batch.cpu(),
                         E_sr_dimer.cpu(),
                         E_sr.cpu(),
-                        E_elst_sr.cpu(),
-                        E_elst_lr.cpu(),
+                        E_elst.cpu(),
+                        E_ind.cpu(),
                     )
-                )
-            elif return_elst:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
+                                              )
+            elif return_classical_pairs:
+                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = preds
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-                pairwise_energies.extend(
-                    self._assemble_mtp_pairs(
+                v = self._assemble_mtp_pairs(
                         dimer_batch,
-                        E_elst_sr,
-                        E_elst_lr,
+                        E_elst,
+                        E_ind,
                     )
+                pairwise_elst_energies.extend(
+                    v[0]
+                )
+                pairwise_ind_energies.extend(
+                    v[1]
                 )
             else:
                 predictions[i : i + batch_size] = preds[0].cpu().numpy()
@@ -963,8 +973,10 @@ class APNet3_AtomType_Model:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if self.model.return_hidden_states:
             return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
-        if return_pairs or return_elst:
+        if return_pairs:
             return predictions, pairwise_energies
+        if return_classical_pairs:
+            return predictions, pairwise_elst_energies, pairwise_ind_energies
         return predictions
 
     def example_input(

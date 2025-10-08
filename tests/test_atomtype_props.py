@@ -14,6 +14,7 @@ spec_type = 5
 current_file_path = os.path.dirname(os.path.realpath(__file__))
 data_path = f"{current_file_path}/test_data_path"
 am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
+h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
 
 
 def test_elst_multipoles_MTP_torch_damping_AM_DimerParam():
@@ -23,6 +24,9 @@ def test_elst_multipoles_MTP_torch_damping_AM_DimerParam():
     r = df.iloc[0]
     mol = r["qcel_molecule"]
     print(r["SAPT0 ELST ENERGY adz"])
+    print(r["SAPT0 EXCH ENERGY adz"] * h2kcalmol)
+    print(r["SAPT0 IND ENERGY adz"] * h2kcalmol)
+    print(r["SAPT0 DISP ENERGY adz"] * h2kcalmol)
     am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_1.pt"
     at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_1.pt"
     at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_1.pt"
