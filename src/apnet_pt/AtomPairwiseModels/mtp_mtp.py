@@ -579,7 +579,7 @@ class AtomTypeParamNN(nn.Module):
                 for p in range(n_params)
             ]
         )
-        self.set_weights_excluding_guess(0.01)
+        # self.set_weights_excluding_guess(0.01)
 
         # readout layers for predicting multipoles from hidden states
         self.param_readout_layers = nn.ModuleList(
@@ -631,11 +631,8 @@ class AtomTypeParamNN(nn.Module):
         x = batch.x
         edge_index = batch.edge_index
         molecule_ind = batch.molecule_ind
-        # print(f"{batch.x.device = }")
         # current_model_device = next(self.parameters()).device
         # model_device = next(self.atom_model.parameters()).device
-        # print(f"{current_model_device = }")
-        # print(f"{model_device = }")
         am_out = self.atom_model(batch)
         charge, dipole, qpole, h_list = (
             am_out[0],
@@ -652,11 +649,7 @@ class AtomTypeParamNN(nn.Module):
             torch.arange(len(molecule_ind), device=molecule_ind.device),
             atoms_with_edges,
         )
-        # print(f"{am_out[0].shape = }")
-        # print(f"{K.shape = }")
         if not keep_mask.any():
-            # print(f"{K.shape = }")
-            # print(f"{charge.shape = }")
             return (
                 charge.squeeze(-1),
                 dipole,
@@ -664,10 +657,6 @@ class AtomTypeParamNN(nn.Module):
                 *am_out[3:],
                 K.squeeze(-1) if self.n_params == 1 else K,
             )
-        # if K.isnan().any():
-        #     print("K has NaN values before readouts, debugging info:")
-        #     print(f"{K =}")
-        #     raise ValueError("K has NaN values")
         K_filtered = K[keep_mask]  # shape (n_atoms_filtered, n_params)
         for p in range(self.n_params):
             for i in range(self.n_message + 1):
@@ -681,7 +670,6 @@ class AtomTypeParamNN(nn.Module):
             print(f"{Z =}")
             print(f"{h_list=}")
             raise ValueError("K has NaN values")
-        # print(f"{K_filtered =}")
         return (
             charge,
             dipole,
@@ -2249,7 +2237,7 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             ref = batch.y[:, y_ind]
             preds = self.dimer_model(batch)[0]
-            print(f"{preds = }")
+            # print(f"{preds = }")
             preds = scatter(
                 preds,
                 batch.dimer_ind,
@@ -2258,8 +2246,8 @@ units angstrom
                 dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long),
             )
             comp_errors = preds - ref
-            print(f"{preds = }")
-            print(f"{ref = }")
+            # print(f"{preds = }")
+            # print(f"{ref = }")
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
@@ -2327,9 +2315,9 @@ units angstrom
                         batch.total_charge_A.size(0), dtype=torch.long
                     ),
                 )
-                print(f"{preds=}")
+                # print(f"{preds=}")
                 comp_errors = preds - ref
-                print(f"{comp_errors=}")
+                # print(f"{comp_errors=}")
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)

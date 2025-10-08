@@ -1475,7 +1475,7 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         dimer_eval_type="elst_damping__induced_dipole",
     )
     param_mod.train(
-        n_epochs=400,
+        n_epochs=5,
         # n_epochs=25,
         # skip_compile=True,
         skip_compile=False,
@@ -1528,6 +1528,92 @@ def test_AtomTypeParamModel_AM_DimerProp_train_elst_only():
         n_epochs=400,
         # n_epochs=25,
         # skip_compile=True,
+        skip_compile=False,
+        lr=5e-5,
+        split_percent=0.5,
+        model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
+    )
+
+
+def test_AtomTypeParamModel_AM_DimerProp_train_elst_only():
+    """
+    AtomTypeParamModel hirsfhfeld_valencewidth uses atomic_hirshfeld_module_dataset with ap2_atom_model
+    """
+    # qcel_molecules = [mol_cliff_water_close, mol3, mol_fsapt, mol_dimer_ion] * 2
+    df = pd.read_pickle(current_file_path + "/dataset_data/elst_damping_test.pkl")
+    # qcel_molecules = [mol_cliff_water_close] * 4
+    # energy_labels = [np.array([-10.779292828139122, -500, -3.414543432719425, 10000]) for _ in range(len(qcel_molecules))]
+    qcel_molecules = df["qcel_molecule"].to_list()
+    for i in qcel_molecules:
+         print(i.to_string('psi4'))
+    energy_labels = df[["SAPT0 ELST", "SAPT0 EXCH", "SAPT0 IND", "SAPT0 DISP"]].values * qcel.constants.hartree2kcalmol
+    print(energy_labels)
+
+    am = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=current_file_path
+        + "/../models/am_ensemble/am_0.pt",
+        pre_trained_model_path=current_file_path
+        + "/../models/ap_atomTypeParamModel/am_h+1_0.pt",
+    )
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        atom_model_type="AtomTypeParamNN",
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        use_GPU=False,
+        ds_spec_type=None,
+        ds_qcel_molecules=qcel_molecules,
+        ds_energy_labels=energy_labels,
+        param_start_mean=[0.9],
+        param_start_std=[0.15],
+        n_neuron=64,
+        n_params=1,
+        dimer_eval_type="elst_damping",
+    )
+    param_mod.train(
+        n_epochs=400,
+        # n_epochs=25,
+        # skip_compile=True,
+        skip_compile=False,
+        lr=5e-5,
+        split_percent=0.5,
+        model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
+    )
+
+
+def test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7():
+    """
+    AtomTypeParamModel hirsfhfeld_valencewidth uses atomic_hirshfeld_module_dataset with ap2_atom_model
+    """
+    am = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=current_file_path
+        + "/../models/am_ensemble/am_0.pt",
+        pre_trained_model_path=current_file_path
+        + "/../models/ap_atomTypeParamModel/am_h+1_0.pt",
+    )
+    param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        atom_model=am.model,
+        atom_model_type="AtomTypeParamNN",
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        use_GPU=False,
+        ds_spec_type=7,
+        param_start_mean=[0.9],
+        param_start_std=[0.15],
+        n_neuron=64,
+        n_params=1,
+        dimer_eval_type="elst_damping",
+    )
+    param_mod.train(
+        n_epochs=100,
         skip_compile=False,
         lr=5e-5,
         split_percent=0.5,
@@ -1864,9 +1950,9 @@ if __name__ == "__main__":
 
     # test_atomhirshfeld_model_train()
     # test_AtomTypeParamModel_elst_train()
-    # test_AtomTypeParamModel_AM_DimerProp_train()
 
-    test_AtomTypeParamModel_AM_DimerProp_train_elst_only()
+    test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
+    # test_AtomTypeParamModel_AM_DimerProp_train_elst_only()
     # test_AtomTypeParamModel_ind_train()
 
     # test_mtp_mtp_elst_qcel_mols()
