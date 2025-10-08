@@ -1549,7 +1549,7 @@ def isolate_atom_parameter_predictions(batch, output):
     mu = output[1]
     th = output[2]
     hlist = output[3]
-    K = output[4]
+    K = output[-1]
     mol_charges = [[] for i in range(batch_size)]
     mol_dipoles = [[] for i in range(batch_size)]
     mol_qpoles = [[] for i in range(batch_size)]
@@ -2129,16 +2129,26 @@ class AM_DimerParam_Model:
         r_cut=None,
         am_type="ap2",
         verbose=False,
+        model_type="atom_model",
     ):
         output_A = []
         output_B = []
+        if model_type == "atom_model":
+            model = self.atom_model
+        elif model_type == "model":
+            model = self.model
         # check if atom_model has r_cut attribute
-        if r_cut is None and hasattr(self.atom_model, "r_cut"):
-            r_cut = self.atom_model.r_cut
-        elif hasattr(self.atom_model.atom_model, "r_cut"):
+        if r_cut is None and hasattr(model, "r_cut") and model.r_cut is not None:
+            r_cut = model.r_cut
+        elif hasattr(model.atom_model, "r_cut"):
+            r_cut = model.atom_model.r_cut
+        elif hasattr(self.atom_model, "atom_model") and hasattr(self.atom_model.atom_model, "r_cut"):
             r_cut = self.atom_model.atom_model.r_cut
+        else:
+            raise ValueError("r_cut must be provided if not defined in the model.")
+
         N = len(mols)
-        self.atom_model.to(self.device)
+        model.to(self.device)
         if am_type == "ap2":
             isolate_fn = isolate_atom_parameter_predictions
         elif am_type == "ap3":

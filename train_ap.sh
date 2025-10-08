@@ -63,7 +63,7 @@ python3 -u ./train_models.py \
     --n_neuron 64 \
     --n_params 1 \
     --data_dir ./data_dimer_$iter \
-    --spec_type_ap 6 \
+    --spec_type_ap 7 \
     --lr 5e-5 \
     --dimer_eval_type elst_damping \
     --param_start_mean "1.6" \

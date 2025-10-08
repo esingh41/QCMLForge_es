@@ -211,61 +211,6 @@ class APNet3_AtomType_MPNN(nn.Module):
                 layers.append(activations[i + 1])
         return nn.Sequential(*layers)
 
-    def mtp_elst(
-        self,
-        qA,
-        muA,
-        quadA,
-        qB,
-        muB,
-        quadB,
-        e_ABsr_source,
-        e_ABsr_target,
-        dR_ang,
-        dR_xyz_ang,
-    ):
-        dR = dR_ang / constants.au2ang
-        dR_xyz = dR_xyz_ang / constants.au2ang
-        oodR = 1.0 / dR
-
-        # Identity for 3D
-        delta = torch.eye(3, device=qA.device)
-
-        # Extracting tensor elements
-        qA_source = qA.squeeze(-1).index_select(0, e_ABsr_source)
-        qB_source = qB.squeeze(-1).index_select(0, e_ABsr_target)
-
-        muA_source = muA.index_select(0, e_ABsr_source)
-        muB_source = muB.index_select(0, e_ABsr_target)
-
-        # TF implementation uses 3/2 factor for quadrupoles
-        # quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_ABsr_source)
-        # quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_ABsr_target)
-        quadA_source = quadA.index_select(0, e_ABsr_source)
-        quadB_source = quadB.index_select(0, e_ABsr_target)
-
-        E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
-
-        T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
-        qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
-            "x,xy->xy", qB_source, muA_source
-        )
-        E_qu = torch.einsum("xy,xy->x", T1, qu)
-
-        T2 = 3 * torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz) - torch.einsum(
-            "x,x,yz->xyz", dR, dR, delta
-        )
-        T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
-
-        E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2)
-
-        qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
-        qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
-        E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source) / 3.0
-
-        E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu)
-        return E_elst
-
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
         if nedge == 0:
@@ -380,9 +325,8 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_classical, mA, mB = self.dimer_prop_model(batch)
         E_elst = E_classical[:, 0]
         E_ind = E_classical[:, 1]
-        # print(f"{E_elst.shape = }, {E_ind.shape = }")
-        qA, muA, quadA = mA[0], mA[1], mA[2]
-        qB, muB, quadB = mB[0], mB[1], mB[2]
+        qA = mA[0]
+        qB = mB[0]
         qA = qA.view(-1, 1)
         qB = qB.view(-1, 1)
         # print(f"{qA.shape = }, {muA.shape = }, {quadA.shape = }")
@@ -484,11 +428,9 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_elst_full_dimer = scatter(
             E_elst, dimer_ind, dim=0, reduce="add", dim_size=ndimer
         )
-        # print(f"{E_elst_full_dimer.shape = }")
+        # print(f"{E_elst_full_dimer=}")
         E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
-        # print(f"{E_elst_full_dimer.shape = }")
         N_full, num_cols = E_elst_full_dimer.shape
-        # print(f"{ndimer = }, {num_cols =}")
         full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
         full_expanded[:N_full] = E_elst_full_dimer
         E_elst_dimer = full_expanded
@@ -508,10 +450,13 @@ class APNet3_AtomType_MPNN(nn.Module):
 
         rows, cols = E_ind_dimer.shape
         padded = E_ind_dimer.new_zeros((rows, cols + 3))
-        padded[:, :cols] = E_ind_dimer
+        padded[:, 2:3] = E_ind_dimer
         E_ind_dimer = padded
 
         E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
+        # print(f"{E_sr_dimer=}")
+        # print(f"{E_elst_dimer=}")
+        # print(f"{E_ind_dimer=}")
 
         if self.return_hidden_states:
             return (
@@ -549,6 +494,7 @@ class APNet3_AtomType_Model:
         ds_force_reprocess=False,
         ds_skip_process=False,
         ds_skip_compile=False,
+        ds_in_memory=False,
         ds_num_devices=1,
         ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
@@ -691,6 +637,7 @@ class APNet3_AtomType_Model:
                     print_level=print_lvl,
                     qcel_molecules=ds_qcel_molecules,
                     energy_labels=ds_energy_labels,
+                    in_memory=ds_in_memory,
                 )
 
             self.dataset = setup_ds()
@@ -727,6 +674,7 @@ class APNet3_AtomType_Model:
                         print_level=print_lvl,
                         qcel_molecules=ds_qcel_molecules[0],
                         energy_labels=ds_energy_labels[0],
+                    in_memory=ds_in_memory,
                     ),
                     ap2_fused_module_dataset(
                         root=ds_root,
@@ -746,6 +694,7 @@ class APNet3_AtomType_Model:
                         print_level=print_lvl,
                         qcel_molecules=ds_qcel_molecules[1],
                         energy_labels=ds_energy_labels[1],
+                    in_memory=ds_in_memory,
                     ),
                 ]
 

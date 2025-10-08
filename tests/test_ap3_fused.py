@@ -10,6 +10,7 @@ from apnet_pt.pt_datasets.ap2_fused_ds import (
 )
 from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
 from glob import glob
+import pandas as pd
 
 torch.manual_seed(42)
 spec_type = 5
@@ -89,23 +90,6 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
     qcel_molecules = [mol_element] * 16
     qcel_molecules.extend([mol_dimer] * 15)
     energy_labels = [[1.0] * 4 for _ in range(len(qcel_molecules))]
-    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
-        ds_root=None,
-        use_GPU=False,
-        ignore_database_null=True,
-        atom_model_pre_trained_path=am_path,
-        pre_trained_model_path=at_hf_vw_path,
-    )
-    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
-        ds_root=None,
-        use_GPU=False,
-        ignore_database_null=True,
-        atom_model=atom_type_hf_vw_model.model,
-        atom_model_type="AtomTypeParamNN",
-        pre_trained_model_path=at_elst_path,
-    )
-    # print(atom_type_elst_model.atom_model)
-    print(atom_type_elst_model.dimer_model.AtomTypeParam)
     ds = ap2_fused_module_dataset(
         root=data_path,
         r_cut=5.0,
@@ -125,6 +109,23 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
         in_memory=True,
         random_seed=None,
     )
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    # print(atom_type_elst_model.atom_model)
+    print(atom_type_elst_model.dimer_model.AtomTypeParam)
     ap3 = APNet3_AtomType_Model(
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
@@ -152,5 +153,88 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
     assert np.allclose(v_0, v, atol=1e-6)
 
 
+def test_elst_ap3():
+    df = pd.read_pickle(
+        current_file_path  + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    print(r["SAPT0 ELST ENERGY adz"])
+    am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_1.pt"
+    at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_1.pt"
+    at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_1.pt"
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=data_path,
+        use_GPU=False,
+        n_neuron=64,
+        n_params=1,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3 = APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+    )
+    monA_props, monB_props = atom_type_elst_model.predict_qcel_mols_monomer_props([mol], model_type="model")
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+    dimer_batch.qA = torch.tensor(monA_props[0][0], dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(monB_props[0][0], dtype=torch.float32)
+    dimer_batch.muA = torch.tensor(monA_props[0][1], dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(monB_props[0][1], dtype=torch.float32)
+    dimer_batch.quadA = torch.tensor(monA_props[0][2], dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(monB_props[0][2], dtype=torch.float32)
+
+    dimer_batch.Ka = torch.tensor(monA_props[0][-1], dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(monB_props[0][-1], dtype=torch.float32)
+    print(f"dimer_batch.Ka: {dimer_batch.Ka}")
+    print(f"dimer_batch.Kb: {dimer_batch.Kb}")
+
+    torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA_0=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB_0=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+    )
+    ref = -10.753819
+    print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
+    assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-4)
+
+    pred, pairwise_energies = ap3.predict_qcel_mols([mol], batch_size=1, return_elst=True)
+    print(f"AP3 elst = {pred[0][0]:.6f} kcal/mol")
+    print(torch_elst)
+    print(pairwise_energies)
+    assert np.allclose(torch_elst.cpu().numpy(), pairwise_energies[0].flatten(), atol=1e-4)
+    pred, pairwise_energies = ap3.predict_qcel_mols([mol, mol_element], batch_size=1, return_elst=True)
+    print(pairwise_energies)
+    assert np.allclose(torch_elst.cpu().numpy(), pairwise_energies[0].flatten(), atol=1e-4)
+    return
+
+
 if __name__ == "__main__":
-    test_ap3_fused_train_qcel_molecules_in_memory()
+    test_elst_ap3()
