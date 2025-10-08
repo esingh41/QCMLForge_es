@@ -93,6 +93,7 @@ class DimerProp(nn.Module):
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
 
+
     def _elst_damping_forward(
         self,
         batch,
@@ -120,6 +121,7 @@ class DimerProp(nn.Module):
         Ka = torch.abs(v_A[-1])
         Kb = torch.abs(v_B[-1])
         # print(f"{Ka =}")
+        # print(f"{v_A[0] =}")
 
         Elst = mtp_elst_damping(
             ZA=batch.ZA,
@@ -577,6 +579,7 @@ class AtomTypeParamNN(nn.Module):
                 for p in range(n_params)
             ]
         )
+        self.set_weights_excluding_guess(0.01)
 
         # readout layers for predicting multipoles from hidden states
         self.param_readout_layers = nn.ModuleList(
@@ -600,6 +603,13 @@ class AtomTypeParamNN(nn.Module):
                 self.param_readout_layers[p].append(
                     self._make_layers(layer_nodes_readout, layer_activations)
                 )
+
+    def set_weights_excluding_guess(self, value=0.01):
+        """Sets all weights and biases in the model to a specific value."""
+        with torch.no_grad():
+            for name, param in self.state_dict().items():
+                if "guess_layer" not in name:
+                    param.fill_(value)
 
     def _make_layers(self, layer_nodes, activations):
         layers = []
@@ -636,6 +646,7 @@ class AtomTypeParamNN(nn.Module):
         Z = x
         K_list = [self.guess_layer[p](Z) for p in range(self.n_params)]
         K = torch.cat(K_list, dim=-1)  # shape (n_atoms, n_params)
+        # print(f"{K = }")
         atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
         keep_mask = torch.isin(
             torch.arange(len(molecule_ind), device=molecule_ind.device),
@@ -644,7 +655,6 @@ class AtomTypeParamNN(nn.Module):
         # print(f"{am_out[0].shape = }")
         # print(f"{K.shape = }")
         if not keep_mask.any():
-            # print("No atoms with edges, skipping readouts")
             # print(f"{K.shape = }")
             # print(f"{charge.shape = }")
             return (
@@ -2239,7 +2249,7 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             ref = batch.y[:, y_ind]
             preds = self.dimer_model(batch)[0]
-            # print(f"{preds = }")
+            print(f"{preds = }")
             preds = scatter(
                 preds,
                 batch.dimer_ind,
@@ -2317,7 +2327,9 @@ units angstrom
                         batch.total_charge_A.size(0), dtype=torch.long
                     ),
                 )
+                print(f"{preds=}")
                 comp_errors = preds - ref
+                print(f"{comp_errors=}")
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)

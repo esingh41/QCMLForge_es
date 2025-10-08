@@ -3,44 +3,32 @@ export iter=1
 
 # for seed in 0 # 1 2 3 4
 # do
-#     export iter=$seed
-#     python3 -u ./train_models.py \
-#         --train_am "AtomHirshfeldModel" \
-#         --am_model_path ./models/am_ap3_HF_ensemble/am_$iter.pt \
-#         --spec_type_am 10 \
-#         --random_seed $iter \
-#         --n_epochs 500 \
-#         --lr 5e-5 \
-#         --data_dir ./data_dimer_0 \
-#         --data_dir_atom ./data_dimer_0 \
-#         --world_size 1 \
-#         --omp_num_threads 16
 # done
 
 # for seed in 0 1 2 3 4
 # do
-#     export iter=$seed
-#     python3 -u ./train_models.py \
-#         --train_am "AtomHirshfeldModel" \
-#         --am_model_path ./models/am_hirshfeld_ensemble/am_$iter.pt \
-#         --spec_type_am 1 \
-#         --random_seed $iter \
-#         --n_epochs 10 \
-#         --lr 5e-5 \
-#         --data_dir ./data_dir \
-#         --world_size 1 \
-#         --omp_num_threads 16 
+    # export iter=$seed
+    # python3 -u ./train_models.py \
+    #     --train_am "AtomModel" \
+    #     --am_model_path ./models/ap3_ensemble/am_$iter.pt \
+    #     --spec_type_am 1 \
+    #     --random_seed $iter \
+    #     --n_epochs 400 \
+    #     --lr 5e-5 \
+    #     --data_dir ./data_dir \
+    #     --world_size 1 \
+    #     --omp_num_threads 16 
 # done
 
 export iter=1
 # Hirshfeld + Valence widths
 # python3 -u ./train_models.py \
 #     --train_apnet AtomTypeParamModel \
-#     --am_model_path ./models/am_ensemble/am_$iter.pt \
+#     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
 #     --random_seed $iter \
 #     --lr 5e-5 \
-#     --ap_model_path ./models/ap_atomTypeParamModel/am_h+1_$iter.pt \
-#     --n_epochs 2 \
+#     --ap_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
+#     --n_epochs 250 \
 #     --n_neuron 32 \
 #     --data_dir ./data_dimer_$iter \
 #     --spec_type_ap 10 \
@@ -57,10 +45,10 @@ python3 -u ./train_models.py \
     --n_params 1 \
     --data_dir ./data_dimer_$iter \
     --spec_type_ap 5 \
-    --lr 5e-4 \
+    --lr 5e-5 \
     --dimer_eval_type elst_damping \
-    --param_start_mean "1.3" \
-    --param_start_std "0.30" \
+    --param_start_mean "1.0" \
+    --param_start_std "0.00" \
     --ds_in_memory True
 
 
