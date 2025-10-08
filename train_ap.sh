@@ -33,15 +33,14 @@ export iter=1
 #     --data_dir ./data_dimer_$iter \
 #     --spec_type_ap 10 \
 
-# Currently definitely not setting models correctly...
-# rm ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt
+# Elst Damping AtomType
 # python3 -u ./train_models.py \
 #     --train_apnet AM-DimerParam \
-#     --am_model_path ./models/am_ensemble/am_0.pt \
-#     --atom_type_param_model_path ./models/ap_atomTypeParamModel/am_h+1_0.pt \
+#     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
+#     --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
 #     --random_seed $iter \
 #     --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
-#     --n_epochs 10 \
+#     --n_epochs 55 \
 #     --n_neuron 64 \
 #     --n_params 1 \
 #     --data_dir ./data_dimer_$iter \
@@ -49,26 +48,22 @@ export iter=1
 #     --lr 5e-5 \
 #     --dimer_eval_type elst_damping \
 #     --param_start_mean "1.6" \
-#     --param_start_std "0.15" \
+#     --param_start_std "0.25" \
 #     --ds_in_memory True
 
-# rm ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt
+# APNet3-Fused with Elst Damping AtomType
 python3 -u ./train_models.py \
-    --train_apnet AM-DimerParam \
+    --train_apnet APNet3-fused \
     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
-    --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
+    --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
+    --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
     --random_seed $iter \
-    --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
+    --ap_model_path ./models/ap3_ensemble/$iter/ap3_$iter.pt \
     --n_epochs 55 \
-    --n_neuron 64 \
-    --n_params 1 \
     --data_dir ./data_dimer_$iter \
-    --spec_type_ap 7 \
+    --spec_type_ap 8 \
     --lr 5e-5 \
-    --dimer_eval_type elst_damping \
-    --param_start_mean "1.6" \
-    --param_start_std "0.25" \
-    --ds_in_memory True
+    --ds_in_memory False
 
 
 # Elst + Induced dipole

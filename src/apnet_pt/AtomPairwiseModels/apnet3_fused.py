@@ -553,7 +553,7 @@ class APNet3_AtomType_Model:
             )
         if pre_trained_model_path:
             print(
-                f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
+                f"Loading pre-trained APNet3_AtomType_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             self.model = APNet3_AtomType_MPNN(
@@ -1652,7 +1652,7 @@ units angstrom
             test_dataset = self.dataset[test_indices]
             batch_size = train_dataset.training_batch_size
         self.batch_size = batch_size
-        print("~~ Training APNet2Model ~~", flush=True)
+        print("~~ Training APNet3-fused Model ~~", flush=True)
         print(
             f"    Training on {len(train_dataset)} samples, Testing on {
                 len(test_dataset)

@@ -70,6 +70,7 @@ def train_pairwise_model(
     model_out="./models/ap2_ensemble/ap2_1.pt",
     am_model_path="./models/ap2_ensemble/am_1.pt",
     atom_type_param_model_path="./models/ap_atomTypeParamModel/am_0.pt",
+    atom_type_param_model_path2="./models/ap_atomTypeParamModel/am_0.pt",
     data_dir="./data_pairwise",
     n_epochs=50,
     lr=5e-4,
@@ -101,10 +102,10 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.apnet2.APNet2Model
     elif apnet_model_type == "APNet2-fused":
         APNet = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model
+    elif apnet_model_type == "APNet3-fused":
+        APNet = AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model
     elif apnet_model_type == "AM-DimerParam":
         APNet = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model
-    elif apnet_model_type == "APNet3":
-        APNet = AtomPairwiseModels.apnet3.APNet3Model
     elif apnet_model_type == "dAPNet2":
         APNet = AtomPairwiseModels.dapnet2.dAPNet2Model
         # apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0).model
@@ -138,7 +139,7 @@ def train_pairwise_model(
         pretrained_model = None
         print("\nTraining from scratch...\n")
     if apnet_model_type.startswith("dAPNet"):
-        apnet2 = APNet(
+        apnet = APNet(
             apnet2_model=apnet2_model,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
@@ -174,7 +175,7 @@ def train_pairwise_model(
             atom_model = None
             atom_model_type = "AtomModel"
 
-        apnet2 = APNet(
+        apnet = APNet(
             atom_model=atom_model,
             atom_model_pre_trained_path=am_model_path,
             atom_model_type=atom_model_type,
@@ -190,15 +191,51 @@ def train_pairwise_model(
             ds_num_devices=1,
             ds_skip_process=False,
             ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-            ds_prebatched=True,
+            ds_prebatched=False,
             ds_random_seed=random_seed,
             param_start_mean=param_start_mean,
             param_start_std=param_start_std,
             dimer_eval_type=dimer_eval_type,
             n_params=n_params,
         )
+    elif apnet_model_type in ["APNet3-fused"]:
+        print("Setting AtomTypeParams...")
+        atom_type_hf_vw_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model_pre_trained_path=am_model_path,
+            pre_trained_model_path=atom_type_param_model_path,
+        )
+        atom_type_elst_model = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model=atom_type_hf_vw_model.model,
+            atom_model_type="AtomTypeParamNN",
+            pre_trained_model_path=atom_type_param_model_path2,
+        )
+        am_model_path = None
+        apnet = APNet(
+            atom_type_model=atom_type_hf_vw_model.model,
+            dimer_prop_model=atom_type_elst_model.dimer_model,
+            pre_trained_model_path=pretrained_model,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            ds_spec_type=spec_type,
+            ds_root=data_dir,
+            ignore_database_null=False,
+            ds_atomic_batch_size=ds_atomic_batch_size,
+            ds_num_devices=1,
+            ds_skip_process=False,
+            ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+            ds_prebatched=False,
+            ds_random_seed=random_seed,
+        )
     elif apnet_model_type in ["AtomTypeParamModel"]:
-        apnet2 = APNet(
+        apnet = APNet(
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
             n_rbf=n_rbf,
@@ -214,7 +251,7 @@ def train_pairwise_model(
             param_start_std=param_start_std,
         )
     else:
-        apnet2 = APNet(
+        apnet = APNet(
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=pretrained_model,
             n_rbf=n_rbf,
@@ -232,7 +269,7 @@ def train_pairwise_model(
             ds_prebatched=True,
             ds_random_seed=random_seed,
         )
-    apnet2.train(
+    apnet.train(
         model_path=model_out,
         n_epochs=n_epochs,
         world_size=world_size,
@@ -282,8 +319,14 @@ def main():
     args.add_argument(
         "--atom_type_param_model_path",
         type=str,
-        default="./models/ap_atomTypeParamModel/am_0.pt",
-        help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props (default: ./models/ap_atomTypeParamModel/am_0.pt)",
+        default=None,
+        help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props (default: None)",
+    )
+    args.add_argument(
+        "--atom_type_param_model_path2",
+        type=str,
+        default=None,
+        help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props in AP3 (default: None)",
     )
     args.add_argument(
         "--ap_model_path",
@@ -307,7 +350,7 @@ def main():
         "--train_apnet",
         type=str,
         default="",
-        help="Train APNet Model: (APNet2, APNet3, dAPNet2, APNet2-fused, AM-DimerParam)",
+        help="Train APNet Model: (APNet2, APNet3-fused, dAPNet2, APNet2-fused, AM-DimerParam)",
     )
     args.add_argument(
         "--dimer_eval_type",
@@ -448,6 +491,7 @@ def main():
             model_out=args.ap_model_path,
             am_model_path=args.am_model_path,
             atom_type_param_model_path=args.atom_type_param_model_path,
+            atom_type_param_model_path2=args.atom_type_param_model_path2,
             data_dir=args.data_dir,
             n_epochs=args.n_epochs,
             lr=args.lr,
