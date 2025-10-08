@@ -34,28 +34,11 @@ export iter=1
 #     --spec_type_ap 10 \
 
 # Currently definitely not setting models correctly...
-rm ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt
-python3 -u ./train_models.py \
-    --train_apnet AM-DimerParam \
-    --am_model_path ./models/am_ensemble/am_0.pt \
-    --atom_type_param_model_path ./models/ap_atomTypeParamModel/am_h+1_0.pt \
-    --random_seed $iter \
-    --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
-    --n_epochs 10 \
-    --n_neuron 64 \
-    --n_params 1 \
-    --data_dir ./data_dimer_$iter \
-    --spec_type_ap 7 \
-    --lr 5e-5 \
-    --dimer_eval_type elst_damping \
-    --param_start_mean "1.6" \
-    --param_start_std "0.15" \
-    --ds_in_memory True
 # rm ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt
 # python3 -u ./train_models.py \
 #     --train_apnet AM-DimerParam \
-#     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
-#     --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
+#     --am_model_path ./models/am_ensemble/am_0.pt \
+#     --atom_type_param_model_path ./models/ap_atomTypeParamModel/am_h+1_0.pt \
 #     --random_seed $iter \
 #     --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
 #     --n_epochs 10 \
@@ -65,9 +48,27 @@ python3 -u ./train_models.py \
 #     --spec_type_ap 7 \
 #     --lr 5e-5 \
 #     --dimer_eval_type elst_damping \
-#     --param_start_mean "0.9" \
+#     --param_start_mean "1.6" \
 #     --param_start_std "0.15" \
 #     --ds_in_memory True
+
+# rm ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt
+python3 -u ./train_models.py \
+    --train_apnet AM-DimerParam \
+    --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
+    --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
+    --random_seed $iter \
+    --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
+    --n_epochs 55 \
+    --n_neuron 64 \
+    --n_params 1 \
+    --data_dir ./data_dimer_$iter \
+    --spec_type_ap 6 \
+    --lr 5e-5 \
+    --dimer_eval_type elst_damping \
+    --param_start_mean "1.6" \
+    --param_start_std "0.25" \
+    --ds_in_memory True
 
 
 # Elst + Induced dipole
