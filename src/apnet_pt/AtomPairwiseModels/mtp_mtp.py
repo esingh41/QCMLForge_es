@@ -445,6 +445,7 @@ class DimerProp(nn.Module):
         return torch.vstack((Elst, Indu)).T, v_A, v_B
 
 
+    @torch.compiler.disable
     def _ap3_elst_damping_indu_induced_dipole_forward(
         self,
         batch,

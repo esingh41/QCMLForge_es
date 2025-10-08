@@ -291,9 +291,9 @@ class APNet3_AtomType_MPNN(nn.Module):
         e_BB_source = batch.e_BB_source
         e_BB_target = batch.e_BB_target
         # counts
-        natomA = torch.tensor(ZA.size(0), dtype=torch.long)
-        natomB = torch.tensor(ZB.size(0), dtype=torch.long)
-        ndimer = torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+        natomA = int(ZA.size(0))
+        natomB = int(ZB.size(0))
+        ndimer = int(batch.total_charge_A.size(0))
 
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)

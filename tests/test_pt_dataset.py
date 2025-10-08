@@ -1660,7 +1660,7 @@ def test_ap3_spec7():
     )
     ap3.train(
         n_epochs=50,
-        skip_compile=True,
+        skip_compile=False,
         transfer_learning=False,
         lr=5e-4,
         dataloader_num_workers=4,
