@@ -1619,107 +1619,113 @@ def test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7():
         model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
     )
 
-
-def test_atomhirshfeld_model_train():
-    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
-        root=data_path,
-        transform=None,
-        pre_transform=None,
-        r_cut=5.0,
-        testing=False,
-        spec_type=5,
-        max_size=None,
-        force_reprocess=False,
-        in_memory=True,
-        batch_size=1,
-    )
-    print(ds)
-    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+def test_ap3_spec7():
+    """
+    """
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
         use_GPU=False,
-        ignore_database_null=False,
-        dataset=ds,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=current_file_path
+        + "/../models/am_ensemble/am_0.pt",
+        pre_trained_model_path=current_file_path
+        + "/../models/ap_atomTypeParamModel/am_h+1_0.pt",
     )
-    print(am)
-    am.train(
-        n_epochs=5,
-        batch_size=1,
-        lr=5e-4,
-        split_percent=0.5,
-        model_path=None,
-        shuffle=True,
-        dataloader_num_workers=0,
-        world_size=1,
-        omp_num_threads_per_process=None,
-        random_seed=42,
-    )
-    return
-
-
-def test_atomhirshfeld_model_train():
-    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
-        root=data_path,
-        transform=None,
-        pre_transform=None,
-        r_cut=5.0,
-        testing=False,
-        spec_type=5,
-        max_size=None,
-        force_reprocess=False,
-        in_memory=True,
-        batch_size=1,
-    )
-    print(ds)
-    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
         use_GPU=False,
-        ignore_database_null=False,
-        dataset=ds,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
     )
-    print(am)
-    am.train(
-        n_epochs=5,
-        batch_size=1,
-        lr=5e-4,
-        split_percent=0.5,
-        model_path=None,
-        shuffle=True,
-        dataloader_num_workers=0,
-        world_size=1,
-        omp_num_threads_per_process=None,
-        random_seed=42,
-    )
-    return
-
-
-@pytest.mark.skip(reason="Skip this test for large ap3 dataset")
-def test_ap3_model_train():
-    world_size = 1
-    print("World Size", world_size)
-
-    batch_size = 16
-    omp_num_threads_per_process = 8
-    apnet3 = AtomPairwiseModels.apnet3.APNet3Model(
-        atom_model_pre_trained_path="./models/am_hf_ensemble/am_4.pt",
-        pre_trained_model_path=None,
-        ds_spec_type=7,
+    # print(atom_type_elst_model.atom_model)
+    ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
         ds_root=data_path,
         ignore_database_null=False,
-        ds_atomic_batch_size=200,
-        ds_num_devices=1,
-        ds_skip_process=False,
-        ds_datapoint_storage_n_objects=batch_size,
-        ds_prebatched=True,
+        ds_force_reprocess=True,
         use_GPU=False,
+        ds_spec_type=7,
     )
-    apnet3.train(
-        model_path="./ap3_test.pt",
+    print(ap3)
+    ap3.train(
         n_epochs=5,
-        world_size=world_size,
-        omp_num_threads_per_process=omp_num_threads_per_process,
-        lr=5e-4,
-        dataloader_num_workers=4,
-        random_seed=4,
         skip_compile=True,
+        transfer_learning=False,
+        lr=0.0005,
     )
+
+
+def test_atomhirshfeld_model_train():
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+    return
+
+
+def test_atomhirshfeld_model_train():
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    )
+    print(ds)
+    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print(am)
+    am.train(
+        n_epochs=5,
+        batch_size=1,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        shuffle=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=None,
+        random_seed=42,
+    )
+    return
 
 
 def test_mtp_mtp_elst_qcel_mols():
@@ -1950,7 +1956,8 @@ if __name__ == "__main__":
     # test_atomhirshfeld_model_train()
     # test_AtomTypeParamModel_elst_train()
 
-    test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
+    # test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
+    test_ap3_spec7()
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only()
     # test_AtomTypeParamModel_ind_train()
 
@@ -1969,5 +1976,4 @@ if __name__ == "__main__":
     # test_dapnet2_dataset_size_prebatched()
     # test_dapnet2_train_qcel_molecules_in_memory_transfer()
     # test_apnet2_model_train()
-    # test_ap3_model_train()
     pass

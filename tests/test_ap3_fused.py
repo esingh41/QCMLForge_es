@@ -16,9 +16,9 @@ spec_type = 5
 current_file_path = os.path.dirname(os.path.realpath(__file__))
 data_path = f"{current_file_path}/test_data_path"
 
-am_path = f"{current_file_path}/../models/ap3_ensemble/0/am_1.pt"
-at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/0/am_h+1_1.pt"
-at_elst_path = f"{current_file_path}/../models/ap3_ensemble/0/am_dimer_elst_damped_3.pt"
+am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_1.pt"
+at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_1.pt"
+at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_1.pt"
 
 mol_dimer = qcel.models.Molecule.from_data("""
 0 1
@@ -102,7 +102,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
         ignore_database_null=True,
         atom_model=atom_type_hf_vw_model.model,
         atom_model_type="AtomTypeParamNN",
-        # pre_trained_model_path=at_elst_path,
+        pre_trained_model_path=at_elst_path,
     )
     # print(atom_type_elst_model.atom_model)
     print(atom_type_elst_model.dimer_model.AtomTypeParam)
