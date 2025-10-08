@@ -159,7 +159,7 @@ def train_pairwise_model(
             ds_m2=m2,
         )
     elif apnet_model_type in ["AM-DimerParam"]:
-        if dimer_eval_type in ["elst_damping__induced_dipole", "elst_damping"]:
+        if dimer_eval_type in ["elst_damping__induced_dipole", "elst_damping"] and atom_type_param_model_path is not None:
             print("Using AtomTypeParamModel for Dimer Prop Model")
             atom_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
                 ds_root=None,
@@ -169,12 +169,15 @@ def train_pairwise_model(
                 pre_trained_model_path=atom_type_param_model_path,
             ).model
             am_model_path = None
+            atom_model_type = "AtomTypeParamNN"
         else:
             atom_model = None
+            atom_model_type = "AtomModel"
 
         apnet2 = APNet(
             atom_model=atom_model,
             atom_model_pre_trained_path=am_model_path,
+            atom_model_type=atom_model_type,
             pre_trained_model_path=pretrained_model,
             n_rbf=n_rbf,
             n_neuron=n_neuron,

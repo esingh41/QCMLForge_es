@@ -1606,17 +1606,16 @@ def test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7():
         ds_force_reprocess=True,
         use_GPU=False,
         ds_spec_type=7,
-        param_start_mean=[0.9],
+        param_start_mean=[1.6],
         param_start_std=[0.15],
         n_neuron=64,
         n_params=1,
         dimer_eval_type="elst_damping",
     )
     param_mod.train(
-        n_epochs=100,
+        n_epochs=10,
         skip_compile=False,
         lr=5e-5,
-        split_percent=0.5,
         model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
     )
 
