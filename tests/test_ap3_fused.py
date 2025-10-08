@@ -35,6 +35,20 @@ units bohr
 no_com
 no_reorient
 """)
+lr_water_dimer = qcel.models.Molecule.from_data("""
+0 1
+--
+0 1
+O                    -1.326958230000    -0.105938530000     0.018788150000
+H                    -1.931665240000     1.600174320000    -0.021710520000
+H                     0.486644280000     0.079598090000     0.009862480000
+--
+0 1
+O                     8.088671270000     0.019951580000    -0.007942850000
+H                     8.800382980000    -0.808466680000     1.439822410000
+H                     8.792148880000    -0.879960520000    -1.416549430000
+units bohr
+""")
 mol_dimer = qcel.models.Molecule.from_data("""
 0 1
 8   -0.702196054   -0.056060256   0.009942262
@@ -296,6 +310,123 @@ def test_classical_ap3():
     return
 
 
+def test_classical_ap3_long_range():
+    mol = lr_water_dimer
+    am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_1.pt"
+    at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_1.pt"
+    at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_1.pt"
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=data_path,
+        use_GPU=False,
+        n_neuron=64,
+        n_params=1,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3 = APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+    )
+    monA_props, monB_props = atom_type_elst_model.predict_qcel_mols_monomer_props([mol], model_type="model", am_type="ap3")
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+    dimer_batch.qA = torch.tensor(monA_props[0][0], dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(monB_props[0][0], dtype=torch.float32)
+    dimer_batch.muA = torch.tensor(monA_props[0][1], dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(monB_props[0][1], dtype=torch.float32)
+    dimer_batch.quadA = torch.tensor(monA_props[0][2], dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(monB_props[0][2], dtype=torch.float32)
+
+    dimer_batch.Ka = torch.tensor(monA_props[0][-1], dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(monB_props[0][-1], dtype=torch.float32)
+    dimer_batch.vw_A = torch.tensor(monA_props[0][-2], dtype=torch.float32)
+    dimer_batch.vw_B = torch.tensor(monB_props[0][-2], dtype=torch.float32)
+    dimer_batch.hfvr_A = torch.tensor(monA_props[0][-3], dtype=torch.float32)
+    dimer_batch.hfvr_B = torch.tensor(monB_props[0][-3], dtype=torch.float32)
+    print(f"dimer_batch.Ka: {dimer_batch.Ka}")
+    print(f"dimer_batch.Kb: {dimer_batch.Kb}")
+    print(f"dimer_batch.vw_A: {dimer_batch.vw_A}")
+    print(f"dimer_batch.vw_B: {dimer_batch.vw_B}")
+    print(f"dimer_batch.hfvr_A: {dimer_batch.hfvr_A}")
+    print(f"dimer_batch.hfvr_B: {dimer_batch.hfvr_B}")
+
+    torch_elst = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA_0=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB_0=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+    )
+    ref = -0.857894
+    print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
+    assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-4)
+
+    torch_ind = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole_induction_optimized_no_correction(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        hirshfeld_volume_ratio_A=dimer_batch.hfvr_A,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        hirshfeld_volume_ratio_B=dimer_batch.hfvr_B,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+        e_AA_source=dimer_batch.e_AA_source,
+        e_BB_source=dimer_batch.e_BB_source,
+        e_AA_target=dimer_batch.e_AA_target,
+        e_BB_target=dimer_batch.e_BB_target,
+    )
+    print(f"Torch ind = {torch.sum(torch_ind):.6f} kcal/mol")
+    ref = -0.016318
+    assert np.allclose(torch.sum(torch_ind).item(), ref, atol=1e-4)
+
+    pred, pair_elst, pair_ind = ap3.predict_qcel_mols([mol], batch_size=1, return_classical_pairs=True)
+    print(f"AP3 elst = {pred[0][0]:.6f} kcal/mol")
+    print(f"{torch_elst = }")
+    print(f"{pair_elst  = }")
+    assert np.allclose(torch_elst.cpu().numpy(), pair_elst[0].flatten(), atol=1e-4)
+    print(f"AP3 ind = {pred[0][2]:.6f} kcal/mol")
+    print(f"{torch_ind = }")
+    print(f"{pair_ind  = }")
+    assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
+    pred, pair_elst, pair_ind = ap3.predict_qcel_mols([mol, mol_element], batch_size=1, return_classical_pairs=True)
+    assert np.allclose(torch_elst.cpu().numpy(), pair_elst[0].flatten(), atol=1e-4)
+    assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
+    pred, pair_ind, pair_ind = ap3.predict_qcel_mols([mol, mol_element], batch_size=1, return_classical_pairs=True)
+    assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
+    return
+
+
 if __name__ == "__main__":
-    test_classical_ap3()
+    # test_classical_ap3()
+    test_classical_ap3_long_range()
     # test_ap3_fused_train_qcel_molecules_in_memory()
