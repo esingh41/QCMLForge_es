@@ -1626,7 +1626,7 @@ def test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7():
     )
 
 
-def test_ap3_spec7():
+def test_ap3_spec8():
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -1659,12 +1659,35 @@ def test_ap3_spec7():
         ds_in_memory=False,
     )
     ap3.train(
-        n_epochs=50,
+        n_epochs=5,
         skip_compile=False,
         transfer_learning=False,
         lr=5e-4,
         dataloader_num_workers=4,
     )
+
+def test_ap2_spec8():
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        pre_trained_model_path=current_file_path
+        + "/../models/am_ensemble/am_0.pt",
+        ignore_database_null=True,
+    )
+    ap2 = apnet_pt.AtomPairwiseModels.apnet2_fused.APNet2_AM_Model(
+        atom_model=atom_model.model,
+        ds_root=data_path,
+        ignore_database_null=False,
+        ds_force_reprocess=True,
+        use_GPU=False,
+        ds_spec_type=8,
+    )
+    ap2.train(
+        n_epochs=5,
+        skip_compile=False,
+        transfer_learning=False,
+        lr=5e-4,
+        dataloader_num_workers=4,
+    )
+
 
 def test_ap3_train():
     df = pd.read_pickle(current_file_path + "/dataset_data/elst_damping_test.pkl")
@@ -2012,7 +2035,8 @@ if __name__ == "__main__":
     # test_AtomTypeParamModel_elst_train()
 
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
-    test_ap3_spec7()
+    test_ap2_spec8()
+    test_ap3_spec8()
     # test_ap3_train()
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only()
     # test_AtomTypeParamModel_ind_train()
