@@ -345,9 +345,9 @@ class APNet2_AM_MPNN(nn.Module):
         e_BB_source = batch.e_BB_source
         e_BB_target = batch.e_BB_target
         # counts
-        natomA = torch.tensor(ZA.size(0), dtype=torch.long)
-        natomB = torch.tensor(ZB.size(0), dtype=torch.long)
-        ndimer = torch.tensor(batch.total_charge_A.size(0), dtype=torch.long)
+        natomA = int(ZA.size(0))
+        natomB = int(ZB.size(0))
+        ndimer = int(batch.total_charge_A.size(0))
 
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
@@ -371,25 +371,9 @@ class APNet2_AM_MPNN(nn.Module):
         ### predict monomer properties w/ pretrained AtomModel ###
         ##########################################################
 
-        batch_A = Data(
-            x=ZA,
-            edge_index=torch.vstack((e_AA_source, e_AA_target)),
-            R=RA,
-            molecule_ind=batch.molecule_ind_A,
-            total_charge=batch.total_charge_A,
-            natom_per_mol=batch.natom_per_mol_A,
-        )
-        qA, muA, quadA, _ = self.atom_model(batch_A)
+        qA, muA, quadA, _ = self.atom_model(batch.batch_atomic_A)
         qA = qA.reshape(-1, 1)
-        batch_B = Data(
-            x=ZB,
-            edge_index=torch.vstack((e_BB_source, e_BB_target)),
-            R=RB,
-            molecule_ind=batch.molecule_ind_B,
-            total_charge=batch.total_charge_B,
-            natom_per_mol=batch.natom_per_mol_B,
-        )
-        qB, muB, quadB, _ = self.atom_model(batch_B)
+        qB, muB, quadB, _ = self.atom_model(batch.batch_atomic_B)
         qB = qB.reshape(-1, 1)
 
         ################################################################

@@ -329,6 +329,7 @@ class AtomMPNN(MessagePassing):
         e_target = idx_map[e_target]
 
         R = R[keep_mask, :]
+        natom_filtered = keep_mask.sum()
 
         #  [edges]
         dR, dR_xyz = get_distances(R, R, e_source, e_target)
@@ -348,7 +349,7 @@ class AtomMPNN(MessagePassing):
             # [atoms x message_embedding_dim]
             # m_i = unsorted_segment_sum_2d(m_ij, e_source, natom)
             # write unsorted_segment_sum_2d using scatter
-            m_i = scatter(m_ij, e_source, dim=0, reduce="sum")
+            m_i = scatter(m_ij, e_source, dim=0, reduce="sum", dim_size=natom_filtered)  # type: ignore
 
             # [atomx x hidden_dim]
             h_next = self.charge_update_layers[i](m_i)

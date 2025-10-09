@@ -2034,9 +2034,9 @@ if __name__ == "__main__":
     # test_atomhirshfeld_model_train()
     # test_AtomTypeParamModel_elst_train()
 
-    # test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
-    test_ap2_spec8()
-    test_ap3_spec8()
+    test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
+    # test_ap2_spec8()
+    # test_ap3_spec8()
     # test_ap3_train()
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only()
     # test_AtomTypeParamModel_ind_train()

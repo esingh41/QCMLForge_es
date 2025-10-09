@@ -1343,14 +1343,6 @@ class AtomHirshfeldModel:
     @torch.inference_mode()
     def model_predict(self, data):
         charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = (
-            self.model(
-                data.x,
-                data.edge_index,
-                # data.edge_attr,
-                R=data.R,
-                molecule_ind=data.molecule_ind,
-                total_charge=data.total_charge,
-                natom_per_mol=data.natom_per_mol,
-            )
+            self.model(data)
         )
         return charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist

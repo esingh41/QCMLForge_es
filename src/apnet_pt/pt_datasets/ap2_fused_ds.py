@@ -223,16 +223,49 @@ def ap2_fused_collate_update(batch):
     natom_per_mol_A = torch.bincount(molecule_ind_A)
     natom_per_mol_B = torch.bincount(molecule_ind_B)
     y = torch.stack([data.y for data in batch], dim=0)
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=molecule_ind_A,
+        total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=molecule_ind_B,
+        total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
+    )
+    
     batched_data = Data(
         y=y,
-        ZA=torch.cat([data.ZA for data in batch], dim=0),
-        RA=torch.cat([data.RA for data in batch], dim=0),
-        ZB=torch.cat([data.ZB for data in batch], dim=0),
-        RB=torch.cat([data.RB for data in batch], dim=0),
-        e_AA_source=torch.cat(local_e_AA_source, dim=0),
-        e_AA_target=torch.cat(local_e_AA_target, dim=0),
-        e_BB_source=torch.cat(local_e_BB_source, dim=0),
-        e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
         molecule_ind_A=molecule_ind_A,
         molecule_ind_B=molecule_ind_B,
         natom_per_mol_A=natom_per_mol_A,
@@ -243,12 +276,10 @@ def ap2_fused_collate_update(batch):
         e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
         dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
         dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
-        total_charge_A=torch.tensor(
-            [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
-        ),
-        total_charge_B=torch.tensor(
-            [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
-        ),
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
     )
     return batched_data
 
@@ -303,15 +334,49 @@ def ap2_fused_collate_update_no_target(batch):
     molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
     natom_per_mol_A = torch.bincount(molecule_ind_A)
     natom_per_mol_B = torch.bincount(molecule_ind_B)
+    
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=molecule_ind_A,
+        total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=molecule_ind_B,
+        total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
+    )
+    
     batched_data = Data(
-        ZA=torch.cat([data.ZA for data in batch], dim=0),
-        RA=torch.cat([data.RA for data in batch], dim=0),
-        ZB=torch.cat([data.ZB for data in batch], dim=0),
-        RB=torch.cat([data.RB for data in batch], dim=0),
-        e_AA_source=torch.cat(local_e_AA_source, dim=0),
-        e_AA_target=torch.cat(local_e_AA_target, dim=0),
-        e_BB_source=torch.cat(local_e_BB_source, dim=0),
-        e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
         molecule_ind_A=molecule_ind_A,
         molecule_ind_B=molecule_ind_B,
         natom_per_mol_A=natom_per_mol_A,
@@ -322,14 +387,12 @@ def ap2_fused_collate_update_no_target(batch):
         e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
         dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
         dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
-        total_charge_A=torch.tensor(
-            [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
-        ),
-        total_charge_B=torch.tensor(
-            [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
-        ),
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
         indA=torch.cat(local_indA, dim=0),
         indB=torch.cat(local_indB, dim=0),
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
     )
     return batched_data
 
@@ -373,27 +436,56 @@ def ap2_fused_collate_update_no_target_monomer_indices(batch):
         local_indB.append(
             torch.ones(data.RB.size(0), dtype=data.dimer_ind_lr.dtype) * i
         )
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    indA_cat = torch.cat(local_indA, dim=0)
+    indB_cat = torch.cat(local_indB, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=indA_cat,
+        total_charge=total_charge_A_tensor,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=indB_cat,
+        total_charge=total_charge_B_tensor,
+    )
+    
     batched_data = Data(
-        ZA=torch.cat([data.ZA for data in batch], dim=0),
-        RA=torch.cat([data.RA for data in batch], dim=0),
-        ZB=torch.cat([data.ZB for data in batch], dim=0),
-        RB=torch.cat([data.RB for data in batch], dim=0),
-        e_AA_source=torch.cat(local_e_AA_source, dim=0),
-        e_AA_target=torch.cat(local_e_AA_target, dim=0),
-        e_BB_source=torch.cat(local_e_BB_source, dim=0),
-        e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
         e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
         e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
         e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
         e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
         dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
         dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
-        total_charge_A=torch.tensor(
-            [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
-        ),
-        total_charge_B=torch.tensor(
-            [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
-        ),
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
         qA=torch.cat([data.qA for data in batch], dim=0),
         muA=torch.cat([data.muA for data in batch], dim=0),
         quadA=torch.cat([data.quadA for data in batch], dim=0),
@@ -402,8 +494,10 @@ def ap2_fused_collate_update_no_target_monomer_indices(batch):
         muB=torch.cat([data.muB for data in batch], dim=0),
         quadB=torch.cat([data.quadB for data in batch], dim=0),
         hlistB=torch.cat([data.hlistB for data in batch], dim=0),
-        indA=torch.cat(local_indA, dim=0),
-        indB=torch.cat(local_indB, dim=0),
+        indA=indA_cat,
+        indB=indB_cat,
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
     )
     return batched_data
 

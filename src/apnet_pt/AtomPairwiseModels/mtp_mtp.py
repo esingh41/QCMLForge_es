@@ -445,31 +445,12 @@ class DimerProp(nn.Module):
         return torch.vstack((Elst, Indu)).T, v_A, v_B
 
 
-    @torch.compiler.disable
     def _ap3_elst_damping_indu_induced_dipole_forward(
         self,
         batch,
     ):
-        v_A = self.AtomTypeParam(
-            Data(
-                x=batch.ZA,
-                R=batch.RA,
-                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
-                molecule_ind=batch.molecule_ind_A,
-                total_charge=batch.total_charge_A,
-                natom_per_mol=batch.natom_per_mol_A,
-            )
-        )
-        v_B = self.AtomTypeParam(
-            Data(
-                x=batch.ZB,
-                R=batch.RB,
-                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
-                molecule_ind=batch.molecule_ind_B,
-                total_charge=batch.total_charge_B,
-                natom_per_mol=batch.natom_per_mol_B,
-            )
-        )
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
         Kas = torch.abs(v_A[-1])
         Kbs = torch.abs(v_B[-1])
         # print(f"{Kas =}")
