@@ -98,26 +98,8 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
-        v_A = self.AtomTypeParam(
-            Data(
-                x=batch.ZA,
-                R=batch.RA,
-                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
-                molecule_ind=batch.molecule_ind_A,
-                total_charge=batch.total_charge_A,
-                natom_per_mol=batch.natom_per_mol_A,
-            )
-        )
-        v_B = self.AtomTypeParam(
-            Data(
-                x=batch.ZB,
-                R=batch.RB,
-                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
-                molecule_ind=batch.molecule_ind_B,
-                total_charge=batch.total_charge_B,
-                natom_per_mol=batch.natom_per_mol_B,
-            )
-        )
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
         Ka = torch.abs(v_A[-1])
         Kb = torch.abs(v_B[-1])
         # print(f"{Ka =}")
@@ -145,26 +127,8 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
-        v_A = self.AtomTypeParam(
-            Data(
-                x=batch.ZA,
-                R=batch.RA,
-                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
-                molecule_ind=batch.molecule_ind_A,
-                total_charge=batch.total_charge_A,
-                natom_per_mol=batch.natom_per_mol_A,
-            )
-        )
-        v_B = self.AtomTypeParam(
-            Data(
-                x=batch.ZB,
-                R=batch.RB,
-                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
-                molecule_ind=batch.molecule_ind_B,
-                total_charge=batch.total_charge_B,
-                natom_per_mol=batch.natom_per_mol_B,
-            )
-        )
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
         # print(f"{v_A[-1] =}")
         Elst = mtp_elst(
             ZA=batch.ZA,
@@ -186,26 +150,8 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
-        v_A = self.AtomTypeParam(
-            Data(
-                x=batch.ZA,
-                R=batch.RA,
-                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
-                molecule_ind=batch.molecule_ind_A,
-                total_charge=batch.total_charge_A,
-                natom_per_mol=batch.natom_per_mol_A,
-            )
-        )
-        v_B = self.AtomTypeParam(
-            Data(
-                x=batch.ZB,
-                R=batch.RB,
-                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
-                molecule_ind=batch.molecule_ind_B,
-                total_charge=batch.total_charge_B,
-                natom_per_mol=batch.natom_per_mol_B,
-            )
-        )
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
         # print(f"{v_A[-1] =}")
         Elst = mtp_elst(
             ZA=batch.ZA,
@@ -227,26 +173,8 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
-        v_A = self.AtomTypeParam(
-            Data(
-                x=batch.ZA,
-                R=batch.RA,
-                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
-                molecule_ind=batch.molecule_ind_A,
-                total_charge=batch.total_charge_A,
-                natom_per_mol=batch.natom_per_mol_A,
-            )
-        )
-        v_B = self.AtomTypeParam(
-            Data(
-                x=batch.ZB,
-                R=batch.RB,
-                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
-                molecule_ind=batch.molecule_ind_B,
-                total_charge=batch.total_charge_B,
-                natom_per_mol=batch.natom_per_mol_B,
-            )
-        )
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
         # print(f"{v_A[3] =}")
         # print(f"{v_A[4] =}")
         # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
@@ -287,26 +215,8 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
-        v_A = self.AtomTypeParam(
-            Data(
-                x=batch.ZA,
-                R=batch.RA,
-                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
-                molecule_ind=batch.molecule_ind_A,
-                total_charge=batch.total_charge_A,
-                natom_per_mol=batch.natom_per_mol_A,
-            )  # .to(batch.ZA.device)
-        )
-        v_B = self.AtomTypeParam(
-            Data(
-                x=batch.ZB,
-                R=batch.RB,
-                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
-                molecule_ind=batch.molecule_ind_B,
-                total_charge=batch.total_charge_B,
-                natom_per_mol=batch.natom_per_mol_B,
-            )  # .to(batch.ZA.device)
-        )
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
         # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
         # Kb = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
         # print(f"{Ka =}")
@@ -353,26 +263,8 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
-        v_A = self.AtomTypeParam(
-            Data(
-                x=batch.ZA,
-                R=batch.RA,
-                edge_index=torch.vstack((batch.e_AA_source, batch.e_AA_target)),
-                molecule_ind=batch.molecule_ind_A,
-                total_charge=batch.total_charge_A,
-                natom_per_mol=batch.natom_per_mol_A,
-            )
-        )
-        v_B = self.AtomTypeParam(
-            Data(
-                x=batch.ZB,
-                R=batch.RB,
-                edge_index=torch.vstack((batch.e_BB_source, batch.e_BB_target)),
-                molecule_ind=batch.molecule_ind_B,
-                total_charge=batch.total_charge_B,
-                natom_per_mol=batch.natom_per_mol_B,
-            )
-        )
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
         Kas = torch.abs(v_A[-1])
         Kbs = torch.abs(v_B[-1])
         # print(f"{Kas =}")
