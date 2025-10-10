@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# from torch_scatter import scatter
-from torch_geometric.utils import scatter
+from ..util import scatter_sum_compile
 from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings
@@ -299,7 +298,8 @@ class AtomMPNN(MessagePassing):
             h_list = torch.stack(h_list, dim=1)
             molecule_ind.requires_grad_(False)
             molecule_ind = molecule_ind.long()
-            total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+            num_mols = int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+            total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
             total_charge_pred = total_charge_pred.squeeze()
             total_charge_err = total_charge_pred - total_charge
             charge_err = torch.repeat_interleave(
@@ -329,6 +329,7 @@ class AtomMPNN(MessagePassing):
         e_target = idx_map[e_target]
 
         R = R[keep_mask, :]
+        natom_filtered = keep_mask.sum()
 
         #  [edges]
         dR, dR_xyz = get_distances(R, R, e_source, e_target)
@@ -348,7 +349,7 @@ class AtomMPNN(MessagePassing):
             # [atoms x message_embedding_dim]
             # m_i = unsorted_segment_sum_2d(m_ij, e_source, natom)
             # write unsorted_segment_sum_2d using scatter
-            m_i = scatter(m_ij, e_source, dim=0, reduce="sum")
+            m_i = scatter_sum_compile(m_ij, e_source, int(natom_filtered), reduce="sum")  # type: ignore
 
             # [atomx x hidden_dim]
             h_next = self.charge_update_layers[i](m_i)
@@ -410,7 +411,8 @@ class AtomMPNN(MessagePassing):
         charge[keep_mask] = filtered_charge
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
-        total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+        num_mols = int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+        total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
         # return charge, dipole, qpole, h_list
 
         total_charge_pred = total_charge_pred.squeeze()

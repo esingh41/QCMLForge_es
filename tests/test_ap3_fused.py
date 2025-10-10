@@ -427,6 +427,6 @@ def test_classical_ap3_long_range():
 
 
 if __name__ == "__main__":
-    # test_classical_ap3()
+    test_classical_ap3()
     # test_classical_ap3_long_range()
-    test_ap3_fused_train_qcel_molecules_in_memory()
+    # test_ap3_fused_train_qcel_molecules_in_memory()
