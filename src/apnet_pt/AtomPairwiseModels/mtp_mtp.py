@@ -1985,7 +1985,7 @@ class AM_DimerParam_Model:
                     dimer_batch.total_charge_A.size(0), dtype=torch.long
                 ),
             )
-            predictions[i : i + batch_size] = preds[0].cpu().numpy()
+            predictions[i : i + batch_size] = preds.cpu().numpy().reshape(-1, self.n_params)
         if verbose:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if return_pairs or return_elst:
