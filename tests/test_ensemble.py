@@ -253,6 +253,6 @@ def test_ap2_fused_ensemble_predict_pairs():
 if __name__ == "__main__":
     # test_am_ensemble()
     # test_ap2_ensemble()
-    test_ap2_ensemble_predict_pairs()
-    # test_ap2_fused_ensemble()
+    # test_ap2_ensemble_predict_pairs()
+    test_ap2_fused_ensemble()
     # test_ap2_fused_ensemble_predict_pairs()
