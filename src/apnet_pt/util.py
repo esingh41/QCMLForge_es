@@ -5,6 +5,7 @@ General utility functions for pre-processing molecules
 import numpy as np
 import pandas as pd
 import qcelemental as qcel
+import torch
 
 from apnet_pt import constants
 
@@ -12,6 +13,49 @@ from apnet_pt import constants
 from torch_geometric.data import Data
 from torch_geometric.data import Dataset
 from torch_geometric.loader import DataLoader
+
+
+def scatter_sum_compile(src, index, dim_size, reduce="sum"):
+    """
+    Compile-friendly version of torch_geometric scatter for sum reduction.
+    
+    This function avoids graph breaks in torch.compile by using native PyTorch
+    operations instead of torch_geometric.utils.scatter which contains .item()
+    calls that cause dynamo graph breaks.
+    
+    Parameters
+    ----------
+    src : torch.Tensor
+        Source tensor to scatter (any number of dimensions)
+    index : torch.Tensor
+        Index tensor indicating where to scatter each element (1D)
+    dim_size : int
+        Size of the output dimension 0
+    reduce : str
+        Reduction operation, must be "sum" or "add"
+    
+    Returns
+    -------
+    torch.Tensor
+        Scattered tensor with shape (dim_size, *src.shape[1:])
+    
+    Notes
+    -----
+    This function only supports reduce="sum" and reduce="add" which are equivalent.
+    For other reduction types, use torch_geometric.utils.scatter.
+    """
+    # if reduce not in ["sum", "add"]:
+    #     raise ValueError(f"Only 'sum' and 'add' reductions supported, got '{reduce}'")
+    
+    out_shape = (dim_size,) + src.shape[1:]
+    output = torch.zeros(out_shape, dtype=src.dtype, device=src.device)
+    
+    index_shape = (index.size(0),) + (1,) * (src.dim() - 1)
+    index_expanded = index.view(index_shape).expand_as(src)
+    
+    result = output.scatter_add_(0, index_expanded, src)
+    
+    return result
 
 
 def qcel_to_dimerdata(dimer):

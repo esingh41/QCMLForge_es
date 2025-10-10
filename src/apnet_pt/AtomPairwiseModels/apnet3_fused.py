@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch_geometric.utils import scatter
 from torch_geometric.data import Data
 import numpy as np
 import warnings
@@ -14,6 +13,7 @@ from ..pt_datasets.ap2_fused_ds import (
     qcel_dimer_to_fused_data,
 )
 from .. import constants
+from ..util import scatter_sum_compile
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -291,9 +291,9 @@ class APNet3_AtomType_MPNN(nn.Module):
         e_BB_source = batch.e_BB_source
         e_BB_target = batch.e_BB_target
         # counts
-        natomA = int(ZA.size(0))
-        natomB = int(ZB.size(0))
-        ndimer = int(batch.total_charge_A.size(0))
+        natomA = ZA.size(0)
+        natomB = ZB.size(0)
+        ndimer = batch.total_charge_A.size(0)
 
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
@@ -364,8 +364,8 @@ class APNet3_AtomType_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0, reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0, reduce="sum", dim_size=natomB)
+            mA_i = scatter_sum_compile(mA_ij, e_AA_source, int(natomA))
+            mB_i = scatter_sum_compile(mB_ij, e_BB_source, int(natomB))
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
@@ -387,11 +387,11 @@ class APNet3_AtomType_MPNN(nn.Module):
             # NOTE: this summation must be linear to guarantee equivariance.
             #       because of this constraint, we applied a dense net before
             #       the summation, not after
-            hA_dir = scatter(
-                mA_ij_dir, e_AA_source, dim=0, reduce="sum", dim_size=natomA
+            hA_dir = scatter_sum_compile(
+                mA_ij_dir, e_AA_source, int(natomA)
             )
-            hB_dir = scatter(
-                mB_ij_dir, e_BB_source, dim=0, reduce="sum", dim_size=natomB
+            hB_dir = scatter_sum_compile(
+                mB_ij_dir, e_BB_source, int(natomB)
             )
             hA_dir_list.append(hA_dir)
             hB_dir_list.append(hB_dir)
@@ -424,9 +424,9 @@ class APNet3_AtomType_MPNN(nn.Module):
 
         cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
         E_sr *= cutoff
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
-        E_elst_full_dimer = scatter(
-            E_elst, dimer_ind, dim=0, reduce="add", dim_size=ndimer
+        E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
+        E_elst_full_dimer = scatter_sum_compile(
+            E_elst, dimer_ind, ndimer
         )
         # print(f"{E_elst_full_dimer=}")
         E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
@@ -439,8 +439,8 @@ class APNet3_AtomType_MPNN(nn.Module):
         padded[:, :cols] = E_elst_dimer
         E_elst_dimer = padded
 
-        E_ind_full_dimer = scatter(
-            E_ind, dimer_ind, dim=0, reduce="add", dim_size=ndimer
+        E_ind_full_dimer = scatter_sum_compile(
+            E_ind, dimer_ind, ndimer
         )
         E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
         N_full, num_cols = E_ind_full_dimer.shape

@@ -9,7 +9,7 @@ from . import constants
 import torch
 from typing import Tuple
 import qcelemental as qcel
-from torch_geometric.utils import scatter
+from .util import scatter_sum_compile
 # from .AtomPairwiseModels.mtp_mtp import get_distances
 
 
@@ -1457,15 +1457,15 @@ ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
     # Calculate initial induced dipoles from molecule B's multipoles on molecule A
     # Contribution from charges
     mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
-    mu_induced_0_A = scatter(mu_charge_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+    mu_induced_0_A = scatter_sum_compile(mu_charge_A, e_AB_source, n_atoms_A)
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
-    mu_induced_0_A += scatter(mu_dipole_A, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+    mu_induced_0_A += scatter_sum_compile(mu_dipole_A, e_AB_source, n_atoms_A)
     print(f"{mu_induced_0_A=}")
 
     mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
-    mu_induced_0_B = scatter(mu_charge_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    mu_induced_0_B = scatter_sum_compile(mu_charge_B, e_AB_target, n_atoms_B)
     mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
-    mu_induced_0_B += scatter(mu_dipole_B, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+    mu_induced_0_B += scatter_sum_compile(mu_dipole_B, e_AB_target, n_atoms_B)
     print(f"{mu_induced_0_B=}")
 
     # Self-consistent induced dipole iterations
@@ -1482,12 +1482,12 @@ ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
         mu_induced_A_due_B = torch.einsum(
             "a,aij,aj->ai", alpha_A_source, T2_AB, mu_induced_B.index_select(0, e_AB_target)
         )
-        mu_induced_A_new = scatter(mu_induced_A_due_B, e_AB_source, dim=0, reduce="sum", dim_size=n_atoms_A)
+        mu_induced_A_new = scatter_sum_compile(mu_induced_A_due_B, e_AB_source, n_atoms_A)
         # Induced dipoles on A due to induced dipoles on A
         mu_induced_A_due_A = torch.einsum(
                 "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A.index_select(0, e_AA_source)
         )
-        mu_induced_A_new += scatter(mu_induced_A_due_A, e_AA_target, dim=0, reduce="sum", dim_size=n_atoms_A)
+        mu_induced_A_new += scatter_sum_compile(mu_induced_A_due_A, e_AA_target, n_atoms_A)
         mu_induced_A_new += mu_induced_0_A
 
         ####### (B) INDUCED DIPOLES ########
@@ -1495,12 +1495,12 @@ ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
         mu_induced_B_due_A = torch.einsum(
             "a,aij,aj->ai", alpha_B_target, T2_AB, mu_induced_A.index_select(0, e_AB_source)
         )
-        mu_induced_B_new = scatter(mu_induced_B_due_A, e_AB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        mu_induced_B_new = scatter_sum_compile(mu_induced_B_due_A, e_AB_target, n_atoms_B)
         # Induced dipoles on B due to induced dipoles on B
         mu_induced_B_due_B = torch.einsum(
                 "a,aij,aj->ai", alpha_BB_target, T2_BB, mu_induced_B.index_select(0, e_BB_source)
         )
-        mu_induced_B_new += scatter(mu_induced_B_due_B, e_BB_target, dim=0, reduce="sum", dim_size=n_atoms_B)
+        mu_induced_B_new += scatter_sum_compile(mu_induced_B_due_B, e_BB_target, n_atoms_B)
         mu_induced_B_new += mu_induced_0_B
 
         # Apply mixing
