@@ -602,6 +602,9 @@ class APNet3_AtomType_Model:
         self.device = device
         self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
         self.dimer_prop_model.to(device)
+        self.dimer_prop_model.polarizability_table = (
+            self.dimer_prop_model.polarizability_table.to(self.device)
+        )
         self.model.to(device)
 
         split_dbs = [2, 5, 6, 7]
