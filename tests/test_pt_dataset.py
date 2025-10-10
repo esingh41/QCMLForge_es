@@ -1627,40 +1627,39 @@ def test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7():
 
 
 def test_ap3_spec7():
+    am_path = f"{current_file_path}/../models/ap3_ensemble/3/am_3.pt"
+    at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/3/am_h+1_3.pt"
+    at_elst_path = f"{current_file_path}/../models/ap3_ensemble/3/am_elst_h+1_3.pt"
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
         ignore_database_null=True,
-        atom_model_pre_trained_path=current_file_path
-        # + "/../models/am_ensemble/am_0.pt",
-        + "/../models/ap3_ensemble/1/am_1.pt",
-        pre_trained_model_path=current_file_path
-        # + "/../models/ap_atomTypeParamModel/am_h+1_0.pt",
-        + "/../models/ap3_ensemble/1/am_h+1_1.pt",
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
     )
     atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
-        ds_root=None,
+        ds_root=data_path,
         use_GPU=False,
+        n_neuron=64,
+        n_params=1,
         ignore_database_null=True,
         atom_model=atom_type_hf_vw_model.model,
         atom_model_type="AtomTypeParamNN",
-        pre_trained_model_path=current_file_path + "/../models/ap3_ensemble/1/am_elst_h+1_1.pt",
-            # ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt
+        pre_trained_model_path=at_elst_path,
     )
-    # print(atom_type_elst_model.atom_model)
     ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
-        atom_type_model=atom_type_hf_vw_model.model,
-        dimer_prop_model=atom_type_elst_model.dimer_model,
         ds_root=data_path,
         ignore_database_null=False,
         ds_force_reprocess=True,
         use_GPU=False,
         ds_spec_type=7,
         ds_in_memory=False,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
     )
     ap3.train(
         n_epochs=5,
-        skip_compile=False,
+        skip_compile=True,
         transfer_learning=False,
         lr=5e-4,
         dataloader_num_workers=4,
