@@ -305,6 +305,7 @@ class DimerProp(nn.Module):
         )
         if Indu.isnan().any():
             print("Induced dipole energy is NaN, debugging info:")
+            print(f"{Indu = }")
             print(f"{v_A[-2] =}")
             print(f"{v_B[-2] =}")
             print(f"{v_A[-1] =}")
