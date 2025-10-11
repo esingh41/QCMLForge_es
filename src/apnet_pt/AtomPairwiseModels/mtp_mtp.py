@@ -9,6 +9,7 @@ from ..AtomModels.ap2_atom_model import (
     isolate_atomic_property_predictions,
     qcel_mon_to_pyg_data,
     unwrap_model,
+    DistanceLayer,
 )
 from ..atomic_datasets import (
     AtomicDataLoader,
@@ -91,7 +92,6 @@ class DimerProp(nn.Module):
             self.polarizability_table = constants.polarizability_table.clone()
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
-
 
     def _elst_damping_forward(
         self,
@@ -335,7 +335,6 @@ class DimerProp(nn.Module):
             raise ValueError("Electrostatic energy is NaN")
         return torch.vstack((Elst, Indu)).T, v_A, v_B
 
-
     def _ap3_elst_damping_indu_induced_dipole_forward(
         self,
         batch,
@@ -552,6 +551,232 @@ class AtomTypeParamNN(nn.Module):
         )
 
 
+class AtomTypeParamMPNN(nn.Module):
+    def __init__(
+        self,
+        atom_model: AtomMPNN = AtomMPNN(),
+        n_message=3,
+        n_rbf=8,
+        n_neuron=128,
+        n_embed=8,
+        r_cut=5.0,
+        param_start_mean=1.8,
+        param_start_std=0.01,
+        n_params=1,
+    ):
+        super().__init__()
+        self.atom_model = atom_model
+        self.atom_model.requires_grad_(False)
+        self.n_message = n_message
+        if type(self.atom_model) in [AtomMPNN, AtomHirshfeldMPNN]:
+            self.h_list_ind = -1
+        elif type(self.atom_model) is AtomTypeParamNN:
+            self.h_list_ind = 3
+        else:
+            raise ValueError("Unknown atom_model type")
+        self.n_neuron = n_neuron
+        self.n_embed = n_embed
+        self.n_rbf = n_rbf
+        self.r_cut = r_cut
+        # Convert to lists if scalars
+        if not isinstance(param_start_mean, (list, tuple)):
+            param_start_mean = [param_start_mean] * n_params
+        if not isinstance(param_start_std, (list, tuple)):
+            param_start_std = [param_start_std] * n_params
+        # Ensure they are the right length
+        if len(param_start_mean) != n_params:
+            raise ValueError(
+                f"param_start_mean length {len(param_start_mean)} doesn't match n_params {n_params}"
+            )
+        if len(param_start_std) != n_params:
+            raise ValueError(
+                f"param_start_std length {len(param_start_std)} doesn't match n_params {n_params}"
+            )
+
+        # embed interatomic distances into large orthogonal basis
+        self.distance_layer = DistanceLayer(n_rbf, r_cut)
+
+        self.param_start_mean = param_start_mean
+        self.param_start_std = param_start_std
+        self.n_params = n_params
+        self.embed_layer = nn.ModuleList(
+            [nn.Embedding(max_Z + 1, n_embed) for p in range(n_params)]
+        )
+        self.guess_layer = nn.ModuleList(
+            [
+                NoisyConstantEmbedding(
+                    max_Z + 1,
+                    1,
+                    mean=self.param_start_mean[p],
+                    std=self.param_start_std[p],
+                )
+                for p in range(n_params)
+            ]
+        )
+        # self.set_weights_excluding_guess(0.01)
+
+        # readout layers for predicting multipoles from hidden states
+        self.param_update_layers = nn.ModuleList(
+            [nn.ModuleList() for _ in range(n_params)]
+        )
+        self.param_readout_layers = nn.ModuleList(
+            [nn.ModuleList() for _ in range(n_params)]
+        )
+        layer_nodes_readout = [
+            n_embed,
+            n_neuron * 2,
+            n_neuron,
+            n_neuron // 2,
+            1,
+        ]
+        layer_activations = [
+            nn.ReLU(),
+            nn.ReLU(),
+            nn.ReLU(),
+            None,
+        ]
+        input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf
+        layer_nodes_hidden = [
+            input_layer_size,
+            n_neuron * 2,
+            n_neuron,
+            n_neuron // 2,
+            n_embed,
+        ]
+        for p in range(n_params):
+            for i in range(n_message + 1):
+                self.param_readout_layers[p].append(
+                    self._make_layers(layer_nodes_readout, layer_activations)
+                )
+                self.param_update_layers[p].append(
+                    self._make_layers(layer_nodes_hidden, layer_activations)
+                )
+
+    def set_weights_excluding_guess(self, value=0.01):
+        """Sets all weights and biases in the model to a specific value."""
+        with torch.no_grad():
+            for name, param in self.state_dict().items():
+                if "guess_layer" not in name:
+                    param.fill_(value)
+
+    def get_messages(self, h0, h, rbf, e_source, e_target):
+        nedge = e_source.size(0)
+
+        h0_source = h0.index_select(0, e_source)
+        h0_target = h0.index_select(0, e_target)
+        h_source = h.index_select(0, e_source)
+        h_target = h.index_select(0, e_target)
+
+        # [edges x 4 * n_embed]
+        h_all = torch.cat([h0_source, h0_target, h_source, h_target], dim=-1)
+
+        # [edges, 4 * n_embed, n_rbf]
+        h_all_dot = torch.einsum("ez,er->ezr", h_all, rbf)
+        # [edges, 4 * n_embed * n_rbf]
+        h_all_dot = h_all_dot.view(nedge, -1)
+
+        # [edges,  n_embed * 4 * n_rbf + n_embed * 4 + n_rbf]
+        m_ij = torch.cat([h_all, h_all_dot, rbf], dim=-1)
+        return m_ij
+
+    def _make_layers(self, layer_nodes, activations):
+        layers = []
+        for i in range(len(layer_nodes) - 1):
+            layers.append(nn.Linear(layer_nodes[i], layer_nodes[i + 1]))
+            # layers[-1].weight.data.normal_(1.0, 0.1)
+            if activations[i] is not None:
+                layers.append(activations[i])
+        return nn.Sequential(*layers)
+
+    def forward(
+        self,
+        batch,
+    ):
+        """
+        Use each h_list to predict a correction to the initial guess, might be
+        overkill for some properties...
+        """
+        x = batch.x
+        edge_index = batch.edge_index
+        molecule_ind = batch.molecule_ind
+        R = batch.R
+        # current_model_device = next(self.parameters()).device
+        # model_device = next(self.atom_model.parameters()).device
+        am_out = self.atom_model(batch)
+        charge, dipole, qpole, h_list = (
+            am_out[0],
+            am_out[1],
+            am_out[2],
+            am_out[self.h_list_ind],
+        )
+        Z = x
+        K_list = [self.guess_layer[p](Z) for p in range(self.n_params)]
+        K = torch.cat(K_list, dim=-1)  # shape (n_atoms, n_params)
+        # print(f"{K = }")
+        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
+        keep_mask = torch.isin(
+            torch.arange(len(molecule_ind), device=molecule_ind.device),
+            atoms_with_edges,
+        )
+        if not keep_mask.any():
+            return (
+                charge.squeeze(-1),
+                dipole,
+                qpole,
+                *am_out[3:],
+                K.squeeze(-1) if self.n_params == 1 else K,
+            )
+        K_filtered = K[keep_mask]
+        e_source = edge_index[0]
+        e_target = edge_index[1]
+        edge_keep = keep_mask[e_source] & keep_mask[e_target]
+        e_source = e_source[edge_keep]
+        e_target = e_target[edge_keep]
+        idx_map = (torch.cumsum(keep_mask, dim=0) - 1).long()
+        e_source = idx_map[e_source]
+        e_target = idx_map[e_target]
+
+        R = R[keep_mask, :]
+        natom_filtered = keep_mask.sum()
+
+        dR, dR_xyz = get_distances(R, R, e_source, e_target)
+        rbf = self.distance_layer(dR)
+
+        hlists = []
+        for p in range(self.n_params):
+            h_list_0 = [self.embed_layer[p](Z)]
+            h_list = [h_list_0[0][keep_mask]]
+            for i in range(self.n_message):
+                # [edges x message_embedding_dim]
+                m_ij = self.get_messages(h_list[0], h_list[-1], rbf, e_source, e_target)
+                m_i = scatter_sum_compile(
+                    m_ij, e_source, int(natom_filtered), reduce="sum"
+                )
+                # [atomx x hidden_dim]
+                h_next = self.param_update_layers[p][i](m_i)
+                h_list.append(h_next)
+                param_update = self.param_readout_layers[p][i](h_list[i + 1])
+                K_filtered[:, p] += param_update.squeeze(-1)
+            hlists.append(torch.stack(h_list, dim=1))
+        h_list = torch.stack(hlists, dim=2)
+        K[keep_mask] = K_filtered
+        # print(f"{K = }")
+        if K.isnan().any():
+            print("K has NaN values, debugging info:")
+            print(f"{K_filtered =}")
+            print(f"{Z =}")
+            print(f"{h_list=}")
+            raise ValueError("K has NaN values")
+        return (
+            charge,
+            dipole,
+            qpole,
+            *am_out[3:],
+            h_list,
+            K.squeeze(-1) if self.n_params == 1 else K,
+        )
+
+
 def get_distances(RA, RB, e_source, e_target):
     RA_source = RA.index_select(0, e_source)
     RB_target = RB.index_select(0, e_target)
@@ -755,8 +980,16 @@ def mtp_elst_damping(
     qA = qA_0 - ZA
     qB = qB_0 - ZB
     # Extracting tensor elements - pre-compute all selections
-    qA_source = qA.squeeze(-1).index_select(0, e_AB_source) if qA.dim() > 1 else qA.index_select(0, e_AB_source)
-    qB_source = qB.squeeze(-1).index_select(0, e_AB_target) if qB.dim() > 1 else qB.index_select(0, e_AB_target)
+    qA_source = (
+        qA.squeeze(-1).index_select(0, e_AB_source)
+        if qA.dim() > 1
+        else qA.index_select(0, e_AB_source)
+    )
+    qB_source = (
+        qB.squeeze(-1).index_select(0, e_AB_target)
+        if qB.dim() > 1
+        else qB.index_select(0, e_AB_target)
+    )
     muA_source = muA.index_select(0, e_AB_source)
     muB_source = muB.index_select(0, e_AB_target)
     quadA_source = quadA.index_select(0, e_AB_source)
@@ -936,22 +1169,14 @@ def induced_dipole_induction(
     # Calculate initial induced dipoles from molecule B's multipoles on molecule A
     # Contribution from charges
     mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
-    mu_induced_0_A = scatter_sum_compile(
-        mu_charge_A, e_AB_source, n_atoms_A
-    )
+    mu_induced_0_A = scatter_sum_compile(mu_charge_A, e_AB_source, n_atoms_A)
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
-    mu_induced_0_A += scatter_sum_compile(
-        mu_dipole_A, e_AB_source, n_atoms_A
-    )
+    mu_induced_0_A += scatter_sum_compile(mu_dipole_A, e_AB_source, n_atoms_A)
 
     mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
-    mu_induced_0_B = scatter_sum_compile(
-        mu_charge_B, e_AB_target, n_atoms_B
-    )
+    mu_induced_0_B = scatter_sum_compile(mu_charge_B, e_AB_target, n_atoms_B)
     mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
-    mu_induced_0_B += scatter_sum_compile(
-        mu_dipole_B, e_AB_target, n_atoms_B
-    )
+    mu_induced_0_B += scatter_sum_compile(mu_dipole_B, e_AB_target, n_atoms_B)
 
     # Self-consistent induced dipole iterations
     mu_induced_A = mu_induced_0_A.clone()
@@ -1131,22 +1356,14 @@ def induced_dipole_induction_optimized(
 
     # Calculate initial induced dipoles from molecule B's multipoles on molecule A
     mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
-    mu_induced_0_A = scatter_sum_compile(
-        mu_charge_A, e_AB_source, dim_size=n_atoms_A
-    )
+    mu_induced_0_A = scatter_sum_compile(mu_charge_A, e_AB_source, dim_size=n_atoms_A)
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
-    mu_induced_0_A += scatter_sum_compile(
-        mu_dipole_A, e_AB_source, dim_size=n_atoms_A
-    )
+    mu_induced_0_A += scatter_sum_compile(mu_dipole_A, e_AB_source, dim_size=n_atoms_A)
 
     mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
-    mu_induced_0_B = scatter_sum_compile(
-        mu_charge_B, e_AB_target, dim_size=n_atoms_B
-    )
+    mu_induced_0_B = scatter_sum_compile(mu_charge_B, e_AB_target, dim_size=n_atoms_B)
     mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
-    mu_induced_0_B += scatter_sum_compile(
-        mu_dipole_B, e_AB_target, dim_size=n_atoms_B
-    )
+    mu_induced_0_B += scatter_sum_compile(mu_dipole_B, e_AB_target, dim_size=n_atoms_B)
 
     # Self-consistent induced dipole iterations
     mu_induced_A = mu_induced_0_A.clone()
@@ -1314,22 +1531,14 @@ def induced_dipole_induction_optimized_no_correction(
 
     # Calculate initial induced dipoles from molecule B's multipoles on molecule A
     mu_charge_A = torch.einsum("a,ai,a->ai", alpha_A_source, T1_AB, qB_target)
-    mu_induced_0_A = scatter_sum_compile(
-        mu_charge_A, e_AB_source, dim_size=n_atoms_A
-    )
+    mu_induced_0_A = scatter_sum_compile(mu_charge_A, e_AB_source, dim_size=n_atoms_A)
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
-    mu_induced_0_A += scatter_sum_compile(
-        mu_dipole_A, e_AB_source, dim_size=n_atoms_A
-    )
+    mu_induced_0_A += scatter_sum_compile(mu_dipole_A, e_AB_source, dim_size=n_atoms_A)
 
     mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
-    mu_induced_0_B = scatter_sum_compile(
-        mu_charge_B, e_AB_target, dim_size=n_atoms_B
-    )
+    mu_induced_0_B = scatter_sum_compile(mu_charge_B, e_AB_target, dim_size=n_atoms_B)
     mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
-    mu_induced_0_B += scatter_sum_compile(
-        mu_dipole_B, e_AB_target, dim_size=n_atoms_B
-    )
+    mu_induced_0_B += scatter_sum_compile(mu_dipole_B, e_AB_target, dim_size=n_atoms_B)
 
     # Self-consistent induced dipole iterations
     mu_induced_A = mu_induced_0_A.clone()
@@ -1465,7 +1674,7 @@ def isolate_atom_parameter_predictions_ap3(batch, output):
         mol_hlist[n] = hlist[i_offset : i_offset + i]
         mol_K[n] = K_elst[i_offset : i_offset + i]
         i_offset += i
-    return mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_hfvr, mol_vw,  mol_K
+    return mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_hfvr, mol_vw, mol_K
 
 
 class AM_DimerParam_Model:
@@ -1474,6 +1683,7 @@ class AM_DimerParam_Model:
         dataset=None,
         atom_model=None,
         atom_model_type="AtomMPNN",
+        model_type="AtomTypeParamNN",
         pre_trained_model_path=None,
         atom_model_pre_trained_path=None,
         n_message=3,
@@ -1525,6 +1735,9 @@ class AM_DimerParam_Model:
         elif atom_model_type == "AtomTypeParamNN":
             self.atom_model = AtomTypeParamNN()
             am_type = AtomTypeParamNN
+        elif atom_model_type == "AtomTypeParamMPNN":
+            self.atom_model = AtomTypeParamMPNN()
+            am_type = AtomTypeParamMPNN
         else:
             raise ValueError(f"Unknown atom_model_type: {atom_model_type}")
 
@@ -1550,7 +1763,18 @@ class AM_DimerParam_Model:
                     n_embed=checkpoint["config"]["n_embed"],
                     param_start_mean=checkpoint["config"]["param_start_mean"],
                     param_start_std=checkpoint["config"]["param_start_std"],
-                    n_params=checkpoint["config"].get("n_params", 1),
+                    n_params=checkpoint["config"]["n_params"],
+                )
+            elif atom_model_type == "AtomTypeParamMPNN":
+                self.atom_model = am_type(
+                    n_message=checkpoint["config"]["n_message"],
+                    n_rbf=checkpoint["config"]["n_rbf"],
+                    n_neuron=checkpoint["config"]["n_neuron"],
+                    n_embed=checkpoint["config"]["n_embed"],
+                    r_cut=checkpoint["config"]["r_cut"],
+                    param_start_mean=checkpoint["config"]["param_start_mean"],
+                    param_start_std=checkpoint["config"]["param_start_std"],
+                    n_params=checkpoint["config"]["n_params"],
                 )
             # model_state_dict = checkpoint["model_state_dict"]
             model_state_dict = {
@@ -1571,30 +1795,60 @@ class AM_DimerParam_Model:
         if pre_trained_model_path:
             print(f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = AtomTypeParamNN(
-                atom_model=self.atom_model,
-                n_message=checkpoint["config"]["n_message"],
-                n_neuron=checkpoint["config"]["n_neuron"],
-                n_embed=checkpoint["config"]["n_embed"],
-                param_start_mean=checkpoint["config"]["param_start_mean"],
-                param_start_std=checkpoint["config"]["param_start_std"],
-                n_params=checkpoint["config"].get("n_params", 1),
-            )
+            if model_type == "AtomTypeParamNN":
+                self.model = AtomTypeParamNN(
+                    atom_model=self.atom_model,
+                    n_message=checkpoint["config"]["n_message"],
+                    n_neuron=checkpoint["config"]["n_neuron"],
+                    n_embed=checkpoint["config"]["n_embed"],
+                    param_start_mean=checkpoint["config"]["param_start_mean"],
+                    param_start_std=checkpoint["config"]["param_start_std"],
+                    n_params=checkpoint["config"].get("n_params", 1),
+                )
+            elif model_type == "AtomTypeParamMPNN":
+                self.model = AtomTypeParamMPNN(
+                    atom_model=self.atom_model,
+                    n_message=checkpoint["config"]["n_message"],
+                    n_rbf=checkpoint["config"]["n_rbf"],
+                    n_neuron=checkpoint["config"]["n_neuron"],
+                    n_embed=checkpoint["config"]["n_embed"],
+                    r_cut=checkpoint["config"]["r_cut"],
+                    param_start_mean=checkpoint["config"]["param_start_mean"],
+                    param_start_std=checkpoint["config"]["param_start_std"],
+                    n_params=checkpoint["config"].get("n_params", 1),
+                )
+            else:
+                raise ValueError(f"Unknown model_type: {model_type}")
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
                 for k, v in checkpoint["model_state_dict"].items()
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = AtomTypeParamNN(
-                atom_model=self.atom_model,
-                n_message=n_message,
-                n_neuron=n_neuron,
-                n_embed=n_embed,
-                param_start_mean=param_start_mean,
-                param_start_std=param_start_std,
-                n_params=n_params,
-            )
+            if model_type == "AtomTypeParamNN":
+                self.model = AtomTypeParamNN(
+                    atom_model=self.atom_model,
+                    n_message=n_message,
+                    n_neuron=n_neuron,
+                    n_embed=n_embed,
+                    param_start_mean=param_start_mean,
+                    param_start_std=param_start_std,
+                    n_params=n_params,
+                )
+            elif model_type == "AtomTypeParamMPNN":
+                self.model = AtomTypeParamMPNN(
+                    atom_model=self.atom_model,
+                    n_message=n_message,
+                    n_rbf=n_rbf,
+                    n_neuron=n_neuron,
+                    n_embed=n_embed,
+                    r_cut=r_cut,
+                    param_start_mean=param_start_mean,
+                    param_start_std=param_start_std,
+                    n_params=n_params,
+                )
+            else:
+                raise ValueError(f"Unknown model_type: {model_type}")
         self.n_params = n_params
         self.dimer_eval_type = dimer_eval_type
         self.dimer_model = DimerProp(self.model, dimer_eval=dimer_eval_type)
@@ -1654,6 +1908,7 @@ class AM_DimerParam_Model:
             and self.ds_spec_type not in split_dbs
             and not ds_qcel_split_db
         ):
+
             def setup_ds(fp=ds_force_reprocess):
                 return ap2_fused_module_dataset(
                     root=ds_root,
@@ -1985,7 +2240,9 @@ class AM_DimerParam_Model:
                     dimer_batch.total_charge_A.size(0), dtype=torch.long
                 ),
             )
-            predictions[i : i + batch_size] = preds.cpu().numpy().reshape(-1, self.n_params)
+            predictions[i : i + batch_size] = (
+                preds.cpu().numpy().reshape(-1, self.n_params)
+            )
         if verbose:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if return_pairs or return_elst:
@@ -2013,7 +2270,9 @@ class AM_DimerParam_Model:
             r_cut = model.r_cut
         elif hasattr(model.atom_model, "r_cut"):
             r_cut = model.atom_model.r_cut
-        elif hasattr(self.atom_model, "atom_model") and hasattr(self.atom_model.atom_model, "r_cut"):
+        elif hasattr(self.atom_model, "atom_model") and hasattr(
+            self.atom_model.atom_model, "r_cut"
+        ):
             r_cut = self.atom_model.atom_model.r_cut
         else:
             raise ValueError("r_cut must be provided if not defined in the model.")
@@ -2297,17 +2556,17 @@ units angstrom
         # (5) Evaluate once pre-training
         if self.dimer_model_elst is not None:
             t0 = time.time()
-            _, no_damping_MAE_t = self.__evaluate_batches_single_proc_elst_no_damping(
-                train_loader, criterion, rank_device
-            )
-            _, no_damping_MAE_v = self.__evaluate_batches_single_proc_elst_no_damping(
-                test_loader, criterion, rank_device
-            )
-            print(
-                f" (No Damping)  ({time.time() - t0: < 7.2f}s)"
-                f" MAE: {no_damping_MAE_t: > 7.3f}/{no_damping_MAE_v: < 7.3f}",
-                flush=True,
-            )
+            # _, no_damping_MAE_t = self.__evaluate_batches_single_proc_elst_no_damping(
+            #     train_loader, criterion, rank_device
+            # )
+            # _, no_damping_MAE_v = self.__evaluate_batches_single_proc_elst_no_damping(
+            #     test_loader, criterion, rank_device
+            # )
+            # print(
+            #     f" (No Damping)  ({time.time() - t0: < 7.2f}s)"
+            #     f" MAE: {no_damping_MAE_t: > 7.3f}/{no_damping_MAE_v: < 7.3f}",
+            #     flush=True,
+            # )
         t0 = time.time()
         # t_out = self.__evaluate_batches_single_proc(train_loader, criterion, rank_device, y_ind=y_ind)
         # v_out = self.__evaluate_batches_single_proc(test_loader, criterion, rank_device, y_ind=y_ind)
@@ -2350,20 +2609,23 @@ units angstrom
                 cpu_model = self.model.to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                    torch.save(
-                        {
-                            "model_state_dict": cpu_model.state_dict(),
-                            "config": {
-                                "n_message": cpu_model.n_message,
-                                "n_neuron": cpu_model.n_neuron,
-                                "n_embed": cpu_model.n_embed,
-                                "n_params": cpu_model.n_params,
-                                "param_start_mean": cpu_model.param_start_mean,
-                                "param_start_std": cpu_model.param_start_std,
+                        torch.save(
+                            {
+                                "model_state_dict": cpu_model.state_dict(),
+                                "config": {
+                                    "model_type": type(cpu_model).__name__,
+                                    "n_message": cpu_model.n_message,
+                                    "n_neuron": cpu_model.n_neuron,
+                                    "n_embed": cpu_model.n_embed,
+                                    "param_start_mean": cpu_model.param_start_mean,
+                                    "param_start_std": cpu_model.param_start_std,
+                                    "n_params": cpu_model.n_params,
+                                    "n_rbf": cpu_model.n_rbf if hasattr(cpu_model, "n_rbf") else None,
+                                    "r_cut": cpu_model.r_cut if hasattr(cpu_model, "r_cut") else None,
+                                },
                             },
-                        },
-                        self.model_save_path,
-                    )
+                            self.model_save_path,
+                        )
                 self.model.to(rank_device)
 
             if isinstance(y_ind, torch.Tensor):
