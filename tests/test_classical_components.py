@@ -5,6 +5,8 @@ import os
 import pandas as pd
 from pprint import pprint
 import numpy as np
+import torch
+
 
 lr_water_dimer = qcel.models.Molecule.from_data("""
 0 1
@@ -22,7 +24,8 @@ units bohr
 """)
 
 file_dir = os.path.dirname(os.path.abspath(__file__))
-
+data_path = f"{file_dir}/test_data_path"
+h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
 
 def test_elst_multipoles_AP2():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
@@ -1267,7 +1270,31 @@ hirshfeld_volume_ratio_B=tensor([1.3915, 0.1883, 0.1883])
 
 
 def test_elst_damping_dipole_torch_df():
-    import torch
+    am_path = f"{file_dir}/../models/ap3_ensemble/3/am_3.pt"
+    at_hf_vw_path = f"{file_dir}/../models/ap3_ensemble/3/am_h+1_3.pt"
+    at_elst_path = f"{file_dir}/../models/ap3_ensemble/3/am_elst_h+1_3.pt"
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=data_path,
+        use_GPU=False,
+        n_neuron=64,
+        n_params=1,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+    )
 
     df = pd.read_pickle(
         file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
@@ -1281,8 +1308,8 @@ def test_elst_damping_dipole_torch_df():
     alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
     alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
     for n, r in df.iterrows():
-        sapt0_ind = r["SAPT0 ELST ENERGY adz"]
-        cliff_ind = r["cliff_indu_q_mu"]
+        sapt0_elst = r["SAPT0 ELST ENERGY adz"]
+        sapt0_ind = r["SAPT0 IND ENERGY adz"] * h2kcalmol
         mol = r["qcel_molecule"]
         monA = mol.get_fragment(0).copy()
         monB = mol.get_fragment(1).copy()
@@ -1333,13 +1360,18 @@ def test_elst_damping_dipole_torch_df():
             match_cliff=False,
         )
         elst = ref_elst_q
+        pred, pair_elst, pair_ind = ap3.predict_qcel_mols([mol], batch_size=1, return_classical_pairs=True)
+        ap3_elst = np.sum(pair_elst[0])
+        ap3_ind = np.sum(pair_ind[0])
         print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
-        print(f"SAPT ELST   = {sapt0_ind:.6f} kcal/mol")
+        print(f"SAPT ELST   = {sapt0_elst:.6f} kcal/mol")
         print(f"ELST Pred   = {elst:.6f} kcal/mol")
+        print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
 
 
 if __name__ == "__main__":
-    test_elst_multipoles_MTP_torch_damping()
+    test_elst_damping_dipole_torch_df()
+    # test_elst_multipoles_MTP_torch_damping()
     # test_elst_damping_dipole_torch_df()
     # test_elst_charge_dipole_qpole()
     # test_elst_multipoles()

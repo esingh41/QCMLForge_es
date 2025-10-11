@@ -90,6 +90,7 @@ def train_pairwise_model(
     param_start_std=0.1,
     dimer_eval_type="elst_damping",
     ds_in_memory=False,
+    DimerProp_model_type="AtomTypeParamNN"
 ):
     # Ensure param_start_mean and param_start_std are lists
     if not isinstance(param_start_mean, (list, tuple)):
@@ -108,7 +109,6 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model
     elif apnet_model_type == "dAPNet2":
         APNet = AtomPairwiseModels.dapnet2.dAPNet2Model
-        # apnet2_model = AtomPairwiseModels.apnet2.APNet2Model().set_pretrained_model(model_id=0).model
         apnet2_model = AtomPairwiseModels.apnet2.APNet2Model(
             n_rbf=n_rbf,
             n_neuron=n_neuron,
@@ -121,7 +121,6 @@ def train_pairwise_model(
         apnet2_model.model.return_hidden_states = True
     elif apnet_model_type == "AtomTypeParamModel":
         APNet = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel
-        batch_size = 1
     else:
         raise ValueError("Invalid Atom Model Type")
     print("Training {}...".format(apnet_model_type))
@@ -197,6 +196,7 @@ def train_pairwise_model(
             param_start_std=param_start_std,
             dimer_eval_type=dimer_eval_type,
             n_params=n_params,
+            model_type=DimerProp_model_type
         )
     elif apnet_model_type in ["APNet3-fused"]:
         print("Setting AtomTypeParams...")
@@ -467,6 +467,9 @@ def main():
         default=False,
         help="Load dataset in memory (default: False).",
     )
+    args.add_argument(
+        "--DimerProp_model_type", type=str, default="AtomTypeParamNN", help="Dimer Prop Model Type (default: AtomTypeParamNN, other options: AtomTypeParamMPNN)"
+    )
     args = args.parse_args()
     # Parse param_start_mean and param_start_std
     args.param_start_mean = parse_param_list(args.param_start_mean)
@@ -511,6 +514,7 @@ def main():
             param_start_std=args.param_start_std,
             dimer_eval_type=args.dimer_eval_type,
             ds_in_memory=args.ds_in_memory,
+            DimerProp_model_type=args.DimerProp_model_type,
         )
     return
 
