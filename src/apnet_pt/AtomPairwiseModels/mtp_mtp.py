@@ -369,6 +369,7 @@ class DimerProp(nn.Module):
         )
         if Indu.isnan().any():
             print("Induced dipole energy is NaN, debugging info:")
+            torch.save(batch, "ind_nan_batch.pt")
             print(f"{v_A[-2] =}")
             print(f"{v_B[-2] =}")
             print(f"{v_A[-1] =}")
@@ -394,6 +395,7 @@ class DimerProp(nn.Module):
         )
         if Elst.isnan().any():
             print("Electrostatic energy is NaN, debugging info:")
+            torch.save(batch, "elst_nan_batch.pt")
             print(f"{v_A[-1] =}")
             print(f"{v_B[-1] =}")
             raise ValueError("Electrostatic energy is NaN")
