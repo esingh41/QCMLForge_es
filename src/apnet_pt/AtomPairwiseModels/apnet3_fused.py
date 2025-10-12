@@ -859,10 +859,12 @@ class APNet3_AtomType_Model:
         indsB = torch.cat([indsB_sr, indsB_lr], dim=0)
 
         dimer_inds, atoms_per_dimer = torch.unique(
-            inp_batch.dimer_ind, return_counts=True
+            torch.cat([inp_batch.dimer_ind, inp_batch.dimer_ind_lr], dim=0), return_counts=True
         )
         indsA_monomer = inp_batch.indA
         indsB_monomer = inp_batch.indB
+        # TODO: inds _sr and inds _lr need to be handled for dimer_inds_sr
+        # print(f"{dimer_inds=}, {indsA_monomer=}, {indsB_monomer=}")
 
         for i in dimer_inds:
             size_A = torch.sum(indsA_monomer == i)
@@ -933,6 +935,7 @@ class APNet3_AtomType_Model:
                     for n, dimer in enumerate(mols[i:upper_bound])
                 ]
             )
+            # print(dimer_batch)
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
             if self.model.return_hidden_states:

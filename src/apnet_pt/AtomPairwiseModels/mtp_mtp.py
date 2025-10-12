@@ -202,8 +202,8 @@ class DimerProp(nn.Module):
             e_BB_source=batch.e_BB_source,
             e_AA_target=batch.e_AA_target,
             e_BB_target=batch.e_BB_target,
-            hirshfeld_volume_ratio_A=v_A[3],
-            hirshfeld_volume_ratio_B=v_B[3],
+            hirshfeld_volume_ratio_A=torch.abs(v_A[3]),
+            hirshfeld_volume_ratio_B=torch.abs(v_B[3]),
             valence_widths_A=v_A[4],
             valence_widths_B=v_B[4],
             polarizability_table=self.polarizability_table,
@@ -241,8 +241,8 @@ class DimerProp(nn.Module):
             e_BB_source=batch.e_BB_source,
             e_AA_target=batch.e_AA_target,
             e_BB_target=batch.e_BB_target,
-            hirshfeld_volume_ratio_A=v_A[-2][:, 0],
-            hirshfeld_volume_ratio_B=v_B[-2][:, 0],
+            hirshfeld_volume_ratio_A=torch.abs(v_A[-2][:, 0]),
+            hirshfeld_volume_ratio_B=torch.abs(v_B[-2][:, 0]),
             valence_widths_A=v_A[-2][:, 1],
             valence_widths_B=v_B[-2][:, 1],
             polarizability_table=self.polarizability_table,
@@ -297,8 +297,8 @@ class DimerProp(nn.Module):
             e_BB_source=batch.e_BB_source,
             e_AA_target=batch.e_AA_target,
             e_BB_target=batch.e_BB_target,
-            hirshfeld_volume_ratio_A=v_A[-2][:, 0],
-            hirshfeld_volume_ratio_B=v_B[-2][:, 0],
+            hirshfeld_volume_ratio_A=torch.abs(v_A[-2][:, 0]),
+            hirshfeld_volume_ratio_B=torch.abs(v_B[-2][:, 0]),
             valence_widths_A=v_A[-2][:, 1],
             valence_widths_B=v_B[-2][:, 1],
             polarizability_table=self.polarizability_table,
@@ -345,6 +345,8 @@ class DimerProp(nn.Module):
         Kas = torch.abs(v_A[-1])
         Kbs = torch.abs(v_B[-1])
         # print(f"{Kas =}")
+        # print(f"{v_A[-1] =}")
+        # print(f"{v_A[-2] =}")
         Indu = induced_dipole_induction_optimized_no_correction(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -363,8 +365,8 @@ class DimerProp(nn.Module):
             e_BB_source=batch.e_BB_source,
             e_AA_target=batch.e_AA_target,
             e_BB_target=batch.e_BB_target,
-            hirshfeld_volume_ratio_A=v_A[-2][:, 0],
-            hirshfeld_volume_ratio_B=v_B[-2][:, 0],
+            hirshfeld_volume_ratio_A=torch.abs(v_A[-2][:, 0]),
+            hirshfeld_volume_ratio_B=torch.abs(v_B[-2][:, 0]),
             polarizability_table=self.polarizability_table,
         )
         if Indu.isnan().any():
@@ -703,8 +705,6 @@ class AtomTypeParamMPNN(nn.Module):
         edge_index = batch.edge_index
         molecule_ind = batch.molecule_ind
         R = batch.R
-        # current_model_device = next(self.parameters()).device
-        # model_device = next(self.atom_model.parameters()).device
         am_out = self.atom_model(batch)
         charge, dipole, qpole, h_list = (
             am_out[0],
@@ -775,7 +775,7 @@ class AtomTypeParamMPNN(nn.Module):
             dipole,
             qpole,
             *am_out[3:],
-            h_list,
+            # h_list,
             K.squeeze(-1) if self.n_params == 1 else K,
         )
 
@@ -1538,6 +1538,7 @@ def induced_dipole_induction_optimized_no_correction(
     mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_A_source, T2_AB, muB_target)
     mu_induced_0_A += scatter_sum_compile(mu_dipole_A, e_AB_source, dim_size=n_atoms_A)
 
+    # Nan is in part of T1_AB tensor...
     mu_charge_B = torch.einsum("a,ai,a->ai", alpha_B_target, -T1_AB, qA_source)
     mu_induced_0_B = scatter_sum_compile(mu_charge_B, e_AB_target, dim_size=n_atoms_B)
     mu_dipole_B = torch.einsum("a,aij,aj->ai", alpha_B_target, T2_AB, muA_source)
@@ -1796,7 +1797,7 @@ class AM_DimerParam_Model:
 """
             )
         if pre_trained_model_path:
-            print(f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
+            print(f"Loading pre-trained MTP-MTP {model_type} from {pre_trained_model_path}")
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             if model_type == "AtomTypeParamNN":
                 self.model = AtomTypeParamNN(
