@@ -17,9 +17,10 @@ spec_type = 5
 current_file_path = os.path.dirname(os.path.realpath(__file__))
 data_path = f"{current_file_path}/test_data_path"
 
-am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_1.pt"
-at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_1.pt"
-at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_1.pt"
+am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_3.pt"
+at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_3.pt"
+at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_3.pt"
+ap3_path = f"{current_file_path}/../models/ap3_ensemble/1/ap3_1.pt"
 
 mol_cliff_water_close = qcel.models.Molecule.from_data("""
 0 1
@@ -165,6 +166,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
+        pre_trained_model_path=ap3_path,
     )
     print(ap3)
     ap3.train(
@@ -430,9 +432,6 @@ def test_classical_ap3_induction():
     torch.set_printoptions(profile="full")
     dimer_batch = torch.load(current_file_path + os.sep + os.path.join("dataset_data", "ind_nan_batch.pt"), weights_only=False, map_location="cpu")
     print(dimer_batch)
-    am_path = f"{current_file_path}/../models/ap3_ensemble/3/am_3.pt"
-    at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/3/am_h+1_3.pt"
-    at_elst_path = f"{current_file_path}/../models/ap3_ensemble/3/am_elst_h+1_3.pt"
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -454,13 +453,15 @@ def test_classical_ap3_induction():
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
+        pre_trained_model_path=ap3_path,
     )
     preds = ap3.model(dimer_batch)
+    print(preds[0])
     return
 
 
 if __name__ == "__main__":
     # test_classical_ap3()
     # test_classical_ap3_long_range()
-    # test_ap3_fused_train_qcel_molecules_in_memory()
-    test_classical_ap3_induction()
+    test_ap3_fused_train_qcel_molecules_in_memory()
+    # test_classical_ap3_induction()
