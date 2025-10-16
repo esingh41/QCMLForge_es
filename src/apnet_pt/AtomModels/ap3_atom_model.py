@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch_scatter import scatter
 from torch_geometric.nn import MessagePassing
 import numpy as np
 from .. import multipole
@@ -233,7 +232,7 @@ class AtomHirshfeldMPNN(MessagePassing):
             # [atoms x message_embedding_dim]
             # m_i = unsorted_segment_sum_2d(m_ij, e_source, natom)
             # write unsorted_segment_sum_2d using scatter
-            m_i = scatter(m_ij, e_source, dim=0, reduce="sum")
+            m_i = scatter_sum_compile(m_ij, e_source, dim=0, reduce="sum")
 
             # [atomx x hidden_dim]
             h_next = self.charge_update_layers[i](m_i)
@@ -314,7 +313,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         charge[keep_mask] = filtered_charge
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
-        total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+        total_charge_pred = scatter_sum_compile(charge, molecule_ind, dim=0, reduce="sum")
         # return charge, dipole, qpole, h_list
 
         total_charge_pred = total_charge_pred.squeeze()

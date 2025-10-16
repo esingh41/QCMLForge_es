@@ -15,7 +15,7 @@ from ..pt_datasets.ap2_fused_ds import (
     qcel_dimer_to_fused_data,
 )
 from .. import constants
-from ..util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp

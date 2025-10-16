@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch_scatter import scatter
 from torch_geometric.data import Data
 import numpy as np
 import warnings
@@ -26,6 +25,7 @@ import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
+from apnet_pt.util import scatter_sum_compile
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
@@ -401,9 +401,9 @@ class APNet2_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0,
+            mA_i = scatter_sum_compile(mA_ij, e_AA_source, dim=0,
                            reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0,
+            mB_i = scatter_sum_compile(mB_ij, e_BB_source, dim=0,
                            reduce="sum", dim_size=natomB)
 
             # get the next hidden state of the atom
@@ -426,10 +426,10 @@ class APNet2_MPNN(nn.Module):
             # NOTE: this summation must be linear to guarantee equivariance.
             #       because of this constraint, we applied a dense net before
             #       the summation, not after
-            hA_dir = scatter(
+            hA_dir = scatter_sum_compile(
                 mA_ij_dir, e_AA_source, dim=0, reduce="sum", dim_size=natomA
             )
-            hB_dir = scatter(
+            hB_dir = scatter_sum_compile(
                 mB_ij_dir, e_BB_source, dim=0, reduce="sum", dim_size=natomB
             )
             hA_dir_list.append(hA_dir)
@@ -498,7 +498,7 @@ class APNet2_MPNN(nn.Module):
         E_sr *= cutoff
         # cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
         # E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
+        E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, dim=0,
                              reduce="add", dim_size=ndimer)
 
         ####################################################
@@ -518,7 +518,7 @@ class APNet2_MPNN(nn.Module):
             dR_sr_xyz,
         )
 
-        E_elst_sr_dimer = scatter(
+        E_elst_sr_dimer = scatter_sum_compile(
             E_elst_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer
         )
         E_elst_sr_dimer = E_elst_sr_dimer.unsqueeze(-1)
@@ -535,7 +535,7 @@ class APNet2_MPNN(nn.Module):
             dR_lr,
             dR_lr_xyz,
         )
-        E_elst_lr_dimer = scatter(
+        E_elst_lr_dimer = scatter_sum_compile(
             E_elst_lr, dimer_ind_lr, dim=0, reduce="add", dim_size=ndimer
         )
         E_elst_lr_dimer = E_elst_lr_dimer.unsqueeze(-1)

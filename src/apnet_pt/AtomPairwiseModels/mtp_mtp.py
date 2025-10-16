@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from ..util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 import numpy as np
 import time
 from ..AtomModels.ap2_atom_model import (
@@ -541,12 +541,12 @@ class AtomTypeParamNN(nn.Module):
                 K_filtered[:, p] += param_update.squeeze(-1)
         # K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
         K[keep_mask] = K_filtered  # + 1.00001
-        if K.isnan().any():
-            print("K has NaN values, debugging info:")
-            print(f"{K_filtered =}")
-            print(f"{Z =}")
-            print(f"{h_list=}")
-            raise ValueError("K has NaN values")
+        # if K.isnan().any():
+        #     print("K has NaN values, debugging info:")
+        #     print(f"{K_filtered =}")
+        #     print(f"{Z =}")
+        #     print(f"{h_list=}")
+        #     raise ValueError("K has NaN values")
         return (
             charge,
             dipole,
