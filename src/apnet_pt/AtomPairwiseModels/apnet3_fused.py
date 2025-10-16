@@ -839,8 +839,6 @@ class APNet3_AtomType_Model:
             pair_energies_batch[i][2, atomA, atomB] += e_ind
         return pair_energies_batch
 
-
-    
     def _assemble_mtp_pairs(
         self,
         inp_batch,

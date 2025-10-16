@@ -38,6 +38,8 @@ from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
 from torch_geometric.data import Data
 
+
+
 #Imports necessary for tad-dftd3 to work:
 
 import tad_mctc as mctc
@@ -94,9 +96,10 @@ class DimerProp(nn.Module):
             self.forward = self._ap3_elst_damping_indu_induced_dipole_forward
             self.polarizability_table = constants.polarizability_table.clone()
         elif dimer_eval == "ap3_elst_damping__induced_dipole__disp":
-            print("GOT HERE")
             self.forward = self._ap3_elst_damping_indu_induced_dipole_disp_forward
             self.polarizability_table = constants.polarizability_table.clone()
+        elif dimer_eval == "disp":
+            self.forward = self._disp_foward
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
 
@@ -486,6 +489,22 @@ class DimerProp(nn.Module):
         )
 
         return torch.vstack((Elst, Indu)).T, Disp, v_A, v_B
+    
+    def _disp_foward(
+        self,
+        batch
+    ):
+        Disp = classical_dispersion(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            ZB=batch.ZB,
+            RB=batch.RB,
+            molecule_ind_A=batch.molecule_ind_A,
+            molecule_ind_B=batch.molecule_ind_B,
+        )
+        return Disp
+    
+    
 
 class AtomTypeParamNN(nn.Module):
     def __init__(
@@ -1574,9 +1593,15 @@ def induced_dipole_induction_optimized_no_correction(
     alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
 
+    print(f'{alpha_0_A = }')
+    print(f'{alpha_0_B = }')
     # Use index_select for vectorized lookup
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
+    print(f"{alpha_0_A = }")
+    print(f"{alpha_0_A = }")
+    print(f"{hirshfeld_volume_ratio_A = }")
+    print(f"{hirshfeld_volume_ratio_B = }")
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B ** (4 / 3.0)
 

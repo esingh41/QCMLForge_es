@@ -540,6 +540,9 @@ def test_classical_ap3_dispersion():
         benzene_pyridine_dimer,
     ]
 
+    mols = [
+        mol_cliff_water_close,
+    ]
 
     batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
@@ -563,31 +566,24 @@ def test_classical_ap3_dispersion():
         pre_trained_model_path=at_hf_vw_path,
     )
 
-    # dimer_prop_model = apnet_pt.AtomPairwiseModels.mtp_mtp.DimerProp(
-    #     ATParam=atom_type_hf_vw_model.model,
-    # )
-    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
-        use_GPU=False,
-        n_neuron=64,
-        n_params=1,
-        ignore_database_null=True,
-        atom_model=atom_type_hf_vw_model.model,
-        atom_model_type="AtomTypeParamNN",
-        # model_type="AtomTypeParamMPNN",
-        # pre_trained_model_path=at_elst_path_mpnn,
-        model_type="AtomTypeParamNN",
-        pre_trained_model_path=at_elst_path,
-        dimer_eval_type="ap3_elst_damping__induced_dipole__disp"
+    dimer_prop_model = apnet_pt.AtomPairwiseModels.mtp_mtp.DimerProp(
+        atom_type_hf_vw_model.model,
+        dimer_eval="ap3_elst_damping__induced_dipole__disp"
     )
-
-    
+    E_classical, Disp, mA, mB = dimer_prop_model(batch)
+    # dimer_prop_model_disp = apnet_pt.AtomPairwiseModels.mtp_mtp.DimerProp(
+    #     atom_type_hf_vw_model.model,
+    #     dimer_eval="disp"
+    # )
+    #print(dimer_prop_model_disp(batch))
+    return 
     ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
         pre_trained_model_path=ap3_path,
     )
-    E_classical, Disp, mA, mB = ap3.dimer_prop_model(batch)
+    Disp = ap3.dimer_prop_model(batch)
     print(Disp)
 
 
