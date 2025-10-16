@@ -358,8 +358,8 @@ class DimerProp(nn.Module):
             qB=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
-            e_AB_source=batch.e_ABsr_source,
-            e_AB_target=batch.e_ABsr_target,
+            e_AB_source=batch.e_ABfull_source,
+            e_AB_target=batch.e_ABfull_target,
             # Additional parameters for induction
             e_AA_source=batch.e_AA_source,
             e_BB_source=batch.e_BB_source,
@@ -392,8 +392,8 @@ class DimerProp(nn.Module):
             muB=v_B[1],
             quadB=v_B[2],
             Kb=Kbs,
-            e_AB_source=batch.e_ABsr_source,
-            e_AB_target=batch.e_ABsr_target,
+            e_AB_source=batch.e_ABfull_source,
+            e_AB_target=batch.e_ABfull_target,
         )
         if Elst.isnan().any():
             print("Electrostatic energy is NaN, debugging info:")
@@ -788,7 +788,7 @@ def get_distances(RA, RB, e_source, e_target):
     return dR, dR_xyz
 
 
-@torch.compile
+# @torch.compile
 def elst_damping_mtp_mtp_torch(
     alpha_i: torch.tensor,
     alpha_j: torch.tensor,
@@ -831,7 +831,7 @@ def elst_damping_mtp_mtp_torch(
     return lam1, lam3, lam5
 
 
-@torch.compile
+# @torch.compile
 def elst_damping_Z_mtp_torch(
     alpha_i: torch.tensor,
     alpha_j: torch.tensor,
@@ -866,7 +866,7 @@ def elst_damping_Z_mtp_torch(
     return lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i
 
 
-@torch.compile
+# @torch.compile
 def mtp_elst(
     ZA,
     RA,
@@ -947,7 +947,7 @@ def mtp_elst(
     return E_elst
 
 
-@torch.compile
+# @torch.compile
 def mtp_elst_damping(
     ZA,
     RA,
