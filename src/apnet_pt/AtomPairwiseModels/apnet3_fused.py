@@ -25,10 +25,6 @@ from apnet_pt.torch_util import set_weights_to_value
 from .mtp_mtp import AtomTypeParamNN, DimerProp, AtomTypeParamModel
 
 
-#Imports necessary for the tad-dftd3 to work:
-import tad_mctc as mctc
-import tad_dftd3 as d3
-
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
     p = step / decay_steps
     if staircase:
@@ -329,6 +325,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_classical, mA, mB = self.dimer_prop_model(batch)
         E_elst = E_classical[:, 0]
         E_ind = E_classical[:, 1]
+        #Shouldn't put classical dis
         qA = mA[0]
         qB = mB[0]
         qA = qA.view(-1, 1)
@@ -474,71 +471,6 @@ class APNet3_AtomType_MPNN(nn.Module):
             )
         return E_output, E_sr, E_elst, E_ind, hAB, hBA
 
-    def classical_dispersion(batch):
-        
-        h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
-        ang2bohr = qcel.constants.conversion_factor("angstrom", "bohr")
-
-        #fitted parameters for BJ damping function from Austin's paper but probably need to change
-        param = {
-            "a1": torch.tensor(0.095),
-            "s8": torch.tensor(0.738),
-            "a2": torch.tensor(3.637),
-        }
-
-        ZA = batch.ZA
-        ZB = batch.ZB
-
-        RA = batch.RA * ang2bohr
-        RB = batch.RB * ang2bohr
-
-        #All of this nonsense is necessary because I am trying to use their batching
-        #but lowkey their batching is stupid and this is a very unnatural way to use
-        #APNet batching, need to change later
-        unique_values_A, repeats_A = np.unique(
-            [batch.molecule_ind_A[i] for i in range(len(batch.molecule_ind_A))],
-            return_counts=True,
-        )
-        RA_reshaped = []
-        ZA_reshaped = []
-        mon_A_indices = []
-        idx = 0
-        for repeat in repeats_A:
-            RA_reshaped.append(RA[idx: idx + repeat])
-            ZA_reshaped.append(ZA[idx: idx + repeat])
-            idx += repeat
-
-        unique_values_B, repeats_B = np.unique(
-                [batch.molecule_ind_B[i] for i in range(len(batch.molecule_ind_B))],
-                return_counts=True,
-        )
-        RB_reshaped = []
-        ZB_reshaped = []
-        idx = 0
-        for repeat in repeats_B:
-            RB_reshaped.append(RB[idx: idx + repeat])
-            ZB_reshaped.append(ZB[idx: idx + repeat])
-            idx += repeat
-        
-        mon_A_indices = []
-        mon_B_indices = []
-        for i, x in enumerate(unique_values_A):
-            mon_A_indices.append(torch.arange(0, repeats_A[i]))
-            mon_B_indices.append(torch.arange(repeats_A[i], repeats_A[i] + repeats_B[i]))
-        R_AB = [torch.cat([a, b], dim=0) for a, b in zip(RA_reshaped, RB_reshaped)]
-
-        Z_AB = [torch.cat([a, b], dim=0) for a, b in zip(ZA_reshaped, ZB_reshaped)]
-
-        R_AB = mctc.batch.pack(tuple(R_AB))
-        Z_AB = mctc.batch.pack(tuple(Z_AB))
-        mon_A_indices = mctc.batch.pack(tuple(mon_A_indices))
-        mon_B_indices = mctc.batch.pack(tuple(mon_B_indices))
-
-
-        pairwise_energies, mask = d3.dftd3(Z_AB, R_AB, param, mon_A_indices=mon_A_indices, mon_B_indices=mon_B_indices, pairwise_matrix=True)
-        pairwise_energies *= h2kcalmol
-        pairwise_energies_tad = pairwise_energies[mask]
-        return pairwise_energies_tad
     
 class APNet3_AtomType_Model:
     def __init__(

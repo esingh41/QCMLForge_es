@@ -38,7 +38,10 @@ from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
 from torch_geometric.data import Data
 
+#Imports necessary for tad-dftd3 to work:
 
+import tad_mctc as mctc
+import tad_dftd3 as d3
 max_Z = 118
 
 
@@ -89,6 +92,10 @@ class DimerProp(nn.Module):
             self.polarizability_table = constants.polarizability_table.clone()
         elif dimer_eval == "ap3_elst_damping__induced_dipole":
             self.forward = self._ap3_elst_damping_indu_induced_dipole_forward
+            self.polarizability_table = constants.polarizability_table.clone()
+        elif dimer_eval == "ap3_elst_damping__induced_dipole__disp":
+            print("GOT HERE")
+            self.forward = self._ap3_elst_damping_indu_induced_dipole_disp_forward
             self.polarizability_table = constants.polarizability_table.clone()
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
@@ -403,6 +410,82 @@ class DimerProp(nn.Module):
             raise ValueError("Electrostatic energy is NaN")
         return torch.vstack((Elst, Indu)).T, v_A, v_B
 
+    def _ap3_elst_damping_indu_induced_dipole_disp_forward(
+        self,
+        batch,
+    ):
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
+        Kas = torch.abs(v_A[-1])
+        Kbs = torch.abs(v_B[-1])
+        # print(f"{Kas =}")
+        # print(f"{v_A[-1] =}")
+        # print(f"{v_A[-2] =}")
+        Indu = induced_dipole_induction_optimized_no_correction(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+            # Additional parameters for induction
+            e_AA_source=batch.e_AA_source,
+            e_BB_source=batch.e_BB_source,
+            e_AA_target=batch.e_AA_target,
+            e_BB_target=batch.e_BB_target,
+            hirshfeld_volume_ratio_A=torch.abs(v_A[-2][:, 0]),
+            hirshfeld_volume_ratio_B=torch.abs(v_B[-2][:, 0]),
+            polarizability_table=self.polarizability_table,
+        )
+        if Indu.isnan().any():
+            print("Induced dipole energy is NaN, debugging info:")
+            torch.save(batch, "ind_nan_batch.pt")
+            print(f"{v_A[-2] =}")
+            print(f"{v_B[-2] =}")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            raise ValueError("Induced dipole energy is NaN")
+        # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
+
+        Elst = mtp_elst_damping(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA_0=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=Kas,
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB_0=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=Kbs,
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+        )
+        if Elst.isnan().any():
+            print("Electrostatic energy is NaN, debugging info:")
+            torch.save(batch, "elst_nan_batch.pt")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            raise ValueError("Electrostatic energy is NaN")
+        
+        Disp = classical_dispersion(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            ZB=batch.ZB,
+            RB=batch.RB,
+            molecule_ind_A=batch.molecule_ind_A,
+            molecule_ind_B=batch.molecule_ind_B,
+        )
+
+        return torch.vstack((Elst, Indu)).T, Disp, v_A, v_B
 
 class AtomTypeParamNN(nn.Module):
     def __init__(
@@ -1627,6 +1710,79 @@ def induced_dipole_induction_optimized_no_correction(
     )
     E_ind = (E_qu + E_uu) / 2.0
     return E_ind
+
+def classical_dispersion(
+        ZA,
+        RA,
+        ZB,
+        RB,
+        molecule_ind_A,
+        molecule_ind_B,
+):
+        
+        h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
+        ang2bohr = qcel.constants.conversion_factor("angstrom", "bohr")
+
+        #fitted parameters for BJ damping function from Austin's paper but probably need to change
+        param = {
+            "a1": torch.tensor(0.095),
+            "s8": torch.tensor(0.738),
+            "a2": torch.tensor(3.637),
+        }
+
+        ZA = ZA
+        ZB = ZB
+
+        RA = RA * ang2bohr
+        RB = RB * ang2bohr
+
+        #All of this nonsense is necessary because I am trying to use their batching
+        #but lowkey their batching is stupid and this is a very unnatural way to use
+        #APNet batching, need to change later
+        unique_values_A, repeats_A = np.unique(
+            [molecule_ind_A[i] for i in range(len(molecule_ind_A))],
+            return_counts=True,
+        )
+        RA_reshaped = []
+        ZA_reshaped = []
+        mon_A_indices = []
+        idx = 0
+        for repeat in repeats_A:
+            RA_reshaped.append(RA[idx: idx + repeat])
+            ZA_reshaped.append(ZA[idx: idx + repeat])
+            idx += repeat
+
+        unique_values_B, repeats_B = np.unique(
+                [molecule_ind_B[i] for i in range(len(molecule_ind_B))],
+                return_counts=True,
+        )
+        RB_reshaped = []
+        ZB_reshaped = []
+        idx = 0
+        for repeat in repeats_B:
+            RB_reshaped.append(RB[idx: idx + repeat])
+            ZB_reshaped.append(ZB[idx: idx + repeat])
+            idx += repeat
+        
+        mon_A_indices = []
+        mon_B_indices = []
+        for i, x in enumerate(unique_values_A):
+            mon_A_indices.append(torch.arange(0, repeats_A[i]))
+            mon_B_indices.append(torch.arange(repeats_A[i], repeats_A[i] + repeats_B[i]))
+        R_AB = [torch.cat([a, b], dim=0) for a, b in zip(RA_reshaped, RB_reshaped)]
+
+        Z_AB = [torch.cat([a, b], dim=0) for a, b in zip(ZA_reshaped, ZB_reshaped)]
+
+        R_AB = mctc.batch.pack(tuple(R_AB))
+        Z_AB = mctc.batch.pack(tuple(Z_AB))
+        mon_A_indices = mctc.batch.pack(tuple(mon_A_indices))
+        mon_B_indices = mctc.batch.pack(tuple(mon_B_indices))
+
+
+        pairwise_energies, mask = d3.dftd3(Z_AB, R_AB, param, mon_A_indices=mon_A_indices, mon_B_indices=mon_B_indices, pairwise_matrix=True)
+        pairwise_energies *= h2kcalmol
+        pairwise_energies_tad = pairwise_energies[mask]
+        return pairwise_energies_tad
 
 
 def isolate_atom_parameter_predictions(batch, output):
