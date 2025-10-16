@@ -571,11 +571,11 @@ def test_classical_ap3_dispersion():
         dimer_eval="ap3_elst_damping__induced_dipole__disp"
     )
     E_classical, Disp, mA, mB = dimer_prop_model(batch)
-    # dimer_prop_model_disp = apnet_pt.AtomPairwiseModels.mtp_mtp.DimerProp(
-    #     atom_type_hf_vw_model.model,
-    #     dimer_eval="disp"
-    # )
-    #print(dimer_prop_model_disp(batch))
+    dimer_prop_model_disp = apnet_pt.AtomPairwiseModels.mtp_mtp.DimerProp(
+        atom_type_hf_vw_model.model,
+        dimer_eval="disp"
+    )
+    print(dimer_prop_model_disp(batch))
     return 
     ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
         ds_root=None,

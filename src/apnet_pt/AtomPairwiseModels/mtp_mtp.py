@@ -421,9 +421,9 @@ class DimerProp(nn.Module):
         v_B = self.AtomTypeParam(batch.batch_atomic_B)
         Kas = torch.abs(v_A[-1])
         Kbs = torch.abs(v_B[-1])
-        # print(f"{Kas =}")
-        # print(f"{v_A[-1] =}")
-        # print(f"{v_A[-2] =}")
+        print(f"{Kas =}")
+        print(f"{v_A[-1] =}")
+        print(f"{v_A[-2] =}")
         Indu = induced_dipole_induction_optimized_no_correction(
             ZA=batch.ZA,
             RA=batch.RA,
