@@ -975,6 +975,10 @@ def mtp_elst_damping(
     lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = (
         elst_damping_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
     )
+    # print(f"{Ka = }\n{Kb = }")
+    # print(f"{lam1 = }\n{lam3 = }\n{lam5 = }")
+    # print(f"{lam1_ZA_MB = }\n{lam3_ZA_MB = }\n{lam5_ZA_MB = }")
+    # print(f"{lam1_ZB_MA = }\n{lam3_ZB_MA = }\n{lam5_ZB_MA = }")
 
     # Nuclear Charge Subtraction - pre-compute all index selections
     ZA_q = ZA.index_select(0, e_AB_source)
@@ -2235,6 +2239,10 @@ class AM_DimerParam_Model:
                     for n, dimer in enumerate(mols[i:upper_bound])
                 ]
             )
+            print(f"{dimer_batch.e_ABsr_source = }")
+            print(f"{dimer_batch.e_ABsr_target = }")
+            print(f"{dimer_batch.e_ABlr_source = }")
+            print(f"{dimer_batch.e_ABlr_target = }")
             dimer_batch.to(device=self.device)
             preds = self.dimer_model(dimer_batch)[0]
             preds = scatter_sum_compile(
@@ -2244,6 +2252,7 @@ class AM_DimerParam_Model:
                     dimer_batch.total_charge_A.size(0), dtype=torch.long
                 ),
             )
+            print(f"{preds=}")
             predictions[i : i + batch_size] = (
                 preds.cpu().numpy().reshape(-1, self.n_params)
             )
@@ -2251,6 +2260,7 @@ class AM_DimerParam_Model:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if return_pairs or return_elst:
             return predictions, pairwise_energies
+        print(f"Predictions: {predictions}")
         return predictions
 
     @torch.inference_mode()
