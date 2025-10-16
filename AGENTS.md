@@ -19,3 +19,5 @@
 - **Performance**: Vectorized numpy/torch ops, avoid loops, use GPU when available
 - **Development**: New features added via TDD - write pytest first, then implement code to pass test, iterate both until complete
 
+## Throwaway Code Directory
+- Use `agent_scratch` to write any python scripts needed to quickly test functionality or timings that will not go into the git history
