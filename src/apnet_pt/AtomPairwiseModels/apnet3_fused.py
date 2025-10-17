@@ -429,7 +429,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_sr *= cutoff
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
         E_elst_full_dimer = scatter_sum_compile(
-            E_elst, batch.dimer_ind_full, ndimer
+            E_elst, batch.dimer_ind, ndimer
         )
         E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
         N_full, num_cols = E_elst_full_dimer.shape
@@ -442,7 +442,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_elst_dimer = padded
 
         E_ind_full_dimer = scatter_sum_compile(
-            E_ind, batch.dimer_ind_full, ndimer
+            E_ind, batch.dimer_ind, ndimer
         )
         E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
         N_full, num_cols = E_ind_full_dimer.shape

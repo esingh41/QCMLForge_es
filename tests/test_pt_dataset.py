@@ -2096,7 +2096,7 @@ def test_ap2_elst_dataset():
 
 if __name__ == "__main__":
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
-    test_AtomTypeParamMPNNModel_AM_DimerProp_train_elst_only_spec7()
+    # test_AtomTypeParamMPNNModel_AM_DimerProp_train_elst_only_spec7()
     # test_AtomTypeParamModel_train()
     # test_induced_dipole_qcel_mols()
     # test_AtomTypeParamModel_AM_DimerProp_train()
@@ -2108,7 +2108,7 @@ if __name__ == "__main__":
 
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
     # test_ap2_spec7()
-    # test_ap3_spec7()
+    test_ap3_spec7()
     # test_ap3_train()
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only()
     # test_AtomTypeParamModel_ind_train()
