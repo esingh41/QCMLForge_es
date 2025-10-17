@@ -10,6 +10,8 @@ from ..pt_datasets.ap2_fused_ds import (
     APNet2_fused_DataLoader,
     ap2_fused_collate_update,
     ap2_fused_collate_update_no_target,
+    ap3_fused_collate_update,
+    ap3_fused_collate_update_no_target,
     qcel_dimer_to_fused_data,
 )
 from ..pt_datasets.ap3_fused_ds import (
@@ -311,6 +313,13 @@ class APNet3_AtomType_MPNN(nn.Module):
         natomB = ZB.size(0)
         ndimer = batch.total_charge_A.size(0)
 
+        if not hasattr(batch, "dimer_ind_full"):
+            batch.dimer_ind_full = torch.cat([dimer_ind, dimer_ind_lr], dim=0)
+        if not hasattr(batch, "e_ABfull_source"):
+            batch.e_ABfull_source = torch.cat([e_ABsr_source, e_ABlr_source], dim=0)
+            batch.e_ABfull_target = torch.cat([e_ABsr_target, e_ABlr_target], dim=0)
+
+
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
         dR_lr, dR_lr_xyz = self.get_distances(RA, RB, e_ABlr_source, e_ABlr_target)
@@ -333,22 +342,12 @@ class APNet3_AtomType_MPNN(nn.Module):
         ### predict monomer properties w/ pretrained AtomModel ###
         ##########################################################
 
-        # concat e_ABsr_source and e_ABlr_source to get all intermolecular
-        # edges for classical models to evaluate as a bigger tensor instead of
-        # split
-        batch.e_ABsr_source = torch.cat([e_ABsr_source, e_ABlr_source], dim=0)
-        batch.e_ABsr_target = torch.cat([e_ABsr_target, e_ABlr_target], dim=0)
-
-        # print(batch)
-        if hasattr(self.dimer_prop_model, 'dimer_model'):
-            E_classical, mA, mB = self.dimer_prop_model.dimer_model(batch)
+        if self.use_precomputed_classical:
+            mA, mB = self.dimer_prop_model(batch)
         else:
             E_classical, mA, mB = self.dimer_prop_model(batch)
-        batch.e_ABsr_source = e_ABsr_source
-        batch.e_ABsr_target = e_ABsr_target
-        
-        E_elst = E_classical[:, 0]
-        E_ind = E_classical[:, 1]
+            E_elst = E_classical[:, 0]
+            E_ind = E_classical[:, 1]
         qA = mA[0]
         qB = mB[0]
         qA = qA.view(-1, 1)
@@ -449,52 +448,38 @@ class APNet3_AtomType_MPNN(nn.Module):
         cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
         E_sr *= cutoff
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
-        
-        # Add long-range classical contributions to dimer indices
-        dimer_ind = torch.cat([dimer_ind, dimer_ind_lr], dim=0)
-        if self.use_precomputed_classical and hasattr(batch, 'E_classical_elst'):
-            E_elst_full_dimer = batch.E_classical_elst
-            E_elst_computed = scatter_sum_compile(E_elst, dimer_ind, ndimer).unsqueeze(-1)
-            print(f"DEBUG: Using precomputed E_classical_elst")
-            print(f"  Precomputed: {E_elst_full_dimer.flatten()[:3]}")
-            print(f"  Computed: {E_elst_computed.flatten()[:3]}")
-            print(f"  Match: {torch.allclose(E_elst_full_dimer, E_elst_computed, atol=1e-4)}")
-        else:
+        if self.use_precomputed_classical:
             E_elst_full_dimer = scatter_sum_compile(
-                E_elst, dimer_ind, ndimer
+                E_elst, batch.dimer_ind_full, ndimer
             )
             E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
-        N_full, num_cols = E_elst_full_dimer.shape
-        full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
-        full_expanded[:N_full] = E_elst_full_dimer
-        E_elst_dimer = full_expanded
-        rows, cols = E_elst_dimer.shape
-        padded = E_elst_dimer.new_zeros((rows, cols + 3))
-        padded[:, :cols] = E_elst_dimer
-        E_elst_dimer = padded
+            N_full, num_cols = E_elst_full_dimer.shape
+            full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_elst_full_dimer
+            E_elst_dimer = full_expanded
+            rows, cols = E_elst_dimer.shape
+            padded = E_elst_dimer.new_zeros((rows, cols + 3))
+            padded[:, :cols] = E_elst_dimer
+            E_elst_dimer = padded
 
-        if self.use_precomputed_classical and hasattr(batch, 'E_classical_ind'):
-            E_ind_full_dimer = batch.E_classical_ind
-        else:
             E_ind_full_dimer = scatter_sum_compile(
-                E_ind, dimer_ind, ndimer
+                E_ind, batch.dimer_ind_full, ndimer
             )
             E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
-        N_full, num_cols = E_ind_full_dimer.shape
-        full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
-        full_expanded[:N_full] = E_ind_full_dimer
-        E_ind_dimer = full_expanded
+            N_full, num_cols = E_ind_full_dimer.shape
+            full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_ind_full_dimer
+            E_ind_dimer = full_expanded
 
-        rows, cols = E_ind_dimer.shape
-        padded = E_ind_dimer.new_zeros((rows, cols + 3))
-        padded[:, 2:3] = E_ind_dimer
-        E_ind_dimer = padded
+            rows, cols = E_ind_dimer.shape
+            padded = E_ind_dimer.new_zeros((rows, cols + 3))
+            padded[:, 2:3] = E_ind_dimer
+            E_ind_dimer = padded
 
-        E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
-        # print(f"{E_sr_dimer=}")
-        # print(f"{E_elst_dimer=}")
-        # print(f"{E_ind_dimer=}")
-
+            E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
+        else:
+            E_output = E_sr_dimer
+            return E_output, E_sr, 0, 0, hAB, hBA
         if self.return_hidden_states:
             return (
                 E_output,
@@ -514,6 +499,7 @@ class APNet3_AtomType_Model:
         dataset=None,
         atom_type_model=None,
         dimer_prop_model=None,
+        am_dimer_param_model=None,
         pre_trained_model_path=None,
         dimer_prop_model_pre_trained_path=None,
         n_message=3,
@@ -556,6 +542,7 @@ class APNet3_AtomType_Model:
         self.ds_spec_type = ds_spec_type
         self.atom_type_model = AtomTypeParamModel()
         self.dimer_prop_model = DimerProp(ATParam=self.atom_type_model.model)
+        self.am_dimer_param_model = am_dimer_param_model
 
         if dimer_prop_model_pre_trained_path:
             print(
@@ -589,6 +576,7 @@ class APNet3_AtomType_Model:
     pre-computed and passed as input to the model.
 """
             )
+        self.use_precomputed_classical = use_precomputed_classical
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet3_AtomType_MPNN model from {pre_trained_model_path}"
@@ -828,6 +816,8 @@ class APNet3_AtomType_Model:
             if ds_max_size:
                 self.dataset[0] = self.dataset[0][:ds_max_size]
                 self.dataset[1] = self.dataset[1][:ds_max_size]
+
+
         print(f"{self.dataset=}")
         self.batch_size = None
         self.shuffle = False
@@ -926,7 +916,7 @@ class APNet3_AtomType_Model:
         r_cut=5.0,
         r_cut_im=8.0,
     ):
-        dimer_batch = ap2_fused_collate_update_no_target(
+        dimer_batch = ap3_fused_collate_update_no_target(
             [
                 qcel_dimer_to_fused_data(
                     mol, r_cut=r_cut, r_cut_im=r_cut_im, dimer_ind=n
@@ -1450,7 +1440,7 @@ units angstrom
                 shuffle=False,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
-                collate_fn=ap2_fused_collate_update,
+                collate_fn=ap3_fused_collate_update,
             )
             for b in first_pass_data:
                 b.to(rank_device)
@@ -1485,7 +1475,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=ap2_fused_collate_update,
+            collate_fn=ap3_fused_collate_update,
         )
 
         test_loader = APNet2_fused_DataLoader(
@@ -1495,7 +1485,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=ap2_fused_collate_update,
+            collate_fn=ap3_fused_collate_update,
         )
         if rank == 0:
             print("Loaders setup\n")
@@ -1842,6 +1832,12 @@ units angstrom
             pin_memory = False
 
         self.shuffle = shuffle
+
+        # Now that dataset has computed classical terms in dataset, we can set
+        # to only atomMPNN for training
+        if self.use_precomputed_classical:
+            self.dimer_prop_model.set_forward("ap3_atomMPNN")
+            self.dimer_prop_model.to(self.device)
 
         if world_size > 1:
             print("Running multi-process training", flush=True)

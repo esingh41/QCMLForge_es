@@ -502,6 +502,389 @@ def ap2_fused_collate_update_no_target_monomer_indices(batch):
     return batched_data
 
 
+def ap3_fused_collate_update(batch):
+    monA_edge_offset, monB_edge_offset = 0, 0
+    local_e_ABsr_source = []
+    local_e_ABsr_target = []
+    local_e_ABlr_source = []
+    local_e_ABlr_target = []
+    local_e_AA_source = []
+    local_e_AA_target = []
+    local_e_BB_source = []
+    local_e_BB_target = []
+    for i, data in enumerate(batch):
+        local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
+        local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
+        local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
+        local_e_BB_target.append(data.e_BB_target.clone() + monB_edge_offset)
+        monA_edge_offset += data.RA.size(0)
+        monB_edge_offset += data.RB.size(0)
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    molecule_ind_A = torch.cat(
+        [torch.ones(data.RA.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    molecule_ind_B = torch.cat(
+        [torch.ones(data.RB.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    natom_per_mol_A = torch.tensor(
+        [data.RA.size(0) for data in batch], dtype=torch.long
+    )
+    natom_per_mol_B = torch.tensor(
+        [data.RB.size(0) for data in batch], dtype=torch.long
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=molecule_ind_A,
+        total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=molecule_ind_B,
+        total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
+    )
+    
+    e_ABsr_source_cat = torch.cat(local_e_ABsr_source, dim=0)
+    e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
+    e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
+    e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+    
+    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    
+    dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
+    dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
+    dimer_ind_full = torch.cat([dimer_ind_cat, dimer_ind_lr_cat], dim=0)
+    
+    batched_data = Data(
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
+        molecule_ind_A=molecule_ind_A,
+        molecule_ind_B=molecule_ind_B,
+        natom_per_mol_A=natom_per_mol_A,
+        natom_per_mol_B=natom_per_mol_B,
+        e_ABsr_source=e_ABsr_source_cat,
+        e_ABsr_target=e_ABsr_target_cat,
+        e_ABlr_source=e_ABlr_source_cat,
+        e_ABlr_target=e_ABlr_target_cat,
+        e_ABfull_source=e_ABfull_source,
+        e_ABfull_target=e_ABfull_target,
+        dimer_ind=dimer_ind_cat,
+        dimer_ind_lr=dimer_ind_lr_cat,
+        dimer_ind_full=dimer_ind_full,
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
+        qA=torch.cat([data.qA for data in batch], dim=0),
+        muA=torch.cat([data.muA for data in batch], dim=0),
+        quadA=torch.cat([data.quadA for data in batch], dim=0),
+        hlistA=torch.cat([data.hlistA for data in batch], dim=0),
+        qB=torch.cat([data.qB for data in batch], dim=0),
+        muB=torch.cat([data.muB for data in batch], dim=0),
+        quadB=torch.cat([data.quadB for data in batch], dim=0),
+        hlistB=torch.cat([data.hlistB for data in batch], dim=0),
+        E_tot=torch.cat([data.E_tot for data in batch], dim=0),
+        E_tot_mon_A=torch.cat([data.E_tot_mon_A for data in batch], dim=0),
+        E_tot_mon_B=torch.cat([data.E_tot_mon_B for data in batch], dim=0),
+        E_int=torch.cat([data.E_int for data in batch], dim=0),
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
+    )
+    return batched_data
+
+
+def ap3_fused_collate_update_no_target(batch):
+    monA_edge_offset, monB_edge_offset = 0, 0
+    local_e_ABsr_source = []
+    local_e_ABsr_target = []
+    local_e_ABlr_source = []
+    local_e_ABlr_target = []
+    local_e_AA_source = []
+    local_e_AA_target = []
+    local_e_BB_source = []
+    local_e_BB_target = []
+    local_indA = []
+    local_indB = []
+    for i, data in enumerate(batch):
+        local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
+        local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
+        local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
+        local_e_BB_target.append(data.e_BB_target.clone() + monB_edge_offset)
+        monA_edge_offset += data.RA.size(0)
+        monB_edge_offset += data.RB.size(0)
+        local_indA.append(torch.ones(data.RA.size(0), dtype=torch.long) * i)
+        local_indB.append(torch.ones(data.RB.size(0), dtype=torch.long) * i)
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    indA_cat = torch.cat(local_indA, dim=0)
+    indB_cat = torch.cat(local_indB, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    molecule_ind_A = torch.cat(
+        [torch.ones(data.RA.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    molecule_ind_B = torch.cat(
+        [torch.ones(data.RB.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    natom_per_mol_A = torch.tensor(
+        [data.RA.size(0) for data in batch], dtype=torch.long
+    )
+    natom_per_mol_B = torch.tensor(
+        [data.RB.size(0) for data in batch], dtype=torch.long
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=molecule_ind_A,
+        total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=molecule_ind_B,
+        total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
+    )
+    
+    e_ABsr_source_cat = torch.cat(local_e_ABsr_source, dim=0)
+    e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
+    e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
+    e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+    
+    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    
+    dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
+    dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
+    dimer_ind_full = torch.cat([dimer_ind_cat, dimer_ind_lr_cat], dim=0)
+    
+    batched_data = Data(
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
+        molecule_ind_A=molecule_ind_A,
+        molecule_ind_B=molecule_ind_B,
+        natom_per_mol_A=natom_per_mol_A,
+        natom_per_mol_B=natom_per_mol_B,
+        e_ABsr_source=e_ABsr_source_cat,
+        e_ABsr_target=e_ABsr_target_cat,
+        e_ABlr_source=e_ABlr_source_cat,
+        e_ABlr_target=e_ABlr_target_cat,
+        e_ABfull_source=e_ABfull_source,
+        e_ABfull_target=e_ABfull_target,
+        dimer_ind=dimer_ind_cat,
+        dimer_ind_lr=dimer_ind_lr_cat,
+        dimer_ind_full=dimer_ind_full,
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
+        qA=torch.cat([data.qA for data in batch], dim=0),
+        muA=torch.cat([data.muA for data in batch], dim=0),
+        quadA=torch.cat([data.quadA for data in batch], dim=0),
+        hlistA=torch.cat([data.hlistA for data in batch], dim=0),
+        qB=torch.cat([data.qB for data in batch], dim=0),
+        muB=torch.cat([data.muB for data in batch], dim=0),
+        quadB=torch.cat([data.quadB for data in batch], dim=0),
+        hlistB=torch.cat([data.hlistB for data in batch], dim=0),
+        indA=indA_cat,
+        indB=indB_cat,
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
+    )
+    return batched_data
+
+
+def ap3_fused_collate_update_no_target_monomer_indices(batch):
+    monA_edge_offset, monB_edge_offset = 0, 0
+    local_e_ABsr_source = []
+    local_e_ABsr_target = []
+    local_e_ABlr_source = []
+    local_e_ABlr_target = []
+    local_e_AA_source = []
+    local_e_AA_target = []
+    local_e_BB_source = []
+    local_e_BB_target = []
+    local_indA = []
+    local_indB = []
+    for i, data in enumerate(batch):
+        data.dimer_ind = (
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
+        )
+        data.dimer_ind_lr = (
+            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
+        )
+        local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
+        local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
+        local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
+        local_e_BB_target.append(data.e_BB_target.clone() + monB_edge_offset)
+
+        monA_edge_offset += data.RA.size(0)
+        monB_edge_offset += data.RB.size(0)
+        local_indA.append(torch.ones(data.RA.size(0), dtype=data.dimer_ind.dtype) * i)
+        local_indB.append(
+            torch.ones(data.RB.size(0), dtype=data.dimer_ind_lr.dtype) * i
+        )
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    indA_cat = torch.cat(local_indA, dim=0)
+    indB_cat = torch.cat(local_indB, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    molecule_ind_A = torch.cat(
+        [torch.ones(data.RA.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    molecule_ind_B = torch.cat(
+        [torch.ones(data.RB.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    natom_per_mol_A = torch.tensor(
+        [data.RA.size(0) for data in batch], dtype=torch.long
+    )
+    natom_per_mol_B = torch.tensor(
+        [data.RB.size(0) for data in batch], dtype=torch.long
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=molecule_ind_A,
+        total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=molecule_ind_B,
+        total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
+    )
+    
+    e_ABsr_source_cat = torch.cat(local_e_ABsr_source, dim=0)
+    e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
+    e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
+    e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+    
+    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    
+    dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
+    dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
+    dimer_ind_full = torch.cat([dimer_ind_cat, dimer_ind_lr_cat], dim=0)
+    
+    batched_data = Data(
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
+        molecule_ind_A=molecule_ind_A,
+        molecule_ind_B=molecule_ind_B,
+        natom_per_mol_A=natom_per_mol_A,
+        natom_per_mol_B=natom_per_mol_B,
+        e_ABsr_source=e_ABsr_source_cat,
+        e_ABsr_target=e_ABsr_target_cat,
+        e_ABlr_source=e_ABlr_source_cat,
+        e_ABlr_target=e_ABlr_target_cat,
+        e_ABfull_source=e_ABfull_source,
+        e_ABfull_target=e_ABfull_target,
+        dimer_ind=dimer_ind_cat,
+        dimer_ind_lr=dimer_ind_lr_cat,
+        dimer_ind_full=dimer_ind_full,
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
+        qA=torch.cat([data.qA for data in batch], dim=0),
+        muA=torch.cat([data.muA for data in batch], dim=0),
+        quadA=torch.cat([data.quadA for data in batch], dim=0),
+        hlistA=torch.cat([data.hlistA for data in batch], dim=0),
+        qB=torch.cat([data.qB for data in batch], dim=0),
+        muB=torch.cat([data.muB for data in batch], dim=0),
+        quadB=torch.cat([data.quadB for data in batch], dim=0),
+        hlistB=torch.cat([data.hlistB for data in batch], dim=0),
+        indA=indA_cat,
+        indB=indB_cat,
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
+    )
+    return batched_data
+
+
 class APNet2_fused_DataLoader(torch.utils.data.DataLoader):
     r"""A data loader which merges data objects from a
     :class:`torch_geometric.data.Dataset` to a mini-batch.
