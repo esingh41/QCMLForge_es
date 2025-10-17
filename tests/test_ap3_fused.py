@@ -151,7 +151,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
         datapoint_storage_n_objects=datapoint_storage_n_objects,
         batch_size=batch_size,
         num_devices=1,
-        skip_processed=False,
+        skip_processed=True,
         skip_compile=True,
         print_level=2,
         qcel_molecules=qcel_molecules,
@@ -166,7 +166,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
         am_dimer_param_model=atom_type_elst_model,
-        pre_trained_model_path=ap3_path,
+        # pre_trained_model_path=ap3_path,
         use_precomputed_classical=False,
     )
     print(ap3)
@@ -548,7 +548,7 @@ def test_classical_ap3_induction():
 
 if __name__ == "__main__":
     # test_classical_ap3()
-    test_classical_ap3_long_range()
-    # test_ap3_fused_train_qcel_molecules_in_memory()
+    # test_classical_ap3_long_range()
+    test_ap3_fused_train_qcel_molecules_in_memory()
     # test_ap3_fused_train_qcel_molecules_in_memory_precompute()
     # test_classical_ap3_induction()

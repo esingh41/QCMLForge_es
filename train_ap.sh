@@ -77,13 +77,27 @@ python3 -u ./train_models.py \
     --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
     --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
     --random_seed $iter \
-    --ap_model_path ./models/ap3_ensemble/$iter/ap3_$iter.pt \
+    --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_hfvr_vw.pt \
     --n_epochs 55 \
     --data_dir ./data_dimer_$iter \
-    --spec_type_ap 8 \
-    --lr 5e-5 \
+    --spec_type_ap 6 \
+    --lr 5e-4 \
     --ds_in_memory False
 
+# APNet3-Fused with Elst Damping AtomType (AP2 pretrained)
+# python3 -u ./train_models.py \
+#     --train_apnet APNet3-fused \
+#     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+#     --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
+#     --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
+#     --random_seed $iter \
+#     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_ap2-pretrained.pt \
+#     --ap2_pretrained_model_only ./models/ap2_ensemble/ap2_3.pt \
+#     --n_epochs 55 \
+#     --data_dir ./data_dimer_$iter \
+#     --spec_type_ap 8 \
+#     --lr 5e-4 \
+#     --ds_in_memory False
 
 # Elst + Induced dipole
 # rm ./models/ap_atomTypeParamModel_elst_ind_1/am_h+1_$iter.pt

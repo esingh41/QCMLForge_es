@@ -261,6 +261,20 @@ class APNet3_AtomType_MPNN(nn.Module):
         # print(f"{hA_source.size() = }, {hB_target.size() = }, {qA_source.size() = }, {qB_target.size() = }, {rbf.size() = }")
         return torch.cat([hA_source, hB_target, qA_source, qB_target, rbf], dim=-1)
 
+    def get_pair_params(self, hA, hB, qA, qB, hfvrA, hfvrB, vwA, vwB, rbf, e_source, e_target):
+        hA_source = hA.index_select(0, e_source)
+        hB_target = hB.index_select(0, e_target)
+
+        qA_source = qA.index_select(0, e_source)
+        qB_target = qB.index_select(0, e_target)
+
+        hfvrA_source = hfvrA.index_select(0, e_source)
+        hfvrB_target = hfvrB.index_select(0, e_target)
+
+        vwA_source = vwA.index_select(0, e_source)
+        vwB_target = vwB.index_select(0, e_target)
+        return torch.cat([hA_source, hB_target, qA_source, qB_target, hfvrA_source, hfvrB_target, vwA_source, vwB_target, rbf], dim=-1)
+
     def get_distances(self, RA, RB, e_source, e_target):
         RA_source = RA.index_select(0, e_source)
         RB_target = RB.index_select(0, e_target)
@@ -342,6 +356,12 @@ class APNet3_AtomType_MPNN(nn.Module):
         qB = mB[0]
         qA = qA.view(-1, 1)
         qB = qB.view(-1, 1)
+        hfvrA = mA[-2][:, 0].view(-1, 1)
+        hfvrB = mB[-2][:, 0].view(-1, 1)
+        vwA = mA[-2][:, 1].view(-1, 1)
+        vwB = mB[-2][:, 1].view(-1, 1)
+        # print(f"{hfvrA.shape = }, {hfvrB.shape = }, {vwA.shape = }, {vwB.shape = }")
+        # print(f"{qB.shape = }")
         # print(f"{qA.shape = }, {muA.shape = }, {quadA.shape = }")
         # print(f"{Elst.shape = }")
 
@@ -414,8 +434,8 @@ class APNet3_AtomType_MPNN(nn.Module):
         hB = torch.cat(hB_list, dim=-1)
 
         # atom-pair features are a combo of atomic hidden states and the interatomic distance
-        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr, e_ABsr_source, e_ABsr_target)
-        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr, e_ABsr_target, e_ABsr_source)
+        hAB = self.get_pair_params(hA, hB, qA, qB, hfvrA, hfvrB, vwA, vwB, rbf_sr, e_ABsr_source, e_ABsr_target)
+        hBA = self.get_pair_params(hB, hA, qB, qA, hfvrB, hfvrA, vwB, vwA, rbf_sr, e_ABsr_target, e_ABsr_source)
 
         # project the directional atomic hidden states along the interatomic axis
         hA_dir = torch.cat(hA_dir_list, dim=-1)
