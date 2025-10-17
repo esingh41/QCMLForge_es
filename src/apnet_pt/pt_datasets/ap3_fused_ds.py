@@ -1106,7 +1106,7 @@ class ap3_fused_module_dataset(Dataset):
                 temp_batch = ap3_fused_collate_update_no_target([data])
                 if self.device:
                     print(f"sending batch to device {self.device}")
-                    temp_batch.to(self.device)
+                    temp_batch = temp_batch.to(self.device)
                 with torch.no_grad():
                     if hasattr(self.dimer_prop_model, 'set_forward'):
                         # original_forward = self.dimer_prop_model.forward
@@ -1129,8 +1129,8 @@ class ap3_fused_module_dataset(Dataset):
                     else:
                         raise ValueError("dimer_prop_model must have either set_forward or dimer_model attribute")
                     
-                    data.E_classical_elst = torch.sum(E_elst)
-                    data.E_classical_ind = torch.sum(E_ind)
+                    data.E_classical_elst = torch.sum(E_elst).cpu()
+                    data.E_classical_ind = torch.sum(E_ind).cpu()
             
             data = data.cpu()
             if self.pre_filter is not None and not self.pre_filter(data):
