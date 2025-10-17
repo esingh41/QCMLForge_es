@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from apnet_pt.pt_datasets.ap2_fused_ds import (
+from apnet_pt.pt_datasets.ap3_fused_ds import (
     ap3_fused_collate_update,
     ap3_fused_collate_update_no_target,
     ap3_fused_collate_update_no_target_monomer_indices,

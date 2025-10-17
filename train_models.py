@@ -90,7 +90,8 @@ def train_pairwise_model(
     param_start_std=0.1,
     dimer_eval_type="elst_damping",
     ds_in_memory=False,
-    DimerProp_model_type="AtomTypeParamNN"
+    DimerProp_model_type="AtomTypeParamNN",
+    ap2_pretrained_model_only=None,
 ):
     # Ensure param_start_mean and param_start_std are lists
     if not isinstance(param_start_mean, (list, tuple)):
@@ -233,7 +234,11 @@ def train_pairwise_model(
             ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
             ds_prebatched=False,
             ds_random_seed=random_seed,
+            use_precomputed_classical=True,
         )
+        if ap2_pretrained_model_only is not None:
+            print(f"Loading AP2 pretrained weights from {ap2_pretrained_model_only}")
+            apnet.load_ap2_pretrained_weights(ap2_pretrained_model_only)
     elif apnet_model_type in ["AtomTypeParamModel"]:
         apnet = APNet(
             atom_model_pre_trained_path=am_model_path,
@@ -339,6 +344,12 @@ def main():
         type=str,
         default="./models/dapnet2/ap2_0.pt",
         help="specify a special loaded model. Currently only used for dAP-Net2 training (default: ./models/dapnet2/ap2_0.pt)",
+    )
+    args.add_argument(
+        "--ap2_pretrained_model_only",
+        type=str,
+        default=None,
+        help="Load AP2 pretrained weights for AP3 model initialization (path to AP2 model)",
     )
     args.add_argument(
         "--train_am",
@@ -515,6 +526,7 @@ def main():
             dimer_eval_type=args.dimer_eval_type,
             ds_in_memory=args.ds_in_memory,
             DimerProp_model_type=args.DimerProp_model_type,
+            ap2_pretrained_model_only=args.ap2_pretrained_model_only,
         )
     return
 

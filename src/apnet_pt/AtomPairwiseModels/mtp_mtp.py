@@ -28,6 +28,10 @@ from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_collate_update_no_target,
     qcel_dimer_to_fused_data,
 )
+from ..pt_datasets.ap3_fused_ds import (
+    ap3_fused_collate_update,
+    ap3_fused_collate_update_no_target,
+)
 from .. import constants
 import os
 import torch.distributed as dist
@@ -90,6 +94,8 @@ class DimerProp(nn.Module):
         elif dimer_eval == "ap3_elst_damping__induced_dipole":
             self.forward = self._ap3_elst_damping_indu_induced_dipole_forward
             self.polarizability_table = constants.polarizability_table.clone()
+        elif dimer_eval == "ap3_atomMPNN":
+            self.forward = self._ap3_atomMPNN
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
 
@@ -402,6 +408,14 @@ class DimerProp(nn.Module):
             print(f"{v_B[-1] =}")
             raise ValueError("Electrostatic energy is NaN")
         return torch.vstack((Elst, Indu)).T, v_A, v_B
+
+    def _ap3_atomMPNN(
+        self,
+        batch,
+    ):
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
+        return v_A, v_B
 
 
 class AtomTypeParamNN(nn.Module):
@@ -975,6 +989,10 @@ def mtp_elst_damping(
     lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = (
         elst_damping_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
     )
+    # print(f"{Ka = }\n{Kb = }")
+    # print(f"{lam1 = }\n{lam3 = }\n{lam5 = }")
+    # print(f"{lam1_ZA_MB = }\n{lam3_ZA_MB = }\n{lam5_ZA_MB = }")
+    # print(f"{lam1_ZB_MA = }\n{lam3_ZB_MA = }\n{lam5_ZB_MA = }")
 
     # Nuclear Charge Subtraction - pre-compute all index selections
     ZA_q = ZA.index_select(0, e_AB_source)
@@ -2251,6 +2269,7 @@ class AM_DimerParam_Model:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if return_pairs or return_elst:
             return predictions, pairwise_energies
+        print(f"Predictions: {predictions}")
         return predictions
 
     @torch.inference_mode()

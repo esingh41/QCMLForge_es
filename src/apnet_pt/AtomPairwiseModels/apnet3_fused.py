@@ -8,11 +8,12 @@ from ..AtomModels.ap2_atom_model import AtomMPNN
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
-    ap2_fused_collate_update,
-    ap2_fused_collate_update_no_target,
+    qcel_dimer_to_fused_data,
+)
+from ..pt_datasets.ap3_fused_ds import (
+    ap3_fused_module_dataset,
     ap3_fused_collate_update,
     ap3_fused_collate_update_no_target,
-    qcel_dimer_to_fused_data,
 )
 from .. import constants
 from ..util import scatter_sum_compile
@@ -133,13 +134,24 @@ class APNet3_AtomType_MPNN(nn.Module):
         r_cut_im=8.0,
         r_cut=5.0,
         return_hidden_states=False,
+        use_precomputed_classical=False,
     ):
         # super().__init__(aggr="add")
         super().__init__()
         self.dimer_prop_model = dimer_prop_model
-        # freeze dimer_prop_model parameters
-        for param in self.dimer_prop_model.parameters():
-            param.requires_grad = False
+        if self.dimer_prop_model is not None:
+            if hasattr(self.dimer_prop_model, 'parameters'):
+                for param in self.dimer_prop_model.parameters():
+                    param.requires_grad = False
+            elif hasattr(self.dimer_prop_model, 'model'):
+                for param in self.dimer_prop_model.model.parameters():
+                    param.requires_grad = False
+                if hasattr(self.dimer_prop_model, 'dimer_model'):
+                    for param in self.dimer_prop_model.dimer_model.parameters():
+                        param.requires_grad = False
+                if hasattr(self.dimer_prop_model, 'dimer_model_elst'):
+                    for param in self.dimer_prop_model.dimer_model_elst.parameters():
+                        param.requires_grad = False
 
         self.n_message = n_message
         self.n_rbf = n_rbf
@@ -148,6 +160,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         self.r_cut_im = r_cut_im
         self.r_cut = r_cut
         self.return_hidden_states = return_hidden_states
+        self.use_precomputed_classical = use_precomputed_classical
 
         layer_nodes_hidden = [
             # input_layer_size,
@@ -285,7 +298,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         # batch.long range intermolecular edges
         e_ABlr_source = batch.e_ABlr_source
         e_ABlr_target = batch.e_ABlr_target
-        dimer_ind_lr = batch.dimer_ind_lr
+        # dimer_ind_lr = batch.dimer_ind_lr
         # batch.intramonomer edges (monomer A)
         e_AA_source = batch.e_AA_source
         e_AA_target = batch.e_AA_target
@@ -296,13 +309,6 @@ class APNet3_AtomType_MPNN(nn.Module):
         natomA = ZA.size(0)
         natomB = ZB.size(0)
         ndimer = batch.total_charge_A.size(0)
-
-        # if not hasattr(batch, "dimer_ind_full"):
-        # batch.dimer_ind_full = torch.cat([dimer_ind, dimer_ind_lr], dim=0)
-        # if not hasattr(batch, "e_ABfull_source"):
-        #     batch.e_ABfull_source = torch.cat([e_ABsr_source, e_ABlr_source], dim=0)
-        #     batch.e_ABfull_target = torch.cat([e_ABsr_target, e_ABlr_target], dim=0)
-
 
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
@@ -325,9 +331,13 @@ class APNet3_AtomType_MPNN(nn.Module):
         ##########################################################
         ### predict monomer properties w/ pretrained AtomModel ###
         ##########################################################
-        E_classical, mA, mB = self.dimer_prop_model(batch)
-        E_elst = E_classical[:, 0]
-        E_ind = E_classical[:, 1]
+
+        if self.use_precomputed_classical:
+            mA, mB = self.dimer_prop_model(batch)
+        else:
+            E_classical, mA, mB = self.dimer_prop_model(batch)
+            E_elst = E_classical[:, 0]
+            E_ind = E_classical[:, 1]
         qA = mA[0]
         qB = mB[0]
         qA = qA.view(-1, 1)
@@ -428,46 +438,38 @@ class APNet3_AtomType_MPNN(nn.Module):
         cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
         E_sr *= cutoff
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
-        print(f"{dimer_ind = }")
-        print(f"{batch.dimer_ind_full = }")
-        print(f"{dimer_ind.shape = }")
-        print(f"{batch.dimer_ind_full.shape = }")
-        E_elst_full_dimer = scatter_sum_compile(
-            E_elst, batch.dimer_ind_full, ndimer
-        )
-        E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
-        N_full, num_cols = E_elst_full_dimer.shape
-        full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
-        full_expanded[:N_full] = E_elst_full_dimer
-        E_elst_dimer = full_expanded
-        rows, cols = E_elst_dimer.shape
-        padded = E_elst_dimer.new_zeros((rows, cols + 3))
-        padded[:, :cols] = E_elst_dimer
-        E_elst_dimer = padded
+        if self.use_precomputed_classical:
+            E_output = E_sr_dimer
+            return E_output, E_sr, 0, 0, hAB, hBA
+        else:
+            E_elst_full_dimer = scatter_sum_compile(
+                E_elst, batch.dimer_ind_full, ndimer
+            )
+            E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_elst_full_dimer.shape
+            full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_elst_full_dimer
+            E_elst_dimer = full_expanded
+            rows, cols = E_elst_dimer.shape
+            padded = E_elst_dimer.new_zeros((rows, cols + 3))
+            padded[:, :cols] = E_elst_dimer
+            E_elst_dimer = padded
 
-        E_ind_full_dimer = scatter_sum_compile(
-            E_ind, batch.dimer_ind_full, ndimer
-        )
-        E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
-        N_full, num_cols = E_ind_full_dimer.shape
-        full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
-        full_expanded[:N_full] = E_ind_full_dimer
-        E_ind_dimer = full_expanded
+            E_ind_full_dimer = scatter_sum_compile(
+                E_ind, batch.dimer_ind_full, ndimer
+            )
+            E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_ind_full_dimer.shape
+            full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_ind_full_dimer
+            E_ind_dimer = full_expanded
 
-        rows, cols = E_ind_dimer.shape
-        padded = E_ind_dimer.new_zeros((rows, cols + 3))
-        padded[:, 2:3] = E_ind_dimer
-        E_ind_dimer = padded
+            rows, cols = E_ind_dimer.shape
+            padded = E_ind_dimer.new_zeros((rows, cols + 3))
+            padded[:, 2:3] = E_ind_dimer
+            E_ind_dimer = padded
 
-        print(f"{E_elst_dimer.shape = }")
-        print(f"{E_ind_dimer.shape = }")
-        print(f"{E_sr_dimer.shape = }")
-        E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
-        print(f"{E_output.shape = }")
-        # print(f"{E_sr_dimer=}")
-        # print(f"{E_elst_dimer=}")
-        # print(f"{E_ind_dimer=}")
-
+            E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
         if self.return_hidden_states:
             return (
                 E_output,
@@ -513,6 +515,7 @@ class APNet3_AtomType_Model:
         print_lvl=0,
         ds_qcel_molecules=None,
         ds_energy_labels=None,
+        use_precomputed_classical=False,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -563,6 +566,7 @@ class APNet3_AtomType_Model:
     pre-computed and passed as input to the model.
 """
             )
+        self.use_precomputed_classical = use_precomputed_classical
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet3_AtomType_MPNN model from {pre_trained_model_path}"
@@ -576,6 +580,7 @@ class APNet3_AtomType_Model:
                 n_embed=checkpoint["config"]["n_embed"],
                 r_cut_im=checkpoint["config"]["r_cut_im"],
                 r_cut=checkpoint["config"]["r_cut"],
+                use_precomputed_classical=use_precomputed_classical,
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -591,6 +596,7 @@ class APNet3_AtomType_Model:
                 n_embed=n_embed,
                 r_cut_im=r_cut_im,
                 r_cut=r_cut,
+                use_precomputed_classical=use_precomputed_classical,
             )
         if n_rbf != self.model.n_rbf:
             print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
@@ -612,11 +618,24 @@ class APNet3_AtomType_Model:
             self.model.r_cut = r_cut
 
         self.device = device
-        self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
-        self.dimer_prop_model.to(device)
-        self.dimer_prop_model.polarizability_table = (
-            self.dimer_prop_model.polarizability_table.to(self.device)
-        )
+        
+        if hasattr(self.dimer_prop_model, 'set_forward'):
+            self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+            self.dimer_prop_model.to(device)
+            self.dimer_prop_model.polarizability_table = (
+                self.dimer_prop_model.polarizability_table.to(self.device)
+            )
+        elif hasattr(self.dimer_prop_model, 'dimer_model'):
+            self.dimer_prop_model.dimer_model.set_forward("ap3_elst_damping__induced_dipole")
+            if hasattr(self.dimer_prop_model, 'model'):
+                self.dimer_prop_model.model.to(device)
+            self.dimer_prop_model.dimer_model.to(device)
+            if hasattr(self.dimer_prop_model, 'dimer_model_elst'):
+                self.dimer_prop_model.dimer_model_elst.to(device)
+            self.dimer_prop_model.dimer_model.polarizability_table = (
+                self.dimer_prop_model.dimer_model.polarizability_table.to(self.device)
+            )
+        
         self.model.to(device)
 
         split_dbs = [2, 5, 6, 7]
@@ -626,6 +645,7 @@ class APNet3_AtomType_Model:
             and isinstance(ds_qcel_molecules[0], list)
         )
         self.dataset = dataset
+        print(f"{use_precomputed_classical=}\n{self.dataset=}")
         if (
             not ignore_database_null
             and self.dataset is None
@@ -634,26 +654,48 @@ class APNet3_AtomType_Model:
         ):
 
             def setup_ds(fp=ds_force_reprocess):
-                return ap2_fused_module_dataset(
-                    root=ds_root,
-                    r_cut=r_cut,
-                    r_cut_im=r_cut_im,
-                    spec_type=ds_spec_type,
-                    max_size=ds_max_size,
-                    force_reprocess=fp,
-                    atom_model=self.dimer_prop_model,
-                    # atom_model_path=atom_model_pre_trained_path,
-                    atomic_batch_size=ds_atomic_batch_size,
-                    num_devices=ds_num_devices,
-                    skip_processed=ds_skip_process,
-                    skip_compile=ds_skip_compile,
-                    random_seed=ds_random_seed,
-                    datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-                    print_level=print_lvl,
-                    qcel_molecules=ds_qcel_molecules,
-                    energy_labels=ds_energy_labels,
-                    in_memory=ds_in_memory,
-                )
+                if use_precomputed_classical:
+                    return ap3_fused_module_dataset(
+                        root=ds_root,
+                        r_cut=r_cut,
+                        r_cut_im=r_cut_im,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        atom_model=self.dimer_prop_model,
+                        dimer_prop_model=self.dimer_prop_model,
+                        atomic_batch_size=ds_atomic_batch_size,
+                        num_devices=ds_num_devices,
+                        skip_processed=ds_skip_process,
+                        skip_compile=ds_skip_compile,
+                        random_seed=ds_random_seed,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                        print_level=print_lvl,
+                        qcel_molecules=ds_qcel_molecules,
+                        energy_labels=ds_energy_labels,
+                        in_memory=ds_in_memory,
+                    )
+                else:
+                    return ap2_fused_module_dataset(
+                        root=ds_root,
+                        r_cut=r_cut,
+                        r_cut_im=r_cut_im,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        atom_model=self.dimer_prop_model,
+                        # atom_model_path=atom_model_pre_trained_path,
+                        atomic_batch_size=ds_atomic_batch_size,
+                        num_devices=ds_num_devices,
+                        skip_processed=ds_skip_process,
+                        skip_compile=ds_skip_compile,
+                        random_seed=ds_random_seed,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                        print_level=print_lvl,
+                        qcel_molecules=ds_qcel_molecules,
+                        energy_labels=ds_energy_labels,
+                        in_memory=ds_in_memory,
+                    )
 
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
@@ -670,54 +712,102 @@ class APNet3_AtomType_Model:
                 ds_energy_labels = [None, None]
 
             def setup_ds(fp=ds_force_reprocess):
-                return [
-                    ap2_fused_module_dataset(
-                        root=ds_root,
-                        r_cut=r_cut,
-                        r_cut_im=r_cut_im,
-                        spec_type=ds_spec_type,
-                        max_size=ds_max_size,
-                        force_reprocess=fp,
-                        atom_model=self.dimer_prop_model,
-                        atomic_batch_size=ds_atomic_batch_size,
-                        num_devices=ds_num_devices,
-                        skip_processed=ds_skip_process,
-                        skip_compile=ds_skip_compile,
-                        random_seed=ds_random_seed,
-                        split="train",
-                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-                        print_level=print_lvl,
-                        qcel_molecules=ds_qcel_molecules[0],
-                        energy_labels=ds_energy_labels[0],
-                    in_memory=ds_in_memory,
-                    ),
-                    ap2_fused_module_dataset(
-                        root=ds_root,
-                        r_cut=r_cut,
-                        r_cut_im=r_cut_im,
-                        spec_type=ds_spec_type,
-                        max_size=ds_max_size,
-                        force_reprocess=fp,
-                        atom_model=self.dimer_prop_model,
-                        atomic_batch_size=ds_atomic_batch_size,
-                        num_devices=ds_num_devices,
-                        skip_processed=ds_skip_process,
-                        skip_compile=ds_skip_compile,
-                        random_seed=ds_random_seed,
-                        split="test",
-                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-                        print_level=print_lvl,
-                        qcel_molecules=ds_qcel_molecules[1],
-                        energy_labels=ds_energy_labels[1],
-                    in_memory=ds_in_memory,
-                    ),
-                ]
+                if use_precomputed_classical:
+                    return [
+                        ap3_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            dimer_prop_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="train",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[0],
+                            energy_labels=ds_energy_labels[0],
+                            in_memory=ds_in_memory,
+                        ),
+                        ap3_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            dimer_prop_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="train",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[1],
+                            energy_labels=ds_energy_labels[1],
+                            in_memory=ds_in_memory,
+                        ),
+                    ]
+                else:
+                    return [
+                        ap2_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="train",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[0],
+                            energy_labels=ds_energy_labels[0],
+                        in_memory=ds_in_memory,
+                        ),
+                        ap2_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="test",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[1],
+                            energy_labels=ds_energy_labels[1],
+                        in_memory=ds_in_memory,
+                        ),
+                    ]
 
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
             if ds_max_size:
                 self.dataset[0] = self.dataset[0][:ds_max_size]
                 self.dataset[1] = self.dataset[1][:ds_max_size]
+
+
         print(f"{self.dataset=}")
         self.batch_size = None
         self.shuffle = False
@@ -770,6 +860,43 @@ class APNet3_AtomType_Model:
             self.model.load_state_dict(model_state_dict)
         else:
             self.model.load_state_dict(checkpoint["model_state_dict"])
+        return self
+
+    def load_ap2_pretrained_weights(self, ap2_model_path):
+        print(f"Loading AP2 pretrained weights from {ap2_model_path}")
+        checkpoint = torch.load(ap2_model_path, map_location=self.device, weights_only=False)
+        
+        ap2_state_dict = {
+            k.replace("_orig_mod.", ""): v
+            for k, v in checkpoint["model_state_dict"].items()
+        }
+        
+        ap3_state_dict = self.model.state_dict()
+        
+        shared_layers = [
+            "embed_layer",
+            "distance_layer",
+            "distance_layer_im",
+            "readout_layer_elst",
+            "readout_layer_exch",
+            "readout_layer_indu",
+            "readout_layer_disp",
+            "update_layers",
+            "directional_layers",
+        ]
+        
+        loaded_params = []
+        for layer_name in shared_layers:
+            for key in ap2_state_dict.keys():
+                if key.startswith(layer_name):
+                    if key in ap3_state_dict:
+                        ap3_state_dict[key] = ap2_state_dict[key]
+                        loaded_params.append(key)
+        
+        self.model.load_state_dict(ap3_state_dict)
+        print(f"Loaded {len(loaded_params)} parameters from AP2 model:")
+        for param in loaded_params:
+            print(f"  - {param}")
         return self
 
     def _qcel_example_input(
@@ -939,7 +1066,7 @@ class APNet3_AtomType_Model:
         self.dimer_prop_model.to(self.device)
         for i in range(0, N, batch_size):
             upper_bound = min(i + batch_size, N)
-            dimer_batch = ap2_fused_collate_update_no_target(
+            dimer_batch = ap3_fused_collate_update_no_target(
                 [
                     qcel_dimer_to_fused_data(
                         dimer, r_cut=r_cut, r_cut_im=r_cut_im, dimer_ind=n
@@ -1051,11 +1178,15 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
             preds = E_sr_dimer.reshape(-1, 4)
-            comp_errors = preds - batch.y
+            labels = batch.y
+            if self.use_precomputed_classical:
+                labels[:, 0] -= batch.E_classical_elst
+                labels[:, 2] -= batch.E_classical_ind
+            comp_errors = preds - labels
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
-                else loss_fn(preds, batch.y)
+                else loss_fn(preds, labels)
             )
             batch_loss.backward()
             optimizer.step()
@@ -1085,10 +1216,15 @@ units angstrom
                 E_sr_dimer, _, _, _, _, _ = self.model(batch)
                 preds = E_sr_dimer.reshape(-1, 4)
                 comp_errors = preds - batch.y
+                labels = batch.y
+                if self.use_precomputed_classical:
+                    labels[:, 0] -= batch.E_classical_elst
+                    labels[:, 2] -= batch.E_classical_ind
+                comp_errors = preds - labels
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
-                    else loss_fn(preds, batch.y)
+                    else loss_fn(preds, labels)
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
@@ -1468,7 +1604,7 @@ units angstrom
 
         # (2) Dataloaders
         # if self.ds_spec_type in [1, 5, 6]:
-        collate_fn = ap3_fused_collate_update
+        collate_fn = ap3_fused_collate_update if self.model.use_precomputed_classical else ap3_fused_collate_update
         train_loader = APNet2_fused_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1695,6 +1831,12 @@ units angstrom
             pin_memory = False
 
         self.shuffle = shuffle
+
+        # Now that dataset has computed classical terms in dataset, we can set
+        # to only atomMPNN for training
+        if self.use_precomputed_classical:
+            self.dimer_prop_model.set_forward("ap3_atomMPNN")
+            self.dimer_prop_model.to(self.device)
 
         if world_size > 1:
             print("Running multi-process training", flush=True)
