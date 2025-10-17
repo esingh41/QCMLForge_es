@@ -298,7 +298,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         # batch.long range intermolecular edges
         e_ABlr_source = batch.e_ABlr_source
         e_ABlr_target = batch.e_ABlr_target
-        dimer_ind_lr = batch.dimer_ind_lr
+        # dimer_ind_lr = batch.dimer_ind_lr
         # batch.intramonomer edges (monomer A)
         e_AA_source = batch.e_AA_source
         e_AA_target = batch.e_AA_target
@@ -309,13 +309,6 @@ class APNet3_AtomType_MPNN(nn.Module):
         natomA = ZA.size(0)
         natomB = ZB.size(0)
         ndimer = batch.total_charge_A.size(0)
-
-        if not hasattr(batch, "dimer_ind_full"):
-            batch.dimer_ind_full = torch.cat([dimer_ind, dimer_ind_lr], dim=0)
-        if not hasattr(batch, "e_ABfull_source"):
-            batch.e_ABfull_source = torch.cat([e_ABsr_source, e_ABlr_source], dim=0)
-            batch.e_ABfull_target = torch.cat([e_ABsr_target, e_ABlr_target], dim=0)
-
 
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)
@@ -522,7 +515,7 @@ class APNet3_AtomType_Model:
         print_lvl=0,
         ds_qcel_molecules=None,
         ds_energy_labels=None,
-        use_precomputed_classical=False,
+        use_precomputed_classical=True,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from

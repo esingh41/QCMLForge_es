@@ -28,6 +28,10 @@ from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_collate_update_no_target,
     qcel_dimer_to_fused_data,
 )
+from ..pt_datasets.ap3_fused_ds import (
+    ap3_fused_collate_update,
+    ap3_fused_collate_update_no_target,
+)
 from .. import constants
 import os
 import torch.distributed as dist
