@@ -2253,10 +2253,6 @@ class AM_DimerParam_Model:
                     for n, dimer in enumerate(mols[i:upper_bound])
                 ]
             )
-            print(f"{dimer_batch.e_ABsr_source = }")
-            print(f"{dimer_batch.e_ABsr_target = }")
-            print(f"{dimer_batch.e_ABlr_source = }")
-            print(f"{dimer_batch.e_ABlr_target = }")
             dimer_batch.to(device=self.device)
             preds = self.dimer_model(dimer_batch)[0]
             preds = scatter_sum_compile(
@@ -2266,7 +2262,6 @@ class AM_DimerParam_Model:
                     dimer_batch.total_charge_A.size(0), dtype=torch.long
                 ),
             )
-            print(f"{preds=}")
             predictions[i : i + batch_size] = (
                 preds.cpu().numpy().reshape(-1, self.n_params)
             )

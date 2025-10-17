@@ -515,7 +515,7 @@ class APNet3_AtomType_Model:
         print_lvl=0,
         ds_qcel_molecules=None,
         ds_energy_labels=None,
-        use_precomputed_classical=True,
+        use_precomputed_classical=False,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
