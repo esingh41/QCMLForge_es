@@ -302,6 +302,7 @@ def ap3_fused_collate_update(batch):
     local_e_BB_target = []
 
     has_precomputed = hasattr(batch[0], 'E_classical_elst') and hasattr(batch[0], 'E_classical_ind')
+    print(f"Batch has precomputed classical energies: {has_precomputed}")
     E_classical_elst_list = []
     E_classical_ind_list = []
 
@@ -344,8 +345,11 @@ def ap3_fused_collate_update(batch):
     if has_precomputed:
         E_classical_elst = torch.tensor([e if isinstance(e, float) else e.item() for e in E_classical_elst_list], dtype=torch.float32).view(-1, 1)
         E_classical_ind = torch.tensor([e if isinstance(e, float) else e.item() for e in E_classical_ind_list], dtype=torch.float32).view(-1, 1)
+        print(f"Subtracting classical energies from targets in batch collate: E_elst {E_classical_elst.squeeze()}, E_ind {E_classical_ind.squeeze()}")
+        print(f"Original targets: {y}")
         y[:, 0] = y[:, 0] - E_classical_elst.squeeze()
         y[:, 2] = y[:, 2] - E_classical_ind.squeeze()
+        print(f"Updated targets: {y}")
     
     ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
     RA_cat = torch.cat([data.RA for data in batch], dim=0)
@@ -985,13 +989,9 @@ class ap3_fused_module_dataset(Dataset):
             return ["file"]
         else:
             if self.split == "train":
-                file_cmd = f"{self.root}/processed/dimer_ap2_fused_train_spec_{
-                    self.spec_type
-                }_*{self.file_extension}"
+                file_cmd = f"{self.root}/processed/dimer_ap2_fused_train_spec_{self.spec_type}_*{self.file_extension}"
             elif self.split == "test":
-                file_cmd = f"{self.root}/processed/dimer_ap2_fused_test_spec_{
-                    self.spec_type
-                }_*{self.file_extension}"
+                file_cmd = f"{self.root}/processed/dimer_ap2_fused_test_spec_{self.spec_type}_*{self.file_extension}"
             else:
                 file_cmd = (
                     f"{self.root}/processed/dimer_ap2_fused_spec_{self.spec_type}_*{self.file_extension}"
@@ -1131,7 +1131,7 @@ class ap3_fused_module_dataset(Dataset):
             if self.skip_processed:
                 datapath = osp.join(
                     self.processed_dir,
-                    f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
+                    f"dimer_ap3_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
                     }{self.file_extension}",
                 )
@@ -1201,7 +1201,7 @@ class ap3_fused_module_dataset(Dataset):
                 else:
                     datapath = osp.join(
                     self.processed_dir,
-                    f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
+                    f"dimer_ap3_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
                     }{self.file_extension}",
                     )
@@ -1229,7 +1229,7 @@ class ap3_fused_module_dataset(Dataset):
             else:
                 datapath = osp.join(
                     self.processed_dir,
-                    f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
+                    f"dimer_ap3_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
                     }{self.file_extension}",
                 )
@@ -1269,7 +1269,7 @@ class ap3_fused_module_dataset(Dataset):
             split_name = f"_{self.split}" if self.split != "all" else ""
         datapath = osp.join(
             self.processed_dir,
-            f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{idx_datapath}{self.file_extension}",
+            f"dimer_ap3_fused{split_name}_spec_{self.spec_type}_{idx_datapath}{self.file_extension}",
         )
         if self.storage_type == "h5":
             self.active_data = load_hdf5_data_objects(datapath)

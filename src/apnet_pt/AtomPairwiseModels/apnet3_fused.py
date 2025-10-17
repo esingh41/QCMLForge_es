@@ -667,6 +667,7 @@ class APNet3_AtomType_Model:
             and isinstance(ds_qcel_molecules[0], list)
         )
         self.dataset = dataset
+        print(f"{use_precomputed_classical=}\n{self.dataset=}")
         if (
             not ignore_database_null
             and self.dataset is None
@@ -733,48 +734,94 @@ class APNet3_AtomType_Model:
                 ds_energy_labels = [None, None]
 
             def setup_ds(fp=ds_force_reprocess):
-                return [
-                    ap2_fused_module_dataset(
-                        root=ds_root,
-                        r_cut=r_cut,
-                        r_cut_im=r_cut_im,
-                        spec_type=ds_spec_type,
-                        max_size=ds_max_size,
-                        force_reprocess=fp,
-                        atom_model=self.dimer_prop_model,
-                        atomic_batch_size=ds_atomic_batch_size,
-                        num_devices=ds_num_devices,
-                        skip_processed=ds_skip_process,
-                        skip_compile=ds_skip_compile,
-                        random_seed=ds_random_seed,
-                        split="train",
-                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-                        print_level=print_lvl,
-                        qcel_molecules=ds_qcel_molecules[0],
-                        energy_labels=ds_energy_labels[0],
-                    in_memory=ds_in_memory,
-                    ),
-                    ap2_fused_module_dataset(
-                        root=ds_root,
-                        r_cut=r_cut,
-                        r_cut_im=r_cut_im,
-                        spec_type=ds_spec_type,
-                        max_size=ds_max_size,
-                        force_reprocess=fp,
-                        atom_model=self.dimer_prop_model,
-                        atomic_batch_size=ds_atomic_batch_size,
-                        num_devices=ds_num_devices,
-                        skip_processed=ds_skip_process,
-                        skip_compile=ds_skip_compile,
-                        random_seed=ds_random_seed,
-                        split="test",
-                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-                        print_level=print_lvl,
-                        qcel_molecules=ds_qcel_molecules[1],
-                        energy_labels=ds_energy_labels[1],
-                    in_memory=ds_in_memory,
-                    ),
-                ]
+                if use_precomputed_classical:
+                    return [
+                        ap3_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            dimer_prop_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="train",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[0],
+                            energy_labels=ds_energy_labels[0],
+                            in_memory=ds_in_memory,
+                        ),
+                        ap3_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            dimer_prop_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="train",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[1],
+                            energy_labels=ds_energy_labels[1],
+                            in_memory=ds_in_memory,
+                        ),
+                    ]
+                else:
+                    return [
+                        ap2_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="train",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[0],
+                            energy_labels=ds_energy_labels[0],
+                        in_memory=ds_in_memory,
+                        ),
+                        ap2_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="test",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[1],
+                            energy_labels=ds_energy_labels[1],
+                        in_memory=ds_in_memory,
+                        ),
+                    ]
 
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)

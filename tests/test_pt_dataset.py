@@ -1723,6 +1723,7 @@ def test_ap3_spec7():
         ds_in_memory=False,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
+        use_precomputed_classical=True,
     )
     ap3.train(
         n_epochs=5,
@@ -1733,6 +1734,7 @@ def test_ap3_spec7():
     )
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_*.pt"):
         os.remove(i)
+
 
 def test_ap2_spec7():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
@@ -2096,7 +2098,7 @@ def test_ap2_elst_dataset():
 
 if __name__ == "__main__":
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
-    test_AtomTypeParamMPNNModel_AM_DimerProp_train_elst_only_spec7()
+    # test_AtomTypeParamMPNNModel_AM_DimerProp_train_elst_only_spec7()
     # test_AtomTypeParamModel_train()
     # test_induced_dipole_qcel_mols()
     # test_AtomTypeParamModel_AM_DimerProp_train()
@@ -2108,7 +2110,7 @@ if __name__ == "__main__":
 
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
     # test_ap2_spec7()
-    # test_ap3_spec7()
+    test_ap3_spec7()
     # test_ap3_train()
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only()
     # test_AtomTypeParamModel_ind_train()
