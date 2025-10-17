@@ -297,11 +297,11 @@ class APNet3_AtomType_MPNN(nn.Module):
         natomB = ZB.size(0)
         ndimer = batch.total_charge_A.size(0)
 
-        if not hasattr(batch, "dimer_ind_full"):
-            batch.dimer_ind_full = torch.cat([dimer_ind, dimer_ind_lr], dim=0)
-        if not hasattr(batch, "e_ABfull_source"):
-            batch.e_ABfull_source = torch.cat([e_ABsr_source, e_ABlr_source], dim=0)
-            batch.e_ABfull_target = torch.cat([e_ABsr_target, e_ABlr_target], dim=0)
+        # if not hasattr(batch, "dimer_ind_full"):
+        # batch.dimer_ind_full = torch.cat([dimer_ind, dimer_ind_lr], dim=0)
+        # if not hasattr(batch, "e_ABfull_source"):
+        #     batch.e_ABfull_source = torch.cat([e_ABsr_source, e_ABlr_source], dim=0)
+        #     batch.e_ABfull_target = torch.cat([e_ABsr_target, e_ABlr_target], dim=0)
 
 
         # interatomic distances
@@ -428,8 +428,12 @@ class APNet3_AtomType_MPNN(nn.Module):
         cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
         E_sr *= cutoff
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
+        print(f"{dimer_ind = }")
+        print(f"{batch.dimer_ind_full = }")
+        print(f"{dimer_ind.shape = }")
+        print(f"{batch.dimer_ind_full.shape = }")
         E_elst_full_dimer = scatter_sum_compile(
-            E_elst, batch.dimer_ind, ndimer
+            E_elst, batch.dimer_ind_full, ndimer
         )
         E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
         N_full, num_cols = E_elst_full_dimer.shape
@@ -442,7 +446,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_elst_dimer = padded
 
         E_ind_full_dimer = scatter_sum_compile(
-            E_ind, batch.dimer_ind, ndimer
+            E_ind, batch.dimer_ind_full, ndimer
         )
         E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
         N_full, num_cols = E_ind_full_dimer.shape
@@ -455,7 +459,11 @@ class APNet3_AtomType_MPNN(nn.Module):
         padded[:, 2:3] = E_ind_dimer
         E_ind_dimer = padded
 
+        print(f"{E_elst_dimer.shape = }")
+        print(f"{E_ind_dimer.shape = }")
+        print(f"{E_sr_dimer.shape = }")
         E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
+        print(f"{E_output.shape = }")
         # print(f"{E_sr_dimer=}")
         # print(f"{E_elst_dimer=}")
         # print(f"{E_ind_dimer=}")

@@ -513,6 +513,15 @@ def ap3_fused_collate_update(batch):
     local_e_BB_source = []
     local_e_BB_target = []
     for i, data in enumerate(batch):
+        data.dimer_ind = (
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
+        )
+        data.dimer_ind_lr = (
+            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
+        )
+        data.dimer_ind_full = (
+            torch.ones(data.e_ABsr_source.size(0) + data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
+        )
         local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
         local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
@@ -580,7 +589,9 @@ def ap3_fused_collate_update(batch):
     
     dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
     dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
-    dimer_ind_full = torch.cat([dimer_ind_cat, dimer_ind_lr_cat], dim=0)
+    dimer_ind_full = torch.cat(
+        [data.dimer_ind_full for data in batch], dim=0
+    )
     
     batched_data = Data(
         ZA=ZA_cat,
@@ -606,7 +617,7 @@ def ap3_fused_collate_update(batch):
         dimer_ind_full=dimer_ind_full,
         total_charge_A=total_charge_A_tensor,
         total_charge_B=total_charge_B_tensor,
-        y=torch.cat([data.y for data in batch], dim=0),
+        y=torch.stack([data.y for data in batch], dim=0),
         batch_atomic_A=batch_atomic_A,
         batch_atomic_B=batch_atomic_B,
     )
@@ -626,6 +637,12 @@ def ap3_fused_collate_update_no_target(batch):
     local_indA = []
     local_indB = []
     for i, data in enumerate(batch):
+        data.dimer_ind = (
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
+        )
+        data.dimer_ind_lr = (
+            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
+        )
         local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
         local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
