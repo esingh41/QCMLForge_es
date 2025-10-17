@@ -572,8 +572,21 @@ def test_classical_ap3_dispersion():
         pre_trained_model_path=at_hf_vw_path,
     )
 
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        use_GPU=False,
+        n_neuron=64,
+        n_params=1,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        model_type="AtomTypeParamNN",
+        # model_type="AtomTypeParamMPNN",
+        # pre_trained_model_path=at_elst_path_mpnn,
+        pre_trained_model_path=at_elst_path,
+    )
+
     dimer_prop_model = apnet_pt.AtomPairwiseModels.mtp_mtp.DimerProp(
-        atom_type_hf_vw_model.model,
+        atom_type_elst_model.model,
         dimer_eval="ap3_elst_damping__induced_dipole__disp"
     )
     E_classical, Disp, mA, mB = dimer_prop_model(batch)
@@ -597,7 +610,7 @@ if __name__ == "__main__":
     # test_classical_ap3()
     # test_classical_ap3_long_range()
     # test_ap3_fused_train_qcel_molecules_in_memory()
-    #test_classical_ap3_induction()
-    test_classical_ap3_dispersion()
-    test_ap3_fused_train_qcel_molecules_in_memory()
+    test_classical_ap3_induction()
+    #test_classical_ap3_dispersion()
+    #test_ap3_fused_train_qcel_molecules_in_memory()
     # test_classical_ap3_induction()
