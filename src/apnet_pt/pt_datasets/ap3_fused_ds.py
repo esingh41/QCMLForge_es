@@ -1110,7 +1110,6 @@ class ap3_fused_module_dataset(Dataset):
                     if hasattr(self.dimer_prop_model, 'set_forward'):
                         # original_forward = self.dimer_prop_model.forward
                         # self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
-                        print(self.dimer_prop_model.model.device, temp_batch.device)
                         result = self.dimer_prop_model(temp_batch)
                         # self.dimer_prop_model.forward = original_forward
                         E_classical = result[0]
@@ -1119,7 +1118,6 @@ class ap3_fused_module_dataset(Dataset):
                     elif hasattr(self.dimer_prop_model, 'dimer_model'):
                         # original_forward = self.dimer_prop_model.dimer_model.forward
                         # self.dimer_prop_model.dimer_model.set_forward("ap3_elst_damping__induced_dipole")
-                        print(self.dimer_prop_model.model.device, temp_batch.device)
                         result = self.dimer_prop_model.dimer_model(temp_batch)
                         # self.dimer_prop_model.dimer_model.forward = original_forward
                         E_classical = result[0]
