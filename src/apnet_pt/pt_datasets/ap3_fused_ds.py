@@ -772,6 +772,7 @@ class ap3_fused_module_dataset(Dataset):
         random_seed=42,
         check_monomer_validity=True,
         storage_type="pt",  # "pt" or "h5" for storage format
+        device=None,
     ):
         """
         spec_type definitions:
@@ -810,6 +811,7 @@ class ap3_fused_module_dataset(Dataset):
                 " QCElemental molecules with energy labels"
             )
 
+        self.device = device
         self.MAX_SIZE = max_size
         self.random_seed = random_seed
         self.in_memory = in_memory
@@ -1102,6 +1104,8 @@ class ap3_fused_module_dataset(Dataset):
             if self.dimer_prop_model is not None:
                 from apnet_pt.util import scatter_sum_compile
                 temp_batch = ap3_fused_collate_update_no_target([data])
+                if self.device:
+                    temp_batch.to(self.device)
                 with torch.no_grad():
                     if hasattr(self.dimer_prop_model, 'set_forward'):
                         original_forward = self.dimer_prop_model.forward

@@ -549,6 +549,7 @@ class APNet3_AtomType_Model:
         else:
             device = torch.device("cpu")
             print("running on the CPU")
+        self.device = device
         self.ds_spec_type = ds_spec_type
         self.atom_type_model = AtomTypeParamModel()
         self.dimer_prop_model = DimerProp(ATParam=self.atom_type_model.model)
@@ -637,7 +638,6 @@ class APNet3_AtomType_Model:
             print(f"Changing r_cut from {self.model.r_cut} to {r_cut}")
             self.model.r_cut = r_cut
 
-        self.device = device
         
         if hasattr(self.dimer_prop_model, 'set_forward'):
             self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
@@ -694,6 +694,7 @@ class APNet3_AtomType_Model:
                         qcel_molecules=ds_qcel_molecules,
                         energy_labels=ds_energy_labels,
                         in_memory=ds_in_memory,
+                        device=self.device
                     )
                 else:
                     return ap2_fused_module_dataset(
@@ -754,6 +755,7 @@ class APNet3_AtomType_Model:
                             qcel_molecules=ds_qcel_molecules[0],
                             energy_labels=ds_energy_labels[0],
                             in_memory=ds_in_memory,
+                            device=self.device
                         ),
                         ap3_fused_module_dataset(
                             root=ds_root,
@@ -775,6 +777,7 @@ class APNet3_AtomType_Model:
                             qcel_molecules=ds_qcel_molecules[1],
                             energy_labels=ds_energy_labels[1],
                             in_memory=ds_in_memory,
+                            device=self.device
                         ),
                     ]
                 else:

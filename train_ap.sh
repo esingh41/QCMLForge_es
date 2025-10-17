@@ -80,7 +80,7 @@ python3 -u ./train_models.py \
     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_hfvr_vw.pt \
     --n_epochs 55 \
     --data_dir ./data_dimer_$iter \
-    --spec_type_ap 6 \
+    --spec_type_ap 8 \
     --lr 5e-4 \
     --ds_in_memory False
 
