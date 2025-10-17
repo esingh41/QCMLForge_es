@@ -1105,7 +1105,6 @@ class ap3_fused_module_dataset(Dataset):
                 from apnet_pt.util import scatter_sum_compile
                 temp_batch = ap3_fused_collate_update_no_target([data])
                 if self.device:
-                    print(f"sending batch to device {self.device}")
                     temp_batch = temp_batch.to(self.device)
                 with torch.no_grad():
                     if hasattr(self.dimer_prop_model, 'set_forward'):
