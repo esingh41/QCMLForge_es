@@ -1105,21 +1105,24 @@ class ap3_fused_module_dataset(Dataset):
                 from apnet_pt.util import scatter_sum_compile
                 temp_batch = ap3_fused_collate_update_no_target([data])
                 if self.device:
+                    print(f"sending batch to device {self.device}")
                     temp_batch.to(self.device)
                 with torch.no_grad():
                     if hasattr(self.dimer_prop_model, 'set_forward'):
-                        original_forward = self.dimer_prop_model.forward
-                        self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+                        # original_forward = self.dimer_prop_model.forward
+                        # self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+                        print(self.dimer_prop_model.model.device, temp_batch.device)
                         result = self.dimer_prop_model(temp_batch)
-                        self.dimer_prop_model.forward = original_forward
+                        # self.dimer_prop_model.forward = original_forward
                         E_classical = result[0]
                         E_elst = E_classical[:, 0]
                         E_ind = E_classical[:, 1]
                     elif hasattr(self.dimer_prop_model, 'dimer_model'):
-                        original_forward = self.dimer_prop_model.dimer_model.forward
-                        self.dimer_prop_model.dimer_model.set_forward("ap3_elst_damping__induced_dipole")
+                        # original_forward = self.dimer_prop_model.dimer_model.forward
+                        # self.dimer_prop_model.dimer_model.set_forward("ap3_elst_damping__induced_dipole")
+                        print(self.dimer_prop_model.model.device, temp_batch.device)
                         result = self.dimer_prop_model.dimer_model(temp_batch)
-                        self.dimer_prop_model.dimer_model.forward = original_forward
+                        # self.dimer_prop_model.dimer_model.forward = original_forward
                         E_classical = result[0]
                         E_elst = E_classical[:, 0]
                         E_ind = E_classical[:, 1]
