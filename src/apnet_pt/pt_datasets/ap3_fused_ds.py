@@ -931,12 +931,12 @@ class ap3_fused_module_dataset(Dataset):
             return ["file"]
         else:
             if self.split == "train":
-                file_cmd = f"{self.root}/processed/dimer_ap2_fused_train_spec_{self.spec_type}_*{self.file_extension}"
+                file_cmd = f"{self.root}/processed/dimer_ap3_fused_train_spec_{self.spec_type}_*{self.file_extension}"
             elif self.split == "test":
-                file_cmd = f"{self.root}/processed/dimer_ap2_fused_test_spec_{self.spec_type}_*{self.file_extension}"
+                file_cmd = f"{self.root}/processed/dimer_ap3_fused_test_spec_{self.spec_type}_*{self.file_extension}"
             else:
                 file_cmd = (
-                    f"{self.root}/processed/dimer_ap2_fused_spec_{self.spec_type}_*{self.file_extension}"
+                    f"{self.root}/processed/dimer_ap3_fused_spec_{self.spec_type}_*{self.file_extension}"
                 )
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]

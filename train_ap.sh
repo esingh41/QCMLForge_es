@@ -52,37 +52,37 @@ export iter=1
 #     --ds_in_memory True
 
 # Elst Damping AtomTypeMPNN
-python3 -u ./train_models.py \
-    --train_apnet AM-DimerParam \
-    --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
-    --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
-    --random_seed $iter \
-    --ap_model_path ./models/ap3_ensemble/$iter/am_elst_MPNN_$iter.pt \
-    --n_epochs 55 \
-    --n_neuron 64 \
-    --n_params 1 \
-    --data_dir ./data_dimer_$iter \
-    --spec_type_ap 6 \
-    --lr 5e-5 \
-    --dimer_eval_type elst_damping \
-    --param_start_mean "2.2" \
-    --param_start_std "0.50" \
-    --ds_in_memory True \
-    --DimerProp_model_type "AtomTypeParamMPNN"
+# python3 -u ./train_models.py \
+#     --train_apnet AM-DimerParam \
+#     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
+#     --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
+#     --random_seed $iter \
+#     --ap_model_path ./models/ap3_ensemble/$iter/am_elst_MPNN_$iter.pt \
+#     --n_epochs 55 \
+#     --n_neuron 64 \
+#     --n_params 1 \
+#     --data_dir ./data_dimer_$iter \
+#     --spec_type_ap 6 \
+#     --lr 5e-5 \
+#     --dimer_eval_type elst_damping \
+#     --param_start_mean "2.2" \
+#     --param_start_std "0.50" \
+#     --ds_in_memory True \
+#     --DimerProp_model_type "AtomTypeParamMPNN"
 
 # APNet3-Fused with Elst Damping AtomType
-# python3 -u ./train_models.py \
-#     --train_apnet APNet3-fused \
-#     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
-#     --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
-#     --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
-#     --random_seed $iter \
-#     --ap_model_path ./models/ap3_ensemble/$iter/ap3_$iter.pt \
-#     --n_epochs 55 \
-#     --data_dir ./data_dimer_$iter \
-#     --spec_type_ap 8 \
-#     --lr 5e-5 \
-#     --ds_in_memory False
+python3 -u ./train_models.py \
+    --train_apnet APNet3-fused \
+    --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+    --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
+    --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
+    --random_seed $iter \
+    --ap_model_path ./models/ap3_ensemble/$iter/ap3_$iter.pt \
+    --n_epochs 55 \
+    --data_dir ./data_dimer_$iter \
+    --spec_type_ap 8 \
+    --lr 5e-5 \
+    --ds_in_memory False
 
 
 # Elst + Induced dipole
