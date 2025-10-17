@@ -8,15 +8,12 @@ from ..AtomModels.ap2_atom_model import AtomMPNN
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
-    ap2_fused_collate_update,
-    ap2_fused_collate_update_no_target,
-    ap3_fused_collate_update,
-    ap3_fused_collate_update_no_target,
     qcel_dimer_to_fused_data,
 )
 from ..pt_datasets.ap3_fused_ds import (
     ap3_fused_module_dataset,
     ap3_fused_collate_update,
+    ap3_fused_collate_update_no_target,
 )
 from .. import constants
 from ..util import scatter_sum_compile
@@ -449,6 +446,9 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_sr *= cutoff
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
         if self.use_precomputed_classical:
+            E_output = E_sr_dimer
+            return E_output, E_sr, 0, 0, hAB, hBA
+        else:
             E_elst_full_dimer = scatter_sum_compile(
                 E_elst, batch.dimer_ind_full, ndimer
             )
@@ -477,9 +477,6 @@ class APNet3_AtomType_MPNN(nn.Module):
             E_ind_dimer = padded
 
             E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
-        else:
-            E_output = E_sr_dimer
-            return E_output, E_sr, 0, 0, hAB, hBA
         if self.return_hidden_states:
             return (
                 E_output,
@@ -1076,7 +1073,7 @@ class APNet3_AtomType_Model:
         self.dimer_prop_model.to(self.device)
         for i in range(0, N, batch_size):
             upper_bound = min(i + batch_size, N)
-            dimer_batch = ap2_fused_collate_update_no_target(
+            dimer_batch = ap3_fused_collate_update_no_target(
                 [
                     qcel_dimer_to_fused_data(
                         dimer, r_cut=r_cut, r_cut_im=r_cut_im, dimer_ind=n
@@ -1189,6 +1186,12 @@ units angstrom
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
             preds = E_sr_dimer.reshape(-1, 4)
             comp_errors = preds - batch.y
+            if self.use_precomputed_classical:
+                print(f"{preds = }")
+                print(f"{comp_errors = }")
+                comp_errors[:, 0] += batch.E_classical_elst
+                comp_errors[:, 2] += batch.E_classical_ind
+                print(f"{comp_errors = }")
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
@@ -1222,6 +1225,12 @@ units angstrom
                 E_sr_dimer, _, _, _, _, _ = self.model(batch)
                 preds = E_sr_dimer.reshape(-1, 4)
                 comp_errors = preds - batch.y
+                if self.use_precomputed_classical:
+                    print(f"{preds = }")
+                    print(f"{comp_errors = }")
+                    comp_errors[:, 0] += batch.E_classical_elst
+                    comp_errors[:, 2] += batch.E_classical_ind
+                    print(f"{comp_errors = }")
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
@@ -1605,7 +1614,7 @@ units angstrom
 
         # (2) Dataloaders
         # if self.ds_spec_type in [1, 5, 6]:
-        collate_fn = ap3_fused_collate_update if self.model.use_precomputed_classical else ap2_fused_collate_update
+        collate_fn = ap3_fused_collate_update if self.model.use_precomputed_classical else ap3_fused_collate_update
         train_loader = APNet2_fused_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,

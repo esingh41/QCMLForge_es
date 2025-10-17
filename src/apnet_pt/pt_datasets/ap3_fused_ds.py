@@ -13,6 +13,7 @@ from torch_geometric.data import download_url
 from .. import util
 from ..AtomModels.ap2_atom_model import AtomModel
 from .. import atomic_datasets
+from .ap2_fused_ds import ap2_fused_collate_update_no_target
 from glob import glob
 import tarfile
 from time import time
@@ -256,6 +257,18 @@ def ap2_fused_collate_update(batch):
         natom_per_mol=natom_per_mol_B,
     )
     
+    e_ABsr_source_cat = torch.cat(local_e_ABsr_source, dim=0)
+    e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
+    e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
+    e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+    
+    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    
+    dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
+    dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
+    dimer_ind_full = torch.cat([dimer_ind_cat, dimer_ind_lr_cat], dim=0)
+    
     batched_data = Data(
         y=y,
         ZA=ZA_cat,
@@ -270,12 +283,15 @@ def ap2_fused_collate_update(batch):
         molecule_ind_B=molecule_ind_B,
         natom_per_mol_A=natom_per_mol_A,
         natom_per_mol_B=natom_per_mol_B,
-        e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
-        e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
-        e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
-        e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
-        dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
-        dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
+        e_ABsr_source=e_ABsr_source_cat,
+        e_ABsr_target=e_ABsr_target_cat,
+        e_ABlr_source=e_ABlr_source_cat,
+        e_ABlr_target=e_ABlr_target_cat,
+        e_ABfull_source=e_ABfull_source,
+        e_ABfull_target=e_ABfull_target,
+        dimer_ind=dimer_ind_cat,
+        dimer_ind_lr=dimer_ind_lr_cat,
+        dimer_ind_full=dimer_ind_full,
         total_charge_A=total_charge_A_tensor,
         total_charge_B=total_charge_B_tensor,
         batch_atomic_A=batch_atomic_A,
@@ -302,9 +318,7 @@ def ap3_fused_collate_update(batch):
     local_e_BB_target = []
 
     has_precomputed = hasattr(batch[0], 'E_classical_elst') and hasattr(batch[0], 'E_classical_ind')
-    print(f"Batch has precomputed classical energies: {has_precomputed}")
-    E_classical_elst_list = []
-    E_classical_ind_list = []
+    # print(f"Batch has precomputed classical energies: {has_precomputed}")
 
     for i, data in enumerate(batch):
         data.dimer_ind = (
@@ -332,24 +346,20 @@ def ap3_fused_collate_update(batch):
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
         
-        if has_precomputed:
-            E_classical_elst_list.append(data.E_classical_elst)
-            E_classical_ind_list.append(data.E_classical_ind)
-
     molecule_ind_A = torch.cat([data.molecule_ind_A for data in batch], dim=0)
     molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
     natom_per_mol_A = torch.bincount(molecule_ind_A)
     natom_per_mol_B = torch.bincount(molecule_ind_B)
     y = torch.stack([data.y for data in batch], dim=0)
     
-    if has_precomputed:
-        E_classical_elst = torch.tensor([e if isinstance(e, float) else e.item() for e in E_classical_elst_list], dtype=torch.float32).view(-1, 1)
-        E_classical_ind = torch.tensor([e if isinstance(e, float) else e.item() for e in E_classical_ind_list], dtype=torch.float32).view(-1, 1)
-        print(f"Subtracting classical energies from targets in batch collate: E_elst {E_classical_elst.squeeze()}, E_ind {E_classical_ind.squeeze()}")
-        print(f"Original targets: {y}")
-        y[:, 0] = y[:, 0] - E_classical_elst.squeeze()
-        y[:, 2] = y[:, 2] - E_classical_ind.squeeze()
-        print(f"Updated targets: {y}")
+    # if has_precomputed:
+        # E_classical_elst = torch.tensor([e if isinstance(e, float) else e.item() for e in E_classical_elst_list], dtype=torch.float32).view(-1, 1)
+        # E_classical_ind = torch.tensor([e if isinstance(e, float) else e.item() for e in E_classical_ind_list], dtype=torch.float32).view(-1, 1)
+        # print(f"Subtracting classical energies from targets in batch collate: E_elst {E_classical_elst.squeeze()}, E_ind {E_classical_ind.squeeze()}")
+        # print(f"Original targets: {y}")
+        # y[:, 0] = y[:, 0] - torch.tensor([data.E_classical_elst for data in batch])
+        # y[:, 2] = y[:, 2] - torch.tensor([data.E_classical_ind for data in batch])
+        # print(f"Updated targets: {y}")
     
     ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
     RA_cat = torch.cat([data.RA for data in batch], dim=0)
@@ -383,6 +393,18 @@ def ap3_fused_collate_update(batch):
         total_charge=total_charge_B_tensor,
         natom_per_mol=natom_per_mol_B,
     )
+    
+    e_ABsr_source_cat = torch.cat(local_e_ABsr_source, dim=0)
+    e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
+    e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
+    e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+    
+    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    
+    dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
+    dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
+    dimer_ind_full = torch.cat([dimer_ind_cat, dimer_ind_lr_cat], dim=0)
     
     batched_data = Data(
         y=y,
@@ -398,12 +420,15 @@ def ap3_fused_collate_update(batch):
         molecule_ind_B=molecule_ind_B,
         natom_per_mol_A=natom_per_mol_A,
         natom_per_mol_B=natom_per_mol_B,
-        e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
-        e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
-        e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
-        e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
-        dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
-        dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
+        e_ABsr_source=e_ABsr_source_cat,
+        e_ABsr_target=e_ABsr_target_cat,
+        e_ABlr_source=e_ABlr_source_cat,
+        e_ABlr_target=e_ABlr_target_cat,
+        e_ABfull_source=e_ABfull_source,
+        e_ABfull_target=e_ABfull_target,
+        dimer_ind=dimer_ind_cat,
+        dimer_ind_lr=dimer_ind_lr_cat,
+        dimer_ind_full=dimer_ind_full,
         total_charge_A=total_charge_A_tensor,
         total_charge_B=total_charge_B_tensor,
         batch_atomic_A=batch_atomic_A,
@@ -411,18 +436,13 @@ def ap3_fused_collate_update(batch):
     )
     
     if has_precomputed:
-        batched_data.E_classical_elst = E_classical_elst
-        batched_data.E_classical_ind = E_classical_ind
+        batched_data.E_classical_elst = torch.tensor([data.E_classical_elst for data in batch])
+        batched_data.E_classical_ind = torch.tensor([data.E_classical_ind for data in batch])
     
     return batched_data
 
 
-def ap2_fused_collate_update_no_target(batch):
-    """
-    Need to update the edge_index values so that each molecule has a unique
-    set of indices. Then, the data.molecule_ind can be used to group
-    atoms into molecules during a forward pass.
-    """
+def ap3_fused_collate_update_no_target(batch):
     monA_edge_offset, monB_edge_offset = 0, 0
     local_e_ABsr_source = []
     local_e_ABsr_target = []
@@ -435,18 +455,6 @@ def ap2_fused_collate_update_no_target(batch):
     local_indA = []
     local_indB = []
     for i, data in enumerate(batch):
-        data.dimer_ind = (
-            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
-        )
-        data.dimer_ind_lr = (
-            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
-        )
-        data.molecule_ind_A = (
-            torch.ones(data.molecule_ind_A.size(0), dtype=data.molecule_ind_A.dtype) * i
-        )
-        data.molecule_ind_B = (
-            torch.ones(data.molecule_ind_B.size(0), dtype=data.molecule_ind_B.dtype) * i
-        )
         local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
         local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
@@ -455,19 +463,10 @@ def ap2_fused_collate_update_no_target(batch):
         local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
         local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
         local_e_BB_target.append(data.e_BB_target.clone() + monB_edge_offset)
-
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
-
-        local_indA.append(torch.ones(data.RA.size(0), dtype=data.dimer_ind.dtype) * i)
-        local_indB.append(
-            torch.ones(data.RB.size(0), dtype=data.dimer_ind_lr.dtype) * i
-        )
-    molecule_ind_A = torch.cat([data.molecule_ind_A for data in batch], dim=0)
-    molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
-    natom_per_mol_A = torch.bincount(molecule_ind_A)
-    natom_per_mol_B = torch.bincount(molecule_ind_B)
-    
+        local_indA.append(torch.ones(data.RA.size(0), dtype=torch.long) * i)
+        local_indB.append(torch.ones(data.RB.size(0), dtype=torch.long) * i)
     ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
     RA_cat = torch.cat([data.RA for data in batch], dim=0)
     ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
@@ -476,11 +475,27 @@ def ap2_fused_collate_update_no_target(batch):
     e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
     e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
     e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    indA_cat = torch.cat(local_indA, dim=0)
+    indB_cat = torch.cat(local_indB, dim=0)
     total_charge_A_tensor = torch.tensor(
         [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
     )
     total_charge_B_tensor = torch.tensor(
         [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    molecule_ind_A = torch.cat(
+        [torch.ones(data.RA.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    molecule_ind_B = torch.cat(
+        [torch.ones(data.RB.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    natom_per_mol_A = torch.tensor(
+        [data.RA.size(0) for data in batch], dtype=torch.long
+    )
+    natom_per_mol_B = torch.tensor(
+        [data.RB.size(0) for data in batch], dtype=torch.long
     )
     
     batch_atomic_A = Data(
@@ -501,6 +516,18 @@ def ap2_fused_collate_update_no_target(batch):
         natom_per_mol=natom_per_mol_B,
     )
     
+    e_ABsr_source_cat = torch.cat(local_e_ABsr_source, dim=0)
+    e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
+    e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
+    e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+    
+    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    
+    dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
+    dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
+    dimer_ind_full = torch.cat([dimer_ind_cat, dimer_ind_lr_cat], dim=0)
+    
     batched_data = Data(
         ZA=ZA_cat,
         RA=RA_cat,
@@ -514,28 +541,26 @@ def ap2_fused_collate_update_no_target(batch):
         molecule_ind_B=molecule_ind_B,
         natom_per_mol_A=natom_per_mol_A,
         natom_per_mol_B=natom_per_mol_B,
-        e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
-        e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
-        e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
-        e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
-        dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
-        dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
+        e_ABsr_source=e_ABsr_source_cat,
+        e_ABsr_target=e_ABsr_target_cat,
+        e_ABlr_source=e_ABlr_source_cat,
+        e_ABlr_target=e_ABlr_target_cat,
+        e_ABfull_source=e_ABfull_source,
+        e_ABfull_target=e_ABfull_target,
+        dimer_ind=dimer_ind_cat,
+        dimer_ind_lr=dimer_ind_lr_cat,
+        dimer_ind_full=dimer_ind_full,
         total_charge_A=total_charge_A_tensor,
         total_charge_B=total_charge_B_tensor,
-        indA=torch.cat(local_indA, dim=0),
-        indB=torch.cat(local_indB, dim=0),
+        indA=indA_cat,
+        indB=indB_cat,
         batch_atomic_A=batch_atomic_A,
         batch_atomic_B=batch_atomic_B,
     )
     return batched_data
 
 
-def ap2_fused_collate_update_no_target_monomer_indices(batch):
-    """
-    Need to update the edge_index values so that each molecule has a unique
-    set of indices. Then, the data.molecule_ind can be used to group
-    atoms into molecules during a forward pass.
-    """
+def ap3_fused_collate_update_no_target_monomer_indices(batch):
     monA_edge_offset, monB_edge_offset = 0, 0
     local_e_ABsr_source = []
     local_e_ABsr_target = []
@@ -585,22 +610,50 @@ def ap2_fused_collate_update_no_target_monomer_indices(batch):
     total_charge_B_tensor = torch.tensor(
         [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
     )
+    molecule_ind_A = torch.cat(
+        [torch.ones(data.RA.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    molecule_ind_B = torch.cat(
+        [torch.ones(data.RB.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    natom_per_mol_A = torch.tensor(
+        [data.RA.size(0) for data in batch], dtype=torch.long
+    )
+    natom_per_mol_B = torch.tensor(
+        [data.RB.size(0) for data in batch], dtype=torch.long
+    )
     
     batch_atomic_A = Data(
         x=ZA_cat,
         edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
         R=RA_cat,
-        molecule_ind=indA_cat,
+        molecule_ind=molecule_ind_A,
         total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
     )
     
     batch_atomic_B = Data(
         x=ZB_cat,
         edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
         R=RB_cat,
-        molecule_ind=indB_cat,
+        molecule_ind=molecule_ind_B,
         total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
     )
+    
+    e_ABsr_source_cat = torch.cat(local_e_ABsr_source, dim=0)
+    e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
+    e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
+    e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+    
+    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    
+    dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
+    dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
+    dimer_ind_full = torch.cat([dimer_ind_cat, dimer_ind_lr_cat], dim=0)
     
     batched_data = Data(
         ZA=ZA_cat,
@@ -611,12 +664,19 @@ def ap2_fused_collate_update_no_target_monomer_indices(batch):
         e_AA_target=e_AA_target_cat,
         e_BB_source=e_BB_source_cat,
         e_BB_target=e_BB_target_cat,
-        e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
-        e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
-        e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
-        e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
-        dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
-        dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
+        molecule_ind_A=molecule_ind_A,
+        molecule_ind_B=molecule_ind_B,
+        natom_per_mol_A=natom_per_mol_A,
+        natom_per_mol_B=natom_per_mol_B,
+        e_ABsr_source=e_ABsr_source_cat,
+        e_ABsr_target=e_ABsr_target_cat,
+        e_ABlr_source=e_ABlr_source_cat,
+        e_ABlr_target=e_ABlr_target_cat,
+        e_ABfull_source=e_ABfull_source,
+        e_ABfull_target=e_ABfull_target,
+        dimer_ind=dimer_ind_cat,
+        dimer_ind_lr=dimer_ind_lr_cat,
+        dimer_ind_full=dimer_ind_full,
         total_charge_A=total_charge_A_tensor,
         total_charge_B=total_charge_B_tensor,
         qA=torch.cat([data.qA for data in batch], dim=0),
@@ -1159,7 +1219,7 @@ class ap3_fused_module_dataset(Dataset):
             
             if self.dimer_prop_model is not None:
                 from apnet_pt.util import scatter_sum_compile
-                temp_batch = ap2_fused_collate_update_no_target([data])
+                temp_batch = ap3_fused_collate_update_no_target([data])
                 with torch.no_grad():
                     if hasattr(self.dimer_prop_model, 'set_forward'):
                         original_forward = self.dimer_prop_model.forward
@@ -1180,11 +1240,8 @@ class ap3_fused_module_dataset(Dataset):
                     else:
                         raise ValueError("dimer_prop_model must have either set_forward or dimer_model attribute")
                     
-                    ndimer = temp_batch.total_charge_A.size(0)
-                    E_elst_summed = scatter_sum_compile(E_elst, temp_batch.dimer_ind, ndimer)
-                    E_ind_summed = scatter_sum_compile(E_ind, temp_batch.dimer_ind, ndimer)
-                    data.E_classical_elst = E_elst_summed[0].cpu().item()
-                    data.E_classical_ind = E_ind_summed[0].cpu().item()
+                    data.E_classical_elst = torch.sum(E_elst)
+                    data.E_classical_ind = torch.sum(E_ind)
             
             data = data.cpu()
             if self.pre_filter is not None and not self.pre_filter(data):

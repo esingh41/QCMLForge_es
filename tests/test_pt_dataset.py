@@ -1726,7 +1726,7 @@ def test_ap3_spec7():
         use_precomputed_classical=True,
     )
     ap3.train(
-        n_epochs=5,
+        n_epochs=50,
         skip_compile=True,
         transfer_learning=False,
         lr=5e-4,
