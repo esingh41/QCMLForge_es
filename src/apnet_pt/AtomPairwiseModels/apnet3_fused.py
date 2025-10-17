@@ -1185,17 +1185,15 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
             preds = E_sr_dimer.reshape(-1, 4)
-            comp_errors = preds - batch.y
+            labels = batch.y
             if self.use_precomputed_classical:
-                print(f"{preds = }")
-                print(f"{comp_errors = }")
-                comp_errors[:, 0] += batch.E_classical_elst
-                comp_errors[:, 2] += batch.E_classical_ind
-                print(f"{comp_errors = }")
+                labels[:, 0] -= batch.E_classical_elst
+                labels[:, 2] -= batch.E_classical_ind
+            comp_errors = preds - labels
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
-                else loss_fn(preds, batch.y)
+                else loss_fn(preds, labels)
             )
             batch_loss.backward()
             optimizer.step()
@@ -1225,16 +1223,15 @@ units angstrom
                 E_sr_dimer, _, _, _, _, _ = self.model(batch)
                 preds = E_sr_dimer.reshape(-1, 4)
                 comp_errors = preds - batch.y
+                labels = batch.y
                 if self.use_precomputed_classical:
-                    print(f"{preds = }")
-                    print(f"{comp_errors = }")
-                    comp_errors[:, 0] += batch.E_classical_elst
-                    comp_errors[:, 2] += batch.E_classical_ind
-                    print(f"{comp_errors = }")
+                    labels[:, 0] -= batch.E_classical_elst
+                    labels[:, 2] -= batch.E_classical_ind
+                comp_errors = preds - labels
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
-                    else loss_fn(preds, batch.y)
+                    else loss_fn(preds, labels)
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
