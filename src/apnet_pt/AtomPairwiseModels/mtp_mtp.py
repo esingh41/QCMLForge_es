@@ -1647,6 +1647,100 @@ def induced_dipole_induction_optimized_no_correction(
     return E_ind
 
 
+def induced_dipole(
+    ZA,
+    RA,
+    qA,
+    muA,
+    quadA,
+    e_AA_source,
+    e_AA_target,
+    hirshfeld_volume_ratio_A: torch.tensor,
+    max_iterations: int = 200,
+    convergence_threshold: float = 1e-8,
+    omega: float = 0.7,
+    thole_damping_param: float = 0.39,
+    Q_const=3.0,  # set to 1.0 to agree with CLIFF
+    polarizability_table=constants.polarizability_table,
+) -> float:
+    """
+    Since only using induced dipoles, don't need overlap correction (valence widths, Ka, Kb)
+    """
+
+    delta = torch.eye(3, device=qA.device)
+    h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
+
+    alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
+
+    # Use index_select for vectorized lookup
+    alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
+    alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
+
+    # Calculate interaction tensors between atoms
+    dR_AA, dR_AA_xyz, T0_AA, T1_AA, T2_AA = distance_tensors(
+        RA, RA, e_AA_source, e_AA_target, alpha_A, alpha_A, thole_damping_param
+    )
+
+    alpha_AA_target = alpha_A.index_select(0, e_AA_target)
+    alpha_AA_source = alpha_A.index_select(0, e_AA_source)
+
+    # Need to ensure that qA and qB are right shape even when ions
+    qA = qA.reshape(-1, 1)
+    qA_source = qA.squeeze(-1).index_select(0, e_AA_source)
+    qA_target = qA.squeeze(-1).index_select(0, e_AA_target)
+
+    muA_source = muA.index_select(0, e_AA_source)
+    muA_target = muA.index_select(0, e_AA_target)
+
+    # Initialize tensors for induced dipoles
+    n_atoms_A = RA.shape[0]
+
+    # Calculate initial induced dipoles
+    mu_induced_0_A = torch.zeros((n_atoms_A, 3), device=qA.device)
+
+    # Calculate initial induced dipoles from molecule B's multipoles on molecule A
+    mu_charge_A = torch.einsum("a,ai,a->ai", alpha_AA_source, T1_AA, qA_target)
+    mu_induced_0_A = scatter_sum_compile(mu_charge_A, e_AA_source, dim_size=n_atoms_A)
+    mu_dipole_A = torch.einsum("a,aij,aj->ai", alpha_AA_source, T2_AA, muA_target)
+    mu_induced_0_A += scatter_sum_compile(mu_dipole_A, e_AA_source, dim_size=n_atoms_A)
+
+    # Self-consistent induced dipole iterations
+    mu_induced_A = mu_induced_0_A.clone()
+
+    # Pre-compute index selections to avoid repeated operations in the loop
+    mu_induced_A_at_AA_source = mu_induced_A.index_select(0, e_AA_source)
+
+    # Iterative SCF procedure to converge induced dipoles
+    for iteration in range(max_iterations):
+        mu_induced_A_old = mu_induced_A.clone()
+
+        # Update pre-computed selections
+        mu_induced_A_at_AA_source = mu_induced_A.index_select(0, e_AA_source)
+
+        ####### (A) INDUCED DIPOLES ########
+        # Induced dipoles on A due to induced dipoles on A
+        mu_induced_A_due_A = torch.einsum(
+            "a,aij,aj->ai", alpha_AA_target, T2_AA, mu_induced_A_at_AA_source
+        )
+        mu_induced_A_new = scatter_sum_compile(
+            mu_induced_A_due_A, e_AA_target, dim_size=n_atoms_A
+        )
+        mu_induced_A_new += mu_induced_0_A
+
+        mu_induced_A = (1 - omega) * mu_induced_A_old + omega * mu_induced_A_new
+
+        # Check convergence
+        delta_A = torch.norm(mu_induced_A - mu_induced_A_old)
+        delta = max(delta_A)
+        if delta < convergence_threshold:
+            break
+
+    # Final energy calculation
+    muA_induced_source = mu_induced_A.index_select(0, e_AA_source)
+    muB_induced_target = mu_induced_A.index_select(0, e_AA_target)
+    return 
+
+
 def isolate_atom_parameter_predictions(batch, output):
     batch_size = batch.natom_per_mol.size(0)
     q = output[0]
