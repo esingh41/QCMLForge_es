@@ -326,6 +326,8 @@ def ap3_fused_collate_update_no_target(batch):
     local_e_ABsr_target = []
     local_e_ABlr_source = []
     local_e_ABlr_target = []
+    local_e_ABfull_source = []
+    local_e_ABfull_target = []
     local_e_AA_source = []
     local_e_AA_target = []
     local_e_BB_source = []
@@ -347,6 +349,8 @@ def ap3_fused_collate_update_no_target(batch):
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
         local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
         local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_ABfull_source.append(torch.cat([data.e_ABsr_source.clone() + monA_edge_offset, data.e_ABlr_source.clone() + monA_edge_offset]))
+        local_e_ABfull_target.append(torch.cat([data.e_ABsr_target.clone() + monB_edge_offset, data.e_ABlr_target.clone() + monB_edge_offset]))
         local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
         local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
         local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
@@ -408,9 +412,9 @@ def ap3_fused_collate_update_no_target(batch):
     e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
     e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
     e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
-    
-    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
-    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+
+    e_ABfull_source = torch.cat(local_e_ABfull_source, dim=0)
+    e_ABfull_target = torch.cat(local_e_ABfull_target, dim=0)
     
     dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
     dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
@@ -454,6 +458,8 @@ def ap3_fused_collate_update_no_target_monomer_indices(batch):
     local_e_ABsr_target = []
     local_e_ABlr_source = []
     local_e_ABlr_target = []
+    local_e_ABfull_source = []
+    local_e_ABfull_target = []
     local_e_AA_source = []
     local_e_AA_target = []
     local_e_BB_source = []
@@ -474,6 +480,8 @@ def ap3_fused_collate_update_no_target_monomer_indices(batch):
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
         local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
         local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_ABfull_source.append(torch.cat([data.e_ABsr_source.clone() + monA_edge_offset, data.e_ABlr_source.clone() + monA_edge_offset]))
+        local_e_ABfull_target.append(torch.cat([data.e_ABsr_target.clone() + monB_edge_offset, data.e_ABlr_target.clone() + monB_edge_offset]))
         local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
         local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
         local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
@@ -538,9 +546,9 @@ def ap3_fused_collate_update_no_target_monomer_indices(batch):
     e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
     e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
     e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
-    
-    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
-    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+
+    e_ABfull_source = torch.cat(local_e_ABfull_source, dim=0)
+    e_ABfull_target = torch.cat(local_e_ABfull_target, dim=0)
     
     dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
     dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
@@ -769,13 +777,13 @@ class ap3_fused_module_dataset(Dataset):
         atom_model=None,
         dimer_prop_model=None,
         batch_size=16,
-        atomic_batch_size=1024,
+        atomic_batch_size=256,
         # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
-        datapoint_storage_n_objects=1000,
+        datapoint_storage_n_objects=256,
         in_memory=False,
         num_devices=1,
         split="all",  # train, test
-        print_level=1,
+        print_level=2,
         qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
         energy_labels: Optional[List[float]] = None,
         random_seed=42,
@@ -799,6 +807,12 @@ class ap3_fused_module_dataset(Dataset):
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
         self.spec_type = spec_type
+        assert atomic_batch_size <= datapoint_storage_n_objects, "atomic_batch_size must be <= datapoint_storage_n_objects, got {} and {}".format(
+            atomic_batch_size, datapoint_storage_n_objects
+        )
+        # assert datapoint_storage_n_objects % atomic_batch_size == 0, "datapoint_storage_n_objects must be multiple of atomic_batch_size, got {} and {}".format(
+        #     datapoint_storage_n_objects, atomic_batch_size
+        # )
 
         # Validate storage_type
         if storage_type not in ["pt", "h5"]:
@@ -1065,7 +1079,6 @@ class ap3_fused_module_dataset(Dataset):
             for j, data in enumerate(batch_data_list):
                 data.E_classical_elst = E_elst_dimer[j].cpu()
                 data.E_classical_ind = E_ind_dimer[j].cpu()
-                print(data.E_classical_elst, data.E_classical_ind, data.y)
 
     def process(self):
         self.data = []
@@ -1151,7 +1164,6 @@ class ap3_fused_module_dataset(Dataset):
                         idx // self.points_per_file
                     }{self.file_extension}",
                 )
-                print( idx, self.points_per_file, idx // self.points_per_file)
                 print(f"Saving to {datapath}")
                 if osp.exists(datapath):
                     idx += 1
@@ -1205,9 +1217,7 @@ class ap3_fused_module_dataset(Dataset):
                     }{self.file_extension}",
                     )
                     if self.print_level >= 2:
-                        print( idx, self.points_per_file, idx // self.points_per_file)
                         print(f"Saving to {datapath}")
-                        print(len(data_objects))
                     if self.storage_type == "h5":
                         save_hdf5_data_objects(data_objects, datapath)
                     else:
@@ -1240,7 +1250,6 @@ class ap3_fused_module_dataset(Dataset):
                         idx // self.points_per_file
                     }{self.file_extension}",
                 )
-                print( idx, self.points_per_file, idx // self.points_per_file)
                 print(f"Saving to {datapath}")
                 if self.print_level >= 2:
                     print(f"Final Saving to {datapath}")

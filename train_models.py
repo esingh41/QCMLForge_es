@@ -98,7 +98,7 @@ def train_pairwise_model(
         param_start_mean = [param_start_mean] * n_params
     if not isinstance(param_start_std, (list, tuple)):
         param_start_std = [param_start_std] * n_params
-    ds_atomic_batch_size = 32 # * 256
+    ds_atomic_batch_size = 4  * 256
     ds_datapoint_storage_n_objects = 16
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
@@ -106,6 +106,10 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model
     elif apnet_model_type == "APNet3-fused":
         APNet = AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model
+        # Note: presently ap3_fused_ds requires atomic batch size to be <=
+        # n_objects. NEDS FIXED
+        ds_atomic_batch_size = 16
+        ds_datapoint_storage_n_objects = 32
     elif apnet_model_type == "AM-DimerParam":
         APNet = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model
     elif apnet_model_type == "dAPNet2":
@@ -217,6 +221,7 @@ def train_pairwise_model(
             pre_trained_model_path=atom_type_param_model_path2,
         )
         am_model_path = None
+        print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
         apnet = APNet(
             atom_type_model=atom_type_hf_vw_model.model,
             dimer_prop_model=atom_type_elst_model.dimer_model,

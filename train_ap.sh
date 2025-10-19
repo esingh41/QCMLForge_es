@@ -71,6 +71,7 @@ export iter=1
 #     --DimerProp_model_type "AtomTypeParamMPNN"
 
 # APNet3-Fused with Elst Damping AtomType
+rm data_dimer_1/processed/dimer_ap3_fused_*spec_7_*
 python3 -u ./train_models.py \
     --train_apnet APNet3-fused \
     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
