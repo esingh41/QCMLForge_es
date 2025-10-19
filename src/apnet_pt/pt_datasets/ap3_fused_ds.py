@@ -1151,6 +1151,7 @@ class ap3_fused_module_dataset(Dataset):
                         idx // self.points_per_file
                     }{self.file_extension}",
                 )
+                print( idx, self.points_per_file, idx // self.points_per_file)
                 print(f"Saving to {datapath}")
                 if osp.exists(datapath):
                     idx += 1
@@ -1204,6 +1205,7 @@ class ap3_fused_module_dataset(Dataset):
                     }{self.file_extension}",
                     )
                     if self.print_level >= 2:
+                        print( idx, self.points_per_file, idx // self.points_per_file)
                         print(f"Saving to {datapath}")
                         print(len(data_objects))
                     if self.storage_type == "h5":
@@ -1232,13 +1234,13 @@ class ap3_fused_module_dataset(Dataset):
             if self.in_memory:
                 self.data.extend(data_objects)
             else:
-                print( idx, self.points_per_file, idx // self.points_per_file)
                 datapath = osp.join(
                     self.processed_dir,
                     f"dimer_ap3_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
                     }{self.file_extension}",
                 )
+                print( idx, self.points_per_file, idx // self.points_per_file)
                 print(f"Saving to {datapath}")
                 if self.print_level >= 2:
                     print(f"Final Saving to {datapath}")
