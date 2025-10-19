@@ -109,7 +109,7 @@ def train_pairwise_model(
         # Note: presently ap3_fused_ds requires atomic batch size to be <=
         # n_objects. NEDS FIXED
         ds_atomic_batch_size = 16
-        ds_datapoint_storage_n_objects = 32
+        ds_datapoint_storage_n_objects = 16
     elif apnet_model_type == "AM-DimerParam":
         APNet = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model
     elif apnet_model_type == "dAPNet2":
