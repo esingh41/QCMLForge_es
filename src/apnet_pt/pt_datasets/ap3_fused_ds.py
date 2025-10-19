@@ -185,6 +185,8 @@ def ap3_fused_collate_update(batch):
     local_e_ABsr_target = []
     local_e_ABlr_source = []
     local_e_ABlr_target = []
+    local_e_ABfull_source = []
+    local_e_ABfull_target = []
 
     local_e_AA_source = []
     local_e_AA_target = []
@@ -215,6 +217,9 @@ def ap3_fused_collate_update(batch):
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
         local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
         local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
+
+        local_e_ABfull_source.append(torch.cat([data.e_ABsr_source.clone() + monA_edge_offset, data.e_ABlr_source.clone() + monA_edge_offset]))
+        local_e_ABfull_target.append(torch.cat([data.e_ABsr_target.clone() + monB_edge_offset, data.e_ABlr_target.clone() + monB_edge_offset]))
 
         local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
         local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
@@ -267,9 +272,13 @@ def ap3_fused_collate_update(batch):
     e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
     e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
     e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+
+    e_ABfull_source = torch.cat(local_e_ABfull_source, dim=0)
+    e_ABfull_target = torch.cat(local_e_ABfull_target, dim=0)
     
-    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
-    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    # e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    # e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+
     
     dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
     dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
@@ -760,7 +769,7 @@ class ap3_fused_module_dataset(Dataset):
         atom_model=None,
         dimer_prop_model=None,
         batch_size=16,
-        atomic_batch_size=200,
+        atomic_batch_size=1024,
         # DO NOT CHANGE UNLESS YOU WANT TO RE-PROCESS THE DATASET
         datapoint_storage_n_objects=1000,
         in_memory=False,
@@ -996,6 +1005,68 @@ class ap3_fused_module_dataset(Dataset):
                     tar.extractall(self.raw_dir)
         return
 
+    def _process_dimer_batch(self, batch_data_list):
+        from apnet_pt.util import scatter_sum_compile
+        
+        temp_batch = ap3_fused_collate_update(batch_data_list)
+        
+        if self.device:
+            temp_batch = temp_batch.to(self.device)
+        
+        with torch.no_grad():
+            if hasattr(self.dimer_prop_model, 'set_forward'):
+                result = self.dimer_prop_model(temp_batch)
+                E_classical = result[0]
+            elif hasattr(self.dimer_prop_model, 'dimer_model'):
+                result = self.dimer_prop_model.dimer_model(temp_batch)
+                E_classical = result[0]
+            else:
+                raise ValueError("dimer_prop_model must have either set_forward or dimer_model attribute")
+            
+            n_dimers = len(batch_data_list)
+            
+            if E_classical.ndim == 1:
+                E_elst_pairs = E_classical
+                E_ind_pairs = torch.zeros_like(E_classical)
+            elif E_classical.ndim == 2:
+                E_elst_pairs = E_classical[:, 0]
+                E_ind_pairs = E_classical[:, 1]
+            else:
+                raise ValueError(f"Expected E_classical to be 1D or 2D, got shape {E_classical.shape}")
+            
+            ndimer = temp_batch.total_charge_A.size(0)
+            E_elst_full_dimer = scatter_sum_compile(
+                E_elst_pairs, temp_batch.dimer_ind_full, ndimer
+            )
+            E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_elst_full_dimer.shape
+            full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_elst_full_dimer
+            E_elst_dimer = full_expanded
+            # rows, cols = E_elst_dimer.shape
+            # padded = E_elst_dimer.new_zeros((rows, cols + 3))
+            # padded[:, :cols] = E_elst_dimer
+            # E_elst_dimer = padded
+
+            E_ind_full_dimer = scatter_sum_compile(
+                E_ind_pairs, temp_batch.dimer_ind_full, ndimer
+            )
+            E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_ind_full_dimer.shape
+            full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_ind_full_dimer
+            E_ind_dimer = full_expanded
+
+            # rows, cols = E_ind_dimer.shape
+            # padded = E_ind_dimer.new_zeros((rows, cols + 3))
+            # padded[:, 2:3] = E_ind_dimer
+            # E_ind_dimer = padded
+            
+            for j, data in enumerate(batch_data_list):
+                data.E_classical_elst = E_elst_dimer[j].cpu()
+                data.E_classical_ind = E_ind_dimer[j].cpu()
+                print(data.E_classical_elst, data.E_classical_ind, data.y)
+
     def process(self):
         self.data = []
         idx = 0
@@ -1071,6 +1142,7 @@ class ap3_fused_module_dataset(Dataset):
         t1 = time()
         t2 = time()
         print(f"{len(RAs)=}, {self.atomic_batch_size=}, {self.batch_size=}")
+        batch_data_objects = []
         for i in range(len(RAs)):
             if self.skip_processed:
                 datapath = osp.join(
@@ -1079,6 +1151,7 @@ class ap3_fused_module_dataset(Dataset):
                         idx // self.points_per_file
                     }{self.file_extension}",
                 )
+                print(f"Saving to {datapath}")
                 if osp.exists(datapath):
                     idx += 1
                     continue
@@ -1102,45 +1175,27 @@ class ap3_fused_module_dataset(Dataset):
                 continue
             
             if self.dimer_prop_model is not None:
-                from apnet_pt.util import scatter_sum_compile
-                temp_batch = ap3_fused_collate_update_no_target([data])
-                if self.device:
-                    temp_batch = temp_batch.to(self.device)
-                with torch.no_grad():
-                    if hasattr(self.dimer_prop_model, 'set_forward'):
-                        # original_forward = self.dimer_prop_model.forward
-                        # self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
-                        result = self.dimer_prop_model(temp_batch)
-                        # self.dimer_prop_model.forward = original_forward
-                        E_classical = result[0]
-                        E_elst = E_classical[:, 0]
-                        E_ind = E_classical[:, 1]
-                    elif hasattr(self.dimer_prop_model, 'dimer_model'):
-                        # original_forward = self.dimer_prop_model.dimer_model.forward
-                        # self.dimer_prop_model.dimer_model.set_forward("ap3_elst_damping__induced_dipole")
-                        result = self.dimer_prop_model.dimer_model(temp_batch)
-                        # self.dimer_prop_model.dimer_model.forward = original_forward
-                        E_classical = result[0]
-                        E_elst = E_classical[:, 0]
-                        E_ind = E_classical[:, 1]
-                    else:
-                        raise ValueError("dimer_prop_model must have either set_forward or dimer_model attribute")
+                batch_data_objects.append(data)
+                
+                if len(batch_data_objects) >= self.atomic_batch_size:
+                    self._process_dimer_batch(batch_data_objects)
                     
-                    data.E_classical_elst = torch.sum(E_elst).cpu()
-                    data.E_classical_ind = torch.sum(E_ind).cpu()
-            
-            data = data.cpu()
-            if self.pre_filter is not None and not self.pre_filter(data):
-                continue
-            data_objects.append(data)
+                    for batch_data in batch_data_objects:
+                        batch_data_cpu = batch_data.cpu()
+                        if self.pre_filter is None or self.pre_filter(batch_data_cpu):
+                            data_objects.append(batch_data_cpu)
+                    
+                    batch_data_objects = []
+            else:
+                data = data.cpu()
+                if self.pre_filter is None or self.pre_filter(data):
+                    data_objects.append(data)
             # Normally would store the data object to individual files,
             # but at 1.67M dimers, this is too many files. Need to
             # store self.datapoint_storage_n_objects (like 1000) dimers per file
             if len(data_objects) == self.points_per_file:
                 if self.in_memory:
-                    data_objects = data_objects[0]
-                if self.in_memory:
-                    self.data.append(data_objects)
+                    self.data.extend(data_objects)
                 else:
                     datapath = osp.join(
                     self.processed_dir,
@@ -1159,6 +1214,15 @@ class ap3_fused_module_dataset(Dataset):
                 if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
                     break
             idx += 1
+        
+        if self.dimer_prop_model is not None and len(batch_data_objects) > 0:
+            self._process_dimer_batch(batch_data_objects)
+            
+            for batch_data in batch_data_objects:
+                batch_data_cpu = batch_data.cpu()
+                if self.pre_filter is None or self.pre_filter(batch_data_cpu):
+                    data_objects.append(batch_data_cpu)
+        
         if self.print_level >= 2:
             print(f"{i}/{len(RAs)}, {time() - t2:.2f}s, {time() - t1:.2f}s")
         elif self.print_level >= 1 and idx % 1000:
@@ -1166,16 +1230,16 @@ class ap3_fused_module_dataset(Dataset):
         t2 = time()
         if len(data_objects) > 0:
             if self.in_memory:
-                data_objects = data_objects[0]
-            if self.in_memory:
-                self.data.append(data_objects)
+                self.data.extend(data_objects)
             else:
+                print( idx, self.points_per_file, idx // self.points_per_file)
                 datapath = osp.join(
                     self.processed_dir,
                     f"dimer_ap3_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
                     }{self.file_extension}",
                 )
+                print(f"Saving to {datapath}")
                 if self.print_level >= 2:
                     print(f"Final Saving to {datapath}")
                     print(len(data_objects))

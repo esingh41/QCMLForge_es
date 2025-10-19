@@ -353,6 +353,9 @@ class DimerProp(nn.Module):
         # print(f"{Kas =}")
         # print(f"{v_A[-1] =}")
         # print(f"{v_A[-2] =}")
+        # print(batch.e_ABsr_source)
+        # print(batch.e_ABlr_source)
+        # print(batch.e_ABfull_source)
         Indu = induced_dipole_induction_optimized_no_correction(
             ZA=batch.ZA,
             RA=batch.RA,

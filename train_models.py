@@ -98,7 +98,7 @@ def train_pairwise_model(
         param_start_mean = [param_start_mean] * n_params
     if not isinstance(param_start_std, (list, tuple)):
         param_start_std = [param_start_std] * n_params
-    ds_atomic_batch_size = 4 * 256
+    ds_atomic_batch_size = 2 # 4 # * 256
     ds_datapoint_storage_n_objects = 16
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
