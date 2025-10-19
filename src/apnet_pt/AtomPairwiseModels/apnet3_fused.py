@@ -771,7 +771,7 @@ class APNet3_AtomType_Model:
                             skip_processed=ds_skip_process,
                             skip_compile=ds_skip_compile,
                             random_seed=ds_random_seed,
-                            split="train",
+                            split="test",
                             datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
                             print_level=print_lvl,
                             qcel_molecules=ds_qcel_molecules[1],

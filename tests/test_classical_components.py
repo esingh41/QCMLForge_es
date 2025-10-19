@@ -27,6 +27,7 @@ file_dir = os.path.dirname(os.path.abspath(__file__))
 data_path = f"{file_dir}/test_data_path"
 h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
 
+
 def test_elst_multipoles_AP2():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
         ds_root=None,
@@ -1163,13 +1164,13 @@ def test_induced_dipole_torch_alphas_dimer_eval():
 def test_induced_dipole_torch_df():
     # check here for CLIFF eval: /home/awallace43/projects/multipoles/cliff_tests
     """
-vrA=array([1.3908595 , 0.18787692, 0.19180904]), vrB=array([1.39145891, 0.1882568 , 0.18826201]
-)
-vwA=array([0.41118342, 0.35029466, 0.35229699]), vwB=array([0.41117481, 0.35060148, 0.35060415]
-)
-Ks=[[1.14769962, 0.685558974, 0.685558974], [1.14769962, 0.685558974, 0.685558974]]
-hirshfeld_volume_ratio_A=tensor([1.3909, 0.1879, 0.1918])
-hirshfeld_volume_ratio_B=tensor([1.3915, 0.1883, 0.1883])
+    vrA=array([1.3908595 , 0.18787692, 0.19180904]), vrB=array([1.39145891, 0.1882568 , 0.18826201]
+    )
+    vwA=array([0.41118342, 0.35029466, 0.35229699]), vwB=array([0.41117481, 0.35060148, 0.35060415]
+    )
+    Ks=[[1.14769962, 0.685558974, 0.685558974], [1.14769962, 0.685558974, 0.685558974]]
+    hirshfeld_volume_ratio_A=tensor([1.3909, 0.1879, 0.1918])
+    hirshfeld_volume_ratio_B=tensor([1.3915, 0.1883, 0.1883])
     """
     import torch
 
@@ -1360,7 +1361,9 @@ def test_elst_damping_dipole_torch_df():
             match_cliff=False,
         )
         elst = ref_elst_q
-        pred, pair_elst, pair_ind = ap3.predict_qcel_mols([mol], batch_size=1, return_classical_pairs=True)
+        pred, pair_elst, pair_ind = ap3.predict_qcel_mols(
+            [mol], batch_size=1, return_classical_pairs=True
+        )
         ap3_elst = np.sum(pair_elst[0])
         ap3_ind = np.sum(pair_ind[0])
         print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
@@ -1369,8 +1372,76 @@ def test_elst_damping_dipole_torch_df():
         print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
 
 
+def test_induced_dipole_torch_intramolecular():
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    vrA = r["vol_ratios_A pbe0/atz"]
+    vrB = r["vol_ratios_B pbe0/atz"]
+    vwA = r["val_widths_A pbe0/atz"]
+    vwB = r["val_widths_B pbe0/atz"]
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    vrA = r["vol_ratios_A pbe0/atz"]
+    thetaA = np.zeros_like(thetaA)
+    thetaB = np.zeros_like(thetaB)
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut=99999.0, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+    dimer_batch.Ka = torch.tensor(alphaA, dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(alphaB, dtype=torch.float32)
+    dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
+
+    dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
+    dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
+    dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
+
+    updated_dipoles = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        e_AA_source=dimer_batch.e_AA_source,
+        e_AA_target=dimer_batch.e_AA_target,
+        hirshfeld_volume_ratio_A=torch.tensor(vrA),
+    )
+    print(f"{updated_dipoles = }")
+    return
+
+
 if __name__ == "__main__":
-    test_elst_damping_dipole_torch_df()
+    test_induced_dipole_torch_intramolecular()
+    # test_elst_damping_dipole_torch_df()
     # test_elst_multipoles_MTP_torch_damping()
     # test_elst_damping_dipole_torch_df()
     # test_elst_charge_dipole_qpole()
