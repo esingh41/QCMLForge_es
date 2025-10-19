@@ -73,13 +73,14 @@ export iter=1
 # APNet3-Fused with Elst Damping AtomType
 # rm data_dimer_1/processed/dimer_ap3_fused_*spec_7_*
 export scratch_dir=./scratch
+# rm -r ${scratch_dir}
 mkdir -p ${scratch_dir}/processed/
 mkdir -p ${scratch_dir}/raw/
 touch ./${scratch_dir}/raw/1600K_train_dimers-fixed.pkl
 touch ./${scratch_dir}/raw/1600K_test_dimers-fixed.pkl
 touch ./${scratch_dir}/raw/t_train_100.pkl
 touch ./${scratch_dir}/raw/t_test_20.pkl
-rsync -r ./data_dimer_$iter/processed/dimer_ap3_fused_* ./${scratch_dir}/processed/
+find ./data_dimer_$iter/processed/ -name "dimer_ap3_fused_*" -exec rsync {} ./${scratch_dir}/processed/ \;
 python3 -u ./train_models.py \
     --train_apnet APNet3-fused \
     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
