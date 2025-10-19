@@ -964,7 +964,7 @@ class APNet3_AtomType_Model:
         indsB_lr = inp_batch["e_ABlr_target"]
 
         dimer_inds, atoms_per_dimer = torch.unique(
-            inp_batch.dimer_ind, return_counts=True
+            inp_batch.dimer_ind_full, return_counts=True
         )
         indsA_monomer = inp_batch.indA
         indsB_monomer = inp_batch.indB
@@ -1013,20 +1013,14 @@ class APNet3_AtomType_Model:
         pair_elst_batch = []
         pair_ind_batch = []
 
-        indsA_sr = inp_batch["e_ABsr_source"]
-        indsB_sr = inp_batch["e_ABsr_target"]
-        indsA_lr = inp_batch["e_ABlr_source"]
-        indsB_lr = inp_batch["e_ABlr_target"]
-        indsA = torch.cat([indsA_sr, indsA_lr], dim=0)
-        indsB = torch.cat([indsB_sr, indsB_lr], dim=0)
+        indsA = inp_batch['e_ABfull_source']
+        indsB = inp_batch['e_ABfull_target']
 
         dimer_inds, atoms_per_dimer = torch.unique(
-            torch.cat([inp_batch.dimer_ind, inp_batch.dimer_ind_lr], dim=0), return_counts=True
+            inp_batch.dimer_ind_full, return_counts=True
         )
         indsA_monomer = inp_batch.indA
         indsB_monomer = inp_batch.indB
-        # TODO: inds _sr and inds _lr need to be handled for dimer_inds_sr
-        # print(f"{dimer_inds=}, {indsA_monomer=}, {indsB_monomer=}")
 
         for i in dimer_inds:
             size_A = torch.sum(indsA_monomer == i)
