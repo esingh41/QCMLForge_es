@@ -330,6 +330,7 @@ units angstrom
 if __name__ == "__main__":
     print("Starting MCP server...")
     pp(estimate_timing_for_qcel_molecule(benzene_dimer_geometry(), method="hf", basis_set="aug-cc-pVDZ", manybody=True))
+    pp(predict_dAPNet2_error_estimates_QCMLForge(benzene_dimer_geometry(), starting_level_of_theory="HF/aug-cc-pVDZ/CP"))
     # pp(predict_AM_multipoles_QCMLForge())
     # pp(predict_APNet2_IE_QCMLForge())
     # pp(predict_dAPNet2_error_estimates_QCMLForge())
