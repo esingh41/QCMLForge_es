@@ -50,9 +50,9 @@ units angstrom
     """
     Run a user defined molecule to get machine-learned atomic multipoles.
 
-    Predicts atomic multipoles for evaluating electrostatics and polarization 
-    energies using the AtomicModule in QCMLForge. This approximates MBIS 
-    multipoles. The p4_string defines the molecular geometry in Psi4 format, 
+    Predicts atomic multipoles for evaluating electrostatics and polarization
+    energies using the AtomicModule in QCMLForge. This approximates MBIS
+    multipoles. The p4_string defines the molecular geometry in Psi4 format,
     which can be of the format:
     '''
     <charge_mon1> <multiplicity_mon1>
@@ -68,21 +68,21 @@ units angstrom
     Parameters
     ----------
     p4_string : str, optional
-        Molecular geometry in Psi4 format with charge, multiplicity, atomic 
+        Molecular geometry in Psi4 format with charge, multiplicity, atomic
         symbols, coordinates, and units. Default is a water molecule geometry.
 
     Returns
     -------
     dict
         Dictionary containing:
-        - "geometry" : str
-            Molecular geometry in Psi4 format.
         - "AM-MBIS CHARGES" : list
             Atomic charges from the AtomModel.
         - "AM-MBIS DIPOLES" : list
             Atomic dipoles from the AtomModel.
         - "AM-MBIS QUADRUPOLES" : list
             Atomic quadrupoles from the AtomModel.
+        - "geometry" : str
+            Molecular geometry in Psi4 format.
     """
     mol = qcel.models.Molecule.from_data(p4_string)
     charges, dipoles, quadrupoles, _ = apnet_pt.pretrained_models.atom_model_predict(
@@ -91,10 +91,10 @@ units angstrom
         return_mol_arrays=False,
     )
     return {
-        "geometry": mol.to_string("psi4"),
         "AM-MBIS CHARGES": list(charges),
         "AM-MBIS DIPOLES": list(dipoles),
         "AM-MBIS QUADRUPOLES": list(quadrupoles),
+        "geometry": mol.to_string("psi4"),
     }
 
 
@@ -131,9 +131,9 @@ units angstrom
     """
     Predict machine-learned SAPT0 interaction energies for a molecular complex.
 
-    Computes total interaction energy and its components (electrostatics, 
-    exchange, induction, and dispersion) using the APNet2 model in QCMLForge. 
-    The p4_string defines the molecular geometry in Psi4 format, which can be 
+    Computes total interaction energy and its components (electrostatics,
+    exchange, induction, and dispersion) using the APNet2 model in QCMLForge.
+    The p4_string defines the molecular geometry in Psi4 format, which can be
     of the format:
     '''
     <charge_mon1> <multiplicity_mon1>
@@ -149,15 +149,13 @@ units angstrom
     Parameters
     ----------
     p4_string : str, optional
-        Molecular geometry in Psi4 format with charge, multiplicity, atomic 
+        Molecular geometry in Psi4 format with charge, multiplicity, atomic
         symbols, coordinates, and units. Default is a water dimer geometry.
 
     Returns
     -------
     dict
         Dictionary containing:
-        - "geometry" : str
-            Molecular geometry in Psi4 format.
         - "APNet2 TOTAL INTERACTION (kcal/mol)" : float
             Total interaction energy.
         - "APNet2 ELSTROSTATICS (kcal/mol)" : float
@@ -168,6 +166,8 @@ units angstrom
             Induction component of interaction energy.
         - "APNet2 DISPERSION (kcal/mol)" : float
             Dispersion component of interaction energy.
+        - "geometry" : str
+            Molecular geometry in Psi4 format.
     """
     mol = qcel.models.Molecule.from_data(p4_string)
     IE_pred = apnet_pt.pretrained_models.apnet2_model_predict(
@@ -175,12 +175,12 @@ units angstrom
         compile=False,
     )
     return {
-        "geometry": mol.to_string("psi4"),
         "APNet2 TOTAL INTERACTION (kcal/mol)": float(IE_pred[0, 0]),
         "APNet2 ELSTROSTATICS (kcal/mol)": float(IE_pred[0, 1]),
         "APNet2 EXCHANGE (kcal/mol)": float(IE_pred[0, 2]),
         "APNet2 INDUCTION (kcal/mol)": float(IE_pred[0, 3]),
         "APNet2 DISPERSION (kcal/mol)": float(IE_pred[0, 4]),
+        "geometry": mol.to_string("psi4"),
     }
 
 
@@ -202,8 +202,8 @@ units angstrom
     """
     Predict error between a starting level of theory and CCSD(T)/CBS/CP reference.
 
-    Estimates the interaction energy error using the dAPNet2 model in QCMLForge 
-    for a single molecular complex. The p4_string defines the molecular geometry 
+    Estimates the interaction energy error using the dAPNet2 model in QCMLForge
+    for a single molecular complex. The p4_string defines the molecular geometry
     in Psi4 format.
 
     Acceptable starting_level_of_theory values currently only include:
@@ -219,7 +219,7 @@ units angstrom
     Parameters
     ----------
     p4_string : str, optional
-        Molecular geometry in Psi4 format with charge, multiplicity, atomic 
+        Molecular geometry in Psi4 format with charge, multiplicity, atomic
         symbols, coordinates, and units. Format:
         '''
         <charge_mon1> <multiplicity_mon1>
@@ -250,12 +250,14 @@ units angstrom
         m2="CCSD(T)/CBS/CP",
     )
     return {
-        "ERROR ESTIMATES (kcal/mol)": IE_pred,
+        "ERROR ESTIMATES (kcal/mol)": IE_pred.tolist(),
     }
+
 
 @mcp.tool()
 def predict_dAPNet2_error_estimates_QCMLForge_molecules(
-    p4_strings: list[str] = ["""0 1
+    p4_strings: list[str] = [
+        """0 1
 O 0.000000 0.000000  0.000000
 H 0.758602 0.000000  0.504284
 H 0.260455 0.000000 -0.872893
@@ -265,15 +267,16 @@ O 3.000000 0.500000  0.000000
 H 3.758602 0.500000  0.504284
 H 3.260455 0.500000 -0.872893
 units angstrom
-    """],
+    """
+    ],
     starting_level_of_theory: str = "MP2/aug-cc-pVTZ/CP",
 ) -> Dict:
     """
     Predict error estimates for multiple molecular complexes.
 
-    Estimates the interaction energy error between a starting level of theory 
-    and CCSD(T)/CBS/CP reference using the dAPNet2 model in QCMLForge for 
-    multiple molecular complexes. Each p4_string defines a molecular geometry 
+    Estimates the interaction energy error between a starting level of theory
+    and CCSD(T)/CBS/CP reference using the dAPNet2 model in QCMLForge for
+    multiple molecular complexes. Each p4_string defines a molecular geometry
     in Psi4 format.
 
     Acceptable starting_level_of_theory values currently only include:
@@ -289,7 +292,7 @@ units angstrom
     Parameters
     ----------
     p4_strings : list[str], optional
-        List of molecular geometries in Psi4 format with charge, multiplicity, 
+        List of molecular geometries in Psi4 format with charge, multiplicity,
         atomic symbols, coordinates, and units. Format:
         '''
         <charge_mon1> <multiplicity_mon1>
@@ -320,8 +323,9 @@ units angstrom
         m2="CCSD(T)/CBS/CP",
     )
     return {
-        "ERROR ESTIMATES (kcal/mol)": IE_pred,
+        "ERROR ESTIMATES (kcal/mol)": IE_pred.tolist(),
     }
+
 
 @mcp.tool()
 def estimate_timing_for_qcel_molecule(
@@ -338,19 +342,19 @@ units angstrom
     """
     Estimate computational timing for a molecular system.
 
-    Computes the necessary variables for timing estimation for monomers and 
-    dimers. When manybody is True, it computes the timing for the dimer and 
-    each monomer separately to mimic a supermolecular interaction energy 
-    calculation. Manybody should also be set when counterpoise correction (CP) 
+    Computes the necessary variables for timing estimation for monomers and
+    dimers. When manybody is True, it computes the timing for the dimer and
+    each monomer separately to mimic a supermolecular interaction energy
+    calculation. Manybody should also be set when counterpoise correction (CP)
     is requested.
 
-    Allowed methods: 'mp2', 'hf', 'b2plyp-d3', 'b3lyp-d3', 'pbe-d3', 'm05-2x', 
+    Allowed methods: 'mp2', 'hf', 'b2plyp-d3', 'b3lyp-d3', 'pbe-d3', 'm05-2x',
     'wb97x-v', 'wb97x-d', 'fno-ccsd', 'fno-ccsd(t)'.
 
     Parameters
     ----------
     p4_string : str, optional
-        Molecular geometry in Psi4 format with charge, multiplicity, atomic 
+        Molecular geometry in Psi4 format with charge, multiplicity, atomic
         symbols, coordinates, and units. Format:
         '''
         <charge_mon1> <multiplicity_mon1>
@@ -367,23 +371,21 @@ units angstrom
     basis_set : str, optional
         Basis set to use. Default is 'aug-cc-pVDZ'.
     manybody : bool, optional
-        Whether to compute timing for dimer and monomers separately. 
+        Whether to compute timing for dimer and monomers separately.
         Default is True.
 
     Returns
     -------
     dict
         Dictionary containing:
-        - "geometry" : str
-            Molecular geometry in Psi4 format.
         - "estimated_compute_time_seconds" : float
             Estimated computational time in seconds.
+        - "geometry" : str
+            Molecular geometry in Psi4 format.
     """
     qcel_molecule = qcel.models.Molecule.from_data(p4_string)
     if is_psi4_installed() is False:
-        print(
-            "Psi4 is not installed. Please install Psi4 to use this function."
-        )
+        print("Psi4 is not installed. Please install Psi4 to use this function.")
     mols = [qcel_molecule]
     if manybody and qcel_molecule.fragments_:
         for n, i in enumerate(qcel_molecule.fragments_):
@@ -392,9 +394,11 @@ units angstrom
     method = method.lower()
     time_seconds = 0.0
     for mol in mols:
-        n_occupied, n_virtual, np_total, nbf_aux = estimate_timings.compute_psi4_time_estimation_variables(
-            mol,
-            basis_set,
+        n_occupied, n_virtual, np_total, nbf_aux = (
+            estimate_timings.compute_psi4_time_estimation_variables(
+                mol,
+                basis_set,
+            )
         )
         input_vars = {
             "nocc": n_occupied,
@@ -405,16 +409,17 @@ units angstrom
         result = estimate_timings.predict_timing(method, input_vars)
         time_seconds += result["time_seconds"]
     return {
-        "geometry": mol.to_string("psi4"),
         "estimated_compute_time_seconds": time_seconds,
+        "geometry": mol.to_string("psi4"),
     }
+
 
 @mcp.tool()
 def benzene_dimer_geometry() -> str:
     """
     Provide parallel displaced benzene dimer geometry.
 
-    Returns a pre-defined benzene dimer geometry in parallel displaced 
+    Returns a pre-defined benzene dimer geometry in parallel displaced
     configuration.
 
     Parameters
@@ -457,11 +462,20 @@ units angstrom
 """)
     return mol.to_string("psi4")
 
+
 if __name__ == "__main__":
     print("Starting MCP server...")
-    pp(estimate_timing_for_qcel_molecule(benzene_dimer_geometry(), method="hf", basis_set="aug-cc-pVDZ", manybody=True))
-    pp(estimate_timing_for_qcel_molecule(benzene_dimer_geometry(), method="fno-ccsd(t)", basis_set="aug-cc-pVDZ", manybody=True))
-    pp(predict_dAPNet2_error_estimates_QCMLForge(benzene_dimer_geometry(), starting_level_of_theory="HF/aug-cc-pVDZ/CP"))
+
+    pp(
+        predict_dAPNet2_error_estimates_QCMLForge(
+            p4_string="0 1\n--\n0 1\nC                     1.417294594093    -3.023561800732    -2.629553903575\nC                           3.694555075274    -3.023561800732    -1.314776951787\nC                     3.694555075274    -3.023561800732                         1.314776951787\nC                     1.417294594093    -3.023561800732     2.629553903575\nC                    -0.859965887087         -3.023561800732     1.314776951787\nC                    -0.859965887087    -3.023561800732    -1.314776951787\nH                          1.417294594093    -3.023561800732    -4.670458119069\nH                     5.462029972607    -3.023561800732                 -2.335229059534\nH                     5.462029972607    -3.023561800732     2.335229059534\nH                     1.417294594093         -3.023561800732     4.670458119069\nH                    -2.627440784420    -3.023561800732     2.335229059534\nH                         -2.627440784420    -3.023561800732    -2.335229059534\n--\n0 1\nC                    -1.417294594093     3.023561800732          2.629553903575\nC                     0.859965887087     3.023561800732     1.314776951787\nC                                      0.859965887087     3.023561800732    -1.314776951787\nC                    -1.417294594093     3.023561800732                         -2.629553903575\nC                    -3.694555075274     3.023561800732    -1.314776951787\nC                    -3.694555075274          3.023561800732     1.314776951787\nH                    -1.417294594093     3.023561800732     4.670458119069\nH                          2.627440784420     3.023561800732     2.335229059534\nH                     2.627440784420     3.023561800732                -2.335229059534\nH                    -1.417294594093     3.023561800732    -4.670458119069\nH                    -5.462029972607          3.023561800732    -2.335229059534\nH                    -5.462029972607     3.023561800732     2.335229059534\nunits bohr",
+            starting_level_of_theory="HF/aug-cc-pVDZ/CP",
+        )
+    )
+
+    # pp(estimate_timing_for_qcel_molecule(benzene_dimer_geometry(), method="hf", basis_set="aug-cc-pVDZ", manybody=True))
+    # pp(estimate_timing_for_qcel_molecule(benzene_dimer_geometry(), method="fno-ccsd(t)", basis_set="aug-cc-pVDZ", manybody=True))
+    # pp(predict_dAPNet2_error_estimates_QCMLForge(benzene_dimer_geometry(), starting_level_of_theory="HF/aug-cc-pVDZ/CP"))
     # pp(predict_AM_multipoles_QCMLForge())
     # pp(predict_APNet2_IE_QCMLForge())
     # pp(predict_dAPNet2_error_estimates_QCMLForge())
