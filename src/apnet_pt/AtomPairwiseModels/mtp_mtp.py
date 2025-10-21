@@ -253,15 +253,15 @@ class DimerProp(nn.Module):
             valence_widths_B=v_B[-2][:, 1],
             polarizability_table=self.polarizability_table,
         )
-        if Indu.isnan().any():
-            print("Induced dipole energy is NaN, debugging info:")
-            print(f"{v_A[-2] =}")
-            print(f"{v_B[-2] =}")
-            print(f"{v_A[-1] =}")
-            print(f"{v_B[-1] =}")
-            print(f"{Ka =}")
-            print(f"{Kb =}")
-            raise ValueError("Induced dipole energy is NaN")
+        # if Indu.isnan().any():
+        #     print("Induced dipole energy is NaN, debugging info:")
+        #     print(f"{v_A[-2] =}")
+        #     print(f"{v_B[-2] =}")
+        #     print(f"{v_A[-1] =}")
+        #     print(f"{v_B[-1] =}")
+        #     print(f"{Ka =}")
+        #     print(f"{Kb =}")
+        #     raise ValueError("Induced dipole energy is NaN")
         return Indu, v_A, v_B
 
     def _elst_damping_indu_induced_dipole_forward(
@@ -309,14 +309,14 @@ class DimerProp(nn.Module):
             valence_widths_B=v_B[-2][:, 1],
             polarizability_table=self.polarizability_table,
         )
-        if Indu.isnan().any():
-            print("Induced dipole energy is NaN, debugging info:")
-            print(f"{Indu = }")
-            print(f"{v_A[-2] =}")
-            print(f"{v_B[-2] =}")
-            print(f"{v_A[-1] =}")
-            print(f"{v_B[-1] =}")
-            raise ValueError("Induced dipole energy is NaN")
+        # if Indu.isnan().any():
+        #     print("Induced dipole energy is NaN, debugging info:")
+        #     print(f"{Indu = }")
+        #     print(f"{v_A[-2] =}")
+        #     print(f"{v_B[-2] =}")
+        #     print(f"{v_A[-1] =}")
+        #     print(f"{v_B[-1] =}")
+        #     raise ValueError("Induced dipole energy is NaN")
         # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
 
         Elst = mtp_elst_damping(
@@ -335,11 +335,11 @@ class DimerProp(nn.Module):
             e_AB_source=batch.e_ABsr_source,
             e_AB_target=batch.e_ABsr_target,
         )
-        if Elst.isnan().any():
-            print("Electrostatic energy is NaN, debugging info:")
-            print(f"{v_A[-1] =}")
-            print(f"{v_B[-1] =}")
-            raise ValueError("Electrostatic energy is NaN")
+        # if Elst.isnan().any():
+        #     print("Electrostatic energy is NaN, debugging info:")
+        #     print(f"{v_A[-1] =}")
+        #     print(f"{v_B[-1] =}")
+        #     raise ValueError("Electrostatic energy is NaN")
         return torch.vstack((Elst, Indu)).T, v_A, v_B
 
     def _ap3_elst_damping_indu_induced_dipole_forward(
@@ -378,14 +378,14 @@ class DimerProp(nn.Module):
             hirshfeld_volume_ratio_B=torch.abs(v_B[-2][:, 0]),
             polarizability_table=self.polarizability_table,
         )
-        if Indu.isnan().any():
-            print("Induced dipole energy is NaN, debugging info:")
-            torch.save(batch, "ind_nan_batch.pt")
-            print(f"{v_A[-2] =}")
-            print(f"{v_B[-2] =}")
-            print(f"{v_A[-1] =}")
-            print(f"{v_B[-1] =}")
-            raise ValueError("Induced dipole energy is NaN")
+        # if Indu.isnan().any():
+        #     print("Induced dipole energy is NaN, debugging info:")
+        #     torch.save(batch, "ind_nan_batch.pt")
+        #     print(f"{v_A[-2] =}")
+        #     print(f"{v_B[-2] =}")
+        #     print(f"{v_A[-1] =}")
+        #     print(f"{v_B[-1] =}")
+        #     raise ValueError("Induced dipole energy is NaN")
         # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
 
         Elst = mtp_elst_damping(
@@ -404,12 +404,12 @@ class DimerProp(nn.Module):
             e_AB_source=batch.e_ABfull_source,
             e_AB_target=batch.e_ABfull_target,
         )
-        if Elst.isnan().any():
-            print("Electrostatic energy is NaN, debugging info:")
-            torch.save(batch, "elst_nan_batch.pt")
-            print(f"{v_A[-1] =}")
-            print(f"{v_B[-1] =}")
-            raise ValueError("Electrostatic energy is NaN")
+        # if Elst.isnan().any():
+        #     print("Electrostatic energy is NaN, debugging info:")
+        #     torch.save(batch, "elst_nan_batch.pt")
+        #     print(f"{v_A[-1] =}")
+        #     print(f"{v_B[-1] =}")
+        #     raise ValueError("Electrostatic energy is NaN")
         return torch.vstack((Elst, Indu)).T, v_A, v_B
 
     def _ap3_atomMPNN(
@@ -558,12 +558,12 @@ class AtomTypeParamNN(nn.Module):
                 K_filtered[:, p] += param_update.squeeze(-1)
         # K[keep_mask] = torch.relu(K_filtered)  # + 1.00001
         K[keep_mask] = K_filtered  # + 1.00001
-        if K.isnan().any():
-            print("K has NaN values, debugging info:")
-            print(f"{K_filtered =}")
-            print(f"{Z =}")
-            print(f"{h_list=}")
-            raise ValueError("K has NaN values")
+        # if K.isnan().any():
+        #     print("K has NaN values, debugging info:")
+        #     print(f"{K_filtered =}")
+        #     print(f"{Z =}")
+        #     print(f"{h_list=}")
+        #     raise ValueError("K has NaN values")
         return (
             charge,
             dipole,
@@ -781,12 +781,12 @@ class AtomTypeParamMPNN(nn.Module):
         h_list = torch.stack(hlists, dim=2)
         K[keep_mask] = K_filtered
         # print(f"{K = }")
-        if K.isnan().any():
-            print("K has NaN values, debugging info:")
-            print(f"{K_filtered =}")
-            print(f"{Z =}")
-            print(f"{h_list=}")
-            raise ValueError("K has NaN values")
+        # if K.isnan().any():
+        #     print("K has NaN values, debugging info:")
+        #     print(f"{K_filtered =}")
+        #     print(f"{Z =}")
+        #     print(f"{h_list=}")
+            # raise ValueError("K has NaN values")
         return (
             charge,
             dipole,
