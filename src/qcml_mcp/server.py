@@ -8,8 +8,10 @@ import apnet_pt
 try:
     from .timings import is_psi4_installed
     from .timings import estimate_timings
-except ImportError as e:
-    print(f"Error importing estimate_timings: {e}")
+except ImportError:
+    # Fall back to absolute imports when run as a script
+    from timings import is_psi4_installed
+    from timings import estimate_timings
 
 
 # Create an MCP server
@@ -290,10 +292,45 @@ units angstrom
         "estimated_compute_time_seconds": time_seconds,
     }
 
+def benzene_dimer_geometry() -> str:
+    """
+    provies parallel displaced dimer geometry in psi4 format (p4_str)
+    """
+    mol = qcel.models.Molecule.from_data("""0 1
+C	0.7500000000	-1.6000000000	-1.3915000000
+C	1.9550743494	-1.6000000000	-0.6957500000
+C	1.9550743494	-1.6000000000	0.6957500000
+C	0.7500000000	-1.6000000000	1.3915000000
+C	-0.4550743494	-1.6000000000	0.6957500000
+C	-0.4550743494	-1.6000000000	-0.6957500000
+H	0.7500000000	-1.6000000000	-2.4715000000
+H	2.8903817855	-1.6000000000	-1.2357500000
+H	2.8903817855	-1.6000000000	1.2357500000
+H	0.7500000000	-1.6000000000	2.4715000000
+H	-1.3903817855	-1.6000000000	1.2357500000
+H	-1.3903817855	-1.6000000000	-1.2357500000
+--
+0 1
+C	-0.7500000000	1.6000000000	1.3915000000
+C	0.4550743494	1.6000000000	0.6957500000
+C	0.4550743494	1.6000000000	-0.6957500000
+C	-0.7500000000	1.6000000000	-1.3915000000
+C	-1.9550743494	1.6000000000	-0.6957500000
+C	-1.9550743494	1.6000000000	0.6957500000
+H	-0.7500000000	1.6000000000	2.4715000000
+H	1.3903817855	1.6000000000	1.2357500000
+H	1.3903817855	1.6000000000	-1.2357500000
+H	-0.7500000000	1.6000000000	-2.4715000000
+H	-2.8903817855	1.6000000000	-1.2357500000
+H	-2.8903817855	1.6000000000	1.2357500000
+units angstrom
+""")
+    return mol.to_string("psi4")
 
 if __name__ == "__main__":
     print("Starting MCP server...")
-    pp(predict_AM_multipoles_QCMLForge())
-    pp(predict_APNet2_IE_QCMLForge())
-    pp(predict_dAPNet2_error_estimates_QCMLForge())
-    pp(estimate_timing_for_qcel_molecule())
+    pp(estimate_timing_for_qcel_molecule(benzene_dimer_geometry(), method="hf", basis_set="aug-cc-pVDZ", manybody=True))
+    # pp(predict_AM_multipoles_QCMLForge())
+    # pp(predict_APNet2_IE_QCMLForge())
+    # pp(predict_dAPNet2_error_estimates_QCMLForge())
+    # pp(estimate_timing_for_qcel_molecule())
