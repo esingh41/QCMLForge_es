@@ -162,6 +162,8 @@ def test_ap2_fused_train_qcel_molecules_in_memory():
         transfer_learning=False,
         lr=0.005,
     )
+    total_params = sum(param.numel() for param in ap2.model.parameters())
+    print(f"ap2 total parameters: {total_params}")
     # This also tests to make sure only best model is returned
     v_0 = ap2.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
     ap2.train(
