@@ -5,6 +5,7 @@ import torch
 import os
 from apnet_pt.pt_datasets.ap3_fused_ds import (
     ap3_fused_module_dataset,
+    ap3_fused_module_dataset_lmdb,
 )
 from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
 from glob import glob
@@ -546,9 +547,124 @@ def test_classical_ap3_induction():
     return
 
 
+def test_ap3_fused_lmdb_dataset():
+    import tempfile
+    import shutil
+    batch_size = 2
+    atomic_batch_size = 4
+    datapoint_storage_n_objects = 6
+    qcel_molecules = [mol_cliff_water_close] * 4
+    energy_labels = [
+        np.array([
+            -10.779292828139122,
+            11.390991215401051,
+            -3.414543432719425,
+            -2.436025699701581,
+        ])
+        for _ in range(len(qcel_molecules))
+    ]
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        ds_lmdb = ap3_fused_module_dataset_lmdb(
+            root=temp_dir,
+            r_cut=5.0,
+            r_cut_im=8.0,
+            spec_type=None,
+            qcel_molecules=qcel_molecules,
+            energy_labels=energy_labels,
+            dimer_prop_model=atom_type_elst_model.dimer_model,
+            cache_size=1000,
+            lmdb_map_size=1024**3,
+            print_level=2,
+            atomic_batch_size=atomic_batch_size,
+            datapoint_storage_n_objects=datapoint_storage_n_objects,
+            batch_size=batch_size,
+        )
+        
+        assert len(ds_lmdb) == len(qcel_molecules)
+        
+        item_0 = ds_lmdb[0]
+        assert item_0 is not None
+        assert hasattr(item_0, 'y')
+        assert hasattr(item_0, 'RA')
+        assert hasattr(item_0, 'RB')
+        
+        del ds_lmdb
+        
+        ds_lmdb_reload = ap3_fused_module_dataset_lmdb(
+            root=temp_dir,
+            r_cut=5.0,
+            r_cut_im=8.0,
+            spec_type=None,
+            cache_size=1000,
+            print_level=2,
+            lmdb_readonly=True,
+            atomic_batch_size=atomic_batch_size,
+            datapoint_storage_n_objects=datapoint_storage_n_objects,
+            batch_size=batch_size,
+        )
+        
+        assert len(ds_lmdb_reload) == len(qcel_molecules)
+        
+        item_0_reload = ds_lmdb_reload[0]
+        assert torch.allclose(item_0.y, item_0_reload.y, atol=1e-6)
+        assert torch.allclose(item_0.RA, item_0_reload.RA, atol=1e-6)
+        assert torch.allclose(item_0.RB, item_0_reload.RB, atol=1e-6)
+        
+        item_1 = ds_lmdb_reload[1]
+        assert item_1 is not None
+        
+        ds_orig = ap3_fused_module_dataset(
+            root=data_path,
+            r_cut=5.0,
+            r_cut_im=8.0,
+            spec_type=None,
+            max_size=None,
+            force_reprocess=True,
+            atomic_batch_size=atomic_batch_size,
+            dimer_prop_model=atom_type_elst_model.dimer_model,
+            datapoint_storage_n_objects=datapoint_storage_n_objects,
+            batch_size=batch_size,
+            num_devices=1,
+            skip_processed=True,
+            skip_compile=True,
+            print_level=2,
+            qcel_molecules=qcel_molecules,
+            energy_labels=energy_labels,
+            in_memory=True,
+            random_seed=None,
+        )
+        
+        item_0_orig = ds_orig[0]
+        assert torch.allclose(item_0_reload.y, item_0_orig.y, atol=1e-6)
+        
+        print("All LMDB dataset tests passed!")
+        
+    finally:
+        shutil.rmtree(temp_dir)
+
+
 if __name__ == "__main__":
     # test_classical_ap3()
-    test_classical_ap3_long_range()
+    # test_classical_ap3_long_range()
     # test_ap3_fused_train_qcel_molecules_in_memory()
     # test_ap3_fused_train_qcel_molecules_in_memory_precompute()
     # test_classical_ap3_induction()
+    test_ap3_fused_lmdb_dataset()
