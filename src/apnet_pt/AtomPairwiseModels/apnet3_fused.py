@@ -136,6 +136,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         r_cut=5.0,
         return_hidden_states=False,
         use_precomputed_classical=False,
+        use_atom_props=False,
     ):
         # super().__init__(aggr="add")
         super().__init__()
@@ -162,6 +163,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         self.r_cut = r_cut
         self.return_hidden_states = return_hidden_states
         self.use_precomputed_classical = use_precomputed_classical
+        self.use_atom_props = use_atom_props
 
         layer_nodes_hidden = [
             # input_layer_size,
@@ -269,12 +271,15 @@ class APNet3_AtomType_MPNN(nn.Module):
         qA_source = qA.index_select(0, e_source)
         qB_target = qB.index_select(0, e_target)
 
-        hfvrA_source = hfvrA.index_select(0, e_source)
-        hfvrB_target = hfvrB.index_select(0, e_target)
+        if self.use_atom_props:
+            hfvrA_source = hfvrA.index_select(0, e_source)
+            hfvrB_target = hfvrB.index_select(0, e_target)
 
-        vwA_source = vwA.index_select(0, e_source)
-        vwB_target = vwB.index_select(0, e_target)
-        return torch.cat([hA_source, hB_target, qA_source, qB_target, hfvrA_source, hfvrB_target, vwA_source, vwB_target, rbf], dim=-1)
+            vwA_source = vwA.index_select(0, e_source)
+            vwB_target = vwB.index_select(0, e_target)
+            return torch.cat([hA_source, hB_target, qA_source, qB_target, hfvrA_source, hfvrB_target, vwA_source, vwB_target, rbf], dim=-1)
+        else:
+            return torch.cat([hA_source, hB_target, qA_source, qB_target, rbf], dim=-1)
 
     def get_distances(self, RA, RB, e_source, e_target):
         RA_source = RA.index_select(0, e_source)
@@ -599,20 +604,24 @@ class APNet3_AtomType_Model:
 """
             )
         self.use_precomputed_classical = use_precomputed_classical
+        use_atom_props = True
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet3_AtomType_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
+            config = checkpoint["config"]
+            use_atom_props = config.get("use_atom_props", False)
             self.model = APNet3_AtomType_MPNN(
                 dimer_prop_model=self.dimer_prop_model,
-                n_message=checkpoint["config"]["n_message"],
-                n_rbf=checkpoint["config"]["n_rbf"],
-                n_neuron=checkpoint["config"]["n_neuron"],
-                n_embed=checkpoint["config"]["n_embed"],
-                r_cut_im=checkpoint["config"]["r_cut_im"],
-                r_cut=checkpoint["config"]["r_cut"],
+                n_message=config["n_message"],
+                n_rbf=config["n_rbf"],
+                n_neuron=config["n_neuron"],
+                n_embed=config["n_embed"],
+                r_cut_im=config["r_cut_im"],
+                r_cut=config["r_cut"],
                 use_precomputed_classical=use_precomputed_classical,
+                use_atom_props=use_atom_props,
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -629,6 +638,7 @@ class APNet3_AtomType_Model:
                 r_cut_im=r_cut_im,
                 r_cut=r_cut,
                 use_precomputed_classical=use_precomputed_classical,
+                use_atom_props=use_atom_props,
             )
         if n_rbf != self.model.n_rbf:
             print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
@@ -1169,8 +1179,7 @@ class APNet3_AtomType_Model:
                         pairwise_elst_energies.append([])
                         pairwise_ind_energies.append([])
             else:
-                # predictions[i : i + batch_size] = preds[0].cpu().numpy()
-                for cnt, idx in all_indices:
+                for cnt, idx in enumerate(all_indices):
                     if idx in valid_indices:
                         predictions[i + idx] = preds[0][cnt].cpu().numpy()
                     else:
@@ -1614,6 +1623,7 @@ units angstrom
                                     "n_embed": cpu_model.n_embed,
                                     "r_cut_im": cpu_model.r_cut_im,
                                     "r_cut": cpu_model.r_cut,
+                                    "use_atom_props": cpu_model.use_atom_props,
                                 },
                             },
                             self.model_save_path,
@@ -1785,6 +1795,7 @@ units angstrom
                                 "n_embed": cpu_model.n_embed,
                                 "r_cut_im": cpu_model.r_cut_im,
                                 "r_cut": cpu_model.r_cut,
+                                "use_atom_props": cpu_model.use_atom_props,
                             },
                         },
                         self.model_save_path,

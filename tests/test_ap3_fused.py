@@ -309,20 +309,20 @@ def test_classical_ap3():
     )
     monA_props, monB_props = atom_type_elst_model.predict_qcel_mols_monomer_props([mol], model_type="model", am_type="ap3")
     
-    dimer_data = apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
-        mol, r_cut_im=99999.0, dimer_ind=0
-    )
-    dimer_data.qA = torch.tensor(monA_props[0][0], dtype=torch.float32)
-    dimer_data.qB = torch.tensor(monB_props[0][0], dtype=torch.float32)
-    dimer_data.muA = torch.tensor(monA_props[0][1], dtype=torch.float32)
-    dimer_data.muB = torch.tensor(monB_props[0][1], dtype=torch.float32)
-    dimer_data.quadA = torch.tensor(monA_props[0][2], dtype=torch.float32)
-    dimer_data.quadB = torch.tensor(monB_props[0][2], dtype=torch.float32)
-    dimer_data.hlistA = torch.tensor(monA_props[0][3], dtype=torch.float32)
-    dimer_data.hlistB = torch.tensor(monB_props[0][3], dtype=torch.float32)
+    dimer_batch = apnet_pt.pt_datasets.ap3_fused_ds.ap3_fused_collate_update_no_target([
+        apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+            mol, r_cut_im=99999.0, dimer_ind=0
+        )
+    ])
     
-    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap3_fused_collate_update_no_target([dimer_data])
-    
+    dimer_batch.qA = torch.tensor(monA_props[0][0], dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(monB_props[0][0], dtype=torch.float32)
+    dimer_batch.muA = torch.tensor(monA_props[0][1], dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(monB_props[0][1], dtype=torch.float32)
+    dimer_batch.quadA = torch.tensor(monA_props[0][2], dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(monB_props[0][2], dtype=torch.float32)
+    dimer_batch.hlistA = torch.tensor(monA_props[0][3], dtype=torch.float32)
+    dimer_batch.hlistB = torch.tensor(monB_props[0][3], dtype=torch.float32)
     dimer_batch.Ka = torch.tensor(monA_props[0][-1], dtype=torch.float32)
     dimer_batch.Kb = torch.tensor(monB_props[0][-1], dtype=torch.float32)
     dimer_batch.vw_A = torch.tensor(monA_props[0][-2], dtype=torch.float32)
@@ -739,6 +739,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb():
     v = ap3.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
     print(v_0, v)
     assert np.allclose(v_0, v, atol=1e-6)
+
 
 if __name__ == "__main__":
     # test_classical_ap3()

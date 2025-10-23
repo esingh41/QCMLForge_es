@@ -1412,6 +1412,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
         self.lmdb_env = None
         self.lmdb_path = None
         self._length = None
+        self._worker_id = None
         
         if os.path.exists(root) is False:
             os.makedirs(root, exist_ok=True)
@@ -1491,6 +1492,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
                 readonly=self.lmdb_readonly,
                 max_dbs=0,
                 lock=not self.lmdb_readonly,
+                max_readers=256,
             )
             
             with self.lmdb_env.begin() as txn:
@@ -1513,7 +1515,10 @@ class ap3_fused_module_dataset_lmdb(Dataset):
 
     def __del__(self):
         """Cleanup LMDB on deletion"""
-        self._close_lmdb()
+        try:
+            self._close_lmdb()
+        except:
+            pass
 
     @property
     def raw_file_names(self):
@@ -1568,7 +1573,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
             env = None
             try:
                 import lmdb
-                env = lmdb.open(self.lmdb_path, readonly=True, lock=False, max_dbs=0, create=False)
+                env = lmdb.open(self.lmdb_path, readonly=True, lock=False, max_dbs=0, create=False, max_readers=256)
                 with env.begin() as txn:
                     metadata_bytes = txn.get(b'__metadata__')
                     if metadata_bytes:
@@ -1868,9 +1873,30 @@ class ap3_fused_module_dataset_lmdb(Dataset):
         
         return self._length
 
+    def _check_worker_init(self):
+        """Ensure LMDB env is initialized for current worker process"""
+        import torch.utils.data
+        
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+        else:
+            worker_id = None
+        
+        if worker_id != self._worker_id:
+            if self.lmdb_env is not None:
+                self._close_lmdb()
+            
+            self._worker_id = worker_id
+            self._init_lmdb()
+            self._cache = {}
+            self._cache_keys = []
+
     def get(self, idx):
         """Retrieve item from LMDB with caching"""
         import pickle
+        
+        self._check_worker_init()
         
         if idx in self._cache:
             self._cache_keys.remove(idx)
