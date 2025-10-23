@@ -90,6 +90,7 @@ def train_pairwise_model(
     param_start_std=0.1,
     dimer_eval_type="elst_damping",
     ds_in_memory=False,
+    ds_class_type="pt",
     DimerProp_model_type="AtomTypeParamNN",
     ap2_pretrained_model_only=None,
 ):
@@ -239,6 +240,7 @@ def train_pairwise_model(
             ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
             ds_prebatched=False,
             ds_random_seed=random_seed,
+            ds_class_type=ds_class_type,
             use_precomputed_classical=True,
         )
         if ap2_pretrained_model_only is not None:
@@ -484,6 +486,12 @@ def main():
         help="Load dataset in memory (default: False).",
     )
     args.add_argument(
+        "--ds_class_type",
+        type=str,
+        default="pt",
+        help="Dataset class type: (pt or lmdb) (default: pt)",
+    )
+    args.add_argument(
         "--DimerProp_model_type", type=str, default="AtomTypeParamNN", help="Dimer Prop Model Type (default: AtomTypeParamNN, other options: AtomTypeParamMPNN)"
     )
     args = args.parse_args()
@@ -530,6 +538,7 @@ def main():
             param_start_std=args.param_start_std,
             dimer_eval_type=args.dimer_eval_type,
             ds_in_memory=args.ds_in_memory,
+            ds_class_type=args.ds_class_type,
             DimerProp_model_type=args.DimerProp_model_type,
             ap2_pretrained_model_only=args.ap2_pretrained_model_only,
         )

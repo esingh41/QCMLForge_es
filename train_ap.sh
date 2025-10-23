@@ -92,7 +92,8 @@ python3 -u ./train_models.py \
     --data_dir ./${scratch_dir} \
     --spec_type_ap 7 \
     --lr 5e-4 \
-    --ds_in_memory False
+    --ds_in_memory False \
+    --ds_class_type lmdb
 
 # APNet3-Fused with Elst Damping AtomType (AP2 pretrained)
 # python3 -u ./train_models.py \

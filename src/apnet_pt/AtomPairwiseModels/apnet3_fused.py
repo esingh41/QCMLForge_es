@@ -11,6 +11,7 @@ from ..pt_datasets.ap2_fused_ds import (
     qcel_dimer_to_fused_data,
 )
 from ..pt_datasets.ap3_fused_ds import (
+    ap3_fused_module_dataset_lmdb,
     ap3_fused_module_dataset,
     ap3_fused_collate_update,
     ap3_fused_collate_update_no_target,
@@ -536,6 +537,7 @@ class APNet3_AtomType_Model:
         ds_qcel_molecules=None,
         ds_energy_labels=None,
         use_precomputed_classical=False,
+        ds_class_type="pt", # "pt" or "lmdb"
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -554,6 +556,15 @@ class APNet3_AtomType_Model:
         self.atom_type_model = AtomTypeParamModel()
         self.dimer_prop_model = DimerProp(ATParam=self.atom_type_model.model)
         self.am_dimer_param_model = am_dimer_param_model
+        
+        self.ds_class_type = ds_class_type
+        if self.ds_class_type not in ["pt", "lmdb"]:
+            raise ValueError("ds_class_type must be 'pt' or 'lmdb'")
+        elif self.ds_class_type == "lmdb":
+            print("Using LMDB dataset class")
+            dataset_class = ap3_fused_module_dataset_lmdb
+        else:
+            dataset_class = ap3_fused_module_dataset
 
         if dimer_prop_model_pre_trained_path:
             print(
@@ -675,7 +686,7 @@ class APNet3_AtomType_Model:
 
             def setup_ds(fp=ds_force_reprocess):
                 if use_precomputed_classical:
-                    return ap3_fused_module_dataset(
+                    return dataset_class(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -735,7 +746,7 @@ class APNet3_AtomType_Model:
             def setup_ds(fp=ds_force_reprocess):
                 if use_precomputed_classical:
                     return [
-                        ap3_fused_module_dataset(
+                        dataset_class(
                             root=ds_root,
                             r_cut=r_cut,
                             r_cut_im=r_cut_im,
@@ -757,7 +768,7 @@ class APNet3_AtomType_Model:
                             in_memory=ds_in_memory,
                             device=self.device
                         ),
-                        ap3_fused_module_dataset(
+                        dataset_class(
                             root=ds_root,
                             r_cut=r_cut,
                             r_cut_im=r_cut_im,
