@@ -1474,15 +1474,14 @@ def test_intramolecular_induced_dipole():
     
     assert not np.allclose(mu_induced, 0.0), "Induced dipoles should be non-zero"
     assert np.max(np.abs(mu_induced)) < 1.0, f"Induced dipoles seem too large: max={np.max(np.abs(mu_induced))}"
+    mu_diff = mu_induced - muA.reshape(-1, 3)
     
-    print(f"Original charges: {qA.flatten()}")
-    print(f"Returned charges: {q_returned}")
-    print(f"Original dipoles shape: {muA.shape}")
-    print(f"Induced dipoles shape: {mu_induced.shape}")
-    print(f"Original Induced dipoles:\n{muA}")
-    print(f"Induced dipoles:\n{mu_induced}")
-    print(f"Max induced dipole magnitude: {np.max(np.abs(mu_induced)):.6f}")
-    
+    print(molA.to_string("psi4"))
+    print(f"charges: {q_returned}")
+    print(f"Quadrupoles:\n{theta_returned}")
+    print(f"Original dipoles:\n{muA}")
+    print(f"Induced  dipoles:\n{mu_induced}")
+    print(f"Difference (induced - original) dipoles:\n{mu_diff}")
     return
 
 
