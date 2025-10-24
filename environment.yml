@@ -25,6 +25,7 @@ dependencies:
   - pydantic==2.*
   - scipy==1.15.*
   - tqdm==4.*
+  - h5py
   - pip:
       - qcelemental==0.29.0
       - qm-tools-aw==1.4.5
