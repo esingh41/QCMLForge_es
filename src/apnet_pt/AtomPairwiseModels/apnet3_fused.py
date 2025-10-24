@@ -542,7 +542,7 @@ class APNet3_AtomType_Model:
         ds_qcel_molecules=None,
         ds_energy_labels=None,
         use_precomputed_classical=False,
-        ds_class_type="pt", # "pt" or "lmdb"
+        ds_class_type="lmdb", # "pt" or "lmdb"
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from

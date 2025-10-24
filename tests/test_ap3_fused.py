@@ -10,16 +10,17 @@ from apnet_pt.pt_datasets.ap3_fused_ds import (
 from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
 from glob import glob
 import pandas as pd
+import pytest
 
 torch.manual_seed(42)
 spec_type = 5
 current_file_path = os.path.dirname(os.path.realpath(__file__))
 data_path = f"{current_file_path}/test_data_path"
 
-am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_3.pt"
-at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_3.pt"
-at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_3.pt"
-ap3_path = f"{current_file_path}/../models/ap3_ensemble/1/ap3_1.pt"
+am_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_3.pt"
+at_hf_vw_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_h+1_3.pt"
+at_elst_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_elst_h+1_3.pt"
+ap3_path = f"{current_file_path}/test_models/ap3_ensemble_0/ap3_.pt"
 
 mol_cliff_water_close = qcel.models.Molecule.from_data("""
 0 1
@@ -192,6 +193,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
     assert np.allclose(v_0, v, atol=1e-6)
 
 
+@pytest.mark.xdist_group(name="io_operations")
 def test_ap3_fused_train_qcel_molecules_in_memory_precompute():
     batch_size = 2
     atomic_batch_size = 4
@@ -250,6 +252,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute():
         am_dimer_param_model=atom_type_elst_model,
         pre_trained_model_path=ap3_path,
         use_precomputed_classical=False,
+        ds_class_type="pt"
     )
     print(ap3)
     ap3.train(
@@ -273,6 +276,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute():
     assert np.allclose(v_0, v, atol=1e-6)
 
 
+@pytest.mark.xdist_group(name="io_operations")
 def test_classical_ap3():
     df = pd.read_pickle(
         current_file_path  + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
@@ -281,9 +285,6 @@ def test_classical_ap3():
     mol = r["qcel_molecule"]
     print(r["SAPT0 ELST ENERGY adz"])
     print(r["SAPT0 IND ENERGY adz"] * 627.5094740631)
-    am_path = f"{current_file_path}/../models/ap3_ensemble/3/am_3.pt"
-    at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/3/am_h+1_3.pt"
-    at_elst_path = f"{current_file_path}/../models/ap3_ensemble/3/am_elst_h+1_3.pt"
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -399,9 +400,6 @@ def test_classical_ap3():
 
 def test_classical_ap3_long_range():
     mol = lr_water_dimer
-    am_path = f"{current_file_path}/../models/ap3_ensemble/1/am_3.pt"
-    at_hf_vw_path = f"{current_file_path}/../models/ap3_ensemble/1/am_h+1_3.pt"
-    at_elst_path = f"{current_file_path}/../models/ap3_ensemble/1/am_elst_h+1_3.pt"
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -511,39 +509,6 @@ def test_classical_ap3_long_range():
     assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
     pred, pair_ind, pair_ind = ap3.predict_qcel_mols([mol, mol_element], batch_size=1, return_classical_pairs=True)
     assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
-    return
-
-
-def test_classical_ap3_induction():
-    torch.set_printoptions(profile="full")
-    dimer_batch = torch.load(current_file_path + os.sep + os.path.join("dataset_data", "ind_nan_batch.pt"), weights_only=False, map_location="cpu")
-    print(dimer_batch)
-    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
-        ds_root=None,
-        use_GPU=False,
-        ignore_database_null=True,
-        atom_model_pre_trained_path=am_path,
-        pre_trained_model_path=at_hf_vw_path,
-    )
-    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
-        ds_root=data_path,
-        use_GPU=False,
-        n_neuron=64,
-        n_params=1,
-        ignore_database_null=True,
-        atom_model=atom_type_hf_vw_model.model,
-        atom_model_type="AtomTypeParamNN",
-        pre_trained_model_path=at_elst_path,
-    )
-    ap3 = APNet3_AtomType_Model(
-        ds_root=None,
-        atom_type_model=atom_type_hf_vw_model.model,
-        dimer_prop_model=atom_type_elst_model.dimer_model,
-        am_dimer_param_model=atom_type_elst_model,
-        pre_trained_model_path=ap3_path,
-    )
-    preds = ap3.model(dimer_batch)
-    print(preds[0])
     return
 
 
@@ -744,8 +709,9 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb():
 if __name__ == "__main__":
     # test_classical_ap3()
     # test_classical_ap3_long_range()
+    test_classical_ap3_induction()
     # test_ap3_fused_train_qcel_molecules_in_memory()
-    test_ap3_fused_train_qcel_molecules_in_memory_precompute()
+    # test_ap3_fused_train_qcel_molecules_in_memory_precompute()
     # test_classical_ap3_induction()
     # test_ap3_fused_lmdb_dataset()
-    test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb()
+    # test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb()

@@ -23,10 +23,14 @@ H                     8.792148880000    -0.879960520000    -1.416549430000
 units bohr
 """)
 
-file_dir = os.path.dirname(os.path.abspath(__file__))
-data_path = f"{file_dir}/test_data_path"
+current_file_path = os.path.dirname(os.path.abspath(__file__))
+data_path = f"{current_file_path}/test_data_path"
 h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
 
+am_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_3.pt"
+at_hf_vw_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_h+1_3.pt"
+at_elst_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_elst_h+1_3.pt"
+ap3_path = f"{current_file_path}/test_models/ap3_ensemble_0/ap3_.pt"
 
 def test_elst_multipoles_AP2():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
@@ -60,7 +64,7 @@ def test_elst_multipoles_MTP_torch_no_damping():
     import torch
 
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     # print(r['SAPT0 ELST ENERGY adz'])
@@ -158,7 +162,7 @@ def test_elst_multipoles_MTP_torch_damping():
     import torch
 
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
@@ -335,7 +339,7 @@ def test_elst_multipoles_am_hirshfeld():
         ignore_database_null=True,
         use_GPU=False,
     )
-    atom_model.set_pretrained_model(file_dir + "/../models/am_hf_ensemble/am_0.pt")
+    atom_model.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
     print(atom_model)
     monA = lr_water_dimer.get_fragment(0).copy()
     monB = lr_water_dimer.get_fragment(1).copy()
@@ -362,7 +366,7 @@ def test_elst_multipoles_am_hirshfeld():
 def test_induced_dipole():
     # check here for CLIFF eval: /home/awallace43/projects/multipoles/cliff_tests
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -419,7 +423,7 @@ def test_induced_dipole():
 
 def test_induced_dipole_bz_meoh():
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
     )
     for n, r in df.iterrows():
         sapt0_ind = r["SAPT0 IND ENERGY adz"]
@@ -491,7 +495,7 @@ def test_induced_dipole_bz_meoh():
 
 def test_classical_cliff():
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     # pprint(df.columns.to_list())
     ap_elst, ap_ind = [], []
@@ -592,7 +596,7 @@ def test_classical_cliff():
 
 def test_elst_ameoba():
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
@@ -711,7 +715,7 @@ def test_elst_ameoba():
 
 def test_elst_damping():
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
@@ -830,7 +834,7 @@ def test_elst_damping():
 
 def test_induced_dipole_no_damping():
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -886,7 +890,7 @@ def test_induced_dipole_torch():
     import torch
 
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -935,7 +939,7 @@ def test_induced_dipole_torch():
     #     f"Expected {ref_e}, got {ap_q_mu_induction}"
     # )
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1015,7 +1019,7 @@ def test_induced_dipole_torch_alphas():
     np.set_printoptions(precision=4)
     torch.set_printoptions(precision=4)
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1091,7 +1095,7 @@ def test_induced_dipole_torch_alphas_dimer_eval():
     np.set_printoptions(precision=4)
     torch.set_printoptions(precision=4)
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1175,7 +1179,7 @@ def test_induced_dipole_torch_df():
     import torch
 
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1271,9 +1275,6 @@ def test_induced_dipole_torch_df():
 
 
 def test_elst_damping_dipole_torch_df():
-    am_path = f"{file_dir}/../models/ap3_ensemble/3/am_3.pt"
-    at_hf_vw_path = f"{file_dir}/../models/ap3_ensemble/3/am_h+1_3.pt"
-    at_elst_path = f"{file_dir}/../models/ap3_ensemble/3/am_elst_h+1_3.pt"
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -1298,7 +1299,7 @@ def test_elst_damping_dipole_torch_df():
     )
 
     df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1372,76 +1373,8 @@ def test_elst_damping_dipole_torch_df():
         print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
 
 
-def test_induced_dipole_torch_intramolecular():
-    df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
-    )
-    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
-    df = df.sort_values(by="system_id")
-    r = df.iloc[0]
-    mol = r["qcel_molecule"]
-    qA = r["q_A pbe0/atz"]
-    muA = r["mu_A pbe0/atz"]
-    thetaA = r["theta_A pbe0/atz"]
-    qB = r["q_B pbe0/atz"]
-    muB = r["mu_B pbe0/atz"]
-    thetaB = r["theta_B pbe0/atz"]
-    vrA = r["vol_ratios_A pbe0/atz"]
-    vrB = r["vol_ratios_B pbe0/atz"]
-    vwA = r["val_widths_A pbe0/atz"]
-    vwB = r["val_widths_B pbe0/atz"]
-    df = pd.read_pickle(
-        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
-    )
-    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
-    df = df.sort_values(by="system_id")
-    r = df.iloc[0]
-    mol = r["qcel_molecule"]
-    qA = r["q_A pbe0/atz"]
-    muA = r["mu_A pbe0/atz"]
-    thetaA = r["theta_A pbe0/atz"]
-    qB = r["q_B pbe0/atz"]
-    muB = r["mu_B pbe0/atz"]
-    thetaB = r["theta_B pbe0/atz"]
-    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
-    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
-    vrA = r["vol_ratios_A pbe0/atz"]
-    thetaA = np.zeros_like(thetaA)
-    thetaB = np.zeros_like(thetaB)
-    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
-        [
-            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
-                mol, r_cut=99999.0, r_cut_im=99999.0, dimer_ind=0
-            )
-        ]
-    )
-    dimer_batch.Ka = torch.tensor(alphaA, dtype=torch.float32)
-    dimer_batch.Kb = torch.tensor(alphaB, dtype=torch.float32)
-    dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
-    dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
-
-    dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
-    dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
-    dimer_batch.quadA = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
-    dimer_batch.quadB = torch.zeros_like(torch.tensor(thetaB, dtype=torch.float32))
-
-    updated_dipoles = apnet_pt.AtomPairwiseModels.mtp_mtp.induced_dipole(
-        ZA=dimer_batch.ZA,
-        RA=dimer_batch.RA,
-        qA=dimer_batch.qA,
-        muA=dimer_batch.muA,
-        quadA=dimer_batch.quadA,
-        e_AA_source=dimer_batch.e_AA_source,
-        e_AA_target=dimer_batch.e_AA_target,
-        hirshfeld_volume_ratio_A=torch.tensor(vrA),
-    )
-    print(f"{updated_dipoles = }")
-    return
-
-
 if __name__ == "__main__":
-    test_induced_dipole_torch_intramolecular()
-    # test_elst_damping_dipole_torch_df()
+    test_elst_damping_dipole_torch_df()
     # test_elst_multipoles_MTP_torch_damping()
     # test_elst_damping_dipole_torch_df()
     # test_elst_charge_dipole_qpole()
