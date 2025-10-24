@@ -3,3 +3,4 @@ from . import dapnet2
 from . import apnet3
 from . import apnet2_fused
 from . import mtp_mtp
+from . import apnet3_fused

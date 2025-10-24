@@ -43,6 +43,7 @@ def set_weights_to_value(model, value=0.9):
             param.fill_(value)  # Set all elements to the given value
 
 
+@pytest.mark.skip("Models no longer available vi PyPI")
 def test_apnet2_dapnet2_architecture():
     target_energies = [
         # must agree with test_ap2.py:test_ap2_architecture() EXCH, INDU, or
@@ -74,6 +75,7 @@ def test_apnet2_dapnet2_architecture():
     print(output)
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+@pytest.mark.skip("Models no longer available vi PyPI")
 def test_dapnet2_architecture():
     target_energies = [
         4.99712951e-06,
@@ -101,6 +103,7 @@ def test_dapnet2_architecture():
     print(output)
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+@pytest.mark.skip("Models no longer available vi PyPI")
 def test_dapnet2_pretrained_hfadz():
     qcel_mols = [mol3, mol3]
     v = apnet_pt.pretrained_models.dapnet2_model_predict(

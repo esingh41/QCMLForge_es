@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# from torch_scatter import scatter
-from torch_geometric.utils import scatter
+from ..util import scatter_sum_compile
 from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings
@@ -271,14 +270,16 @@ class AtomMPNN(MessagePassing):
     # @torch.jit.trace
     def forward(
         self,
-        x,
-        edge_index,
-        # edge_attr,
-        R,
-        molecule_ind,
-        total_charge,
-        natom_per_mol,
+        batch,
     ):
+        # Extract variables from batch
+        x = batch.x
+        edge_index = batch.edge_index
+        R = batch.R
+        molecule_ind = batch.molecule_ind
+        total_charge = batch.total_charge
+        natom_per_mol = batch.natom_per_mol
+
         # edge_index has shape [(e_source, e_target), n_edges]
         Z = x
         natom = Z.size(0)
@@ -297,7 +298,8 @@ class AtomMPNN(MessagePassing):
             h_list = torch.stack(h_list, dim=1)
             molecule_ind.requires_grad_(False)
             molecule_ind = molecule_ind.long()
-            total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+            num_mols = int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+            total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
             total_charge_pred = total_charge_pred.squeeze()
             total_charge_err = total_charge_pred - total_charge
             charge_err = torch.repeat_interleave(
@@ -327,6 +329,7 @@ class AtomMPNN(MessagePassing):
         e_target = idx_map[e_target]
 
         R = R[keep_mask, :]
+        natom_filtered = keep_mask.sum()
 
         #  [edges]
         dR, dR_xyz = get_distances(R, R, e_source, e_target)
@@ -346,7 +349,7 @@ class AtomMPNN(MessagePassing):
             # [atoms x message_embedding_dim]
             # m_i = unsorted_segment_sum_2d(m_ij, e_source, natom)
             # write unsorted_segment_sum_2d using scatter
-            m_i = scatter(m_ij, e_source, dim=0, reduce="sum")
+            m_i = scatter_sum_compile(m_ij, e_source, int(natom_filtered), reduce="sum")  # type: ignore
 
             # [atomx x hidden_dim]
             h_next = self.charge_update_layers[i](m_i)
@@ -408,7 +411,8 @@ class AtomMPNN(MessagePassing):
         charge[keep_mask] = filtered_charge
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
-        total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+        num_mols = int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+        total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
         # return charge, dipole, qpole, h_list
 
         total_charge_pred = total_charge_pred.squeeze()
@@ -420,7 +424,7 @@ class AtomMPNN(MessagePassing):
         charge = charge.squeeze()
         # changed to dim=0 from dim=1 for usage in Param fitting # AMW 8/20/25
         # Breaks test_apnet2_train_qcel_molecules_in_memory_transfer test,
-        # dimensions no longer correct... figure out another way to fix this # AMW 9/17/25
+        # dimensions no longer correct... figure out another way to fix this. reverting back to dim=1 # AMW 9/17/25
         # print(len(h_list), h_list[0].size())
         h_list = torch.stack(h_list, dim=1)
         # print(h_list.size())
@@ -594,18 +598,6 @@ class AtomModel:
     def cleanup(self):
         dist.destroy_process_group()
 
-    def eval_fn(self, batch):
-        charge, dipole, qpole, hlist = self.model(
-            batch.x,
-            batch.edge_index,
-            # batch.edge_attr,
-            R=batch.R,
-            molecule_ind=batch.molecule_ind,
-            total_charge=batch.total_charge,
-            natom_per_mol=batch.natom_per_mol,
-        )
-        return charge, dipole, qpole, hlist
-
     def _qcel_example_input(self, mols, batch_size=1):
         mol_data = [qcel_mon_to_pyg_data(mol) for mol in mols]
         batches = []
@@ -633,14 +625,7 @@ units angstrom
             batch_loss = 0.0
             batch = batch.to(self.device)
             optimizer.zero_grad()
-            charge, dipole, qpole, _ = self.model(
-                batch.x,
-                batch.edge_index,
-                # batch.edge_attr,
-                R=batch.R,
-                molecule_ind=batch.molecule_ind,
-                total_charge=batch.total_charge,
-            )
+            charge, dipole, qpole, _ = self.model(batch)
 
             # Errors
             q_error = charge - batch.charges
@@ -678,15 +663,7 @@ units angstrom
             for batch in data_loader:
                 batch_loss = 0.0
                 batch = batch.to(self.device)
-                charge, dipole, qpole, hlist = self.model(
-                    batch.x,
-                    batch.edge_index,
-                    # batch.edge_attr,
-                    R=batch.R,
-                    molecule_ind=batch.molecule_ind,
-                    total_charge=batch.total_charge,
-                    natom_per_mol=batch.natom_per_mol,
-                )
+                charge, dipole, qpole, hlist = self.model(batch)
 
                 # Errors
                 q_error = charge - batch.charges
@@ -758,7 +735,7 @@ units angstrom
         for batch in dataloader:
             batch = batch.to(rank_device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            charge, dipole, qpole, _ = self.eval_fn(batch)
+            charge, dipole, qpole, _ = self.model(batch)
 
             q_error = charge - batch.charges
             d_error = dipole - batch.dipoles
@@ -797,7 +774,7 @@ units angstrom
         for batch in dataloader:
             batch = batch.to(rank_device)
             optimizer.zero_grad()
-            charge, dipole, qpole, _ = self.eval_fn(batch)
+            charge, dipole, qpole, _ = self.model(batch)
 
             q_error = charge - batch.charges
             d_error = dipole - batch.dipoles
@@ -854,7 +831,7 @@ units angstrom
         with torch.no_grad():
             for batch in dataloader:
                 batch = batch.to(rank_device, non_blocking=True)
-                charge, dipole, qpole, _ = self.eval_fn(batch)
+                charge, dipole, qpole, _ = self.model(batch)
 
                 q_error = charge - batch.charges
                 d_error = dipole - batch.dipoles
@@ -891,7 +868,7 @@ units angstrom
         with torch.no_grad():
             for batch in dataloader:
                 batch = batch.to(rank_device)
-                charge, dipole, qpole, _ = self.eval_fn(batch)
+                charge, dipole, qpole, _ = self.model(batch)
 
                 q_error = charge - batch.charges
                 d_error = dipole - batch.dipoles
@@ -1274,7 +1251,7 @@ units angstrom
     def predict_multipoles_batch(self, batch, isolate_predictions=True):
         batch.to(self.device)
         self.model.to(self.device)
-        qA, muA, thA, hlistA = self.eval_fn(batch)
+        qA, muA, thA, hlistA = self.model(batch)
         batch = batch.cpu()
         qA = qA.detach().detach().cpu()
         # print("predict_multipoles_batch")
@@ -1333,7 +1310,7 @@ units angstrom
             if len(mol_data) == batch_size or cnt == len(mols):
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
-                    charge, dipole, qpole, hlist = self.eval_fn(batch)
+                    charge, dipole, qpole, hlist = self.model(batch)
                     # Isolate atomic properties by molecule
                     mol_charges, mol_dipoles, mol_qpoles, mol_hlists = isolate_atomic_property_predictions(
                         batch, (charge, dipole, qpole, hlist)

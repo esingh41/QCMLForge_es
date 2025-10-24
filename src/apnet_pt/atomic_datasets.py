@@ -98,8 +98,10 @@ def edge_function_system_index_only(R, r_c):
 
 MAX_Z = 118  # largest atomic number
 
+
 def atomic_collate_update_prebatched(batch):
     return batch[0]
+
 
 def atomic_collate_update(batch):
     """
@@ -401,7 +403,7 @@ class atomic_module_dataset(Dataset):
     ):
         """ """
         try:
-            assert spec_type in [1, 2, 3, 4, 6, 7]
+            assert spec_type in [1, 2, 3, 4, 6, 7, 9]
         except Exception:
             print(
                 "Currently spec_type must be 1, 2, or 3 for HF/jun-cc-pV(D+d)Z (CMPNN), PBE0/aug-cc-pV(T+D)Z (CMPNN), or HF/jun-cc-pV(D+D)Z (APNET2) respectively. Only 1 and 2 are available for download at the moment."
@@ -477,6 +479,11 @@ class atomic_module_dataset(Dataset):
             elif self.spec_type == 6:
                 return [
                     "monomers_apnet2_spec_3_62.pkl",
+                ]
+            elif self.spec_type == 9:
+                print('Using spec_type 9 for AP3 PBE0/aug-cc-pVDZ (with Hirshfeld volumes and widths')
+                return [
+                    "monomers_ap3_spec_5_pbe0.pkl",
                 ]
         raise ValueError("spec_type must be 1, 2, or 3!")
         return []
@@ -679,7 +686,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
         batch_size=1,
     ):
         try:
-            assert spec_type in [1, 5]
+            assert spec_type in [1, 5, 10]
         except Exception:
             print(
                 "Currently spec_type must be 1 for pbe0/aug-cc-pVDZ (APNET2) respectively. spec_type 5 is for testing. No downloads are available at the moment."
@@ -728,7 +735,11 @@ class atomic_hirshfeld_module_dataset(Dataset):
                 f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
                 # "monomers_ap3_spec_1_pbe0_62.pkl",
             ]
-        raise ValueError("spec_type must in [1, 5]!")
+        elif self.spec_type in [10]:
+            return [
+                f"monomers_ap3_spec_{self.spec_type}_HF.pkl",
+            ]
+        raise ValueError("spec_type must in [1, 5, 10]!")
         return []
 
     @property

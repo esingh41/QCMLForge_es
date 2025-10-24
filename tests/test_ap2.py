@@ -3,6 +3,7 @@ import numpy as np
 import qcelemental as qcel
 import torch
 import os
+import pytest
 
 mol_water = qcel.models.Molecule.from_data("""
 0 1
@@ -112,8 +113,103 @@ def test_ap2_architecture_tf():
     print(f"DISP : {output[0][3]:.6f}, {target_energies[3]:.6f}")
     assert np.allclose(output[0], target_energies, atol=1e-6)
 
+@pytest.mark.skip("Models no longer available vi PyPI")
+def test_ap2_predict_pairs():
+    refInteractions = {
+        "Methyl1_A Peptide_B": {
+            "fEelst": 0.463,
+            "fEexch": 0.000,
+            "fEindAB": -0.010,
+            "fEindBA": 0.000,
+            "fEdisp": -0.009,
+            "fEedisp": 0.0,
+            "fEtot": 0.443,
+        },
+        "Methyl1_A T-Butyl_B": {
+            "fEelst": -0.328,
+            "fEexch": 0.023,
+            "fEindAB": 0.001,
+            "fEindBA": 0.024,
+            "fEdisp": -0.186,
+            "fEedisp": 0.0,
+            "fEtot": -0.467,
+        },
+        "Methyl2_A Peptide_B": {
+            "fEelst": -0.827,
+            "fEexch": 0.014,
+            "fEindAB": -0.041,
+            "fEindBA": -0.001,
+            "fEdisp": -0.040,
+            "fEedisp": 0.0,
+            "fEtot": -0.895,
+        },
+        "Methyl2_A T-Butyl_B": {
+            "fEelst": -0.611,
+            "fEexch": 4.130,
+            "fEindAB": -0.217,
+            "fEindBA": -0.143,
+            "fEdisp": -1.812,
+            "fEedisp": 0.0,
+            "fEtot": 1.347,
+        },
+    }
+
+    atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
+        ds_root=None,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    pair_model = apnet_pt.AtomPairwiseModels.apnet2.APNet2Model(
+        atom_model=atom_model.model,
+        ignore_database_null=True,
+        use_GPU=False,
+    ).set_pretrained_model(model_id=0)
+    IEs, pairs = pair_model.predict_qcel_mols(
+        [
+            mol_fsapt,
+        ],
+        batch_size=2,
+        return_pairs=True,
+    )
+    print("final Pairs:")
+    pairs = pairs[0]
+    print(pairs.shape)
+    fA = {
+        "Methyl1_A": [1, 2, 7, 8],
+        "Methyl2_A": [3, 4, 5, 6],
+    }
+    fB = {
+        "Peptide_B": [9, 10, 11, 16, 26],
+        "T-Butyl_B": [12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+    }
+    # pairs[comp, A, B]
+    print(mol_fsapt)
+    monA = mol_fsapt.get_fragment(0)
+    print(monA)
+    nA = len(monA.atomic_numbers)
+    for kA, vA in fA.items():
+        for kB, vB in fB.items():
+            elst_sum = 0.0
+            exch_sum = 0.0
+            indu_sum = 0.0
+            disp_sum = 0.0
+            total_sum = 0.0
+            for iA in vA:
+                for iB in vB:
+                    elst_sum += pairs[0, iA - 1, iB - 1 - nA]
+                    exch_sum += pairs[1, iA - 1, iB - 1 - nA]
+                    indu_sum += pairs[2, iA - 1, iB - 1 - nA]
+                    disp_sum += pairs[3, iA - 1, iB - 1 - nA]
+            total_sum = elst_sum + exch_sum + indu_sum + disp_sum
+            print(
+                f"{kA} {kB}:\n  TOTAL: {total_sum:.6f}, ELST: {elst_sum:.6f}, EXCH: {
+                    exch_sum:.6f
+                }, INDU: {indu_sum:.6f}, DISP: {disp_sum:.6f}"
+            )
+    print(IEs)
+    return
 
 
 if __name__ == "__main__":
-    test_ap2_architecture_tf()
-    # test_ap2_predict_pairs()
+    # test_ap2_architecture_tf()
+    test_ap2_predict_pairs()

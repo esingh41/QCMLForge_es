@@ -18,7 +18,6 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import os
-import gc
 
 from .ap2_atom_model import (
     max_Z,
@@ -151,51 +150,55 @@ class AtomHirshfeldMPNN(MessagePassing):
     # @torch.jit.trace
     def forward(
         self,
-        x,
-        edge_index,
-        # edge_attr,
-        R,
-        molecule_ind,
-        total_charge,
-        natom_per_mol,
+        batch,
     ):
+        # Extract variables from batch
+        x = batch.x
+        edge_index = batch.edge_index
+        R = batch.R
+        molecule_ind = batch.molecule_ind
+        total_charge = batch.total_charge
+        natom_per_mol = batch.natom_per_mol
+
         # edge_index has shape [(e_source, e_target), n_edges]
         Z = x
         natom = Z.size(0)
 
         h_list_0 = [self.embed_layer(Z)]
 
-        # Initial guesses
         charge = self.guess_layer(Z)
-        # volume_ratio = self.guess_hirshfeldVolumeRatio(Z)
         volume_ratio = torch.ones(natom, 1, dtype=torch.float32, device=Z.device)
-        # valence_widths = torch.ones(natom, 1, dtype=torch.float32, device=Z.device)
         valence_width = self.guess_valenceWidth(Z)
+        # volume_ratio = self.guess_hirshfeldVolumeRatio(Z)
+        # valence_widths = torch.ones(natom, 1, dtype=torch.float32, device=Z.device)
 
         dipole = torch.zeros(natom, 3, dtype=torch.float32, device=Z.device)
         qpole = torch.zeros(natom, 3, 3, dtype=torch.float32, device=Z.device)
 
-        if edge_index.size(0) == 0:
-            # need h_list to have the same number of dimensions as the number of message passing layers
+        # print(f"{charge.size() =}")
+        # print(f"{dipole.size() =}")
+        if edge_index.size(1) == 0:
             h_list = [h_list_0[0] for i in range(self.n_message + 1)]
-            h_list = torch.stack(h_list, dim=0)
+            h_list = torch.stack(h_list, dim=1)
             # if we get a single atom, we should return ones for volume_ratio, valence_width
             return (
-                charge.squeeze(),
+                charge.squeeze(0),
                 dipole,
                 qpole,
-                volume_ratio.squeeze(),
-                volume_ratio.squeeze(),
+                volume_ratio.squeeze(0),
+                valence_width.squeeze(0),
                 h_list,
             )
 
-        # 1) Identify which molecules have more than one atom
-        mol_ind = torch.where(natom_per_mol != 1)[0]
-        keep_mask = (molecule_ind.unsqueeze(1) == mol_ind).any(dim=1)
+        # 1) Filter out atoms that don't have edges
+        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
+        keep_mask = torch.isin(torch.arange(len(molecule_ind), device=molecule_ind.device), atoms_with_edges)
+
         filtered_charge = charge[keep_mask]
         filtered_volume_ratio = volume_ratio[keep_mask]
         filtered_valence_width = valence_width[keep_mask]
-        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms.
+
+        # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms and edges
         h_list = [h_list_0[0][keep_mask]]
 
         # Now we need to filter the edge_index to only include edges between
@@ -205,9 +208,8 @@ class AtomHirshfeldMPNN(MessagePassing):
         edge_keep = keep_mask[e_source] & keep_mask[e_target]
         e_source = e_source[edge_keep]
         e_target = e_target[edge_keep]
-        # shape [N], each kept atom -> new index
-        idx_map = torch.cumsum(keep_mask, dim=0) - 1
-        idx_map = idx_map.long()  # ensure integer
+        idx_map = torch.cumsum(keep_mask, dim=0) - 1  # shape [N], each kept atom -> new index
+        idx_map = idx_map.long()                     # ensure integer
         e_source = idx_map[e_source]
         e_target = idx_map[e_target]
 
@@ -322,10 +324,10 @@ class AtomHirshfeldMPNN(MessagePassing):
         ).unsqueeze(1)
         charge = charge - charge_err
         charge = charge.squeeze()
-        h_list = torch.stack(h_list, dim=0)
-        volume_ratio[keep_mask] = filtered_volume_ratio
+        h_list = torch.stack(h_list, dim=1)
+        volume_ratio[keep_mask] = torch.relu(filtered_volume_ratio) + 0.0001
         volume_ratio = volume_ratio.squeeze()
-        valence_width[keep_mask] = filtered_valence_width
+        valence_width[keep_mask] = torch.relu(filtered_valence_width) + 0.0001
         valence_width = valence_width.squeeze()
         return charge, dipole, qpole, volume_ratio, valence_width, h_list
 
@@ -467,20 +469,6 @@ class AtomHirshfeldModel:
     def cleanup(self):
         dist.destroy_process_group()
 
-    def eval_fn(self, batch):
-        charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = (
-            self.model(
-                batch.x,
-                batch.edge_index,
-                # batch.edge_attr,
-                R=batch.R,
-                molecule_ind=batch.molecule_ind,
-                total_charge=batch.total_charge,
-                natom_per_mol=batch.natom_per_mol,
-            )
-        )
-        return charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist
-
     def evaluate_model_collate_train(self, data_loader, optimizer=None, loss_fn=None):
         charge_errors_t, dipole_errors_t, qpole_errors_t = [], [], []
         total_loss = 0.0
@@ -489,14 +477,7 @@ class AtomHirshfeldModel:
             batch_loss = 0.0
             batch = batch.to(self.device)
             optimizer.zero_grad()
-            charge, dipole, qpole, _ = self.model(
-                batch.x,
-                batch.edge_index,
-                # batch.edge_attr,
-                R=batch.R,
-                molecule_ind=batch.molecule_ind,
-                total_charge=batch.total_charge,
-            )
+            charge, dipole, qpole, _ = self.model(batch)
 
             # Errors
             q_error = charge - batch.charges
@@ -547,15 +528,7 @@ class AtomHirshfeldModel:
                     hirshfeld_volume_ratios,
                     valence_widths,
                     hlist,
-                ) = self.model(
-                    batch.x,
-                    batch.edge_index,
-                    # batch.edge_attr,
-                    R=batch.R,
-                    molecule_ind=batch.molecule_ind,
-                    total_charge=batch.total_charge,
-                    natom_per_mol=batch.natom_per_mol,
-                )
+                ) = self.model(batch)
 
                 # Errors
                 q_error = charge - batch.charges
@@ -676,7 +649,7 @@ class AtomHirshfeldModel:
             batch = batch.to(rank_device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, _ = (
-                self.eval_fn(batch)
+                self.model(batch)
             )
 
             q_error = charge - batch.charges
@@ -727,7 +700,7 @@ class AtomHirshfeldModel:
             batch = batch.to(rank_device)
             optimizer.zero_grad()
             charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, _ = (
-                self.eval_fn(batch)
+                self.model(batch)
             )
 
             q_error = charge - batch.charges
@@ -804,7 +777,7 @@ class AtomHirshfeldModel:
             for batch in dataloader:
                 batch = batch.to(rank_device, non_blocking=True)
                 charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, _ = (
-                    self.eval_fn(batch)
+                    self.model(batch)
                 )
 
                 q_error = charge - batch.charges
@@ -853,7 +826,7 @@ class AtomHirshfeldModel:
             for batch in dataloader:
                 batch = batch.to(rank_device)
                 charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, _ = (
-                    self.eval_fn(batch)
+                    self.model(batch)
                 )
 
                 q_error = charge - batch.charges
@@ -1089,8 +1062,22 @@ class AtomHirshfeldModel:
         criterion = torch.nn.MSELoss()
 
         lowest_test_loss = torch.tensor(float("inf"))
-        print(f"{rank=}")
-        # self.pretrain_statistics(train_loader, test_loader, criterion)
+        t1 = time.time()
+        train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t, hfvr_MAE_t, vw_MAE_t = (
+            self.evaluate_batches_single_proc(
+                rank, train_loader, criterion, rank_device
+            )
+        )
+        test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v, vw_MAE_v = (
+            self.evaluate_batches_single_proc(
+                rank, test_loader, criterion, rank_device
+            )
+        )
+        dt = time.time() - t1
+        print(
+            f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f}",
+            flush=True,
+        )
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False
@@ -1326,7 +1313,7 @@ class AtomHirshfeldModel:
             if len(mol_data) == batch_size or cnt == len(mols):
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
-                    charge, dipole, qpole, hfvr, vw, hlist = self.eval_fn(batch)
+                    charge, dipole, qpole, hfvr, vw, hlist = self.model(batch)
                     # Isolate atomic properties by molecule
                     (
                         mol_charges,
@@ -1356,14 +1343,6 @@ class AtomHirshfeldModel:
     @torch.inference_mode()
     def model_predict(self, data):
         charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = (
-            self.model(
-                data.x,
-                data.edge_index,
-                # data.edge_attr,
-                R=data.R,
-                molecule_ind=data.molecule_ind,
-                total_charge=data.total_charge,
-                natom_per_mol=data.natom_per_mol,
-            )
+            self.model(data)
         )
         return charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist

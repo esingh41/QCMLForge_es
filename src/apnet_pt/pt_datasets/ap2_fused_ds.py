@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 from importlib import resources
 from apnet_pt import constants
+import h5py
 
 
 def qcel_dimer_to_fused_data(dimer, r_cut=5.0, r_cut_im=8.0, **kwargs):
@@ -114,7 +115,6 @@ def dimer_fused_data(
         total_charge_B=atomic_props_B.total_charge,
         **kwargs,  # allows for additional properties to be passed in
     )
-
 
 def natural_key(text):
     return [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", text)]
@@ -223,16 +223,49 @@ def ap2_fused_collate_update(batch):
     natom_per_mol_A = torch.bincount(molecule_ind_A)
     natom_per_mol_B = torch.bincount(molecule_ind_B)
     y = torch.stack([data.y for data in batch], dim=0)
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=molecule_ind_A,
+        total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=molecule_ind_B,
+        total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
+    )
+    
     batched_data = Data(
         y=y,
-        ZA=torch.cat([data.ZA for data in batch], dim=0),
-        RA=torch.cat([data.RA for data in batch], dim=0),
-        ZB=torch.cat([data.ZB for data in batch], dim=0),
-        RB=torch.cat([data.RB for data in batch], dim=0),
-        e_AA_source=torch.cat(local_e_AA_source, dim=0),
-        e_AA_target=torch.cat(local_e_AA_target, dim=0),
-        e_BB_source=torch.cat(local_e_BB_source, dim=0),
-        e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
         molecule_ind_A=molecule_ind_A,
         molecule_ind_B=molecule_ind_B,
         natom_per_mol_A=natom_per_mol_A,
@@ -243,12 +276,10 @@ def ap2_fused_collate_update(batch):
         e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
         dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
         dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
-        total_charge_A=torch.tensor(
-            [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
-        ),
-        total_charge_B=torch.tensor(
-            [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
-        ),
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
     )
     return batched_data
 
@@ -303,15 +334,49 @@ def ap2_fused_collate_update_no_target(batch):
     molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
     natom_per_mol_A = torch.bincount(molecule_ind_A)
     natom_per_mol_B = torch.bincount(molecule_ind_B)
+    
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=molecule_ind_A,
+        total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=molecule_ind_B,
+        total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
+    )
+    
     batched_data = Data(
-        ZA=torch.cat([data.ZA for data in batch], dim=0),
-        RA=torch.cat([data.RA for data in batch], dim=0),
-        ZB=torch.cat([data.ZB for data in batch], dim=0),
-        RB=torch.cat([data.RB for data in batch], dim=0),
-        e_AA_source=torch.cat(local_e_AA_source, dim=0),
-        e_AA_target=torch.cat(local_e_AA_target, dim=0),
-        e_BB_source=torch.cat(local_e_BB_source, dim=0),
-        e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
         molecule_ind_A=molecule_ind_A,
         molecule_ind_B=molecule_ind_B,
         natom_per_mol_A=natom_per_mol_A,
@@ -322,14 +387,12 @@ def ap2_fused_collate_update_no_target(batch):
         e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
         dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
         dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
-        total_charge_A=torch.tensor(
-            [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
-        ),
-        total_charge_B=torch.tensor(
-            [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
-        ),
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
         indA=torch.cat(local_indA, dim=0),
         indB=torch.cat(local_indB, dim=0),
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
     )
     return batched_data
 
@@ -373,27 +436,56 @@ def ap2_fused_collate_update_no_target_monomer_indices(batch):
         local_indB.append(
             torch.ones(data.RB.size(0), dtype=data.dimer_ind_lr.dtype) * i
         )
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    indA_cat = torch.cat(local_indA, dim=0)
+    indB_cat = torch.cat(local_indB, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=indA_cat,
+        total_charge=total_charge_A_tensor,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=indB_cat,
+        total_charge=total_charge_B_tensor,
+    )
+    
     batched_data = Data(
-        ZA=torch.cat([data.ZA for data in batch], dim=0),
-        RA=torch.cat([data.RA for data in batch], dim=0),
-        ZB=torch.cat([data.ZB for data in batch], dim=0),
-        RB=torch.cat([data.RB for data in batch], dim=0),
-        e_AA_source=torch.cat(local_e_AA_source, dim=0),
-        e_AA_target=torch.cat(local_e_AA_target, dim=0),
-        e_BB_source=torch.cat(local_e_BB_source, dim=0),
-        e_BB_target=torch.cat(local_e_BB_target, dim=0),
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
         e_ABsr_source=torch.cat(local_e_ABsr_source, dim=0),
         e_ABsr_target=torch.cat(local_e_ABsr_target, dim=0),
         e_ABlr_source=torch.cat(local_e_ABlr_source, dim=0),
         e_ABlr_target=torch.cat(local_e_ABlr_target, dim=0),
         dimer_ind=torch.cat([data.dimer_ind for data in batch], dim=0),
         dimer_ind_lr=torch.cat([data.dimer_ind_lr for data in batch], dim=0),
-        total_charge_A=torch.tensor(
-            [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
-        ),
-        total_charge_B=torch.tensor(
-            [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
-        ),
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
         qA=torch.cat([data.qA for data in batch], dim=0),
         muA=torch.cat([data.muA for data in batch], dim=0),
         quadA=torch.cat([data.quadA for data in batch], dim=0),
@@ -402,8 +494,132 @@ def ap2_fused_collate_update_no_target_monomer_indices(batch):
         muB=torch.cat([data.muB for data in batch], dim=0),
         quadB=torch.cat([data.quadB for data in batch], dim=0),
         hlistB=torch.cat([data.hlistB for data in batch], dim=0),
-        indA=torch.cat(local_indA, dim=0),
-        indB=torch.cat(local_indB, dim=0),
+        indA=indA_cat,
+        indB=indB_cat,
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
+    )
+    return batched_data
+
+
+def ap3_fused_collate_update(batch):
+    monA_edge_offset, monB_edge_offset = 0, 0
+    local_e_ABsr_source = []
+    local_e_ABsr_target = []
+    local_e_ABlr_source = []
+    local_e_ABlr_target = []
+    local_e_AA_source = []
+    local_e_AA_target = []
+    local_e_BB_source = []
+    local_e_BB_target = []
+    for i, data in enumerate(batch):
+        data.dimer_ind = (
+            torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
+        )
+        data.dimer_ind_lr = (
+            torch.ones(data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
+        )
+        data.dimer_ind_full = (
+            torch.ones(data.e_ABsr_source.size(0) + data.e_ABlr_source.size(0), dtype=data.dimer_ind_lr.dtype) * i
+        )
+        local_e_ABsr_source.append(data.e_ABsr_source.clone() + monA_edge_offset)
+        local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
+        local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
+        local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
+        local_e_AA_source.append(data.e_AA_source.clone() + monA_edge_offset)
+        local_e_AA_target.append(data.e_AA_target.clone() + monA_edge_offset)
+        local_e_BB_source.append(data.e_BB_source.clone() + monB_edge_offset)
+        local_e_BB_target.append(data.e_BB_target.clone() + monB_edge_offset)
+        monA_edge_offset += data.RA.size(0)
+        monB_edge_offset += data.RB.size(0)
+    ZA_cat = torch.cat([data.ZA for data in batch], dim=0)
+    RA_cat = torch.cat([data.RA for data in batch], dim=0)
+    ZB_cat = torch.cat([data.ZB for data in batch], dim=0)
+    RB_cat = torch.cat([data.RB for data in batch], dim=0)
+    e_AA_source_cat = torch.cat(local_e_AA_source, dim=0)
+    e_AA_target_cat = torch.cat(local_e_AA_target, dim=0)
+    e_BB_source_cat = torch.cat(local_e_BB_source, dim=0)
+    e_BB_target_cat = torch.cat(local_e_BB_target, dim=0)
+    total_charge_A_tensor = torch.tensor(
+        [data.total_charge_A for data in batch], dtype=batch[0].total_charge_A.dtype
+    )
+    total_charge_B_tensor = torch.tensor(
+        [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
+    )
+    molecule_ind_A = torch.cat(
+        [torch.ones(data.RA.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    molecule_ind_B = torch.cat(
+        [torch.ones(data.RB.size(0), dtype=torch.long) * i for i, data in enumerate(batch)],
+        dim=0,
+    )
+    natom_per_mol_A = torch.tensor(
+        [data.RA.size(0) for data in batch], dtype=torch.long
+    )
+    natom_per_mol_B = torch.tensor(
+        [data.RB.size(0) for data in batch], dtype=torch.long
+    )
+    
+    batch_atomic_A = Data(
+        x=ZA_cat,
+        edge_index=torch.vstack((e_AA_source_cat, e_AA_target_cat)),
+        R=RA_cat,
+        molecule_ind=molecule_ind_A,
+        total_charge=total_charge_A_tensor,
+        natom_per_mol=natom_per_mol_A,
+    )
+    
+    batch_atomic_B = Data(
+        x=ZB_cat,
+        edge_index=torch.vstack((e_BB_source_cat, e_BB_target_cat)),
+        R=RB_cat,
+        molecule_ind=molecule_ind_B,
+        total_charge=total_charge_B_tensor,
+        natom_per_mol=natom_per_mol_B,
+    )
+    
+    e_ABsr_source_cat = torch.cat(local_e_ABsr_source, dim=0)
+    e_ABsr_target_cat = torch.cat(local_e_ABsr_target, dim=0)
+    e_ABlr_source_cat = torch.cat(local_e_ABlr_source, dim=0)
+    e_ABlr_target_cat = torch.cat(local_e_ABlr_target, dim=0)
+    
+    e_ABfull_source = torch.cat([e_ABsr_source_cat, e_ABlr_source_cat], dim=0)
+    e_ABfull_target = torch.cat([e_ABsr_target_cat, e_ABlr_target_cat], dim=0)
+    
+    dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
+    dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
+    dimer_ind_full = torch.cat(
+        [data.dimer_ind_full for data in batch], dim=0
+    )
+    
+    batched_data = Data(
+        ZA=ZA_cat,
+        RA=RA_cat,
+        ZB=ZB_cat,
+        RB=RB_cat,
+        e_AA_source=e_AA_source_cat,
+        e_AA_target=e_AA_target_cat,
+        e_BB_source=e_BB_source_cat,
+        e_BB_target=e_BB_target_cat,
+        molecule_ind_A=molecule_ind_A,
+        molecule_ind_B=molecule_ind_B,
+        natom_per_mol_A=natom_per_mol_A,
+        natom_per_mol_B=natom_per_mol_B,
+        e_ABsr_source=e_ABsr_source_cat,
+        e_ABsr_target=e_ABsr_target_cat,
+        e_ABlr_source=e_ABlr_source_cat,
+        e_ABlr_target=e_ABlr_target_cat,
+        e_ABfull_source=e_ABfull_source,
+        e_ABfull_target=e_ABfull_target,
+        dimer_ind=dimer_ind_cat,
+        dimer_ind_lr=dimer_ind_lr_cat,
+        dimer_ind_full=dimer_ind_full,
+        total_charge_A=total_charge_A_tensor,
+        total_charge_B=total_charge_B_tensor,
+        y=torch.stack([data.y for data in batch], dim=0),
+        batch_atomic_A=batch_atomic_A,
+        batch_atomic_B=batch_atomic_B,
     )
     return batched_data
 
@@ -525,6 +741,52 @@ def ap2_fused_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
     return dimer_data
 
 
+def save_hdf5_data_objects(data_objects, filepath):
+    """Save list of data objects to HDF5 format"""
+    with h5py.File(filepath, 'w') as f:
+        for i, data_obj in enumerate(data_objects):
+            group = f.create_group(f'data_{i}')
+            # Save essential tensor and scalar attributes
+            essential_attrs = [
+                'ZA', 'RA', 'ZB', 'RB', 'e_ABsr_source', 'e_ABsr_target',
+                'e_ABlr_source', 'e_ABlr_target', 'e_AA_source', 'e_AA_target',
+                'e_BB_source', 'e_BB_target', 'dimer_ind', 'dimer_ind_lr',
+                'molecule_ind_A', 'molecule_ind_B', 'total_charge_A', 'total_charge_B',
+                'qA', 'muA', 'quadA', 'hlistA', 'qB', 'muB', 'quadB', 'hlistB',
+                'y'  # Essential for training
+            ]
+            for attr_name in essential_attrs:
+                if hasattr(data_obj, attr_name):
+                    attr_value = getattr(data_obj, attr_name)
+                    if isinstance(attr_value, torch.Tensor):
+                        group.create_dataset(attr_name, data=attr_value.numpy())
+                    elif isinstance(attr_value, (int, float)):
+                        group.attrs[attr_name] = attr_value
+
+
+def load_hdf5_data_objects(filepath):  # type: ignore
+    """Load list of data objects from HDF5 format"""
+    data_objects = []
+    with h5py.File(filepath, 'r') as f:
+        for key in sorted(f.keys()):
+            if key.startswith('data_'):
+                group = f[key]
+                data_dict = {}
+                # Load datasets (tensor data)
+                for ds_name in group.keys():
+                    try:
+                        # Try to load as array first
+                        data_dict[ds_name] = torch.from_numpy(group[ds_name][:])
+                    except ValueError:
+                        # If that fails, it's a scalar
+                        data_dict[ds_name] = torch.tensor(group[ds_name][()])
+                # Load attributes (scalar data)
+                for attr_name, attr_value in group.attrs.items():
+                    data_dict[attr_name] = attr_value
+                data_objects.append(Data(**data_dict))
+    return data_objects
+
+
 class ap2_fused_module_dataset(Dataset):
     def __init__(
         self,
@@ -555,6 +817,7 @@ class ap2_fused_module_dataset(Dataset):
         energy_labels: Optional[List[float]] = None,
         random_seed=42,
         check_monomer_validity=True,
+        storage_type="pt",  # "pt" or "h5" for storage format
     ):
         """
         spec_type definitions:
@@ -572,6 +835,11 @@ class ap2_fused_module_dataset(Dataset):
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
         self.spec_type = spec_type
+
+        # Validate storage_type
+        if storage_type not in ["pt", "h5"]:
+            raise ValueError("storage_type must be 'pt' or 'h5'")
+        self.storage_type = storage_type
 
         self.qcel_molecules = None
         self.energy_labels = None
@@ -649,6 +917,11 @@ class ap2_fused_module_dataset(Dataset):
         self.active_data = None
 
     @property
+    def file_extension(self):
+        """Return the file extension based on storage type"""
+        return ".h5" if self.storage_type == "h5" else ".pt"
+
+    @property
     def raw_file_names(self):
         # TODO: enable users to specify data source via QCArchive, url, or local file
         # spec_1 = "spec_1" # 'SAPT0/jun-cc-pVDZ'
@@ -696,14 +969,14 @@ class ap2_fused_module_dataset(Dataset):
             if self.split == "train":
                 file_cmd = f"{self.root}/processed/dimer_ap2_fused_train_spec_{
                     self.spec_type
-                }_*.pt"
+                }_*{self.file_extension}"
             elif self.split == "test":
                 file_cmd = f"{self.root}/processed/dimer_ap2_fused_test_spec_{
                     self.spec_type
-                }_*.pt"
+                }_*{self.file_extension}"
             else:
                 file_cmd = (
-                    f"{self.root}/processed/dimer_ap2_fused_spec_{self.spec_type}_*.pt"
+                    f"{self.root}/processed/dimer_ap2_fused_spec_{self.spec_type}_*{self.file_extension}"
                 )
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]
@@ -724,7 +997,7 @@ class ap2_fused_module_dataset(Dataset):
                 return spec_files
             else:
                 # Forces a re-processing of the dataset
-                return ["dimer_missing.pt"]
+                return [f"dimer_missing{self.file_extension}"]
 
     @property
     def processed_file_names(self):
@@ -842,7 +1115,7 @@ class ap2_fused_module_dataset(Dataset):
                     self.processed_dir,
                     f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
-                    }.pt",
+                    }{self.file_extension}",
                 )
                 if osp.exists(datapath):
                     idx += 1
@@ -879,15 +1152,18 @@ class ap2_fused_module_dataset(Dataset):
                     self.data.append(data_objects)
                 else:
                     datapath = osp.join(
-                        self.processed_dir,
-                        f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
-                            idx // self.points_per_file
-                        }.pt",
+                    self.processed_dir,
+                    f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
+                        idx // self.points_per_file
+                    }{self.file_extension}",
                     )
                     if self.print_level >= 2:
                         print(f"Saving to {datapath}")
                         print(len(data_objects))
-                    torch.save(data_objects, datapath)
+                    if self.storage_type == "h5":
+                        save_hdf5_data_objects(data_objects, datapath)
+                    else:
+                        torch.save(data_objects, datapath)
                 data_objects = []
                 if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
                     break
@@ -907,22 +1183,30 @@ class ap2_fused_module_dataset(Dataset):
                     self.processed_dir,
                     f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{
                         idx // self.points_per_file
-                    }.pt",
+                    }{self.file_extension}",
                 )
                 if self.print_level >= 2:
                     print(f"Final Saving to {datapath}")
                     print(len(data_objects))
-                torch.save(data_objects, datapath)
+                if self.storage_type == "h5":
+                    save_hdf5_data_objects(data_objects, datapath)
+                else:
+                    torch.save(data_objects, datapath)
         return
 
     def len(self):
         if self.in_memory:
             return len(self.data)
 
-        d = torch.load(
-            osp.join(self.processed_dir, self.processed_file_names[-1]),
-            weights_only=False,
-        )
+        if self.storage_type == "h5":
+            d = load_hdf5_data_objects(
+                osp.join(self.processed_dir, self.processed_file_names[-1])
+            )
+        else:
+            d = torch.load(
+                osp.join(self.processed_dir, self.processed_file_names[-1]),
+                weights_only=False,
+            )
         return (
             len(self.processed_file_names) - 1
         ) * self.datapoint_storage_n_objects + len(d)
@@ -937,9 +1221,12 @@ class ap2_fused_module_dataset(Dataset):
             split_name = f"_{self.split}" if self.split != "all" else ""
         datapath = osp.join(
             self.processed_dir,
-            f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{idx_datapath}.pt",
+            f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{idx_datapath}{self.file_extension}",
         )
-        self.active_data = torch.load(datapath, weights_only=False)
+        if self.storage_type == "h5":
+            self.active_data = load_hdf5_data_objects(datapath)
+        else:
+            self.active_data = torch.load(datapath, weights_only=False)
         try:
             self.active_data[obj_ind]
         except Exception:

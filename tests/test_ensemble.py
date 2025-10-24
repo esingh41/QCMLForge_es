@@ -136,6 +136,7 @@ def test_am_ensemble_compile():
     assert np.allclose(qp, qp_ref, atol=1e-6)
 
 
+@pytest.mark.skip("Models no longer available vi PyPI")
 def test_ap2_ensemble_compile():
     print("Testing AP2 ensemble...")
     ref = torch.load(
@@ -258,5 +259,5 @@ if __name__ == "__main__":
     # test_am_ensemble()
     # test_ap2_ensemble()
     # test_ap2_ensemble_predict_pairs()
-    # test_ap2_fused_ensemble()
-    test_ap2_fused_ensemble_predict_pairs()
+    test_ap2_fused_ensemble()
+    # test_ap2_fused_ensemble_predict_pairs()
