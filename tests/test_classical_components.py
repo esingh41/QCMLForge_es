@@ -1439,8 +1439,56 @@ def test_induced_dipole_torch_intramolecular():
     return
 
 
+def test_intramolecular_induced_dipole():
+    df = pd.read_pickle(
+        file_dir + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    
+    molA = mol.get_fragment(0)
+    
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    vrA = r["vol_ratios_A pbe0/atz"]
+    vwA = r["val_widths_A pbe0/atz"]
+    
+    q_returned, mu_induced, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
+        qcel_mol=molA,
+        q=qA,
+        mu=muA,
+        theta=thetaA,
+        hirshfeld_volume_ratio=vrA,
+        valence_widths=vwA,
+    )
+    
+    # assert q_returned.shape == (3,), f"Expected shape (3,) for charges, got {q_returned.shape}"
+    assert mu_induced.shape == (3, 3), f"Expected shape (3, 3) for induced dipoles, got {mu_induced.shape}"
+    # assert theta_returned.shape == (3, 3, 3), f"Expected shape (3, 3, 3) for quadrupoles, got {theta_returned.shape}"
+    
+    # assert np.allclose(q_returned, qA.flatten()), "Charges should be unchanged"
+    # assert np.allclose(theta_returned, thetaA), "Quadrupoles should be unchanged"
+    
+    assert not np.allclose(mu_induced, 0.0), "Induced dipoles should be non-zero"
+    assert np.max(np.abs(mu_induced)) < 1.0, f"Induced dipoles seem too large: max={np.max(np.abs(mu_induced))}"
+    
+    print(f"Original charges: {qA.flatten()}")
+    print(f"Returned charges: {q_returned}")
+    print(f"Original dipoles shape: {muA.shape}")
+    print(f"Induced dipoles shape: {mu_induced.shape}")
+    print(f"Original Induced dipoles:\n{muA}")
+    print(f"Induced dipoles:\n{mu_induced}")
+    print(f"Max induced dipole magnitude: {np.max(np.abs(mu_induced)):.6f}")
+    
+    return
+
+
 if __name__ == "__main__":
-    test_induced_dipole_torch_intramolecular()
+    test_intramolecular_induced_dipole()
+    # test_induced_dipole_torch_intramolecular()
     # test_elst_damping_dipole_torch_df()
     # test_elst_multipoles_MTP_torch_damping()
     # test_elst_damping_dipole_torch_df()
