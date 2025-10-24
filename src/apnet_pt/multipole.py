@@ -1536,5 +1536,126 @@ ind_params[s2] = [1.14769962, 0.685558974, 0.685558974]
     return E_ind
 
 
+def intramolecular_induced_dipole(
+    qcel_mol: qcel.models.Molecule,
+    q: np.ndarray,
+    mu: np.ndarray,
+    theta: np.ndarray,
+    hirshfeld_volume_ratio: np.ndarray,
+    valence_widths: np.ndarray,
+    atom_polarizabilities: np.ndarray = None,
+    max_iterations: int = 200,
+    convergence_threshold: float = 1e-8,
+    omega: float = 0.7,
+    thole_damping_param: float = 0.39,
+) -> tuple:
+    """
+    Calculate intramolecular induced dipoles for a single molecule using
+    its multipole moments and Hirshfeld volume ratios. Follow classical
+    induction model from CLIFF paper:
+    https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
+    
+    Parameters
+    ----------
+    qcel_mol : qcelemental.models.Molecule
+        The molecule object
+    q : np.ndarray
+        Atomic charges (n_atoms,)
+    mu : np.ndarray
+        Atomic dipole moments (n_atoms, 3)
+    theta : np.ndarray
+        Atomic quadrupole moments (n_atoms, 3, 3)
+    hirshfeld_volume_ratio : np.ndarray
+        Hirshfeld volume ratios for polarizability scaling (n_atoms,)
+    valence_widths : np.ndarray
+        Valence widths for each atom (n_atoms,)
+    atom_polarizabilities : np.ndarray, optional
+        Explicit atomic polarizabilities. If None, calculated from Hirshfeld ratios
+    max_iterations : int
+        Maximum number of SCF iterations
+    convergence_threshold : float
+        Convergence threshold for induced dipoles
+    omega : float
+        Damping parameter for SCF convergence (0.7 recommended)
+    thole_damping_param : float
+        Thole damping parameter (0.39 recommended)
+    
+    Returns
+    -------
+    tuple
+        (charges, induced_dipoles, quadrupoles) as numpy arrays
+        - charges: original charges (n_atoms,)
+        - induced_dipoles: converged induced dipole moments (n_atoms, 3)
+        - quadrupoles: original quadrupoles (n_atoms, 3, 3)
+    """
+    
+    R = qcel_mol.geometry
+    Z = qcel_mol.atomic_numbers
+    alpha_0 = np.array([free_atom_polarizabilities[i] for i in Z])
+    hirshfeld_volume_ratio = hirshfeld_volume_ratio.flatten()
+    
+    alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
+    
+    if atom_polarizabilities is not None:
+        alpha = atom_polarizabilities.flatten()
+    
+    n_atoms = len(R)
+    q_flat = q.flatten()
+    
+    T_abij = np.zeros((n_atoms, n_atoms, 13, 13))
+    M = np.zeros((n_atoms, 13))
+    M[:, 0] = q_flat
+    M[:, 1:4] = mu
+    M[:, 4:13] = theta.reshape(n_atoms, 9)
+    
+    for i in range(n_atoms):
+        for j in range(n_atoms):
+            if i == j:
+                T_abij[i, j, :, :] = np.zeros((13, 13))
+                continue
+            T0, T1, T2, T3, T4 = T_cart_Thole_damping(
+                R[i], R[j], alpha[i], alpha[j], thole_damping_param
+            )
+            T_abij[i, j, 0, 0] = T0
+            T_abij[i, j, 0, 1:4] = T1
+            T_abij[i, j, 1:4, 0] = T1
+            T_abij[i, j, 1:4, 1:4] = T2
+            T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
+            T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
+            T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
+            T_abij[i, j, 0, 4:13] = T2.reshape(9)
+            T_abij[i, j, 4:13, 0] = T2.reshape(9)
+    
+    mu_induced_0 = np.zeros((n_atoms, 3))
+    mu_induced_0[:, :] = np.einsum(
+        "a,abi,b->ai", alpha, T_abij[:, :, 1:4, 0], M[:, 0]
+    )
+    mu_induced_0[:, :] += np.einsum(
+        "a,abij,bj->ai", alpha, T_abij[:, :, 1:4, 1:4], M[:, 1:4]
+    )
+    
+    mu_induced = mu_induced_0.copy()
+    
+    for iteration in range(max_iterations):
+        mu_induced_old = mu_induced.copy()
+        mu_sum = np.zeros_like(mu_induced)
+        for i in range(n_atoms):
+            mu_sum[i] = alpha[i] * np.einsum(
+                "nij,nj->i",
+                T_abij[i, :, 1:4, 1:4],
+                mu_induced,
+            )
+        mu_sum += mu_induced_0
+        mu_induced = (1 - omega) * mu_induced_old + omega * mu_sum
+        
+        delta = np.linalg.norm(mu_induced - mu_induced_old)
+        if delta < convergence_threshold:
+            break
+    
+    return q_flat, mu_induced, theta
+
+
+
+
 if __name__ == "__main__":
     T_cart()

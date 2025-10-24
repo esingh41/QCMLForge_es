@@ -1373,8 +1373,49 @@ def test_elst_damping_dipole_torch_df():
         print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
 
 
+def test_intramolecular_induced_dipole():
+    df = pd.read_pickle(
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    
+    molA = mol.get_fragment(0)
+    
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    vrA = r["vol_ratios_A pbe0/atz"]
+    vwA = r["val_widths_A pbe0/atz"]
+    
+    q_returned, mu_induced, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
+        qcel_mol=molA,
+        q=qA,
+        mu=muA,
+        theta=thetaA,
+        hirshfeld_volume_ratio=vrA,
+        valence_widths=vwA,
+    )
+    assert mu_induced.shape == (3, 3), f"Expected shape (3, 3) for induced dipoles, got {mu_induced.shape}"
+    assert not np.allclose(mu_induced, 0.0), "Induced dipoles should be non-zero"
+    assert np.max(np.abs(mu_induced)) < 1.0, f"Induced dipoles seem too large: max={np.max(np.abs(mu_induced))}"
+    mu_diff = mu_induced - muA.reshape(-1, 3)
+    
+    print(molA.to_string("psi4"))
+    print(f"charges: {q_returned}")
+    print(f"Quadrupoles:\n{theta_returned}")
+    print(f"Original dipoles:\n{muA}")
+    print(f"Induced  dipoles:\n{mu_induced}")
+    print(f"Difference (induced - original) dipoles:\n{mu_diff}")
+    return
+
+
 if __name__ == "__main__":
-    test_elst_damping_dipole_torch_df()
+    test_intramolecular_induced_dipole()
+    # test_induced_dipole_torch_intramolecular()
+    # test_elst_damping_dipole_torch_df()
     # test_elst_multipoles_MTP_torch_damping()
     # test_elst_damping_dipole_torch_df()
     # test_elst_charge_dipole_qpole()
