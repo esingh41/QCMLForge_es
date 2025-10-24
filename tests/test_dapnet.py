@@ -2,6 +2,7 @@ import numpy as np
 import apnet_pt
 import qcelemental as qcel
 import torch
+import pytest
 
 
 mol3 = qcel.models.Molecule.from_data(

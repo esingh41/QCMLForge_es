@@ -1,4 +1,7 @@
 # QCMLForge
+
+[![Tests](https://github.com/Awallace3/QCMLForge/actions/workflows/test.yml/badge.svg)](https://github.com/Awallace3/QCMLForge/actions/workflows/test.yml)
+
 Leverage QCArchive data for creating QC ML models. AP-Net2 has been
 re-implemented in PyTorch with newer versions to come.
 

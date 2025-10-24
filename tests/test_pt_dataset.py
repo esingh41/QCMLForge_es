@@ -794,7 +794,7 @@ def test_apnet2_dataset_size_prebatched_train_spec9():
     print()
     print(ds)
     print(ds.training_batch_size)
-    ap2 = APNet2Model().set_pretrained_model(model_id=0)
+    ap2 = APNet2Model()
     ap2.train(
         ds,
         n_epochs=3,
@@ -907,6 +907,7 @@ def test_dapnet2_dataset_size_prebatched():
     )
 
 
+@pytest.mark.skip("Models no longer available vi PyPI")
 def test_dapnet2_dataset_ap2_stored_size_prebatched():
     batch_size = 2
     datapoint_storage_n_objects = 8
@@ -960,6 +961,7 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched():
     )
 
 
+@pytest.mark.skip("Models no longer available vi PyPI")
 def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
     batch_size = 2
     atomic_batch_size = 4
@@ -1002,6 +1004,7 @@ def test_dapnet2_dataset_ap2_stored_size_prebatched_train():
     return
 
 
+@pytest.mark.skip("Models no longer available vi PyPI")
 def test_dapnet2_dataset_size_prebatched_train():
     batch_size = 2
     atomic_batch_size = 4
@@ -1164,7 +1167,7 @@ def test_apnet2_model_train():
         ds_num_devices=1,
         ds_skip_process=False,
         # ds_max_size=10,
-    ).set_pretrained_model(model_id=0)
+    )
     apnet2.train(
         model_path="./models/ap2_test.pt",
         n_epochs=1,
@@ -1204,7 +1207,7 @@ def test_apnet2_model_train_small():
         ds_num_devices=1,
         ds_skip_process=False,
         # ds_max_size=10,
-    ).set_pretrained_model(model_id=0)
+    )
     apnet2.train(
         model_path="./models/ap2_test.pt",
         n_epochs=1,
