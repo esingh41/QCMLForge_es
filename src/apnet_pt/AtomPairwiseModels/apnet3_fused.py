@@ -291,7 +291,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         dR = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
         return dR, dR_xyz
 
-    @torch.compile
+    # @torch.compile
     def readouts(self, H):
         return torch.cat(
             [

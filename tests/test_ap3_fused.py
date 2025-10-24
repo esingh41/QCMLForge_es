@@ -11,6 +11,7 @@ from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
 from glob import glob
 import pandas as pd
 import pytest
+import shutil
 
 torch.manual_seed(42)
 spec_type = 5
@@ -168,7 +169,6 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
         am_dimer_param_model=atom_type_elst_model,
-        # pre_trained_model_path=ap3_path,
         use_precomputed_classical=False,
     )
     print(ap3)
@@ -195,6 +195,11 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
 
 @pytest.mark.xdist_group(name="io_operations")
 def test_ap3_fused_train_qcel_molecules_in_memory_precompute():
+    try:
+        for i in glob(f"{data_path}/processed/dimer_ap3*"):
+            os.remove(i)
+    except:
+        pass
     batch_size = 2
     atomic_batch_size = 4
     datapoint_storage_n_objects = 6
@@ -246,11 +251,11 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute():
     # print(atom_type_elst_model.atom_model)
     print(atom_type_elst_model.dimer_model.AtomTypeParam)
     ap3 = APNet3_AtomType_Model(
+        dataset=ds,
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
         am_dimer_param_model=atom_type_elst_model,
-        pre_trained_model_path=ap3_path,
         use_precomputed_classical=False,
         ds_class_type="pt"
     )
@@ -274,6 +279,8 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute():
     v = ap3.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
     print(v_0, v)
     assert np.allclose(v_0, v, atol=1e-6)
+    for i in glob(f"{data_path}/processed/dimer_ap3*"):
+        os.remove(i)
 
 
 @pytest.mark.xdist_group(name="io_operations")
@@ -681,7 +688,6 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb():
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
         am_dimer_param_model=atom_type_elst_model,
-        pre_trained_model_path=ap3_path,
         use_precomputed_classical=False,
     )
     print(ap3)
@@ -704,14 +710,15 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb():
     v = ap3.predict_qcel_mols(qcel_molecules[0:2], batch_size=2)
     print(v_0, v)
     assert np.allclose(v_0, v, atol=1e-6)
+    # need to cleanup lmdb_ap3_fused_spec_None in data_path/processed
+    shutil.rmtree(f"{data_path}/processed/lmdb_ap3_fused_spec_None")
 
 
 if __name__ == "__main__":
     # test_classical_ap3()
     # test_classical_ap3_long_range()
-    test_classical_ap3_induction()
     # test_ap3_fused_train_qcel_molecules_in_memory()
     # test_ap3_fused_train_qcel_molecules_in_memory_precompute()
     # test_classical_ap3_induction()
     # test_ap3_fused_lmdb_dataset()
-    # test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb()
+    test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb()
