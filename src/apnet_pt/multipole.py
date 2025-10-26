@@ -1125,6 +1125,9 @@ mu_next:
         mu_induced_old = mu_induced.copy()
         mu_sum = np.zeros_like(mu_induced)
         for i in range(n_atoms_total):
+            # CLIFF Eq. 20 is wrong, should be Eq. 6 from
+            # https://pubs.acs.org/doi/10.1021/ct200304d where update is
+            # restricted to induced_dipoles only (not permanent multipoles)
             mu_sum[i] = alpha_all[i] * np.einsum(
                 "nij,nj->i",
                 T_abij[i, :, 1:4, 1:4],
@@ -1548,6 +1551,8 @@ def intramolecular_induced_dipole(
     convergence_threshold: float = 1e-8,
     omega: float = 0.7,
     thole_damping_param: float = 0.39,
+    zero_dipoles: bool = False,
+    zero_quadrupoles: bool = False,
 ) -> tuple:
     """
     Calculate intramolecular induced dipoles for a single molecule using
@@ -1579,6 +1584,8 @@ def intramolecular_induced_dipole(
         Damping parameter for SCF convergence (0.7 recommended)
     thole_damping_param : float
         Thole damping parameter (0.39 recommended)
+    zero_dipoles : bool
+        If True, set multipole dipoles to zero to see if induced dipoles recover them.
     
     Returns
     -------
@@ -1627,12 +1634,23 @@ def intramolecular_induced_dipole(
             T_abij[i, j, 4:13, 0] = T2.reshape(9)
     
     mu_induced_0 = np.zeros((n_atoms, 3))
+    if zero_dipoles:
+        M[:, 1:4] = 0.0
+
+    if zero_quadrupoles:
+        M[:, 4:13] = 0.0
+
     mu_induced_0[:, :] = np.einsum(
         "a,abi,b->ai", alpha, T_abij[:, :, 1:4, 0], M[:, 0]
     )
     mu_induced_0[:, :] += np.einsum(
         "a,abij,bj->ai", alpha, T_abij[:, :, 1:4, 1:4], M[:, 1:4]
     )
+    mu_induced_0[:, :] += np.einsum(
+        "a,abik,bk->ai", alpha, T_abij[:, :, 1:4, 4:13], M[:, 4:13]
+    )
+    print("mu(0):")
+    print(mu_induced_0)
     
     mu_induced = mu_induced_0.copy()
     

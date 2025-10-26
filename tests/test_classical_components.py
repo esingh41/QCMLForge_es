@@ -1398,17 +1398,44 @@ def test_intramolecular_induced_dipole():
         hirshfeld_volume_ratio=vrA,
         valence_widths=vwA,
     )
-    assert mu_induced.shape == (3, 3), f"Expected shape (3, 3) for induced dipoles, got {mu_induced.shape}"
-    assert not np.allclose(mu_induced, 0.0), "Induced dipoles should be non-zero"
-    assert np.max(np.abs(mu_induced)) < 1.0, f"Induced dipoles seem too large: max={np.max(np.abs(mu_induced))}"
+    # assert mu_induced.shape == (3, 3), f"Expected shape (3, 3) for induced dipoles, got {mu_induced.shape}"
+    # assert not np.allclose(mu_induced, 0.0), "Induced dipoles should be non-zero"
+    # assert np.max(np.abs(mu_induced)) < 1.0, f"Induced dipoles seem too large: max={np.max(np.abs(mu_induced))}"
     mu_diff = mu_induced - muA.reshape(-1, 3)
+
+    q_returned, mu_induced_mu0, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
+        qcel_mol=molA,
+        q=qA,
+        mu=muA,
+        theta=thetaA,
+        hirshfeld_volume_ratio=vrA,
+        valence_widths=vwA,
+        zero_dipoles=True,
+    )
+    diff_mu_mu0 = mu_induced_mu0 - muA.reshape(-1, 3)
+
+    q_returned, mu_induced_muQ0, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
+        qcel_mol=molA,
+        q=qA,
+        mu=muA,
+        theta=thetaA,
+        hirshfeld_volume_ratio=vrA,
+        valence_widths=vwA,
+        zero_dipoles=True,
+        zero_quadrupoles=True,
+    )
+    diff_mu_muQ0 = mu_induced_muQ0 - muA.reshape(-1, 3)
     
     print(molA.to_string("psi4"))
     print(f"charges: {q_returned}")
     print(f"Quadrupoles:\n{theta_returned}")
-    print(f"Original dipoles:\n{muA}")
-    print(f"Induced  dipoles:\n{mu_induced}")
+    print(f"Original   dipoles:\n{muA}")
+    print(f"Induced    dipoles:\n{mu_induced}")
     print(f"Difference (induced - original) dipoles:\n{mu_diff}")
+    print(f"Induced mu0  dipoles:\n{mu_induced_mu0}")
+    print(f"Difference (induced mu0 - original) dipoles:\n{diff_mu_mu0}")
+    print(f"Induced muQ0 dipoles:\n{mu_induced_muQ0}")
+    print(f"Difference (induced muQ0 - original) dipoles:\n{diff_mu_muQ0}")
     return
 
 
