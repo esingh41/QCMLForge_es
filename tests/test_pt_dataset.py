@@ -1481,7 +1481,6 @@ def test_AtomTypeParamModel_AM_DimerProp_train():
         skip_compile=False,
         lr=5e-5,
         split_percent=0.5,
-        model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping__induced_dipole_0.pt",
     )
 
 
@@ -1531,7 +1530,6 @@ def test_AtomTypeParamModel_AM_DimerProp_train_elst_only():
         skip_compile=False,
         lr=5e-5,
         split_percent=0.5,
-        model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
     )
 
 
@@ -1581,7 +1579,6 @@ def test_AtomTypeParamModel_AM_DimerProp_train_elst_only():
         skip_compile=False,
         lr=5e-5,
         split_percent=0.5,
-        model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
     )
 
 
@@ -1625,7 +1622,6 @@ def test_AtomTypeMPNNParamModel_AM_DimerProp_train_elst_only():
         skip_compile=False,
         lr=5e-4,
         split_percent=0.5,
-        # model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
     )
 
 
@@ -1658,7 +1654,6 @@ def test_AtomTypeParamMPNNModel_AM_DimerProp_train_elst_only_spec7():
         n_epochs=3,
         skip_compile=False,
         lr=5e-4,
-        # model_path="/home/amwalla3/projects/qcmlforge_tests/water_elst/models/ap_dimerParamModel-elst_damping_0.pt",
     )
 
 
