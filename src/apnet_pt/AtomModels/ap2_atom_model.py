@@ -21,6 +21,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import os
 from importlib import resources
 import qcelemental as qcel
+from pprint import pprint as pp
 
 warnings.filterwarnings("ignore")
 
@@ -571,7 +572,8 @@ class AtomModel:
         elif model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
-        checkpoint = torch.load(model_path)
+        checkpoint = torch.load(model_path, weights_only=False)
+        # pp(checkpoint)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
                 k.replace("_orig_mod.", ""):
