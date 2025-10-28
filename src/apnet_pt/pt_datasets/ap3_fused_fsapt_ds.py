@@ -440,9 +440,11 @@ class AP3FusedFSAPTDataset(Dataset):
         pre_filter=None,
         force_reprocess=False,
         check_monomer_validity=True,
+        spec_type=1,
         max_size=None,
         atom_model=None,
     ):
+        assert spec_type in [5], "Only spec_type 5 (FSAPT) is supported in this dataset"
         self.fsapt_dataframe = fsapt_dataframe
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
@@ -451,6 +453,7 @@ class AP3FusedFSAPTDataset(Dataset):
         self.max_size = max_size
         self.atom_model = atom_model
         self.data_list = []
+        self.spec_type = spec_type
         
         if not os.path.exists(root):
             os.makedirs(root, exist_ok=True)
@@ -463,7 +466,8 @@ class AP3FusedFSAPTDataset(Dataset):
     @property
     def raw_file_names(self):
         """Raw file names (not used if dataframe is provided directly)"""
-        return ['fsapt_data.pkl']
+        if self.spec_type == 5:
+            return ['fsapt_data.pkl']
     
     @property
     def processed_file_names(self):
@@ -608,6 +612,7 @@ class AP3FusedFSAPTDatasetLMDB(Dataset):
         pre_filter=None,
         force_reprocess=False,
         check_monomer_validity=True,
+        spec_type=1,
         max_size=None,
         atom_model=None,
         lmdb_map_size=1099511627776,
@@ -615,6 +620,7 @@ class AP3FusedFSAPTDatasetLMDB(Dataset):
         cache_size=1000,
     ):
         """Initialize LMDB-based FSAPT dataset"""
+        assert spec_type in [5], "Only spec_type 5 (FSAPT) is supported in this dataset"
         try:
             import lmdb
             import json
@@ -639,6 +645,8 @@ class AP3FusedFSAPTDatasetLMDB(Dataset):
         self.lmdb_path = None
         self._length = None
         self._worker_id = None
+        self.spec_type = spec_type
+
         
         if not os.path.exists(root):
             os.makedirs(root, exist_ok=True)
@@ -704,7 +712,8 @@ class AP3FusedFSAPTDatasetLMDB(Dataset):
     @property
     def raw_file_names(self):
         """Raw file names"""
-        return ['fsapt_data.pkl']
+        if self.spec_type == 5:
+            return ['fsapt_data.pkl']
     
     @property
     def processed_file_names(self):
