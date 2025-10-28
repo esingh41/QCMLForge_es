@@ -11,6 +11,8 @@ import qcelemental as qcel
 import torch
 import pandas as pd
 from pprint import pprint as pp
+import shutil
+import tempfile
 
 
 torch.manual_seed(42)
@@ -35,12 +37,27 @@ def test_ap3_fused_fsapt():
     # will use the Frag1_indices and Frag2_indices to sum the atomic contributions
     # to get the fragment energies for computing the loss during training.
 
-    test_df = pd.read_pickle(f"{data_path}/raw/fsapt_test_data.pkl")
-    print(test_df[['F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-Dispersion', 'F-Total']].head())
+    temp_dir = tempfile.mkdtemp()
+    test_df_path = f"{data_path}/raw/fsapt_test_data.pkl"
+    train_df_path = f"{data_path}/raw/fsapt_train_data.pkl"
+    # mkdir raw under temp_dir and copy test_df there
+    raw_dir = os.path.join(temp_dir, "raw")
+    os.makedirs(raw_dir, exist_ok=True)
+    print(f"Copying test dataframe to {raw_dir}")
+    shutil.copy(test_df_path, raw_dir)
+    shutil.copy(train_df_path, raw_dir)
+    # see if the dataframe copied correctly
+    print(os.listdir(raw_dir))
+    test_df = pd.read_pickle(test_df_path)
+    print(
+        test_df[
+            ["F-Electrostatics", "F-Exchange", "F-Induction", "F-Dispersion", "F-Total"]
+        ].head()
+    )
 
     # Create dataset from first 5 rows
     dataset = ap3_fused_fsapt_module_dataset_lmdb(
-        root=data_path,
+        root=temp_dir,
         split="test",
         spec_type=5,
         r_cut=5.0,
@@ -50,60 +67,66 @@ def test_ap3_fused_fsapt():
     )
     print(dataset)
 
-    # Test dataset length
-    assert len(dataset) == 159, f"Expected 159 data points, got {len(dataset)}"
-    print(f"Dataset length: {len(dataset)}")
+    try:
+        # Test dataset length
+        assert len(dataset) == 159, f"Expected 159 data points, got {len(dataset)}"
+        print(f"Dataset length: {len(dataset)}")
 
-    # Test getting a single data point
-    data = dataset[0]
-    print(f"\nFirst data point:")
-    print(f"  ZA shape: {data.ZA.shape}")
-    print(f"  RA shape: {data.RA.shape}")
-    print(f"  ZB shape: {data.ZB.shape}")
-    print(f"  RB shape: {data.RB.shape}")
-    print(f"  y (FSAPT labels) shape: {data.y.shape}")
-    print(f"  y values: {data.y}")
-    print(f"  frag1_ind: {data.frag1_ind}")
-    print(f"  frag2_ind: {data.frag2_ind}")
+        # Test getting a single data point
+        data = dataset[0]
+        print(f"\nFirst data point:")
+        print(f"  ZA shape: {data.ZA.shape}")
+        print(f"  RA shape: {data.RA.shape}")
+        print(f"  ZB shape: {data.ZB.shape}")
+        print(f"  RB shape: {data.RB.shape}")
+        print(f"  y (FSAPT labels) shape: {data.y.shape}")
+        print(f"  y values: {data.y}")
+        print(f"  frag1_ind: {data.frag1_ind}")
+        print(f"  frag2_ind: {data.frag2_ind}")
 
-    # Test that labels match expected FSAPT energies
-    expected_labels = torch.tensor(
-        [
-            test_df.iloc[0]["F-Electrostatics"],
-            test_df.iloc[0]["F-Exchange"],
-            test_df.iloc[0]["F-Induction"],
-            test_df.iloc[0]["F-Dispersion"],
-            test_df.iloc[0]["F-Total"],
-        ],
-        dtype=torch.float32,
-    )
-    assert torch.allclose(data.y, expected_labels), "Labels don't match expected values" f"\nExpected: {expected_labels}\nGot: {data.y}"
-    print(f"\nLabels match expected FSAPT energies!")
+        # Test that labels match expected FSAPT energies
+        expected_labels = torch.tensor(
+            [
+                test_df.iloc[0]["F-Electrostatics"],
+                test_df.iloc[0]["F-Exchange"],
+                test_df.iloc[0]["F-Induction"],
+                test_df.iloc[0]["F-Dispersion"],
+                test_df.iloc[0]["F-Total"],
+            ],
+            dtype=torch.float32,
+        )
+        assert torch.allclose(data.y, expected_labels), (
+            "Labels don't match expected values"
+            f"\nExpected: {expected_labels}\nGot: {data.y}"
+        )
+        print(f"\nLabels match expected FSAPT energies!")
 
-    # Test batch collation
-    from torch.utils.data import DataLoader
+        # Test batch collation
+        from torch.utils.data import DataLoader
 
-    dataloader = DataLoader(
-        dataset,
-        batch_size=2,
-        collate_fn=ap3_fused_fsapt_collate_update,
-    )
+        dataloader = DataLoader(
+            dataset,
+            batch_size=2,
+            collate_fn=ap3_fused_fsapt_collate_update,
+        )
 
-    batch = next(iter(dataloader))
-    print(f"\nBatched data:")
-    print(f"  Batch y shape: {batch.y.shape}")
-    print(f"  Batch ZA shape: {batch.ZA.shape}")
-    print(f"  Batch RA shape: {batch.RA.shape}")
-    print(f"  Number of fragment 1 indices: {len(batch.frag1_ind)}")
-    print(f"  Number of fragment 2 indices: {len(batch.frag2_ind)}")
+        batch = next(iter(dataloader))
+        print(f"\nBatched data:")
+        print(f"  Batch y shape: {batch.y.shape}")
+        print(f"  Batch ZA shape: {batch.ZA.shape}")
+        print(f"  Batch RA shape: {batch.RA.shape}")
+        print(f"  Number of fragment 1 indices: {len(batch.frag1_ind)}")
+        print(f"  Number of fragment 2 indices: {len(batch.frag2_ind)}")
 
-    # Verify batch size
-    assert batch.y.shape[0] == 2, f"Expected batch size 2, got {batch.y.shape[0]}"
-    assert len(batch.frag1_ind) == 2, "Expected 2 fragment 1 index tensors"
-    assert len(batch.frag2_ind) == 2, "Expected 2 fragment 2 index tensors"
+        # Verify batch size
+        assert batch.y.shape[0] == 2, f"Expected batch size 2, got {batch.y.shape[0]}"
+        assert len(batch.frag1_ind) == 2, "Expected 2 fragment 1 index tensors"
+        assert len(batch.frag2_ind) == 2, "Expected 2 fragment 2 index tensors"
 
-    print("\nAll tests passed!")
-    return
+        print("\nAll tests passed!")
+    finally:
+        # Clean up temporary directory
+        shutil.rmtree(temp_dir)
 
 
 def test_ap3_fused_fsapt_training():

@@ -931,32 +931,10 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         if self.fileserver_url:
             print(f"Downloading from fileserver: {self.fileserver_url}")
             return
-
-        print(
-            "Downloading Splinter dataset of ~1.6M Dimers. This might take a while..."
+        raise NotImplementedError(
+            "Download method not implemented. Provide qcel_molecules and energy_labels or named spec type with corresponding data files."
         )
-        splinter_spec_1_files = [
-            "https://figshare.com/ndownloader/files/39449167",
-            "https://figshare.com/ndownloader/files/40271983",
-            "https://figshare.com/ndownloader/files/40271989",
-            "https://figshare.com/ndownloader/files/40272001",
-            "https://figshare.com/ndownloader/files/40552931",
-            "https://figshare.com/ndownloader/files/40272022",
-            "https://figshare.com/ndownloader/files/40272040",
-            "https://figshare.com/ndownloader/files/40272052",
-            "https://figshare.com/ndownloader/files/40272061",
-            "https://figshare.com/ndownloader/files/40272064",
-        ]
-        for n, i in enumerate(splinter_spec_1_files):
-            download_url(
-                i,
-                self.raw_dir,
-                filename=f"splinter_spec1_{n}.tar.gz",
-            )
-        if not os.path.exists(f"{self.raw_dir}/dimerpairs"):
-            for i in range(len(splinter_spec_1_files)):
-                with tarfile.open(f"{self.raw_dir}/splinter_spec1_{i}.tar.gz") as tar:
-                    tar.extractall(self.raw_dir)
+
 
     def _process_dimer_batch(self, batch_data_list):
         """Process dimer batch with classical energies - same as original"""
