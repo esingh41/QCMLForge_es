@@ -16,6 +16,11 @@ from ..pt_datasets.ap3_fused_ds import (
     ap3_fused_collate_update,
     ap3_fused_collate_update_no_target,
 )
+from ..pt_datasets.ap3_fused_fsapt_ds import (
+    ap3_fused_fsapt_collate_update,
+    AP3FusedFSAPTDataset,
+    AP3FusedFSAPTDatasetLMDB,
+)
 from .. import constants
 from ..util import scatter_sum_compile
 import os
@@ -538,6 +543,7 @@ class APNet3_AtomType_Model:
         ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
         ds_random_seed=42,
+        ds_type="total_component_energies",
         print_lvl=0,
         ds_qcel_molecules=None,
         ds_energy_labels=None,
@@ -565,11 +571,15 @@ class APNet3_AtomType_Model:
         self.ds_class_type = ds_class_type
         if self.ds_class_type not in ["pt", "lmdb"]:
             raise ValueError("ds_class_type must be 'pt' or 'lmdb'")
-        elif self.ds_class_type == "lmdb":
+        elif self.ds_class_type == "lmdb" and ds_type == "total_component_energies":
             print("Using LMDB dataset class")
             dataset_class = ap3_fused_module_dataset_lmdb
-        else:
+        elif self.ds_class_type == "pt" and ds_type == "total_component_energies":
             dataset_class = ap3_fused_module_dataset
+        elif self.ds_class_type == "lmdb" and ds_type == "fsapt_energies":
+            dataset_class = AP3FusedFSAPTDatasetLMDB
+        elif self.ds_class_type == "pt" and ds_type == "fsapt_energies":
+            dataset_class = AP3FusedFSAPTDataset
 
         if dimer_prop_model_pre_trained_path:
             print(
