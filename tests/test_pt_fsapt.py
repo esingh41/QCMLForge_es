@@ -172,7 +172,7 @@ def test_ap3_fused_fsapt_with_multipoles():
     # Create dataset from first 3 rows with multipoles
     test_df = df.head(3)
     dataset = AP3FusedFSAPTDataset(
-        root=f"{data_path}/fsapt_multipole_test",
+        root=data_path,
         fsapt_dataframe=test_df,
         r_cut=5.0,
         r_cut_im=8.0,
@@ -248,7 +248,7 @@ def test_ap3_fused_fsapt_lmdb():
     # Create LMDB dataset from first 5 rows
     test_df = df.head(5)
     dataset = AP3FusedFSAPTDatasetLMDB(
-        root=f"{data_path}/fsapt_lmdb_test",
+        root=data_path,
         fsapt_dataframe=test_df,
         r_cut=5.0,
         r_cut_im=8.0,
