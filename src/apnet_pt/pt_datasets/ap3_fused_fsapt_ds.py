@@ -15,11 +15,13 @@ import os.path as osp
 import qcelemental as qcel
 from typing import List, Optional
 import torch
+import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.data import Dataset
 import pandas as pd
 from pathlib import Path
 from apnet_pt import constants
+from apnet_pt import atomic_datasets
 
 from .ap3_fused_ds import (
     dimer_fused_data,
@@ -35,6 +37,7 @@ def fsapt_dimer_to_fused_data(
     r_cut_im=8.0,
     dimer_ind=0,
     check_validity=True,
+    atom_model=None,
 ):
     """
     Convert FSAPT dataframe row to AP3 fused data object with fragment labels.
@@ -59,6 +62,9 @@ def fsapt_dimer_to_fused_data(
         Index of dimer in dataset
     check_validity : bool
         Check if molecular featurization is valid
+    atom_model : AtomModel, optional
+        Model for predicting atomic multipoles (charges, dipoles, quadrupoles)
+        If provided, will compute and add qA, muA, quadA, hlistA, qB, muB, quadB, hlistB
         
     Returns
     -------
@@ -111,6 +117,68 @@ def fsapt_dimer_to_fused_data(
         frag2_name=row['Frag2'],
     )
     
+    # Return None if dimer_fused_data failed
+    if data is None:
+        return None
+    
+    # Compute multipoles if atom model is provided
+    if atom_model is not None:
+        # Get r_cut from atom model
+        atom_r_cut = atom_model.model.r_cut
+        
+        # Create edge indices for both monomers
+        edge_index_A = torch.tensor(atomic_datasets.edges(RA, atom_r_cut)).long()
+        edge_index_B = torch.tensor(atomic_datasets.edges(RB, atom_r_cut)).long()
+        
+        # Create atomic data for monomer A with proper edge_index
+        molA_data = Data(
+            x=ZA.long(),
+            edge_index=edge_index_A,
+            R=RA.float(),
+            molecule_ind=torch.tensor(np.full(len(RA), 0), dtype=torch.int64),
+            total_charge=TQA.long(),
+            natom_per_mol=torch.tensor([len(RA)], dtype=torch.int64),
+        )
+        # Create atomic data for monomer B with proper edge_index
+        molB_data = Data(
+            x=ZB.long(),
+            edge_index=edge_index_B,
+            R=RB.float(),
+            molecule_ind=torch.tensor(np.full(len(RB), 0), dtype=torch.int64),
+            total_charge=TQB.long(),
+            natom_per_mol=torch.tensor([len(RB)], dtype=torch.int64),
+        )
+        
+        # Predict multipoles
+        batch_A = atomic_datasets.atomic_collate_update_no_target([molA_data])
+        qAs, muAs, quadAs, hlistAs = atom_model.predict_multipoles_batch(batch_A)
+        batch_B = atomic_datasets.atomic_collate_update_no_target([molB_data])
+        qBs, muBs, quadBs, hlistBs = atom_model.predict_multipoles_batch(batch_B)
+        
+        # Extract multipoles for this dimer
+        qA, muA, quadA, hlistA = qAs[0], muAs[0], quadAs[0], hlistAs[0]
+        qB, muB, quadB, hlistB = qBs[0], muBs[0], quadBs[0], hlistBs[0]
+        
+        # Handle dimension edge cases
+        if len(qA.size()) == 0:
+            qA = qA.unsqueeze(0).unsqueeze(0)
+        elif len(qA.size()) == 1:
+            qA = qA.unsqueeze(-1)
+        if len(qB.size()) == 0:
+            qB = qB.unsqueeze(0).unsqueeze(0)
+        elif len(qB.size()) == 1:
+            qB = qB.unsqueeze(-1)
+        
+        # Add multipoles to data object
+        data.qA = qA
+        data.muA = muA
+        data.quadA = quadA
+        data.hlistA = hlistA
+        data.qB = qB
+        data.muB = muB
+        data.quadB = quadB
+        data.hlistB = hlistB
+    
     return data
 
 
@@ -119,7 +187,9 @@ def ap3_fused_fsapt_collate_update(batch):
     Collate function for AP3 fused FSAPT dataset.
     
     Similar to ap3_fused_collate_update but also handles fragment indices
-    for computing fragment-level energies during training.
+    for computing fragment-level energies during training. Also handles
+    multipole properties (qA, muA, quadA, hlistA, qB, muB, quadB, hlistB)
+    if they are present in the data.
     
     Parameters
     ----------
@@ -285,6 +355,19 @@ def ap3_fused_fsapt_collate_update(batch):
         batch_atomic_B=batch_atomic_B,
     )
     
+    # Add multipoles if present in batch
+    if hasattr(batch[0], 'qA') and batch[0].qA is not None:
+        batched_data.qA = torch.cat([data.qA for data in batch], dim=0)
+        batched_data.muA = torch.cat([data.muA for data in batch], dim=0)
+        batched_data.quadA = torch.cat([data.quadA for data in batch], dim=0)
+        batched_data.hlistA = torch.cat([data.hlistA for data in batch], dim=0)
+    
+    if hasattr(batch[0], 'qB') and batch[0].qB is not None:
+        batched_data.qB = torch.cat([data.qB for data in batch], dim=0)
+        batched_data.muB = torch.cat([data.muB for data in batch], dim=0)
+        batched_data.quadB = torch.cat([data.quadB for data in batch], dim=0)
+        batched_data.hlistB = torch.cat([data.hlistB for data in batch], dim=0)
+    
     # Add fragment indices if present
     if len(local_frag1_indices) > 0:
         batched_data.frag1_indices = local_frag1_indices
@@ -314,6 +397,7 @@ class AP3FusedFSAPTDataset(Dataset):
     - Intra- and inter-molecular edges
     - Fragment indices for each data point
     - FSAPT energy labels for training
+    - (Optional) Atomic multipole moments if atom_model is provided
     
     During training, models predict atomic-level energies which are summed
     according to fragment indices to compute fragment-level predictions for
@@ -341,6 +425,8 @@ class AP3FusedFSAPTDataset(Dataset):
         Check if molecular featurization is valid
     max_size : int, optional
         Maximum number of data points to process
+    atom_model : AtomModel, optional
+        Pretrained atom model for computing multipoles (charges, dipoles, quadrupoles)
     """
     
     def __init__(
@@ -355,6 +441,7 @@ class AP3FusedFSAPTDataset(Dataset):
         force_reprocess=False,
         check_monomer_validity=True,
         max_size=None,
+        atom_model=None,
     ):
         self.fsapt_dataframe = fsapt_dataframe
         self.r_cut = r_cut
@@ -362,6 +449,7 @@ class AP3FusedFSAPTDataset(Dataset):
         self.force_reprocess = force_reprocess
         self.check_monomer_validity = check_monomer_validity
         self.max_size = max_size
+        self.atom_model = atom_model
         self.data_list = []
         
         if not os.path.exists(root):
@@ -426,6 +514,7 @@ class AP3FusedFSAPTDataset(Dataset):
                 r_cut_im=self.r_cut_im,
                 dimer_ind=i,
                 check_validity=self.check_monomer_validity,
+                atom_model=self.atom_model,
             )
             
             if data is None:
@@ -466,3 +555,361 @@ class AP3FusedFSAPTDataset(Dataset):
             data = self.transform(data)
         
         return data
+
+
+class AP3FusedFSAPTDatasetLMDB(Dataset):
+    """
+    LMDB-based dataset for training AP3 fused models on FSAPT fragment energies.
+    
+    This is a high-performance version of AP3FusedFSAPTDataset that uses LMDB
+    for storage instead of PT files. LMDB provides faster random access and
+    better memory efficiency for large datasets.
+    
+    Parameters
+    ----------
+    root : str
+        Root directory for storing processed data
+    fsapt_dataframe : pd.DataFrame, optional
+        DataFrame with FSAPT data
+    r_cut : float
+        Cutoff radius for intra-monomer edges (Angstrom)
+    r_cut_im : float
+        Cutoff radius for inter-monomer short-range edges (Angstrom)
+    transform : callable, optional
+        Optional transform to apply to data
+    pre_transform : callable, optional
+        Optional pre-transform to apply during processing
+    pre_filter : callable, optional
+        Optional filter to apply during processing
+    force_reprocess : bool
+        Force reprocessing of dataset
+    check_monomer_validity : bool
+        Check if molecular featurization is valid
+    max_size : int, optional
+        Maximum number of data points to process
+    atom_model : AtomModel, optional
+        Pretrained atom model for computing multipoles
+    lmdb_map_size : int
+        Maximum size of LMDB database in bytes (default 1TB)
+    lmdb_readonly : bool
+        Open LMDB in read-only mode
+    cache_size : int
+        Number of recently accessed items to keep in memory
+    """
+    
+    def __init__(
+        self,
+        root,
+        fsapt_dataframe: Optional[pd.DataFrame] = None,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        transform=None,
+        pre_transform=None,
+        pre_filter=None,
+        force_reprocess=False,
+        check_monomer_validity=True,
+        max_size=None,
+        atom_model=None,
+        lmdb_map_size=1099511627776,
+        lmdb_readonly=False,
+        cache_size=1000,
+    ):
+        """Initialize LMDB-based FSAPT dataset"""
+        try:
+            import lmdb
+            import json
+        except ImportError:
+            raise ImportError("lmdb package is required. Install with: pip install lmdb")
+        
+        self.lmdb = lmdb
+        self.json = json
+        self.fsapt_dataframe = fsapt_dataframe
+        self.r_cut = r_cut
+        self.r_cut_im = r_cut_im
+        self.force_reprocess = force_reprocess
+        self.check_monomer_validity = check_monomer_validity
+        self.max_size = max_size
+        self.atom_model = atom_model
+        self.lmdb_map_size = lmdb_map_size
+        self.lmdb_readonly = lmdb_readonly
+        self.cache_size = cache_size
+        self._cache = {}
+        self._cache_keys = []
+        self.lmdb_env = None
+        self.lmdb_path = None
+        self._length = None
+        self._worker_id = None
+        
+        if not os.path.exists(root):
+            os.makedirs(root, exist_ok=True)
+        
+        # Initialize LMDB path before parent class init
+        self.lmdb_path = osp.join(root, "processed", "lmdb_fsapt")
+        self._init_lmdb()
+        
+        super(AP3FusedFSAPTDatasetLMDB, self).__init__(root, transform, pre_transform, pre_filter)
+        
+        if self.force_reprocess:
+            self.force_reprocess = False
+            self._close_lmdb()
+            super(AP3FusedFSAPTDatasetLMDB, self).__init__(
+                root, transform, pre_transform, pre_filter
+            )
+            self._init_lmdb()
+    
+    def _init_lmdb(self):
+        """Initialize LMDB environment"""
+        # Ensure lmdb_path is set
+        if self.lmdb_path is None:
+            raise RuntimeError("lmdb_path must be set before calling _init_lmdb")
+        
+        if not osp.exists(self.lmdb_path):
+            os.makedirs(self.lmdb_path, exist_ok=True)
+        
+        try:
+            self.lmdb_env = self.lmdb.open(
+                self.lmdb_path,
+                map_size=self.lmdb_map_size,
+                readonly=self.lmdb_readonly,
+                max_dbs=0,
+                lock=not self.lmdb_readonly,
+                max_readers=256,
+            )
+            
+            with self.lmdb_env.begin() as txn:
+                metadata_bytes = txn.get(b'__metadata__')
+                if metadata_bytes:
+                    metadata = self.json.loads(metadata_bytes.decode('utf-8'))
+                    self._length = metadata.get('length', 0)
+                else:
+                    self._length = 0
+        except Exception as e:
+            print(f"Error initializing LMDB: {e}")
+            self.lmdb_env = None
+            self._length = 0
+    
+    def _close_lmdb(self):
+        """Close LMDB environment"""
+        if self.lmdb_env is not None:
+            self.lmdb_env.close()
+            self.lmdb_env = None
+    
+    def __del__(self):
+        """Cleanup LMDB on deletion"""
+        try:
+            self._close_lmdb()
+        except:
+            pass
+    
+    @property
+    def raw_file_names(self):
+        """Raw file names"""
+        return ['fsapt_data.pkl']
+    
+    @property
+    def processed_file_names(self):
+        """Check if LMDB database exists and has data"""
+        if self.force_reprocess:
+            return ["force_reprocess"]
+        
+        if not hasattr(self, 'lmdb_path') or self.lmdb_path is None:
+            return ["lmdb_missing"]
+        
+        if osp.exists(self.lmdb_path):
+            env = None
+            try:
+                env = self.lmdb.open(
+                    self.lmdb_path,
+                    readonly=True,
+                    lock=False,
+                    max_dbs=0,
+                    create=False,
+                    max_readers=256
+                )
+                with env.begin() as txn:
+                    metadata_bytes = txn.get(b'__metadata__')
+                    if metadata_bytes:
+                        metadata = self.json.loads(metadata_bytes.decode('utf-8'))
+                        length = metadata.get('length', 0)
+                        if length > 0:
+                            return ["lmdb_fsapt"]
+            except Exception as e:
+                print(f"Error checking LMDB: {e}")
+            finally:
+                if env is not None:
+                    try:
+                        env.close()
+                    except:
+                        pass
+        
+        return ["lmdb_missing"]
+    
+    def download(self):
+        """Download or prepare raw data"""
+        pass
+    
+    def _store_to_lmdb(self, data_objects, start_idx):
+        """Store data objects to LMDB"""
+        import pickle
+        
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+        
+        with self.lmdb_env.begin(write=True) as txn:
+            for i, data_obj in enumerate(data_objects):
+                idx = start_idx + i
+                key = str(idx).encode('utf-8')
+                value = pickle.dumps(data_obj)
+                txn.put(key, value)
+            
+            metadata = {
+                'length': start_idx + len(data_objects),
+                'r_cut': self.r_cut,
+                'r_cut_im': self.r_cut_im,
+            }
+            txn.put(b'__metadata__', self.json.dumps(metadata).encode('utf-8'))
+        
+        self._length = start_idx + len(data_objects)
+    
+    def process(self):
+        """Process FSAPT dataframe into PyTorch Geometric Data objects and store in LMDB"""
+        if self.fsapt_dataframe is None:
+            # Try to load from raw directory
+            raw_path = osp.join(self.raw_dir, 'fsapt_data.pkl')
+            if osp.exists(raw_path):
+                self.fsapt_dataframe = pd.read_pickle(raw_path)
+            else:
+                raise ValueError(
+                    "No FSAPT dataframe provided and no fsapt_data.pkl found in raw directory"
+                )
+        
+        data_list = []
+        n_rows = len(self.fsapt_dataframe)
+        if self.max_size is not None:
+            n_rows = min(n_rows, self.max_size)
+        
+        print(f"Processing {n_rows} FSAPT data points to LMDB...")
+        
+        for i in range(n_rows):
+            row = self.fsapt_dataframe.iloc[i]
+            
+            # Skip rows without valid qcel_molecule
+            if not hasattr(row.get('qcel_molecule'), 'get_fragment'):
+                print(f"Skipping row {i}: invalid qcel_molecule")
+                continue
+            
+            # Create data object
+            data = fsapt_dimer_to_fused_data(
+                row=row,
+                r_cut=self.r_cut,
+                r_cut_im=self.r_cut_im,
+                dimer_ind=i,
+                check_validity=self.check_monomer_validity,
+                atom_model=self.atom_model,
+            )
+            
+            if data is None:
+                print(f"Skipping row {i}: invalid dimer")
+                continue
+            
+            # Apply pre-filter and pre-transform
+            if self.pre_filter is not None and not self.pre_filter(data):
+                continue
+            
+            if self.pre_transform is not None:
+                data = self.pre_transform(data)
+            
+            data_list.append(data)
+            
+            # Store batch to LMDB periodically
+            if len(data_list) >= 256:
+                start_idx = i - len(data_list) + 1
+                self._store_to_lmdb(data_list, start_idx)
+                print(f"Stored {len(data_list)} objects to LMDB at index {start_idx}")
+                data_list = []
+        
+        # Store remaining data
+        if len(data_list) > 0:
+            start_idx = n_rows - len(data_list)
+            self._store_to_lmdb(data_list, start_idx)
+            print(f"Final: Stored {len(data_list)} objects to LMDB at index {start_idx}")
+        
+        print(f"Processing complete. Total: {self._length} data points")
+    
+    def len(self):
+        """Return dataset length from LMDB metadata"""
+        if self._length is not None:
+            return self._length
+        
+        if self.lmdb_env is None:
+            return 0
+        
+        with self.lmdb_env.begin() as txn:
+            metadata_bytes = txn.get(b'__metadata__')
+            if metadata_bytes:
+                metadata = self.json.loads(metadata_bytes.decode('utf-8'))
+                self._length = metadata.get('length', 0)
+            else:
+                self._length = 0
+        
+        return self._length
+    
+    def _check_worker_init(self):
+        """Ensure LMDB env is initialized for current worker process"""
+        import torch.utils.data
+        
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+        else:
+            worker_id = None
+        
+        if worker_id != self._worker_id:
+            if self.lmdb_env is not None:
+                self._close_lmdb()
+            
+            self._worker_id = worker_id
+            self._init_lmdb()
+            self._cache = {}
+            self._cache_keys = []
+    
+    def get(self, idx):
+        """Retrieve item from LMDB with caching"""
+        import pickle
+        
+        self._check_worker_init()
+        
+        # Check cache first
+        if idx in self._cache:
+            self._cache_keys.remove(idx)
+            self._cache_keys.append(idx)
+            data = self._cache[idx]
+        else:
+            # Load from LMDB
+            if self.lmdb_env is None:
+                raise RuntimeError("LMDB environment not initialized")
+            
+            with self.lmdb_env.begin() as txn:
+                key = str(idx).encode('utf-8')
+                value_bytes = txn.get(key)
+                
+                if value_bytes is None:
+                    raise IndexError(f"Index {idx} not found in LMDB database")
+                
+                data = pickle.loads(value_bytes)
+            
+            # Add to cache
+            self._cache[idx] = data
+            self._cache_keys.append(idx)
+            
+            # Evict oldest if cache is full
+            if len(self._cache) > self.cache_size:
+                oldest_key = self._cache_keys.pop(0)
+                del self._cache[oldest_key]
+        
+        # Apply transform
+        if self.transform is not None:
+            data = self.transform(data)
+        
+        return data
+

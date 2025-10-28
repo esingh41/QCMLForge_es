@@ -155,5 +155,145 @@ def test_ap3_fused_fsapt():
     return
 
 
+def test_ap3_fused_fsapt_with_multipoles():
+    """Test AP3FusedFSAPTDataset with multipole prediction"""
+    df = pd.read_pickle(f"{current_file_path}/dataset_data/fsapt_data.pkl")
+    
+    # Load atom model for multipole prediction
+    from apnet_pt.AtomModels.ap2_atom_model import AtomModel
+    atom_model = AtomModel(use_GPU=False).set_pretrained_model(model_id=0)
+    
+    # Test the new AP3FusedFSAPTDataset with multipoles
+    from apnet_pt.pt_datasets.ap3_fused_fsapt_ds import (
+        AP3FusedFSAPTDataset,
+        ap3_fused_fsapt_collate_update,
+    )
+    
+    # Create dataset from first 3 rows with multipoles
+    test_df = df.head(3)
+    dataset = AP3FusedFSAPTDataset(
+        root=f"{data_path}/fsapt_multipole_test",
+        fsapt_dataframe=test_df,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        force_reprocess=True,
+        atom_model=atom_model,
+    )
+    
+    # Test dataset length
+    assert len(dataset) == 3, f"Expected 3 data points, got {len(dataset)}"
+    print(f"Dataset with multipoles length: {len(dataset)}")
+    
+    # Test getting a single data point
+    data = dataset[0]
+    print(f"\nFirst data point with multipoles:")
+    print(f"  ZA shape: {data.ZA.shape}")
+    print(f"  y (FSAPT labels) shape: {data.y.shape}")
+    
+    # Check multipoles are present
+    assert hasattr(data, 'qA'), "Missing qA multipole"
+    assert hasattr(data, 'muA'), "Missing muA multipole"
+    assert hasattr(data, 'quadA'), "Missing quadA multipole"
+    assert hasattr(data, 'hlistA'), "Missing hlistA multipole"
+    assert hasattr(data, 'qB'), "Missing qB multipole"
+    assert hasattr(data, 'muB'), "Missing muB multipole"
+    assert hasattr(data, 'quadB'), "Missing quadB multipole"
+    assert hasattr(data, 'hlistB'), "Missing hlistB multipole"
+    
+    print(f"  qA shape: {data.qA.shape}")
+    print(f"  muA shape: {data.muA.shape}")
+    print(f"  quadA shape: {data.quadA.shape}")
+    print(f"  hlistA shape: {data.hlistA.shape}")
+    print(f"  qB shape: {data.qB.shape}")
+    print(f"  muB shape: {data.muB.shape}")
+    print(f"  quadB shape: {data.quadB.shape}")
+    print(f"  hlistB shape: {data.hlistB.shape}")
+    
+    # Test batch collation with multipoles
+    from torch.utils.data import DataLoader
+    dataloader = DataLoader(
+        dataset,
+        batch_size=2,
+        collate_fn=ap3_fused_fsapt_collate_update,
+    )
+    
+    batch = next(iter(dataloader))
+    print(f"\nBatched data with multipoles:")
+    print(f"  Batch y shape: {batch.y.shape}")
+    print(f"  Batch qA shape: {batch.qA.shape}")
+    print(f"  Batch muA shape: {batch.muA.shape}")
+    print(f"  Batch quadA shape: {batch.quadA.shape}")
+    print(f"  Batch hlistA shape: {batch.hlistA.shape}")
+    
+    # Verify multipoles are batched correctly
+    assert hasattr(batch, 'qA'), "Missing qA in batched data"
+    assert hasattr(batch, 'muA'), "Missing muA in batched data"
+    assert hasattr(batch, 'qB'), "Missing qB in batched data"
+    assert hasattr(batch, 'muB'), "Missing muB in batched data"
+    
+    print("\nMultipole tests passed!")
+    return
+
+
+def test_ap3_fused_fsapt_lmdb():
+    """Test AP3FusedFSAPTDatasetLMDB"""
+    df = pd.read_pickle(f"{current_file_path}/dataset_data/fsapt_data.pkl")
+    
+    # Test the LMDB dataset
+    from apnet_pt.pt_datasets.ap3_fused_fsapt_ds import (
+        AP3FusedFSAPTDatasetLMDB,
+        ap3_fused_fsapt_collate_update,
+    )
+    
+    # Create LMDB dataset from first 5 rows
+    test_df = df.head(5)
+    dataset = AP3FusedFSAPTDatasetLMDB(
+        root=f"{data_path}/fsapt_lmdb_test",
+        fsapt_dataframe=test_df,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        force_reprocess=True,
+        cache_size=10,
+    )
+    
+    # Test dataset length
+    assert len(dataset) == 5, f"Expected 5 data points, got {len(dataset)}"
+    print(f"LMDB dataset length: {len(dataset)}")
+    
+    # Test getting a single data point
+    data = dataset[0]
+    print(f"\nFirst data point from LMDB:")
+    print(f"  ZA shape: {data.ZA.shape}")
+    print(f"  RA shape: {data.RA.shape}")
+    print(f"  y (FSAPT labels) shape: {data.y.shape}")
+    print(f"  frag1_indices: {data.frag1_indices}")
+    
+    # Test random access
+    data_3 = dataset[3]
+    print(f"\nData point 3 from LMDB:")
+    print(f"  y values: {data_3.y}")
+    
+    # Test batch loading from LMDB
+    from torch.utils.data import DataLoader
+    dataloader = DataLoader(
+        dataset,
+        batch_size=2,
+        collate_fn=ap3_fused_fsapt_collate_update,
+    )
+    
+    batch = next(iter(dataloader))
+    print(f"\nBatched data from LMDB:")
+    print(f"  Batch y shape: {batch.y.shape}")
+    print(f"  Batch ZA shape: {batch.ZA.shape}")
+    
+    # Verify batch size
+    assert batch.y.shape[0] == 2, f"Expected batch size 2, got {batch.y.shape[0]}"
+    
+    print("\nLMDB tests passed!")
+    return
+
+
 if __name__ == "__main__":
     test_ap3_fused_fsapt()
+    test_ap3_fused_fsapt_with_multipoles()
+    test_ap3_fused_fsapt_lmdb()
