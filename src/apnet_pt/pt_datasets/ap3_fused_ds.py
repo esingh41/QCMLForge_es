@@ -648,69 +648,6 @@ class APNet2_fused_DataLoader(torch.utils.data.DataLoader):
         )
 
 
-def ap2_fused_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
-    batch_A = atomic_datasets.atomic_collate_update_no_target(molA_data)
-    qAs, muAs, thAs, hlistAs = atom_model.predict_multipoles_batch(batch_A)
-    batch_B = atomic_datasets.atomic_collate_update_no_target(molB_data)
-    qBs, muBs, thBs, hlistBs = atom_model.predict_multipoles_batch(batch_B)
-    dimer_data = []
-    for j in range(len(molA_data)):
-        atomic_props_A = molA_data[j]
-        atomic_props_B = molB_data[j]
-        qA, muA, quadA, hlistA = qAs[j], muAs[j], thAs[j], hlistAs[j]
-        qB, muB, quadB, hlistB = qBs[j], muBs[j], thBs[j], hlistBs[j]
-        if len(qA.size()) == 0:
-            qA = qA.unsqueeze(0).unsqueeze(0)
-        elif len(qA.size()) == 1:
-            qA = qA.unsqueeze(-1)
-        if len(qB.size()) == 0:
-            qB = qB.unsqueeze(0).unsqueeze(0)
-        elif len(qB.size()) == 1:
-            qB = qB.unsqueeze(-1)
-        e_AA_source, e_AA_target = pairwise_edges(atomic_props_A.R, r_cut)
-        e_BB_source, e_BB_target = pairwise_edges(atomic_props_B.R, r_cut)
-        e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = pairwise_edges_im(
-            atomic_props_A.R, atomic_props_B.R, r_cut_im
-        )
-        dimer_ind = torch.ones((1), dtype=torch.long) * index
-        data = Data(
-            ZA=atomic_props_A.x.long(),
-            RA=atomic_props_A.R,
-            ZB=atomic_props_B.x.long(),
-            RB=atomic_props_B.R,
-            # short range, intermolecular edges
-            e_ABsr_source=e_ABsr_source.long(),
-            e_ABsr_target=e_ABsr_target.long(),
-            dimer_ind=dimer_ind.long(),
-            # long range, intermolecular edges
-            e_ABlr_source=e_ABlr_source.long(),
-            e_ABlr_target=e_ABlr_target.long(),
-            dimer_ind_lr=dimer_ind.long(),
-            # intramonomer edges (monomer A)
-            e_AA_source=e_AA_source.long(),
-            e_AA_target=e_AA_target.long(),
-            # intramonomer edges (monomer B)
-            e_BB_source=e_BB_source.long(),
-            e_BB_target=e_BB_target.long(),
-            # monomer charges
-            total_charge_A=atomic_props_A.total_charge,
-            total_charge_B=atomic_props_B.total_charge,
-            # monomer A properties
-            qA=qA,
-            muA=muA,
-            quadA=quadA,
-            hlistA=hlistA,
-            # monomer B properties
-            qB=qB,
-            muB=muB,
-            quadB=quadB,
-            hlistB=hlistB,
-        )
-        data = data.cpu()
-        dimer_data.append(data)
-    return dimer_data
-
-
 def save_hdf5_data_objects(data_objects, filepath):
     """Save list of data objects to HDF5 format"""
     with h5py.File(filepath, 'w') as f:

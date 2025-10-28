@@ -18,8 +18,7 @@ from ..pt_datasets.ap3_fused_ds import (
 )
 from ..pt_datasets.ap3_fused_fsapt_ds import (
     ap3_fused_fsapt_collate_update,
-    AP3FusedFSAPTDataset,
-    AP3FusedFSAPTDatasetLMDB,
+    ap3_fused_fsapt_module_dataset_lmdb,
 )
 from .. import constants
 from ..util import scatter_sum_compile
@@ -577,9 +576,9 @@ class APNet3_AtomType_Model:
         elif self.ds_class_type == "pt" and ds_type == "total_component_energies":
             dataset_class = ap3_fused_module_dataset
         elif self.ds_class_type == "lmdb" and ds_type == "fsapt_energies":
-            dataset_class = AP3FusedFSAPTDatasetLMDB
+            dataset_class = ap3_fused_fsapt_module_dataset_lmdb
         elif self.ds_class_type == "pt" and ds_type == "fsapt_energies":
-            dataset_class = AP3FusedFSAPTDataset
+            raise NotImplementedError("PT dataset class for fsapt_energies not implemented yet. Use LMDB.")
         self.ds_type = ds_type
 
         if dimer_prop_model_pre_trained_path:
