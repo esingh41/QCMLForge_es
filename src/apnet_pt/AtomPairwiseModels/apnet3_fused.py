@@ -1040,6 +1040,62 @@ class APNet3_AtomType_Model:
             pair_energies_batch[i][2, atomA, atomB] += e_ind
         return pair_energies_batch
 
+    def _assemble_pairs_torch(
+        self,
+        inp_batch,
+        E_sr_dimer,
+        E_sr,
+        E_elst_mtp,
+        E_ind_mtp,
+    ):
+        indA_to_dimer = []
+        indB_to_dimer = []
+        indA_to_atom = []
+        indB_to_atom = []
+        pair_energies_batch = []
+
+        indsA_sr = inp_batch["e_ABsr_source"]
+        indsB_sr = inp_batch["e_ABsr_target"]
+        indsA_lr = inp_batch["e_ABlr_source"]
+        indsB_lr = inp_batch["e_ABlr_target"]
+
+        dimer_inds, atoms_per_dimer = torch.unique(
+            inp_batch.dimer_ind_full, return_counts=True
+        )
+        indsA_monomer = inp_batch.indA
+        indsB_monomer = inp_batch.indB
+
+        for i in dimer_inds:
+            size_A = torch.sum(indsA_monomer == i)
+            size_B = torch.sum(indsB_monomer == i)
+            indA_to_dimer.append(np.full((size_A,), i))
+            indB_to_dimer.append(np.full((size_B,), i))
+            indA_to_atom.append(np.arange(size_A))
+            indB_to_atom.append(np.arange(size_B))
+            pair_energies_batch.append(np.zeros((4, size_A, size_B)))
+
+        indA_to_dimer = np.concatenate(indA_to_dimer)
+        indB_to_dimer = np.concatenate(indB_to_dimer)
+        indA_to_atom = np.concatenate(indA_to_atom)
+        indB_to_atom = np.concatenate(indB_to_atom)
+
+        # E_sr, E_elst_sr, E_elst_lr
+        for e_pair, e_elst, indA, indB in zip(E_sr, E_elst_mtp, indsA_sr, indsB_sr):
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
+            pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
+
+        for e_ind, indA, indB in zip(E_ind_mtp, indsA_lr, indsB_lr):
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_energies_batch[i][2, atomA, atomB] += e_ind
+        return pair_energies_batch
+
     def _assemble_mtp_pairs(
         self,
         inp_batch,
@@ -1476,7 +1532,7 @@ units angstrom
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
                 # predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
                 print(batch)
-                pairwise_energies = self._assemble_pairs(
+                pairwise_energies = self._assemble_pairs_torch(
                         batch.cpu(),
                         E_sr_dimer.cpu(),
                         E_sr.cpu(),
