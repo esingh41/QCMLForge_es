@@ -193,6 +193,9 @@ def ap3_fused_collate_update(batch):
     local_e_BB_source = []
     local_e_BB_target = []
 
+    local_indA = []
+    local_indB = []
+
     has_precomputed = hasattr(batch[0], 'E_classical_elst') and hasattr(batch[0], 'E_classical_ind')
     # print(f"Batch has precomputed classical energies: {has_precomputed}")
 
@@ -228,6 +231,9 @@ def ap3_fused_collate_update(batch):
 
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
+
+        local_indA.append(torch.ones(data.RA.size(0), dtype=torch.long) * i)
+        local_indB.append(torch.ones(data.RB.size(0), dtype=torch.long) * i)
         
     molecule_ind_A = torch.cat([data.molecule_ind_A for data in batch], dim=0)
     molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
@@ -283,6 +289,9 @@ def ap3_fused_collate_update(batch):
     dimer_ind_cat = torch.cat([data.dimer_ind for data in batch], dim=0)
     dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
     dimer_ind_full_cat = torch.cat([data.dimer_ind_full for data in batch], dim=0)
+
+    indA_cat = torch.cat(local_indA, dim=0)
+    indB_cat = torch.cat(local_indB, dim=0)
     
     batched_data = Data(
         y=y,
@@ -311,6 +320,8 @@ def ap3_fused_collate_update(batch):
         total_charge_B=total_charge_B_tensor,
         batch_atomic_A=batch_atomic_A,
         batch_atomic_B=batch_atomic_B,
+        indA=indA_cat,
+        indB=indB_cat,
     )
     
     if has_precomputed:

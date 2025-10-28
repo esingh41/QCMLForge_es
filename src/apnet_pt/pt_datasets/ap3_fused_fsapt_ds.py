@@ -113,7 +113,8 @@ def ap3_fused_fsapt_collate_update(batch):
     has_precomputed = hasattr(batch[0], "E_classical_elst") and hasattr(
         batch[0], "E_classical_ind"
     )
-    # print(f"Batch has precomputed classical energies: {has_precomputed}")
+    local_indA = []
+    local_indB = []
 
     for i, data in enumerate(batch):
         data.dimer_ind = (
@@ -169,6 +170,9 @@ def ap3_fused_fsapt_collate_update(batch):
         monA_edge_offset += data.RA.size(0)
         monB_edge_offset += data.RB.size(0)
 
+        local_indA.append(torch.ones(data.RA.size(0), dtype=torch.long) * i)
+        local_indB.append(torch.ones(data.RB.size(0), dtype=torch.long) * i)
+
     molecule_ind_A = torch.cat([data.molecule_ind_A for data in batch], dim=0)
     molecule_ind_B = torch.cat([data.molecule_ind_B for data in batch], dim=0)
     natom_per_mol_A = torch.bincount(molecule_ind_A)
@@ -189,6 +193,8 @@ def ap3_fused_fsapt_collate_update(batch):
     total_charge_B_tensor = torch.tensor(
         [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
     )
+    local_frag1_ind_cat = torch.cat(local_frag1_ind, dim=0)
+    local_frag2_ind_cat = torch.cat(local_frag2_ind, dim=0)
 
     batch_atomic_A = Data(
         x=ZA_cat,
@@ -223,6 +229,9 @@ def ap3_fused_fsapt_collate_update(batch):
     dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
     dimer_ind_full_cat = torch.cat([data.dimer_ind_full for data in batch], dim=0)
 
+    indA_cat = torch.cat(local_indA, dim=0)
+    indB_cat = torch.cat(local_indB, dim=0)
+
     batched_data = Data(
         y=y,
         ZA=ZA_cat,
@@ -250,8 +259,10 @@ def ap3_fused_fsapt_collate_update(batch):
         total_charge_B=total_charge_B_tensor,
         batch_atomic_A=batch_atomic_A,
         batch_atomic_B=batch_atomic_B,
-        frag1_ind=local_frag1_ind,
-        frag2_ind=local_frag2_ind,
+        frag1_ind=local_frag1_ind_cat,
+        frag2_ind=local_frag2_ind_cat,
+        indA=indA_cat,
+        indB=indB_cat,
     )
 
     if has_precomputed:
@@ -265,7 +276,7 @@ def ap3_fused_fsapt_collate_update(batch):
     return batched_data
 
 
-def ap3_fused_collate_update_no_target(batch):
+def ap3_fused_fsapt_collate_update_no_target(batch):
     monA_edge_offset, monB_edge_offset = 0, 0
     local_e_ABsr_source = []
     local_e_ABsr_target = []
@@ -279,6 +290,9 @@ def ap3_fused_collate_update_no_target(batch):
     local_e_BB_target = []
     local_indA = []
     local_indB = []
+
+    local_frag1_ind = []
+    local_frag2_ind = []
     for i, data in enumerate(batch):
         data.dimer_ind = (
             torch.ones(data.e_ABsr_source.size(0), dtype=data.dimer_ind.dtype) * i
@@ -298,6 +312,8 @@ def ap3_fused_collate_update_no_target(batch):
         local_e_ABsr_target.append(data.e_ABsr_target.clone() + monB_edge_offset)
         local_e_ABlr_source.append(data.e_ABlr_source.clone() + monA_edge_offset)
         local_e_ABlr_target.append(data.e_ABlr_target.clone() + monB_edge_offset)
+        local_frag1_ind.append(data.frag1_ind.clone() + monA_edge_offset)
+        local_frag2_ind.append(data.frag2_ind.clone() + monB_edge_offset)
         local_e_ABfull_source.append(
             torch.cat(
                 [
@@ -389,6 +405,9 @@ def ap3_fused_collate_update_no_target(batch):
     dimer_ind_lr_cat = torch.cat([data.dimer_ind_lr for data in batch], dim=0)
     dimer_ind_full = torch.cat([data.dimer_ind_full for data in batch], dim=0)
 
+    local_frag1_ind_cat = torch.cat(local_frag1_ind, dim=0)
+    local_frag2_ind_cat = torch.cat(local_frag2_ind, dim=0)
+
     batched_data = Data(
         ZA=ZA_cat,
         RA=RA_cat,
@@ -417,6 +436,8 @@ def ap3_fused_collate_update_no_target(batch):
         indB=indB_cat,
         batch_atomic_A=batch_atomic_A,
         batch_atomic_B=batch_atomic_B,
+        frag1_ind=local_frag1_ind_cat,
+        frag2_ind=local_frag2_ind_cat,
     )
     return batched_data
 
@@ -926,10 +947,6 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
     def download(self):
         """Download data - same as original or from fileserver"""
         if self.energy_labels and self.qcel_molecules:
-            return
-
-        if self.fileserver_url:
-            print(f"Downloading from fileserver: {self.fileserver_url}")
             return
         raise NotImplementedError(
             "Download method not implemented. Provide qcel_molecules and energy_labels or named spec type with corresponding data files."

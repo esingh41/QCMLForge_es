@@ -572,14 +572,17 @@ class APNet3_AtomType_Model:
             raise ValueError("ds_class_type must be 'pt' or 'lmdb'")
         elif self.ds_class_type == "lmdb" and ds_type == "total_component_energies":
             print("Using LMDB dataset class")
-            dataset_class = ap3_fused_module_dataset_lmdb
+            self.dataset_class = ap3_fused_module_dataset_lmdb
         elif self.ds_class_type == "pt" and ds_type == "total_component_energies":
-            dataset_class = ap3_fused_module_dataset
+            self.dataset_class = ap3_fused_module_dataset
         elif self.ds_class_type == "lmdb" and ds_type == "fsapt_energies":
-            dataset_class = ap3_fused_fsapt_module_dataset_lmdb
+            self.dataset_class = ap3_fused_fsapt_module_dataset_lmdb
         elif self.ds_class_type == "pt" and ds_type == "fsapt_energies":
             raise NotImplementedError("PT dataset class for fsapt_energies not implemented yet. Use LMDB.")
         self.ds_type = ds_type
+        print(f"{self.ds_type = }")
+        print(f"{self.ds_class_type = }")
+        print(f"{self.dataset_class = }")
 
         if dimer_prop_model_pre_trained_path:
             print(
@@ -697,6 +700,12 @@ class APNet3_AtomType_Model:
         )
         self.dataset = dataset
         print(f"{use_precomputed_classical=}\n{self.dataset=}")
+        print(
+            not ignore_database_null,
+            self.dataset is None,
+            self.ds_spec_type not in split_dbs,
+            not ds_qcel_split_db,
+        )
         if (
             not ignore_database_null
             and self.dataset is None
@@ -706,7 +715,7 @@ class APNet3_AtomType_Model:
 
             def setup_ds(fp=ds_force_reprocess):
                 if use_precomputed_classical:
-                    return dataset_class(
+                    return self.dataset_class(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -764,9 +773,9 @@ class APNet3_AtomType_Model:
                 ds_energy_labels = [None, None]
 
             def setup_ds(fp=ds_force_reprocess):
-                if use_precomputed_classical:
+                if use_precomputed_classical or ds_type == "fsapt_energies":
                     return [
-                        dataset_class(
+                        self.dataset_class(
                             root=ds_root,
                             r_cut=r_cut,
                             r_cut_im=r_cut_im,
@@ -788,7 +797,7 @@ class APNet3_AtomType_Model:
                             in_memory=ds_in_memory,
                             device=self.device
                         ),
-                        dataset_class(
+                        self.dataset_class(
                             root=ds_root,
                             r_cut=r_cut,
                             r_cut_im=r_cut_im,
@@ -1466,6 +1475,7 @@ units angstrom
                 batch = batch.to(rank_device, non_blocking=True)
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
                 # predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
+                print(batch)
                 pairwise_energies = self._assemble_pairs(
                         batch.cpu(),
                         E_sr_dimer.cpu(),
@@ -1473,13 +1483,14 @@ units angstrom
                         E_elst.cpu(),
                         E_ind.cpu(),
                     )
-
                 print(f"Eval E_sr_dimer shape: {E_sr_dimer.shape}, E_sr shape: {E_sr.shape}")
                 print(f"E_sr_dimer shape: {E_sr_dimer.shape}\nE_sr shape: {E_sr.shape}")
                 print(f"{E_elst.shape = }\n{E_ind.shape = }")
                 print(f"{E_elst = }\n{E_ind = }")
-                print(f"{pairwise_energies.shape = }")
                 print(f"{pairwise_energies = }")
+                print(f"{len(pairwise_energies) = }")
+                pred_pairwise = torch.sum(pairwise_energies, dim=1)
+                print(f"{pred_pairwise = }")
                 
                 # E_sr has shape [n_edges, 4] with atomic pair-level SAPT predictions
                 batch_size = len(batch.frag1_indices)
@@ -1842,7 +1853,7 @@ units angstrom
         # (2) Dataloaders
         # Detect if we're using FSAPT dataset (handle Subset wrapper from random_split)
         actual_dataset = train_dataset.dataset if hasattr(train_dataset, 'dataset') else train_dataset
-        is_fsapt = isinstance(actual_dataset, (AP3FusedFSAPTDataset, AP3FusedFSAPTDatasetLMDB))
+        is_fsapt = isinstance(actual_dataset, (ap3_fused_fsapt_module_dataset_lmdb))
 
         # Use FSAPT collate function if needed
         if is_fsapt:

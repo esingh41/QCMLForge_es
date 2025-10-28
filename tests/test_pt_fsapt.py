@@ -3,6 +3,7 @@ from apnet_pt.pt_datasets.ap3_fused_fsapt_ds import (
     ap3_fused_fsapt_module_dataset_lmdb,
     ap3_fused_fsapt_collate_update,
 )
+from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
 import os
 import numpy as np
 import pytest
@@ -134,67 +135,63 @@ def test_ap3_fused_fsapt_training():
     df = pd.read_pickle(f"{current_file_path}/dataset_data/fsapt_data.pkl")
 
     df = df.head(5)
-    # Use the FSAPT dataset
-    # Create small dataset for training test (first 10 samples)
-    dataset = ap3_fused_fsapt_module_dataset_lmdb(
-        root=data_path,
-        fsapt_dataframe=df,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        spec_type=5,  # FSAPT mode
-        force_reprocess=True,
-        batch_size=1,
-    )
-    # Initialize atom models (required for AP3)
-    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
-        ds_root=None,
-        use_GPU=False,
-        ignore_database_null=True,
-        atom_model_pre_trained_path=am_path,
-        pre_trained_model_path=at_hf_vw_path,
-    )
-    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
-        ds_root=None,
-        use_GPU=False,
-        dataset=dataset,
-        ignore_database_null=True,
-        atom_model=atom_type_hf_vw_model.model,
-        atom_model_type="AtomTypeParamNN",
-        pre_trained_model_path=at_elst_path,
-    )
+    temp_dir = tempfile.mkdtemp()
+    test_df_path = f"{data_path}/raw/fsapt_test_data.pkl"
+    train_df_path = f"{data_path}/raw/fsapt_train_data.pkl"
+    # mkdir raw under temp_dir and copy test_df there
+    raw_dir = os.path.join(temp_dir, "raw")
+    os.makedirs(raw_dir, exist_ok=True)
+    print(f"Copying test dataframe to {raw_dir}")
+    shutil.copy(test_df_path, raw_dir)
+    shutil.copy(train_df_path, raw_dir)
+    try:
+        # Initialize atom models (required for AP3)
+        atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model_pre_trained_path=am_path,
+            pre_trained_model_path=at_hf_vw_path,
+        )
+        atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model=atom_type_hf_vw_model.model,
+            atom_model_type="AtomTypeParamNN",
+            pre_trained_model_path=at_elst_path,
+        )
 
-    # Initialize AP3 model for FSAPT training
-    from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
+        # Initialize AP3 model for FSAPT training
 
-    ap3 = APNet3_AtomType_Model(
-        ds_root=None,
-        atom_type_model=atom_type_hf_vw_model.model,
-        dimer_prop_model=atom_type_elst_model.dimer_model,
-        am_dimer_param_model=atom_type_elst_model,
-        n_message=3,
-        n_rbf=20,
-        n_neuron=128,
-        n_embed=128,
-        r_cut=5.0,
-        r_cut_im=8.0,
-        use_GPU=False,
-        ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
-        use_precomputed_classical=False,
-    )
+        ap3 = APNet3_AtomType_Model(
+            # ds_root=temp_dir,
+            ds_root=data_path,
+            atom_type_model=atom_type_hf_vw_model.model,
+            dimer_prop_model=atom_type_elst_model.dimer_model,
+            am_dimer_param_model=atom_type_elst_model,
+            use_precomputed_classical=False,
+            ignore_database_null=False,
+            ds_spec_type=5,  # NOTE spec_type 5 for FSAPT
+            ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
+        )
 
-    print("\nStarting FSAPT training...")
+        print("\nStarting FSAPT training...")
 
-    # Train for a few epochs
-    ap3.train(
-        dataset=dataset,
-        n_epochs=0,
-        lr=5e-5,
-        skip_compile=True,  # Skip compilation for faster testing
-    )
+        # Train for a few epochs
+        ap3.train(
+            n_epochs=0,
+            lr=5e-5,
+            skip_compile=True,  # Skip compilation for faster testing
+        )
 
-    print("\nFSAPT training test completed successfully!")
+        print("\nFSAPT training test completed successfully!")
+    finally:
+        # Clean up temporary directory
+        shutil.rmtree(temp_dir)
     return
 
 
 if __name__ == "__main__":
-    test_ap3_fused_fsapt()
+    # test_ap3_fused_fsapt()
+    test_ap3_fused_fsapt_training()
