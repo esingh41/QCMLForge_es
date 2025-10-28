@@ -83,6 +83,75 @@ def test_ap3_fused_fsapt():
     # group breakdown. Then, the training of AP3 fused model on this type of dataset
     # will use the Frag1_indices and Frag2_indices to sum the atomic contributions
     # to get the fragment energies for computing the loss during training.
+    
+    # Test the new AP3FusedFSAPTDataset
+    from apnet_pt.pt_datasets.ap3_fused_fsapt_ds import (
+        AP3FusedFSAPTDataset,
+        ap3_fused_fsapt_collate_update,
+        fsapt_dimer_to_fused_data,
+    )
+    
+    # Create dataset from first 5 rows
+    test_df = df.head(5)
+    dataset = AP3FusedFSAPTDataset(
+        root=data_path,
+        fsapt_dataframe=test_df,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        force_reprocess=True,
+    )
+    
+    # Test dataset length
+    assert len(dataset) == 5, f"Expected 5 data points, got {len(dataset)}"
+    print(f"Dataset length: {len(dataset)}")
+    
+    # Test getting a single data point
+    data = dataset[0]
+    print(f"\nFirst data point:")
+    print(f"  ZA shape: {data.ZA.shape}")
+    print(f"  RA shape: {data.RA.shape}")
+    print(f"  ZB shape: {data.ZB.shape}")
+    print(f"  RB shape: {data.RB.shape}")
+    print(f"  y (FSAPT labels) shape: {data.y.shape}")
+    print(f"  y values: {data.y}")
+    print(f"  frag1_indices: {data.frag1_indices}")
+    print(f"  frag2_indices: {data.frag2_indices}")
+    print(f"  frag1_name: {data.frag1_name}")
+    print(f"  frag2_name: {data.frag2_name}")
+    
+    # Test that labels match expected FSAPT energies
+    expected_labels = torch.tensor([
+        test_df.iloc[0]['F-Electrostatics'],
+        test_df.iloc[0]['F-Exchange'],
+        test_df.iloc[0]['F-Dispersion'],
+        test_df.iloc[0]['F-Induction'],
+        test_df.iloc[0]['F-Total'],
+    ], dtype=torch.float32)
+    assert torch.allclose(data.y, expected_labels), "Labels don't match expected values"
+    print(f"\nLabels match expected FSAPT energies!")
+    
+    # Test batch collation
+    from torch.utils.data import DataLoader
+    dataloader = DataLoader(
+        dataset,
+        batch_size=2,
+        collate_fn=ap3_fused_fsapt_collate_update,
+    )
+    
+    batch = next(iter(dataloader))
+    print(f"\nBatched data:")
+    print(f"  Batch y shape: {batch.y.shape}")
+    print(f"  Batch ZA shape: {batch.ZA.shape}")
+    print(f"  Batch RA shape: {batch.RA.shape}")
+    print(f"  Number of fragment 1 indices: {len(batch.frag1_indices)}")
+    print(f"  Number of fragment 2 indices: {len(batch.frag2_indices)}")
+    
+    # Verify batch size
+    assert batch.y.shape[0] == 2, f"Expected batch size 2, got {batch.y.shape[0]}"
+    assert len(batch.frag1_indices) == 2, "Expected 2 fragment 1 index tensors"
+    assert len(batch.frag2_indices) == 2, "Expected 2 fragment 2 index tensors"
+    
+    print("\nAll tests passed!")
     return
 
 
