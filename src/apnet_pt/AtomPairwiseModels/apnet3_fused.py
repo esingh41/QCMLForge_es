@@ -580,6 +580,7 @@ class APNet3_AtomType_Model:
             dataset_class = AP3FusedFSAPTDatasetLMDB
         elif self.ds_class_type == "pt" and ds_type == "fsapt_energies":
             dataset_class = AP3FusedFSAPTDataset
+        self.ds_type = ds_type
 
         if dimer_prop_model_pre_trained_path:
             print(
@@ -1371,6 +1372,162 @@ units angstrom
         total_MAE_t = torch.mean(torch.abs(comp_errors_t))
         return total_loss, total_MAE_t
 
+    def __train_batches_fsapt_single_proc(
+        self, dataloader, loss_fn, optimizer, rank_device, scheduler
+    ):
+        """
+        Single-process training loop for FSAPT fragment energies.
+        
+        For FSAPT training, we aggregate atomic pair contributions to fragment-level
+        energies using frag1_indices and frag2_indices before computing loss.
+        """
+        self.model.train()
+        comp_errors_t = []
+        total_loss = 0.0
+        for n, batch in enumerate(dataloader):
+            optimizer.zero_grad()
+            batch = batch.to(rank_device, non_blocking=True)
+            E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
+            
+            print(f"Train E_sr_dimer shape: {E_sr_dimer.shape}\nE_sr shape: {E_sr.shape}")
+            print(f"{E_elst.shape = }\n{E_ind.shape = }")
+            print(f"{E_elst = }\n{E_ind = }")
+            # E_sr has shape [n_edges, 4] with atomic pair-level SAPT predictions
+            # We need to aggregate these to fragment-level energies
+            batch_size = len(batch.frag1_indices)
+            
+            # Get edge information
+            e_ABsr_source = batch.e_ABsr_source  # atom indices from monomer A
+            e_ABsr_target = batch.e_ABsr_target  # atom indices from monomer B
+            
+            # Aggregate predictions for each dimer in batch - build list to preserve gradients
+            preds_list = []
+            for i in range(batch_size):
+                frag1_idx = batch.frag1_indices[i]  # offset atom indices for fragment 1
+                frag2_idx = batch.frag2_indices[i]  # offset atom indices for fragment 2
+                print(f"{frag1_idx = }\n{frag2_idx = }")
+                print(f"{e_ABsr_source = }\n{e_ABsr_target = }")
+                
+                # Find edges where source is in frag1 AND target is in frag2
+                # This gives us the fragment-fragment interaction
+                mask_source = torch.isin(e_ABsr_source, frag1_idx)
+                mask_target = torch.isin(e_ABsr_target, frag2_idx)
+                mask = mask_source & mask_target
+                
+                # Sum the edge contributions for this fragment pair
+                # Always sum E_sr with the mask to preserve gradient flow
+                preds_list.append(E_sr[mask].sum(dim=0, keepdim=True))
+            
+            # Stack to create [batch_size, 4] tensor with gradients
+            preds = torch.cat(preds_list, dim=0)
+            print(f"{preds = }")
+            
+            # Labels are [batch_size, 5] = [F-Elst, F-Exch, F-Disp, F-Ind, F-Total]
+            # Predictions are [batch_size, 4] = [Elst, Exch, Ind, Disp]
+            # We need to compare the first 4 components
+            labels = batch.y[:, :4]  # [F-Elst, F-Exch, F-Disp, F-Ind]
+            print(f"{labels = }")
+            
+            if self.use_precomputed_classical:
+                # Adjust labels if using precomputed classical components
+                labels[:, 0] -= batch.E_classical_elst if hasattr(batch, 'E_classical_elst') else 0
+                labels[:, 2] -= batch.E_classical_ind if hasattr(batch, 'E_classical_ind') else 0
+            
+            comp_errors = preds - labels
+            batch_loss = (
+                torch.mean(torch.square(comp_errors))
+                if (loss_fn is None)
+                else loss_fn(preds, labels)
+            )
+            batch_loss.backward()
+            optimizer.step()
+            total_loss += batch_loss.item()
+            comp_errors_t.append(comp_errors.detach().cpu())
+        
+        if scheduler is not None:
+            scheduler.step()
+        
+        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
+        elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
+        exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
+        indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
+        disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
+        return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
+
+    def __evaluate_batches_fsapt_single_proc(self, dataloader, loss_fn, rank_device):
+        """
+        Single-process evaluation loop for FSAPT fragment energies.
+        """
+        self.model.eval()
+        comp_errors_t = []
+        total_loss = 0.0
+        with torch.no_grad():
+            for n, batch in enumerate(dataloader):
+                batch = batch.to(rank_device, non_blocking=True)
+                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
+                # predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
+                pairwise_energies = self._assemble_pairs(
+                        batch.cpu(),
+                        E_sr_dimer.cpu(),
+                        E_sr.cpu(),
+                        E_elst.cpu(),
+                        E_ind.cpu(),
+                    )
+
+                print(f"Eval E_sr_dimer shape: {E_sr_dimer.shape}, E_sr shape: {E_sr.shape}")
+                print(f"E_sr_dimer shape: {E_sr_dimer.shape}\nE_sr shape: {E_sr.shape}")
+                print(f"{E_elst.shape = }\n{E_ind.shape = }")
+                print(f"{E_elst = }\n{E_ind = }")
+                print(f"{pairwise_energies.shape = }")
+                print(f"{pairwise_energies = }")
+                
+                # E_sr has shape [n_edges, 4] with atomic pair-level SAPT predictions
+                batch_size = len(batch.frag1_indices)
+                preds = torch.zeros(batch_size, 4, device=rank_device)
+                
+                # Get edge information
+                e_ABsr_source = batch.e_ABsr_source
+                e_ABsr_target = batch.e_ABsr_target
+                
+                # Aggregate predictions for each dimer in batch
+                for i in range(batch_size):
+                    frag1_idx = batch.frag1_indices[i]
+                    frag2_idx = batch.frag2_indices[i]
+                    
+                    # Find edges where source is in frag1 AND target is in frag2
+                    mask_source = torch.isin(e_ABsr_source, frag1_idx)
+                    mask_target = torch.isin(e_ABsr_target, frag2_idx)
+                    mask = mask_source & mask_target
+                    
+                    # Sum the edge contributions for this fragment pair
+                    if mask.any():
+                        preds[i] = E_sr[mask].sum(dim=0)
+                
+                # Labels are [batch_size, 5], we use first 4 components
+                labels = batch.y[:, :4]
+                
+                if self.use_precomputed_classical:
+                    labels[:, 0] -= batch.E_classical_elst if hasattr(batch, 'E_classical_elst') else 0
+                    labels[:, 2] -= batch.E_classical_ind if hasattr(batch, 'E_classical_ind') else 0
+                
+                comp_errors = preds - labels
+                batch_loss = (
+                    torch.mean(torch.square(comp_errors))
+                    if (loss_fn is None)
+                    else loss_fn(preds, labels)
+                )
+                total_loss += batch_loss.item()
+                comp_errors_t.append(comp_errors.detach().cpu())
+        
+        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
+        elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
+        exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
+        indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
+        disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
+        return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
+
     ########################################################################
     # SINGLE-PROCESS TRAINING
     ########################################################################
@@ -1684,8 +1841,16 @@ units angstrom
             self.compile_model()
 
         # (2) Dataloaders
-        # if self.ds_spec_type in [1, 5, 6]:
-        collate_fn = ap3_fused_collate_update if self.model.use_precomputed_classical else ap3_fused_collate_update
+        # Detect if we're using FSAPT dataset (handle Subset wrapper from random_split)
+        actual_dataset = train_dataset.dataset if hasattr(train_dataset, 'dataset') else train_dataset
+        is_fsapt = isinstance(actual_dataset, (AP3FusedFSAPTDataset, AP3FusedFSAPTDatasetLMDB))
+
+        # Use FSAPT collate function if needed
+        if is_fsapt:
+            collate_fn = ap3_fused_fsapt_collate_update
+        else:
+            collate_fn = ap3_fused_collate_update if self.model.use_precomputed_classical else ap3_fused_collate_update
+        
         train_loader = APNet2_fused_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1716,7 +1881,15 @@ units angstrom
         criterion = torch.nn.MSELoss()
 
         # (4) Set eval functions
-        if not transfer_learning:
+        if is_fsapt:
+            # FSAPT fragment energy training
+            __evaluate_batch = self.__evaluate_batches_fsapt_single_proc
+            __train_batch = self.__train_batches_fsapt_single_proc
+            print(
+                "                                       Total            Elst            Exch            Ind            Disp",
+                flush=True,
+            )
+        elif not transfer_learning:
             __evaluate_batch = self.__evaluate_batches_single_proc
             __train_batch = self.__train_batches_single_proc
             print(
@@ -1735,7 +1908,7 @@ units angstrom
         t0 = time.time()
         t_out = __evaluate_batch(train_loader, criterion, rank_device)
         v_out = __evaluate_batch(test_loader, criterion, rank_device)
-        if not transfer_learning:
+        if is_fsapt or not transfer_learning:
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
                 t_out
             )
@@ -1766,7 +1939,7 @@ units angstrom
                 train_loader, criterion, optimizer, rank_device, scheduler
             )
             v_out = __evaluate_batch(test_loader, criterion, rank_device)
-            if not transfer_learning:
+            if is_fsapt or not transfer_learning:
                 (
                     train_loss,
                     total_MAE_t,
@@ -1812,7 +1985,7 @@ units angstrom
                     )
                 self.model.to(rank_device)
 
-            if not transfer_learning:
+            if is_fsapt or not transfer_learning:
                 print(
                     f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
                     f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
@@ -1889,6 +2062,7 @@ units angstrom
             batch_size = train_dataset.training_batch_size
         self.batch_size = batch_size
         print("~~ Training APNet3-fused Model ~~", flush=True)
+        print(f"   Labeled data for {self.ds_type}", flush=True)
         print(
             f"    Training on {len(train_dataset)} samples, Testing on {
                 len(test_dataset)

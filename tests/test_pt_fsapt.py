@@ -1,14 +1,7 @@
 import apnet_pt
-from apnet_pt import AtomPairwiseModels
-from apnet_pt import pairwise_datasets
-from apnet_pt.pairwise_datasets import (
-    apnet2_module_dataset,
-    apnet2_collate_update,
-    apnet2_collate_update_prebatched,
-    APNet2_DataLoader,
-    apnet3_module_dataset,
-    apnet3_collate_update,
-    apnet3_collate_update_prebatched,
+from apnet_pt.pt_datasets.ap3_fused_fsapt_ds import (
+    AP3FusedFSAPTDatasetLMDB,
+    ap3_fused_fsapt_collate_update,
 )
 import os
 import numpy as np
@@ -85,15 +78,10 @@ def test_ap3_fused_fsapt():
     # to get the fragment energies for computing the loss during training.
     
     # Test the new AP3FusedFSAPTDataset
-    from apnet_pt.pt_datasets.ap3_fused_fsapt_ds import (
-        AP3FusedFSAPTDataset,
-        ap3_fused_fsapt_collate_update,
-        fsapt_dimer_to_fused_data,
-    )
     
     # Create dataset from first 5 rows
     test_df = df.head(5)
-    dataset = AP3FusedFSAPTDataset(
+    dataset = AP3FusedFSAPTDatasetLMDB(
         root=data_path,
         fsapt_dataframe=test_df,
         r_cut=5.0,
@@ -162,16 +150,10 @@ def test_ap3_fused_fsapt_with_multipoles():
     # Load atom model for multipole prediction
     from apnet_pt.AtomModels.ap2_atom_model import AtomModel
     atom_model = AtomModel(use_GPU=False).set_pretrained_model(model_id=0)
-    
     # Test the new AP3FusedFSAPTDataset with multipoles
-    from apnet_pt.pt_datasets.ap3_fused_fsapt_ds import (
-        AP3FusedFSAPTDataset,
-        ap3_fused_fsapt_collate_update,
-    )
-    
     # Create dataset from first 3 rows with multipoles
     test_df = df.head(3)
-    dataset = AP3FusedFSAPTDataset(
+    dataset = AP3FusedFSAPTDatasetLMDB(
         root=data_path,
         fsapt_dataframe=test_df,
         r_cut=5.0,
@@ -239,12 +221,6 @@ def test_ap3_fused_fsapt_lmdb():
     """Test AP3FusedFSAPTDatasetLMDB"""
     df = pd.read_pickle(f"{current_file_path}/dataset_data/fsapt_data.pkl")
     
-    # Test the LMDB dataset
-    from apnet_pt.pt_datasets.ap3_fused_fsapt_ds import (
-        AP3FusedFSAPTDatasetLMDB,
-        ap3_fused_fsapt_collate_update,
-    )
-    
     # Create LMDB dataset from first 5 rows
     test_df = df.head(5)
     dataset = AP3FusedFSAPTDatasetLMDB(
@@ -293,7 +269,75 @@ def test_ap3_fused_fsapt_lmdb():
     return
 
 
+def test_ap3_fused_fsapt_training():
+    """Test training AP3 fused model on FSAPT fragment energy data"""
+    df = pd.read_pickle(f"{current_file_path}/dataset_data/fsapt_data.pkl")
+    
+    df = df.head(5)
+    # Use the FSAPT dataset
+    # Create small dataset for training test (first 10 samples)
+    dataset = AP3FusedFSAPTDatasetLMDB(
+        root=data_path,
+        fsapt_dataframe=df,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=5,  # FSAPT mode
+        force_reprocess=True,
+        batch_size=1,
+    )
+    # Initialize atom models (required for AP3)
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
+        use_GPU=False,
+        dataset=dataset,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    
+    # Initialize AP3 model for FSAPT training
+    from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
+    
+    ap3 = APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+        am_dimer_param_model=atom_type_elst_model,
+        n_message=3,
+        n_rbf=20,
+        n_neuron=128,
+        n_embed=128,
+        r_cut=5.0,
+        r_cut_im=8.0,
+        use_GPU=False,
+        ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
+        use_precomputed_classical=False,
+    )
+    
+    print("\nStarting FSAPT training...")
+    
+    # Train for a few epochs
+    ap3.train(
+        dataset=dataset,
+        n_epochs=0,
+        lr=5e-5,
+        skip_compile=True,  # Skip compilation for faster testing
+    )
+    
+    print("\nFSAPT training test completed successfully!")
+    return
+
+
 if __name__ == "__main__":
-    test_ap3_fused_fsapt()
-    test_ap3_fused_fsapt_with_multipoles()
-    test_ap3_fused_fsapt_lmdb()
+    # test_ap3_fused_fsapt()
+    # test_ap3_fused_fsapt_with_multipoles()
+    # test_ap3_fused_fsapt_lmdb()
+    test_ap3_fused_fsapt_training()

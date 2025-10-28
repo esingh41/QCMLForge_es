@@ -368,17 +368,14 @@ def ap3_fused_fsapt_collate_update(batch):
         batched_data.quadB = torch.cat([data.quadB for data in batch], dim=0)
         batched_data.hlistB = torch.cat([data.hlistB for data in batch], dim=0)
     
-    # Add fragment indices if present
-    if len(local_frag1_indices) > 0:
-        batched_data.frag1_indices = local_frag1_indices
-        batched_data.frag1_batch_ind = torch.tensor(
-            [i for i in range(len(batch))], dtype=torch.long
-        )
-    if len(local_frag2_indices) > 0:
-        batched_data.frag2_indices = local_frag2_indices
-        batched_data.frag2_batch_ind = torch.tensor(
-            [i for i in range(len(batch))], dtype=torch.long
-        )
+    batched_data.frag1_indices = local_frag1_indices
+    batched_data.frag1_batch_ind = torch.tensor(
+        [i for i in range(len(batch))], dtype=torch.long
+    )
+    batched_data.frag2_indices = local_frag2_indices
+    batched_data.frag2_batch_ind = torch.tensor(
+        [i for i in range(len(batch))], dtype=torch.long
+    )
     
     return batched_data
 
@@ -443,6 +440,10 @@ class AP3FusedFSAPTDataset(Dataset):
         spec_type=1,
         max_size=None,
         atom_model=None,
+        dimer_prop_model=None,
+        batch_size=16,
+        atomic_batch_size=256,
+        datapoint_storage_n_objects=256,
     ):
         assert spec_type in [5], "Only spec_type 5 (FSAPT) is supported in this dataset"
         self.fsapt_dataframe = fsapt_dataframe
@@ -605,19 +606,34 @@ class AP3FusedFSAPTDatasetLMDB(Dataset):
         self,
         root,
         fsapt_dataframe: Optional[pd.DataFrame] = None,
-        r_cut=5.0,
-        r_cut_im=8.0,
         transform=None,
         pre_transform=None,
-        pre_filter=None,
-        force_reprocess=False,
-        check_monomer_validity=True,
+        r_cut=5.0,
+        r_cut_im=8.0,
         spec_type=1,
         max_size=None,
+        force_reprocess=False,
+        skip_processed=True,
+        skip_compile=False,
         atom_model=None,
+        dimer_prop_model=None,
+        batch_size=16,
+        atomic_batch_size=256,
+        datapoint_storage_n_objects=256,
+        in_memory=False,
+        num_devices=1,
+        split="all",
+        print_level=2,
+        qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
+        energy_labels: Optional[List[float]] = None,
+        random_seed=42,
+        check_monomer_validity=True,
+        device=None,
         lmdb_map_size=1099511627776,
         lmdb_readonly=False,
+        fileserver_url=None,
         cache_size=1000,
+        pre_filter=None,
     ):
         """Initialize LMDB-based FSAPT dataset"""
         assert spec_type in [5], "Only spec_type 5 (FSAPT) is supported in this dataset"
@@ -646,6 +662,23 @@ class AP3FusedFSAPTDatasetLMDB(Dataset):
         self._length = None
         self._worker_id = None
         self.spec_type = spec_type
+
+        self.device = device
+        self.MAX_SIZE = max_size
+        self.random_seed = random_seed
+        self.in_memory = in_memory
+        self.split = split
+        self.r_cut = r_cut
+        self.r_cut_im = r_cut_im
+        self.force_reprocess = force_reprocess
+        self.atomic_batch_size = atomic_batch_size
+        self.check_monomer_validity = check_monomer_validity
+        self.batch_size = batch_size
+        self.training_batch_size = batch_size
+        self.datapoint_storage_n_objects = datapoint_storage_n_objects
+        self.points_per_file = self.datapoint_storage_n_objects
+        self.skip_compile = skip_compile
+        self.skip_processed = skip_processed
 
         
         if not os.path.exists(root):
