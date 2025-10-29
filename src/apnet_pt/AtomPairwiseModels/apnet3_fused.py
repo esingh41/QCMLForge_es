@@ -1028,20 +1028,20 @@ class APNet3_AtomType_Model:
         indB_to_atom = np.concatenate(indB_to_atom)
 
         # E_sr, E_elst_sr, E_elst_lr
-        for e_pair, e_elst, indA, indB in zip(E_sr, E_elst_mtp, indsA_sr, indsB_sr):
+        for e_pair, indA, indB in zip(E_sr, indsA_sr, indsB_sr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
             pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
-            pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
 
-        for e_ind, indA, indB in zip(E_ind_mtp, indsA_lr, indsB_lr):
+        for e_elst, e_ind, indA, indB in zip(E_elst_mtp, E_ind_mtp, indsA_lr, indsB_lr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
             pair_energies_batch[i][2, atomA, atomB] += e_ind
+            pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
         return pair_energies_batch
 
     def _assemble_pairs_torch(
@@ -1244,10 +1244,15 @@ class APNet3_AtomType_Model:
                 for idx, valid_idx in enumerate(valid_indices):
                     predictions[i + valid_idx] = E_sr_dimer[idx].cpu().numpy()
                 cnt = 0
-                for cnt, idx in all_indices:
+                for idx in all_indices:
                     if idx in valid_indices:
-                        pairwise_energies.append(v[cnt])
+                        predictions[i + idx] = E_sr_dimer[cnt].cpu().numpy()
+                        pairwise_energies.append(
+                            v[cnt]
+                        )
+                        cnt += 1
                     else:
+                        predictions[i + idx] = np.array([np.nan, np.nan, np.nan, np.nan])
                         pairwise_energies.append([])
             elif return_classical_pairs:
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = preds
