@@ -131,6 +131,9 @@ def test_ap3_fused_fsapt():
 
 def test_ap3_fused_fsapt_energies():
     """Test training AP3 fused model on FSAPT fragment energy data"""
+    df = pd.read_pickle(f"{data_path}/raw/fsaptdft_train_simple.pkl")
+    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
+    print(df.columns.tolist())
     df = pd.read_pickle(f"{data_path}/raw/fsapt_train_simple.pkl")
     print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-Dispersion', ]].head())
     print(df.columns.tolist())
