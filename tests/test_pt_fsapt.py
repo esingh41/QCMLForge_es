@@ -134,8 +134,11 @@ def test_ap3_fused_fsapt_energies():
     df = pd.read_pickle(f"{data_path}/raw/fsaptdft_train_simple.pkl")
     print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
     print(df.columns.tolist())
-    df = pd.read_pickle(f"{data_path}/raw/fsapt_train_simple.pkl")
-    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-Dispersion', ]].head())
+    df = pd.read_pickle(f"{data_path}/raw/fsapt_HF_s_train_simple.pkl")
+    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
+    print(df.columns.tolist())
+    df = pd.read_pickle(f"{data_path}/raw/fsapt_HF_train_simple.pkl")
+    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
     print(df.columns.tolist())
     fAs = {}
     fBs = {}
@@ -164,6 +167,21 @@ FISAPT0/aug-cc-pVDZ
 2        All  Peptide_B -0.330418         -0.149510    0.039503    -0.126168     -0.094244
 3        All  T-Butyl_B -0.051963         -1.141942    4.278250    -0.386842     -2.801430
 4        All        All -0.382381         -1.291452    4.317753    -0.513009     -2.895673
+FSAPT(PBE0)-D4(I,PBE0)/aug-cc-pVDZ
+       Frag1      Frag2   F-Total  F-Electrostatics  F-Exchange  F-Induction  F-EDispersion
+0  Methyl1_A        All  0.603106          0.672601    0.073894     0.004140      -0.147529
+1  Methyl2_A        All  0.618346         -2.126778    4.867282    -0.531925      -1.590233
+2        All  Peptide_B -0.254772         -0.155184    0.068459    -0.136507      -0.031540
+3        All  T-Butyl_B  1.476223         -1.298994    4.872717    -0.391278      -1.706223
+4        All        All  1.221451         -1.454177    4.941176    -0.527785      -1.737762
+FSAPT(HF)-D4(I,HF)/aug-cc-pVDZ
+       Frag1      Frag2   F-Total  F-Electrostatics  F-Exchange  F-Induction  F-EDispersion
+0  Methyl1_A        All  0.656134          0.741582    0.062858    -0.011500      -0.136807
+1  Methyl2_A        All  0.430266         -2.033033    4.254900    -0.501515      -1.290086
+2        All  Peptide_B -0.265780         -0.149664    0.040391    -0.126420      -0.030086
+3        All  T-Butyl_B  1.352179         -1.141787    4.277367    -0.386595      -1.396806
+4        All        All  1.086399         -1.291451    4.317758    -0.513015      -1.426892
+        # NOTE: All-All w/ -D4(S,HF) disp = -3.73132650 kcal/mol
 AP2-fused
                  fA-fB     total      elst      exch      indu      disp
 0        Methyl1_A-All -0.521874 -0.254071  0.107711 -0.028753 -0.346760
