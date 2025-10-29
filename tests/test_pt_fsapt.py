@@ -146,8 +146,16 @@ def test_ap3_fused_fsapt_energies():
         fAs=[fAs for i in range(len(df))],
         fBs=[fBs for i in range(len(df))],
     )
+    pp(fAs)
+    pp(fBs)
     print(df)
     """
+{'All': [1, 2, 7, 8, 3, 4, 5, 6],
+ 'Methyl1_A': [1, 2, 7, 8],
+ 'Methyl2_A': [3, 4, 5, 6]}
+{'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+ 'Peptide_B': [9, 10, 11, 16, 26],
+ 'T-Butyl_B': [12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25]}
                   fA-fB      total       elst      exch      indu      disp
 0         Methyl1_A-All  12.485888  12.711604  0.110707 -0.017730 -0.318692
 1   Methyl1_A-Peptide_B  12.721631  12.720556  0.002140  0.007264 -0.008330
@@ -197,8 +205,17 @@ def test_ap3_fused_fsapt_energies():
     """
     return
 
+
 def test_ap3_fused_fsapt_training():
     """Test training AP3 fused model on FSAPT fragment energy data"""
+    """
+# First summation should be...
+frag1_idx= 'Methyl1_A': [1, 2, 7, 8],
+frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25]
+                  fA-fB      total       elst      exch      indu      disp
+0         Methyl1_A-All  12.485888  12.711604  0.110707 -0.017730 -0.318692
+
+    """
     temp_dir = tempfile.mkdtemp()
     test_df_path = f"{data_path}/raw/fsapt_test_simple.pkl"
     train_df_path = f"{data_path}/raw/fsapt_train_simple.pkl"
@@ -259,5 +276,5 @@ def test_ap3_fused_fsapt_training():
 
 if __name__ == "__main__":
     # test_ap3_fused_fsapt()
-    # test_ap3_fused_fsapt_training()
-    test_ap3_fused_fsapt_energies()
+    # test_ap3_fused_fsapt_energies()
+    test_ap3_fused_fsapt_training()
