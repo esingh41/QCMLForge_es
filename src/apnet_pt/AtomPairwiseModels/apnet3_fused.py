@@ -1007,6 +1007,9 @@ class APNet3_AtomType_Model:
         indsA_lr = inp_batch["e_ABlr_source"]
         indsB_lr = inp_batch["e_ABlr_target"]
 
+        indsA = inp_batch['e_ABfull_source']
+        indsB = inp_batch['e_ABfull_target']
+
         dimer_inds, atoms_per_dimer = torch.unique(
             inp_batch.dimer_ind_full, return_counts=True
         )
@@ -1026,6 +1029,13 @@ class APNet3_AtomType_Model:
         indB_to_dimer = np.concatenate(indB_to_dimer)
         indA_to_atom = np.concatenate(indA_to_atom)
         indB_to_atom = np.concatenate(indB_to_atom)
+        for e_elst, e_ind, indA, indB in zip(E_elst_mtp, E_ind_mtp, indsA, indsB):
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
+            pair_energies_batch[i][0, atomA, atomB] += e_ind.numpy()
 
         # E_sr, E_elst_sr, E_elst_lr
         for e_pair, indA, indB in zip(E_sr, indsA_sr, indsB_sr):
@@ -1035,13 +1045,6 @@ class APNet3_AtomType_Model:
             atomB = indB_to_atom[indB]
             pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
 
-        for e_elst, e_ind, indA, indB in zip(E_elst_mtp, E_ind_mtp, indsA_lr, indsB_lr):
-            i = indA_to_dimer[indA]
-            assert i == indB_to_dimer[indB]
-            atomA = indA_to_atom[indA]
-            atomB = indB_to_atom[indB]
-            pair_energies_batch[i][2, atomA, atomB] += e_ind
-            pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
         return pair_energies_batch
 
     def _assemble_pairs_torch(

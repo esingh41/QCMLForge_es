@@ -140,16 +140,19 @@ def test_ap3_fused_fsapt_energies():
         fAs[f1] = inds
     for f2, inds in zip(df['Frag2'], df['Frag2_indices']):
         fBs[f2] = inds
-    pp(fAs)
-    pp(fBs)
-    print(df.iloc[0]['qcel_molecule'].to_string('psi4'))
-    pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
-        [df['qcel_molecule'].iloc[0]],
-        fAs=[fAs],
-        fBs=[fBs],
-        ap2_fused=True,
-        compile=False,
-    )
+    # pp(fAs)
+    # pp(fBs)
+    # print(df.iloc[0]['qcel_molecule'].to_string('psi4'))
+    # pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
+    #     [df['qcel_molecule'].iloc[0]],
+    #     fAs=[fAs],
+    #     fBs=[fBs],
+    #     ap2_fused=True,
+    #     compile=False,
+    # )
+    # pp(fAs)
+    # pp(fBs)
+    # print(df_out)
     """
 FISAPT0/aug-cc-pVDZ
        Frag1      Frag2   F-Total  F-Electrostatics  F-Exchange  F-Induction  F-Dispersion
@@ -166,9 +169,6 @@ AP2-fused
 8        All-T-Butyl_B -0.391961 -1.251006  4.310223 -0.545543 -2.905635
 6              All-All -0.539679 -1.294481  4.264339 -0.552106 -2.957431
     """
-    pp(fAs)
-    pp(fBs)
-    print(df_out)
     pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
         [df['qcel_molecule'].iloc[0]],
         fAs=[fAs],
@@ -187,12 +187,12 @@ FISAPT0/aug-cc-pVDZ
 3        All  T-Butyl_B -0.051963         -1.141942    4.278250    -0.386842     -2.801430
 4        All        All -0.382381         -1.291452    4.317753    -0.513009     -2.895673
 AP3-fused
-                 fA-fB      total       elst      exch      indu      disp
-0        Methyl1_A-All  12.485888  12.711604  0.110707 -0.017730 -0.318692
-3        Methyl2_A-All  11.814778  10.555523  4.227958 -0.381347 -2.587355
-7        All-Peptide_B  23.172568  23.211183  0.008084  0.018292 -0.064991
-8        All-T-Butyl_B   1.128098   0.055943  4.330580 -0.417369 -2.841057
-6              All-All  24.300666  23.267127  4.338664 -0.399078 -2.906048
+                 fA-fB     total      elst      exch      indu      disp
+0        Methyl1_A-All -0.445212 -0.209964  0.110707 -0.027262 -0.318692
+3        Methyl2_A-All  0.151453 -1.095993  4.227958 -0.393157 -2.587355
+7        All-Peptide_B -0.014877  0.045080  0.008084 -0.003050 -0.064991
+8        All-T-Butyl_B -0.278882 -1.351036  4.330580 -0.417369 -2.841057
+6              All-All -0.293759 -1.305957  4.338664 -0.420419 -2.906048
     """
     return
 
