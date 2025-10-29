@@ -140,7 +140,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         r_cut=5.0,
         return_hidden_states=False,
         use_precomputed_classical=False,
-        use_atom_props=False,
+        use_atom_props=True,
     ):
         # super().__init__(aggr="add")
         super().__init__()
@@ -274,6 +274,7 @@ class APNet3_AtomType_MPNN(nn.Module):
 
         qA_source = qA.index_select(0, e_source)
         qB_target = qB.index_select(0, e_target)
+        print(f"{self.use_atom_props = }")
 
         if self.use_atom_props:
             hfvrA_source = hfvrA.index_select(0, e_source)
@@ -551,6 +552,7 @@ class APNet3_AtomType_Model:
         ds_energy_labels=None,
         use_precomputed_classical=False,
         ds_class_type="lmdb", # "pt" or "lmdb"
+        use_atom_props=True,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -620,14 +622,13 @@ class APNet3_AtomType_Model:
 """
             )
         self.use_precomputed_classical = use_precomputed_classical
-        use_atom_props = True
         if pre_trained_model_path:
             print(
                 f"Loading pre-trained APNet3_AtomType_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             config = checkpoint["config"]
-            use_atom_props = config.get("use_atom_props", False)
+            use_atom_props = config.get("use_atom_props", True)
             self.model = APNet3_AtomType_MPNN(
                 dimer_prop_model=self.dimer_prop_model,
                 n_message=config["n_message"],
