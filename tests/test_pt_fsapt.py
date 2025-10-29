@@ -129,15 +129,47 @@ def test_ap3_fused_fsapt():
         # Clean up temporary directory
         shutil.rmtree(temp_dir)
 
+def test_ap3_fused_fsapt_energies():
+    """Test training AP3 fused model on FSAPT fragment energy data"""
+    df = pd.read_pickle(f"{data_path}/raw/fsapt_train_simple.pkl")
+
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+
+    # Initialize AP3 model for FSAPT training
+
+    ap3 = APNet3_AtomType_Model(
+        # ds_root=temp_dir,
+        ds_root=data_path,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+        am_dimer_param_model=atom_type_elst_model,
+        use_precomputed_classical=False,
+        ignore_database_null=False,
+        ds_spec_type=6,  # NOTE spec_type 5 for FSAPT
+        ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
+        pre_trained_model_path=ap3_path,
+    )
+    return
 
 def test_ap3_fused_fsapt_training():
     """Test training AP3 fused model on FSAPT fragment energy data"""
-    df = pd.read_pickle(f"{current_file_path}/dataset_data/fsapt_data.pkl")
-
-    df = df.head(5)
     temp_dir = tempfile.mkdtemp()
-    test_df_path = f"{data_path}/raw/fsapt_test_data.pkl"
-    train_df_path = f"{data_path}/raw/fsapt_train_data.pkl"
+    test_df_path = f"{data_path}/raw/fsapt_test_simple.pkl"
+    train_df_path = f"{data_path}/raw/fsapt_train_simple.pkl"
     # mkdir raw under temp_dir and copy test_df there
     raw_dir = os.path.join(temp_dir, "raw")
     os.makedirs(raw_dir, exist_ok=True)
@@ -172,8 +204,9 @@ def test_ap3_fused_fsapt_training():
             am_dimer_param_model=atom_type_elst_model,
             use_precomputed_classical=False,
             ignore_database_null=False,
-            ds_spec_type=5,  # NOTE spec_type 5 for FSAPT
+            ds_spec_type=6,  # NOTE spec_type 5 for FSAPT
             ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
+            pre_trained_model_path=ap3_path,
         )
 
         print("\nStarting FSAPT training...")
@@ -195,3 +228,4 @@ def test_ap3_fused_fsapt_training():
 if __name__ == "__main__":
     # test_ap3_fused_fsapt()
     test_ap3_fused_fsapt_training()
+    # test_ap3_fused_fsapt_energies()

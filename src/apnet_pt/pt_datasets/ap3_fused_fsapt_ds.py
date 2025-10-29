@@ -193,8 +193,8 @@ def ap3_fused_fsapt_collate_update(batch):
     total_charge_B_tensor = torch.tensor(
         [data.total_charge_B for data in batch], dtype=batch[0].total_charge_B.dtype
     )
-    local_frag1_ind_cat = torch.cat(local_frag1_ind, dim=0)
-    local_frag2_ind_cat = torch.cat(local_frag2_ind, dim=0)
+    # local_frag1_ind_cat = torch.cat(local_frag1_ind, dim=0)
+    # local_frag2_ind_cat = torch.cat(local_frag2_ind, dim=0)
 
     batch_atomic_A = Data(
         x=ZA_cat,
@@ -259,8 +259,8 @@ def ap3_fused_fsapt_collate_update(batch):
         total_charge_B=total_charge_B_tensor,
         batch_atomic_A=batch_atomic_A,
         batch_atomic_B=batch_atomic_B,
-        frag1_ind=local_frag1_ind_cat,
-        frag2_ind=local_frag2_ind_cat,
+        frag1_ind=local_frag1_ind,
+        frag2_ind=local_frag2_ind,
         indA=indA_cat,
         indB=indB_cat,
     )
@@ -436,8 +436,8 @@ def ap3_fused_fsapt_collate_update_no_target(batch):
         indB=indB_cat,
         batch_atomic_A=batch_atomic_A,
         batch_atomic_B=batch_atomic_B,
-        frag1_ind=local_frag1_ind_cat,
-        frag2_ind=local_frag2_ind_cat,
+        frag1_ind=local_frag1_ind,
+        frag2_ind=local_frag2_ind,
     )
     return batched_data
 
@@ -720,7 +720,7 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         self.json = json
         self.print_level = print_level
         try:
-            assert spec_type in [5, None]
+            assert spec_type in [5, 6, None]
         except Exception:
             print("Currently spec_type must be 5 or None")
             raise ValueError
@@ -894,6 +894,11 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
             return [
                 "fsapt_train_data.pkl",
                 "fsapt_test_data.pkl",
+            ]
+        elif self.spec_type == 6:
+            return [
+                "fsapt_train_simple.pkl",
+                "fsapt_test_simple.pkl",
             ]
 
     @property
