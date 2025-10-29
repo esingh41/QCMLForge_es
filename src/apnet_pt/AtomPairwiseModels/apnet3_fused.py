@@ -1571,6 +1571,11 @@ units angstrom
                     E_full[src, :] += E_sr[edge_idx]
                     E_full[tgt, :] += E_sr[edge_idx]
                 full_pairwise_energies += E_full
+                print(f"{full_pairwise_energies = }")
+                tmp_sum = torch.sum(full_pairwise_energies, dim=0)
+                print(f"{tmp_sum = }")
+                print(f"{E_sr_dimer = }")
+                assert torch.allclose(tmp_sum, E_sr_dimer), "Sum of pairwise energies does not match dimer energies"
                 # print(f"Full pairwise energies shape: {full_pairwise_energies.shape}")
                 # print(f"Full pairwise energies: {full_pairwise_energies}")
                 #

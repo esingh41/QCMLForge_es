@@ -132,7 +132,7 @@ def test_ap3_fused_fsapt():
 def test_ap3_fused_fsapt_energies():
     """Test training AP3 fused model on FSAPT fragment energy data"""
     df = pd.read_pickle(f"{data_path}/raw/fsapt_train_simple.pkl")
-    print(df)
+    print(df[['Frag1', 'Frag2', 'F-Electrostatics', 'F-Exchange', 'F-Dispersion', 'F-EDispersion', 'F-Total', 'F-Induction',]].head())
     print(df.columns.tolist())
     fAs = {}
     fBs = {}
@@ -141,15 +141,81 @@ def test_ap3_fused_fsapt_energies():
     for f2, inds in zip(df['Frag2'], df['Frag2_indices']):
         fBs[f2] = inds
     print(df.iloc[0]['qcel_molecule'].to_string('psi4'))
+    pred_IEs, pairwise_energies, df = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
+        df['qcel_molecule'].tolist(),
+        fAs=[fAs for i in range(len(df))],
+        fBs=[fBs for i in range(len(df))],
+        ap2_fused=True,
+        compile=False,
+    )
+    """
+    AP2-fused
+                  fA-fB     total      elst      exch      indu      disp
+0         Methyl1_A-All -0.521873 -0.254071  0.107711 -0.028753 -0.346760
+1   Methyl1_A-Peptide_B  0.154552  0.168963 -0.003577  0.001630 -0.012463
+2   Methyl1_A-T-Butyl_B -0.676426 -0.423034  0.111288 -0.030383 -0.334297
+3         Methyl2_A-All -0.017804 -1.040408  4.156628 -0.523353 -2.610671
+4   Methyl2_A-Peptide_B -0.302271 -0.212440 -0.042306 -0.008193 -0.039332
+5   Methyl2_A-T-Butyl_B  0.284468 -0.827968  4.198934 -0.515159 -2.571339
+6               All-All -0.539677 -1.294479  4.264339 -0.552106 -2.957431
+7         All-Peptide_B -0.147719 -0.043477 -0.045884 -0.006563 -0.051795
+8         All-T-Butyl_B -0.391958 -1.251002  4.310222 -0.545542 -2.905635
+9         Methyl1_A-All -0.521873 -0.254071  0.107711 -0.028753 -0.346760
+10  Methyl1_A-Peptide_B  0.154552  0.168963 -0.003577  0.001630 -0.012463
+11  Methyl1_A-T-Butyl_B -0.676426 -0.423034  0.111288 -0.030383 -0.334297
+12        Methyl2_A-All -0.017804 -1.040408  4.156628 -0.523353 -2.610671
+13  Methyl2_A-Peptide_B -0.302271 -0.212440 -0.042306 -0.008193 -0.039332
+14  Methyl2_A-T-Butyl_B  0.284468 -0.827968  4.198934 -0.515159 -2.571339
+15              All-All -0.539677 -1.294479  4.264339 -0.552106 -2.957431
+16        All-Peptide_B -0.147719 -0.043477 -0.045884 -0.006563 -0.051795
+17        All-T-Butyl_B -0.391958 -1.251002  4.310222 -0.545542 -2.905635
+18        Methyl1_A-All -0.521873 -0.254071  0.107711 -0.028753 -0.346760
+19  Methyl1_A-Peptide_B  0.154552  0.168963 -0.003577  0.001630 -0.012463
+20  Methyl1_A-T-Butyl_B -0.676426 -0.423034  0.111288 -0.030383 -0.334297
+21        Methyl2_A-All -0.017804 -1.040408  4.156628 -0.523353 -2.610671
+22  Methyl2_A-Peptide_B -0.302271 -0.212440 -0.042306 -0.008193 -0.039332
+23  Methyl2_A-T-Butyl_B  0.284468 -0.827968  4.198934 -0.515159 -2.571339
+24              All-All -0.539677 -1.294479  4.264339 -0.552106 -2.957431
+25        All-Peptide_B -0.147719 -0.043477 -0.045884 -0.006563 -0.051795
+26        All-T-Butyl_B -0.391958 -1.251002  4.310222 -0.545542 -2.905635
+27        Methyl1_A-All -0.521873 -0.254071  0.107711 -0.028753 -0.346760
+28  Methyl1_A-Peptide_B  0.154552  0.168963 -0.003577  0.001630 -0.012463
+29  Methyl1_A-T-Butyl_B -0.676426 -0.423034  0.111288 -0.030383 -0.334297
+30        Methyl2_A-All -0.017804 -1.040408  4.156628 -0.523353 -2.610671
+31  Methyl2_A-Peptide_B -0.302271 -0.212440 -0.042306 -0.008193 -0.039332
+32  Methyl2_A-T-Butyl_B  0.284468 -0.827968  4.198934 -0.515159 -2.571339
+33              All-All -0.539677 -1.294479  4.264339 -0.552106 -2.957431
+34        All-Peptide_B -0.147719 -0.043477 -0.045884 -0.006563 -0.051795
+35        All-T-Butyl_B -0.391958 -1.251002  4.310222 -0.545542 -2.905635
+36        Methyl1_A-All -0.521873 -0.254071  0.107711 -0.028753 -0.346760
+37  Methyl1_A-Peptide_B  0.154552  0.168963 -0.003577  0.001630 -0.012463
+38  Methyl1_A-T-Butyl_B -0.676426 -0.423034  0.111288 -0.030383 -0.334297
+39        Methyl2_A-All -0.017804 -1.040408  4.156628 -0.523353 -2.610671
+40  Methyl2_A-Peptide_B -0.302271 -0.212440 -0.042306 -0.008193 -0.039332
+41  Methyl2_A-T-Butyl_B  0.284468 -0.827968  4.198934 -0.515159 -2.571339
+42              All-All -0.539677 -1.294479  4.264339 -0.552106 -2.957431
+43        All-Peptide_B -0.147719 -0.043477 -0.045884 -0.006563 -0.051795
+44        All-T-Butyl_B -0.391958 -1.251002  4.310222 -0.545542 -2.905635
+    """
+    pp(fAs)
+    pp(fBs)
+    print(df)
     pred_IEs, pairwise_energies, df = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
         df['qcel_molecule'].tolist(),
         fAs=[fAs for i in range(len(df))],
         fBs=[fBs for i in range(len(df))],
+        compile=False,
     )
     pp(fAs)
     pp(fBs)
     print(df)
     """
+       Frag1      Frag2  F-Electrostatics  F-Exchange  F-Dispersion  F-EDispersion   F-Total  F-Induction
+0  Methyl1_A        All          0.739977    0.071830     -0.391684            0.0  0.408609    -0.011515
+1  Methyl2_A        All         -2.031429    4.245923     -2.503989            0.0 -0.790990    -0.501495
+2        All  Peptide_B         -0.149510    0.039503     -0.094244            0.0 -0.330418    -0.126168
+3        All  T-Butyl_B         -1.141942    4.278250     -2.801430            0.0 -0.051963    -0.386842
+4        All        All         -1.291452    4.317753     -2.895673            0.0 -0.382381    -0.513009
 {'All': [1, 2, 7, 8, 3, 4, 5, 6],
  'Methyl1_A': [1, 2, 7, 8],
  'Methyl2_A': [3, 4, 5, 6]}
@@ -213,7 +279,6 @@ def test_ap3_fused_fsapt_training():
 frag1_idx= 'Methyl1_A': [1, 2, 7, 8],
 frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25]
                   fA-fB      total       elst      exch      indu      disp
-0         Methyl1_A-All  12.485888  12.711604  0.110707 -0.017730 -0.318692
 
     """
     temp_dir = tempfile.mkdtemp()
@@ -276,5 +341,5 @@ frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23
 
 if __name__ == "__main__":
     # test_ap3_fused_fsapt()
-    # test_ap3_fused_fsapt_energies()
-    test_ap3_fused_fsapt_training()
+    test_ap3_fused_fsapt_energies()
+    # test_ap3_fused_fsapt_training()
