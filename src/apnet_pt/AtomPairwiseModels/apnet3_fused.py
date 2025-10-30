@@ -122,6 +122,7 @@ def unwrap_model(model):
     return model.module if isinstance(model, DDP) else model
 
 
+#Need to pass in dimer_prop_model that has dispersion packed into it.
 class APNet3_AtomType_MPNN(nn.Module):
     def __init__(
         self,
@@ -328,7 +329,9 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_classical, mA, mB = self.dimer_prop_model(batch)
         E_elst = E_classical[:, 0]
         E_ind = E_classical[:, 1]
-        #Shouldn't put classical dis
+        E_disp = E_classical[:, 1]
+        #should embed dispersion into E_classical, do back to dimer prop model and do this
+        
         qA = mA[0]
         qB = mB[0]
         qA = qA.view(-1, 1)
@@ -460,7 +463,6 @@ class APNet3_AtomType_MPNN(nn.Module):
         # print(f"{E_sr_dimer=}")
         # print(f"{E_elst_dimer=}")
         # print(f"{E_ind_dimer=}")
-
         if self.return_hidden_states:
             return (
                 E_output,
@@ -471,7 +473,8 @@ class APNet3_AtomType_MPNN(nn.Module):
                 hBA,
                 cutoff,
             )
-        return E_output, E_sr, E_elst, E_ind, hAB, hBA
+        #THIS MIGHT BREAK THE CODE
+        return E_output, E_sr, E_elst, E_ind, E_disp, hAB, hBA
 
     
 class APNet3_AtomType_Model:
@@ -925,6 +928,7 @@ class APNet3_AtomType_Model:
         if return_classical_pairs:
             pairwise_elst_energies = []
             pairwise_ind_energies = []
+            pairwise_disp_energies = []
         if self.model.return_hidden_states:
             # need to capture output
             h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
@@ -944,7 +948,9 @@ class APNet3_AtomType_Model:
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
             if self.model.return_hidden_states:
-                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA, cutoff = preds
+                #Probably need to modify the other return statements now that 
+                #I added E_disp
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA, cutoff = preds
                 h_ABs.append(hAB)
                 h_BAs.append(hBA)
                 cutoffs.append(cutoff)
@@ -965,12 +971,13 @@ class APNet3_AtomType_Model:
                     )
                                               )
             elif return_classical_pairs:
-                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = preds
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
                 v = self._assemble_mtp_pairs(
                         dimer_batch,
                         E_elst,
                         E_ind,
+                        E_disp,
                     )
                 pairwise_elst_energies.extend(
                     v[0]
