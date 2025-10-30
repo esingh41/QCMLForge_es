@@ -215,6 +215,38 @@ def test_ap2_fused_ensemble():
 
 def test_ap2_fused_ensemble_predict_pairs():
     _, pairs, df = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
+        [mol_fsapt],
+        compile=False,
+        batch_size=2,
+        fAs=[{
+            "Methyl1_A": [1, 2, 7, 8],
+            "Methyl2_A": [3, 4, 5, 6],
+        }],
+        fBs=[{
+            "Peptide_B": [9, 10, 11, 16, 26],
+            "T-Butyl_B": [12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+        }],
+        print_results=True,
+        ap2_fused=True,
+    )
+    print(df)
+    """
+==> AP2-FSAPT <==
+monA-monB full IE: [-0.539679   -1.29448098  4.26433879 -0.55210597 -2.95743084]
+
+ Frag1      Frag2         Elst       Exch       Ind        Disp       Total
+            
+Methyl1_A  Peptide_B    0.168963  -0.003577   0.001630  -0.012463   0.154552
+Methyl1_A  T-Butyl_B   -0.423034   0.111288  -0.030383  -0.334297  -0.676425
+Methyl2_A  Peptide_B   -0.212438  -0.042306  -0.008193  -0.039332  -0.302270
+Methyl2_A  T-Butyl_B   -0.827972   4.198934  -0.515159  -2.571339   0.284464
+                 fA-fB     total      elst      exch      indu      disp
+0  Methyl1_A-Peptide_B  0.154552  0.168963 -0.003577  0.001630 -0.012463
+1  Methyl1_A-T-Butyl_B -0.676425 -0.423034  0.111288 -0.030383 -0.334297
+2  Methyl2_A-Peptide_B -0.302270 -0.212438 -0.042306 -0.008193 -0.039332
+3  Methyl2_A-T-Butyl_B  0.284464 -0.827972  4.198934 -0.515159 -2.571339
+    """
+    _, pairs, df = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
         [
             mol_fsapt,
             mol_fsapt,
@@ -259,5 +291,6 @@ if __name__ == "__main__":
     # test_am_ensemble()
     # test_ap2_ensemble()
     # test_ap2_ensemble_predict_pairs()
-    test_ap2_fused_ensemble()
+    # test_ap2_fused_ensemble()
     # test_ap2_fused_ensemble_predict_pairs()
+    test_ap2_fused_ensemble_predict_pairs()

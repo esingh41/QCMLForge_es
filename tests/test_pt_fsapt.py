@@ -285,7 +285,59 @@ frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23
     return
 
 
+def test_ap2_ap3_fused_fsapt_energies():
+    """Test training AP3 fused model on FSAPT fragment energy data"""
+    df = pd.read_pickle(f"{data_path}/raw/fsapt_full_data.pkl")
+    df['fA-fB'] = df.apply(lambda r: f"{r['Frag1']}-{r['Frag2']}", axis=1)
+    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', 'qcel_molecule']])
+    print(df.columns.tolist())
+    fAs = []
+    fBs = []
+    for f1, inds in zip(df['Frag1'], df['Frag1_indices']):
+        fAs.append({f1: inds})
+    for f2, inds in zip(df['Frag2'], df['Frag2_indices']):
+        fBs.append({f2: inds})
+    pred_IEs, pairwise_energies, df_out_ap2 = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
+        df['qcel_molecule'].tolist(),
+        fAs=fAs,
+        fBs=fBs,
+        ap2_fused=True,
+        compile=False,
+    )
+    print(df_out_ap2)
+    df_out_ap2.to_pickle("fsapt_ap2_fused_predictions.pkl")
+    df['total_ap2'] = df_out_ap2['total']
+    df['elst_ap2'] = df_out_ap2['elst']
+    df['exch_ap2'] = df_out_ap2['exch']
+    df['indu_ap2'] = df_out_ap2['indu']
+    df['disp_ap2'] = df_out_ap2['disp']
+    df['fA-fB_ap2'] = df_out_ap2['fA-fB']
+    pred_IEs, pairwise_energies, df_out_ap3 = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
+        df['qcel_molecule'].tolist(),
+        fAs=fAs,
+        fBs=fBs,
+        compile=False,
+    )
+    print(df_out_ap3)
+    df_out_ap3.to_pickle("fsapt_ap3_fused_predictions.pkl")
+    df['total_ap3'] = df_out_ap3['total']
+    df['elst_ap3'] = df_out_ap3['elst']
+    df['exch_ap3'] = df_out_ap3['exch']
+    df['indu_ap3'] = df_out_ap3['indu']
+    df['disp_ap3'] = df_out_ap3['disp']
+    df['fA-fB_ap3'] = df_out_ap3['fA-fB']
+    print(df)
+    pp(df.columns.tolist())
+    df["base_id"] = df["id"].str.replace(r"-[a-z][a-z]", "", regex=True)
+    unique_ids = df["base_id"].unique()
+    print(f"Unique base IDs: {unique_ids}")
+    df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
+    # Since dataframes are identical except for the energy predictions, just add ap3 energy cals to ap2
+    return
+
+
 if __name__ == "__main__":
     # test_ap3_fused_fsapt()
-    test_ap3_fused_fsapt_energies()
+    # test_ap3_fused_fsapt_energies()
     # test_ap3_fused_fsapt_training()
+    test_ap2_ap3_fused_fsapt_energies()
