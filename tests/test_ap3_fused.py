@@ -547,7 +547,7 @@ def test_classical_ap3_dispersion():
     ]
 
     mols = [
-        mol_cliff_water_close,
+        water_water_dimer,
     ]
 
     batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
@@ -589,12 +589,11 @@ def test_classical_ap3_dispersion():
         atom_type_elst_model.model,
         dimer_eval="ap3_elst_damping__induced_dipole__disp"
     )
-    E_classical, Disp, mA, mB = dimer_prop_model(batch)
-    dimer_prop_model_disp = apnet_pt.AtomPairwiseModels.mtp_mtp.DimerProp(
-        atom_type_hf_vw_model.model,
-        dimer_eval="disp"
-    )
-    print(dimer_prop_model_disp(batch))
+    E_classical, mA, mB = dimer_prop_model(batch)
+    print(torch.sum(E_classical[:,2]))
+    #print(torch.sum(Disp))
+    #Okay, now that I have the pairwise_disp_Es, I should probably do the assemble_mtp_pairs thing and see what it does.
+    #I don't really know how these are expected to look like. Oh that's why I wanted to add to the induced dipole and elst to see
     return 
     ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
         ds_root=None,
@@ -610,7 +609,7 @@ if __name__ == "__main__":
     # test_classical_ap3()
     # test_classical_ap3_long_range()
     # test_ap3_fused_train_qcel_molecules_in_memory()
-    test_classical_ap3_induction()
-    #test_classical_ap3_dispersion()
+    #test_classical_ap3_induction()
+    test_classical_ap3_dispersion()
     #test_ap3_fused_train_qcel_molecules_in_memory()
     # test_classical_ap3_induction()
