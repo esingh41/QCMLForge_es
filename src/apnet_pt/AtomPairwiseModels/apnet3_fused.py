@@ -459,6 +459,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         padded[:, 2:3] = E_ind_dimer
         E_ind_dimer = padded
 
+        #Probably need to modify this code to add the padded dispersion energies as well
         E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
         # print(f"{E_sr_dimer=}")
         # print(f"{E_elst_dimer=}")
@@ -848,7 +849,7 @@ class APNet3_AtomType_Model:
 
     def _assemble_mtp_pairs(
         self,
-        inp_batch,
+        inp_batch, #dimer batch
         E_elst_mtp,
         E_ind_mtp,
     ):
@@ -875,7 +876,7 @@ class APNet3_AtomType_Model:
         # print(f"{dimer_inds=}, {indsA_monomer=}, {indsB_monomer=}")
 
         for i in dimer_inds:
-            size_A = torch.sum(indsA_monomer == i)
+            size_A = torch.sum(indsA_monomer == i) #Finding size of each monomer
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
@@ -969,8 +970,12 @@ class APNet3_AtomType_Model:
                         E_elst.cpu(),
                         E_ind.cpu(),
                     )
-                                              )
+            )
             elif return_classical_pairs:
+                #Okay, so E_sr_dimer contains the total dimer component energies,
+                #E_sr contains the pairwise energies per edge from the neural network
+                #aka the short range stuff, and E_elst, E_ind, E_disp contain the classically
+                #computed pairwise energies.
                 E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
                 v = self._assemble_mtp_pairs(
