@@ -488,7 +488,8 @@ class DimerProp(nn.Module):
             molecule_ind_B=batch.molecule_ind_B,
         )
 
-        return torch.vstack((Elst, Indu)).T, Disp, v_A, v_B
+        #Packing Disp into the E_classical
+        return torch.vstack((Elst, Indu, Disp)).T, v_A, v_B
     
     def _disp_foward(
         self,
