@@ -284,7 +284,7 @@ frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23
         shutil.rmtree(temp_dir)
     return
 
-
+@pytest.mark.skip("data analysis")
 def test_ap2_ap3_fused_fsapt_energies():
     """Test training AP3 fused model on FSAPT fragment energy data"""
     df = pd.read_pickle(f"{data_path}/raw/fsapt_full_data.pkl")
@@ -305,7 +305,7 @@ def test_ap2_ap3_fused_fsapt_energies():
         compile=False,
     )
     print(df_out_ap2)
-    df_out_ap2.to_pickle("fsapt_ap2_fused_predictions.pkl")
+    # df_out_ap2.to_pickle("fsapt_ap2_fused_predictions.pkl")
     df['total_ap2'] = df_out_ap2['total']
     df['elst_ap2'] = df_out_ap2['elst']
     df['exch_ap2'] = df_out_ap2['exch']
@@ -319,7 +319,7 @@ def test_ap2_ap3_fused_fsapt_energies():
         compile=False,
     )
     print(df_out_ap3)
-    df_out_ap3.to_pickle("fsapt_ap3_fused_predictions.pkl")
+    # df_out_ap3.to_pickle("fsapt_ap3_fused_predictions.pkl")
     df['total_ap3'] = df_out_ap3['total']
     df['elst_ap3'] = df_out_ap3['elst']
     df['exch_ap3'] = df_out_ap3['exch']
@@ -331,7 +331,7 @@ def test_ap2_ap3_fused_fsapt_energies():
     df["base_id"] = df["id"].str.replace(r"-[a-z][a-z]", "", regex=True)
     unique_ids = df["base_id"].unique()
     print(f"Unique base IDs: {unique_ids}")
-    df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
+    # df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
     # Since dataframes are identical except for the energy predictions, just add ap3 energy cals to ap2
     return
 
