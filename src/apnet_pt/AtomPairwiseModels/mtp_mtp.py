@@ -287,6 +287,7 @@ class DimerProp(nn.Module):
         # Kb = torch.clamp(v_B[-1][:, 1], min=0.0001, max=20.0)
         # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
         # Kb = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
+
         Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -1804,7 +1805,8 @@ def classical_dispersion(
         mon_A_indices = mctc.batch.pack(tuple(mon_A_indices))
         mon_B_indices = mctc.batch.pack(tuple(mon_B_indices))
 
-
+        #I am already passing in mon_A_indices and mon_B_indices which is annoying. What if I just pass
+        #in R_A
         pairwise_energies, mask = d3.dftd3(Z_AB, R_AB, param, mon_A_indices=mon_A_indices, mon_B_indices=mon_B_indices, pairwise_matrix=True)
         pairwise_energies *= h2kcalmol
         pairwise_energies_tad = pairwise_energies[mask]

@@ -452,15 +452,31 @@ class APNet3_AtomType_MPNN(nn.Module):
         N_full, num_cols = E_ind_full_dimer.shape
         full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
         full_expanded[:N_full] = E_ind_full_dimer
-        E_ind_dimer = full_expanded
+        E_ind_dimer = full_expanded        
 
         rows, cols = E_ind_dimer.shape
         padded = E_ind_dimer.new_zeros((rows, cols + 3))
         padded[:, 2:3] = E_ind_dimer
         E_ind_dimer = padded
 
+        #Do we need a short range correction for dispersion? Ask mentor.
+        E_disp_full_dimer = scatter_sum_compile(
+            E_disp, batch.dimer_ind_full, ndimer
+        )
+        E_disp_full_dimer = E_disp_full_dimer.unsqueeze(-1)
+        N_full, num_cols = E_disp_full_dimer.shape
+        full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
+        full_expanded[:N_full] = E_disp_full_dimer
+        E_disp_dimer = full_expanded        
+
+        rows, cols = E_disp_dimer.shape
+        padded = E_disp_dimer.new_zeros((rows, cols + 3))
+        padded[:, 3] = E_disp_dimer
+        E_disp_dimer = padded
+
         #Probably need to modify this code to add the padded dispersion energies as well
-        E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
+        E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer + E_disp_dimer
+        print(f"{E_output = }")
         # print(f"{E_sr_dimer=}")
         # print(f"{E_elst_dimer=}")
         # print(f"{E_ind_dimer=}")
@@ -470,11 +486,11 @@ class APNet3_AtomType_MPNN(nn.Module):
                 E_sr_dimer,
                 E_elst,
                 E_ind,
+                E_disp,
                 hAB,
                 hBA,
                 cutoff,
             )
-        #THIS MIGHT BREAK THE CODE
         return E_output, E_sr, E_elst, E_ind, E_disp, hAB, hBA
 
     
@@ -610,7 +626,7 @@ class APNet3_AtomType_Model:
 
         self.device = device
         #Probably need to change this
-        self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+        self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
         self.dimer_prop_model.to(device)
         self.dimer_prop_model.polarizability_table = (
             self.dimer_prop_model.polarizability_table.to(self.device)
@@ -799,6 +815,7 @@ class APNet3_AtomType_Model:
         E_sr,
         E_elst_mtp,
         E_ind_mtp,
+        E_disp,
     ):
         indA_to_dimer = []
         indB_to_dimer = []
@@ -832,26 +849,28 @@ class APNet3_AtomType_Model:
         indB_to_atom = np.concatenate(indB_to_atom)
 
         # E_sr, E_elst_sr, E_elst_lr
-        #Might have to edit assemble pairs as well
-        for e_pair, e_elst, indA, indB in zip(E_sr, E_elst_mtp, indsA_sr, indsB_sr):
+        #E_disp should work short range too right,
+        for e_pair, e_elst, e_disp, indA, indB in zip(E_sr, E_elst_mtp, E_disp, indsA_sr, indsB_sr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
             pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
             pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
+            pair_energies_batch[i][3, atomA, atomB] += e_disp.numpy()
 
-        for e_ind, indA, indB in zip(E_ind_mtp, indsA_lr, indsB_lr):
+        for e_ind, e_disp, indA, indB in zip(E_ind_mtp, E_disp, indsA_lr, indsB_lr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
             pair_energies_batch[i][2, atomA, atomB] += e_ind
+            pair_energies_batch[i][3, atomA, atomB] += e_disp
         return pair_energies_batch
 
     def _assemble_mtp_pairs(
         self,
-        inp_batch, #dimer batch
+        inp_batch,
         E_elst_mtp,
         E_ind_mtp,
         E_disp,
@@ -964,8 +983,6 @@ class APNet3_AtomType_Model:
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
             if self.model.return_hidden_states:
-                #Probably need to modify the other return statements now that 
-                #I added E_disp
                 E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA, cutoff = preds
                 h_ABs.append(hAB)
                 h_BAs.append(hBA)
@@ -984,13 +1001,10 @@ class APNet3_AtomType_Model:
                         E_sr.cpu(),
                         E_elst.cpu(),
                         E_ind.cpu(),
+                        E_disp.cpu(),
                     )
             )
             elif return_classical_pairs:
-                #Okay, so E_sr_dimer contains the total dimer component energies,
-                #E_sr contains the pairwise energies per edge from the neural network
-                #aka the short range stuff, and E_elst, E_ind, E_disp contain the classically
-                #computed pairwise energies.
                 E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
                 v = self._assemble_mtp_pairs(
