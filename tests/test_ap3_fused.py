@@ -589,6 +589,16 @@ def test_classical_ap3_dispersion():
         atom_type_elst_model.model,
         dimer_eval="ap3_elst_damping__induced_dipole__disp"
     )
+    ap3 = APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=dimer_prop_model,
+        am_dimer_param_model=atom_type_elst_model,
+        #use_precomputed_classical=False,
+    )
+    #Probably won't work. I think I need to set the foward method
+    v = ap3.predict_qcel_mols([water_water_dimer,], batch_size=1, return_classical_pairs=True)
+
     E_classical, mA, mB = dimer_prop_model(batch)
     print(torch.sum(E_classical[:,2]))
     #print(torch.sum(Disp))

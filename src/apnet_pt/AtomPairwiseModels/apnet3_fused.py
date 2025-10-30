@@ -609,6 +609,7 @@ class APNet3_AtomType_Model:
             self.model.r_cut = r_cut
 
         self.device = device
+        #Probably need to change this
         self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
         self.dimer_prop_model.to(device)
         self.dimer_prop_model.polarizability_table = (
@@ -831,6 +832,7 @@ class APNet3_AtomType_Model:
         indB_to_atom = np.concatenate(indB_to_atom)
 
         # E_sr, E_elst_sr, E_elst_lr
+        #Might have to edit assemble pairs as well
         for e_pair, e_elst, indA, indB in zip(E_sr, E_elst_mtp, indsA_sr, indsB_sr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
@@ -852,6 +854,7 @@ class APNet3_AtomType_Model:
         inp_batch, #dimer batch
         E_elst_mtp,
         E_ind_mtp,
+        E_disp,
     ):
         indA_to_dimer = []
         indB_to_dimer = []
@@ -859,6 +862,7 @@ class APNet3_AtomType_Model:
         indB_to_atom = []
         pair_elst_batch = []
         pair_ind_batch = []
+        pair_disp_batch = []
 
         indsA_sr = inp_batch["e_ABsr_source"]
         indsB_sr = inp_batch["e_ABsr_target"]
@@ -884,11 +888,13 @@ class APNet3_AtomType_Model:
             indB_to_atom.append(np.arange(size_B))
             pair_elst_batch.append(np.zeros((size_A, size_B)))
             pair_ind_batch.append(np.zeros((size_A, size_B)))
+            pair_disp_batch.append(np.zeros((size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
         indB_to_dimer = np.concatenate(indB_to_dimer)
         indA_to_atom = np.concatenate(indA_to_atom)
         indB_to_atom = np.concatenate(indB_to_atom)
+
         for e_elst, indA, indB in zip(E_elst_mtp, indsA, indsB):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
@@ -901,7 +907,16 @@ class APNet3_AtomType_Model:
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
             pair_ind_batch[i][atomA, atomB] += e_ind
-        return pair_elst_batch, pair_ind_batch
+
+        #D3 pairwise energies
+        for e_disp, indA, indB in zip(E_disp, indsA, indsB):
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_disp_batch[i][atomA, atomB] += e_disp
+
+        return pair_elst_batch, pair_ind_batch, pair_disp_batch
 
     @torch.inference_mode()
     def predict_qcel_mols(
@@ -961,7 +976,7 @@ class APNet3_AtomType_Model:
                 )
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
             elif return_pairs:
-                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = preds
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
                 pairwise_energies.extend(self._assemble_pairs(
                         dimer_batch.cpu(),
@@ -990,6 +1005,9 @@ class APNet3_AtomType_Model:
                 pairwise_ind_energies.extend(
                     v[1]
                 )
+                pairwise_disp_energies.extend(
+                    v[2]
+                )
             else:
                 predictions[i : i + batch_size] = preds[0].cpu().numpy()
         if verbose:
@@ -999,7 +1017,7 @@ class APNet3_AtomType_Model:
         if return_pairs:
             return predictions, pairwise_energies
         if return_classical_pairs:
-            return predictions, pairwise_elst_energies, pairwise_ind_energies
+            return predictions, pairwise_elst_energies, pairwise_ind_energies, pairwise_disp_energies
         return predictions
 
     def example_input(
