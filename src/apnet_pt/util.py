@@ -242,7 +242,7 @@ def load_dimer_dataset(
         df = df.sample(frac=1, random_state=random_seed_shuffle).reset_index(drop=True)
     allowed_elements = constants.z_to_elem.keys()
 
-    assert not ((return_qcel_mons != True) and (return_fragment_indices != True)), (
+    assert not ((return_qcel_mons == True) and (return_fragment_indices == True)), (
         "Cannot return both monomers and fragment indices simultaneously presently."
     )
 

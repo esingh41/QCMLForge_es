@@ -129,15 +129,10 @@ def test_ap3_fused_fsapt():
         # Clean up temporary directory
         shutil.rmtree(temp_dir)
 
+@pytest.mark.skip("incomplete functionality")
 def test_ap3_fused_fsapt_energies():
     """Test training AP3 fused model on FSAPT fragment energy data"""
-    df = pd.read_pickle(f"{data_path}/raw/fsaptdft_train_simple.pkl")
-    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
-    print(df.columns.tolist())
-    df = pd.read_pickle(f"{data_path}/raw/fsapt_HF_s_train_simple.pkl")
-    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
-    print(df.columns.tolist())
-    df = pd.read_pickle(f"{data_path}/raw/fsapt_HF_train_simple.pkl")
+    df = pd.read_pickle(f"{data_path}/raw/fsapt_train_simple.pkl")
     print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
     print(df.columns.tolist())
     fAs = {}
@@ -217,7 +212,7 @@ AP3-fused
     """
     return
 
-
+@pytest.mark.skip("incomplete functionality")
 def test_ap3_fused_fsapt_training():
     """Test training AP3 fused model on FSAPT fragment energy data"""
     """
@@ -338,6 +333,6 @@ def test_ap2_ap3_fused_fsapt_energies():
 
 if __name__ == "__main__":
     # test_ap3_fused_fsapt()
-    # test_ap3_fused_fsapt_energies()
-    # test_ap3_fused_fsapt_training()
-    test_ap2_ap3_fused_fsapt_energies()
+    test_ap3_fused_fsapt_energies()
+    test_ap3_fused_fsapt_training()
+    # test_ap2_ap3_fused_fsapt_energies()

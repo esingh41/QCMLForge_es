@@ -274,7 +274,6 @@ class APNet3_AtomType_MPNN(nn.Module):
 
         qA_source = qA.index_select(0, e_source)
         qB_target = qB.index_select(0, e_target)
-        print(f"{self.use_atom_props = }")
 
         if self.use_atom_props:
             hfvrA_source = hfvrA.index_select(0, e_source)
@@ -463,7 +462,6 @@ class APNet3_AtomType_MPNN(nn.Module):
         hAB = torch.cat([hAB, hA_dir_blah, hB_dir_blah], dim=1)
         hBA = torch.cat([hBA, hB_dir_blah, hA_dir_blah], dim=1)
 
-        print(f"{hAB.shape = }, {hBA.shape = }")
         EAB_sr = self.readouts(hAB)
         EBA_sr = self.readouts(hBA)
 
@@ -703,7 +701,6 @@ class APNet3_AtomType_Model:
             and isinstance(ds_qcel_molecules[0], list)
         )
         self.dataset = dataset
-        print(f"{use_precomputed_classical=}\n{self.dataset=}")
         print(
             not ignore_database_null,
             self.dataset is None,
