@@ -536,6 +536,7 @@ class APNet3_AtomType_Model:
         ds_root="data",
         ds_max_size=None,
         ds_atomic_batch_size=200,
+        ds_batch_size=16,
         ds_force_reprocess=False,
         ds_skip_process=False,
         ds_skip_compile=False,
@@ -726,6 +727,7 @@ class APNet3_AtomType_Model:
                         atom_model=self.dimer_prop_model,
                         dimer_prop_model=self.dimer_prop_model,
                         atomic_batch_size=ds_atomic_batch_size,
+                        batch_size=ds_batch_size,
                         num_devices=ds_num_devices,
                         skip_processed=ds_skip_process,
                         skip_compile=ds_skip_compile,
@@ -786,6 +788,7 @@ class APNet3_AtomType_Model:
                             atom_model=self.dimer_prop_model,
                             dimer_prop_model=self.dimer_prop_model,
                             atomic_batch_size=ds_atomic_batch_size,
+                            batch_size=ds_batch_size,
                             num_devices=ds_num_devices,
                             skip_processed=ds_skip_process,
                             skip_compile=ds_skip_compile,
@@ -808,6 +811,7 @@ class APNet3_AtomType_Model:
                             atom_model=self.dimer_prop_model,
                             dimer_prop_model=self.dimer_prop_model,
                             atomic_batch_size=ds_atomic_batch_size,
+                            batch_size=ds_batch_size,
                             num_devices=ds_num_devices,
                             skip_processed=ds_skip_process,
                             skip_compile=ds_skip_compile,
@@ -1552,6 +1556,9 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
+                print(batch)
+                print(batch.frag1_ind)
+                print(batch.frag2_ind)
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
                 full_pairwise_energies = torch.zeros(E_elst.size(0), 4, device=rank_device)
                 full_pairwise_energies[:, 0] = E_elst

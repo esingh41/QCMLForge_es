@@ -129,10 +129,15 @@ def test_ap3_fused_fsapt():
         # Clean up temporary directory
         shutil.rmtree(temp_dir)
 
+
 @pytest.mark.skip("incomplete functionality")
 def test_ap3_fused_fsapt_energies():
     """Test training AP3 fused model on FSAPT fragment energy data"""
-    df = pd.read_pickle(f"{data_path}/raw/fsapt_train_simple.pkl")
+    df = pd.read_pickle(f"{data_path}/raw/fsapt_test_simple.pkl")
+    # drop row that has frag2 == Tert-B because it has no indices
+    df = df[df['Frag2'] != 'T-Butyl_B']
+    df = df[df['Frag1'] != 'All']
+    df.to_pickle(f"{data_path}/raw/fsapt_test_simple.pkl")
     print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
     print(df.columns.tolist())
     fAs = {}
@@ -141,50 +146,6 @@ def test_ap3_fused_fsapt_energies():
         fAs[f1] = inds
     for f2, inds in zip(df['Frag2'], df['Frag2_indices']):
         fBs[f2] = inds
-    # pp(fAs)
-    # pp(fBs)
-    # print(df.iloc[0]['qcel_molecule'].to_string('psi4'))
-    # pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
-    #     [df['qcel_molecule'].iloc[0]],
-    #     fAs=[fAs],
-    #     fBs=[fBs],
-    #     ap2_fused=True,
-    #     compile=False,
-    # )
-    # pp(fAs)
-    # pp(fBs)
-    # print(df_out)
-    """
-FISAPT0/aug-cc-pVDZ
-       Frag1      Frag2   F-Total  F-Electrostatics  F-Exchange  F-Induction  F-Dispersion
-0  Methyl1_A        All  0.408609          0.739977    0.071830    -0.011515     -0.391684
-1  Methyl2_A        All -0.790990         -2.031429    4.245923    -0.501495     -2.503989
-2        All  Peptide_B -0.330418         -0.149510    0.039503    -0.126168     -0.094244
-3        All  T-Butyl_B -0.051963         -1.141942    4.278250    -0.386842     -2.801430
-4        All        All -0.382381         -1.291452    4.317753    -0.513009     -2.895673
-FSAPT(PBE0)-D4(I,PBE0)/aug-cc-pVDZ
-       Frag1      Frag2   F-Total  F-Electrostatics  F-Exchange  F-Induction  F-EDispersion
-0  Methyl1_A        All  0.603106          0.672601    0.073894     0.004140      -0.147529
-1  Methyl2_A        All  0.618346         -2.126778    4.867282    -0.531925      -1.590233
-2        All  Peptide_B -0.254772         -0.155184    0.068459    -0.136507      -0.031540
-3        All  T-Butyl_B  1.476223         -1.298994    4.872717    -0.391278      -1.706223
-4        All        All  1.221451         -1.454177    4.941176    -0.527785      -1.737762
-FSAPT(HF)-D4(I,HF)/aug-cc-pVDZ
-       Frag1      Frag2   F-Total  F-Electrostatics  F-Exchange  F-Induction  F-EDispersion
-0  Methyl1_A        All  0.656134          0.741582    0.062858    -0.011500      -0.136807
-1  Methyl2_A        All  0.430266         -2.033033    4.254900    -0.501515      -1.290086
-2        All  Peptide_B -0.265780         -0.149664    0.040391    -0.126420      -0.030086
-3        All  T-Butyl_B  1.352179         -1.141787    4.277367    -0.386595      -1.396806
-4        All        All  1.086399         -1.291451    4.317758    -0.513015      -1.426892
-        # NOTE: All-All w/ -D4(S,HF) disp = -3.73132650 kcal/mol
-AP2-fused
-                 fA-fB     total      elst      exch      indu      disp
-0        Methyl1_A-All -0.521874 -0.254071  0.107711 -0.028753 -0.346760
-3        Methyl2_A-All -0.017806 -1.040410  4.156628 -0.523353 -2.610671
-7        All-Peptide_B -0.147718 -0.043476 -0.045884 -0.006563 -0.051795
-8        All-T-Butyl_B -0.391961 -1.251006  4.310223 -0.545543 -2.905635
-6              All-All -0.539679 -1.294481  4.264339 -0.552106 -2.957431
-    """
     pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
         [df['qcel_molecule'].iloc[0]],
         fAs=[fAs],
@@ -209,6 +170,12 @@ AP3-fused
 7        All-Peptide_B -0.014877  0.045080  0.008084 -0.003050 -0.064991
 8        All-T-Butyl_B -0.278882 -1.351036  4.330580 -0.417369 -2.841057
 6              All-All -0.293759 -1.305957  4.338664 -0.420419 -2.906048
+{'All': [1, 2, 7, 8, 3, 4, 5, 6],
+ 'Methyl1_A': [1, 2, 7, 8],
+ 'Methyl2_A': [3, 4, 5, 6]}
+{'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+ 'Peptide_B': [9, 10, 11, 16, 26],
+ 'T-Butyl_B': [12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25]}
     """
     return
 
@@ -262,6 +229,7 @@ frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23
             ds_spec_type=6,  # NOTE spec_type 5 for FSAPT
             ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
             pre_trained_model_path=ap3_path,
+            ds_batch_size=1,
         )
 
         print("\nStarting FSAPT training...")
@@ -326,13 +294,13 @@ def test_ap2_ap3_fused_fsapt_energies():
     df["base_id"] = df["id"].str.replace(r"-[a-z][a-z]", "", regex=True)
     unique_ids = df["base_id"].unique()
     print(f"Unique base IDs: {unique_ids}")
-    # df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
+    df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
     # Since dataframes are identical except for the energy predictions, just add ap3 energy cals to ap2
     return
 
 
 if __name__ == "__main__":
     # test_ap3_fused_fsapt()
-    test_ap3_fused_fsapt_energies()
-    test_ap3_fused_fsapt_training()
-    # test_ap2_ap3_fused_fsapt_energies()
+    # test_ap3_fused_fsapt_energies()
+    # test_ap3_fused_fsapt_training()
+    test_ap2_ap3_fused_fsapt_energies()

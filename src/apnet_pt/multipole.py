@@ -191,7 +191,22 @@ def T_cart(RA, RB, alpha_i=None, alpha_j=None):
     return T0, T1, T2, T3, T4
 
 
-def thole_damping(r_ij, alpha_i, alpha_j, a):
+def thole_damping_direct(r_ij, alpha_i, alpha_j, a):
+    """
+    Apply Thole damping to interaction tensor from AMOEBA+
+    https://pubs.acs.org/doi/suppl/10.1021/acs.jctc.7b00225/suppl_file/ct7b00225_si_001.pdf
+    """
+    # Compute damping factor
+    u = r_ij / ((alpha_i * alpha_j) ** (1.0 / 6.0))
+    au3 = a * (u**(3/2))
+    l3 = 1 - np.exp(-au3)
+    l5 = 1 - (1 + 0.5 * au3) * np.exp(-au3)
+    l7 = 1 - (1.0 + 39/60 * au3 + 9/60 * au3**2) * np.exp(-au3)
+    l9 = 1 - (1 + 609 / 840 * au3 + (189 / 840 * au3**2 + 27/840 * au3**3)) * np.exp(-au3)
+    return au3, l3, l5, l7, l9
+
+
+def thole_damping_mutual(r_ij, alpha_i, alpha_j, a):
     """Apply Thole damping to interaction tensor"""
     # Compute damping factor
     u = r_ij / ((alpha_i * alpha_j) ** (1.0 / 6.0))
@@ -313,13 +328,19 @@ def elst_damping_z_mtp(alpha_j, r):
     return lam_1, lam_3, lam_5
 
 
-def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a):
+def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a, damping_term="mutual"):
     dR = RB - RA
     R = np.linalg.norm(dR)
 
     delta = np.identity(3)
 
-    au3, l3, l5, l7, l9 = thole_damping(R, alpha_i, alpha_j, a)
+    if damping_term == "direct":
+        au3, l3, l5, l7, l9 = thole_damping_direct(R, alpha_i, alpha_j, a)
+    elif damping_term == "mutual":
+        au3, l3, l5, l7, l9 = thole_damping_mutual(R, alpha_i, alpha_j, a)
+    else:
+        raise ValueError("damping_term must be 'direct' or 'mutual'")
+
     # l3, l5, l7, l9 = (1.0, 1.0, 1.0, 1.0)  # Turn off Thole damping
     # print(f"   {l3 = }")
 
@@ -327,6 +348,7 @@ def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a):
     # l5 = np.ones_like(l5)
     # print(f"{alpha_i:.2f}-{alpha_j:.2f} {l3 = }, {l5 = }")
     T0 = R**-1
+    print(f"{damping_term}, {l3=:.2f}")
     T1 = l3 * (R**-3) * (-1.0 * dR)
     T2 = (R**-5) * (l5 * 3 * np.outer(dR, dR) - l3 * R * R * delta)
 
@@ -1544,13 +1566,14 @@ def intramolecular_induced_dipole(
     q: np.ndarray,
     mu: np.ndarray,
     theta: np.ndarray,
-    hirshfeld_volume_ratio: np.ndarray,
-    valence_widths: np.ndarray,
+    hirshfeld_volume_ratio: np.ndarray = None,
+    valence_widths: np.ndarray = None,
     atom_polarizabilities: np.ndarray = None,
     max_iterations: int = 200,
     convergence_threshold: float = 1e-8,
     omega: float = 0.7,
-    thole_damping_param: float = 0.39,
+    thole_damping_param_mutual: float = 0.390,
+    thole_damping_param_direct: float = 0.340,
     zero_dipoles: bool = False,
     zero_quadrupoles: bool = False,
 ) -> tuple:
@@ -1598,18 +1621,23 @@ def intramolecular_induced_dipole(
     
     R = qcel_mol.geometry
     Z = qcel_mol.atomic_numbers
-    alpha_0 = np.array([free_atom_polarizabilities[i] for i in Z])
-    hirshfeld_volume_ratio = hirshfeld_volume_ratio.flatten()
-    
-    alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
+    # print(f"{R=}")
+    # print(f"{Z=}")
     
     if atom_polarizabilities is not None:
         alpha = atom_polarizabilities.flatten()
+    else:
+        alpha_0 = np.array([free_atom_polarizabilities[i] for i in Z])
+        hirshfeld_volume_ratio = hirshfeld_volume_ratio.flatten()
+        alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
+    print(f"{alpha=}")
+    print(f"{thole_damping_param_mutual=}")
     
     n_atoms = len(R)
     q_flat = q.flatten()
     
-    T_abij = np.zeros((n_atoms, n_atoms, 13, 13))
+    T_abij_mutual = np.zeros((n_atoms, n_atoms, 13, 13))
+    T_abij_direct = np.zeros((n_atoms, n_atoms, 13, 13))
     M = np.zeros((n_atoms, 13))
     M[:, 0] = q_flat
     M[:, 1:4] = mu
@@ -1618,37 +1646,50 @@ def intramolecular_induced_dipole(
     for i in range(n_atoms):
         for j in range(n_atoms):
             if i == j:
-                T_abij[i, j, :, :] = np.zeros((13, 13))
+                T_abij_mutual[i, j, :, :] = np.zeros((13, 13))
                 continue
             T0, T1, T2, T3, T4 = T_cart_Thole_damping(
-                R[i], R[j], alpha[i], alpha[j], thole_damping_param
+                R[i], R[j], alpha[i], alpha[j], thole_damping_param_mutual, damping_term="mutual"
             )
-            T_abij[i, j, 0, 0] = T0
-            T_abij[i, j, 0, 1:4] = T1
-            T_abij[i, j, 1:4, 0] = T1
-            T_abij[i, j, 1:4, 1:4] = T2
-            T_abij[i, j, 1:4, 4:13] = T3.reshape(3, 9)
-            T_abij[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
-            T_abij[i, j, 4:13, 4:13] = T4.reshape(9, 9)
-            T_abij[i, j, 0, 4:13] = T2.reshape(9)
-            T_abij[i, j, 4:13, 0] = T2.reshape(9)
+            T_abij_mutual[i, j, 0, 0] = T0
+            T_abij_mutual[i, j, 0, 1:4] = T1
+            T_abij_mutual[i, j, 1:4, 0] = T1
+            T_abij_mutual[i, j, 1:4, 1:4] = T2
+            T_abij_mutual[i, j, 1:4, 4:13] = T3.reshape(3, 9)
+            T_abij_mutual[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
+            T_abij_mutual[i, j, 4:13, 4:13] = T4.reshape(9, 9)
+            T_abij_mutual[i, j, 0, 4:13] = T2.reshape(9)
+            T_abij_mutual[i, j, 4:13, 0] = T2.reshape(9)
+
+            T0, T1, T2, T3, T4 = T_cart_Thole_damping(
+                R[i], R[j], alpha[i], alpha[j], thole_damping_param_direct, damping_term="direct"
+            )
+            T_abij_direct[i, j, 0, 0] = T0
+            T_abij_direct[i, j, 0, 1:4] = T1
+            T_abij_direct[i, j, 1:4, 0] = T1
+            T_abij_direct[i, j, 1:4, 1:4] = T2
+            T_abij_direct[i, j, 1:4, 4:13] = T3.reshape(3, 9)
+            T_abij_direct[i, j, 4:13, 1:4] = T3.T.reshape(9, 3)
+            T_abij_direct[i, j, 4:13, 4:13] = T4.reshape(9, 9)
+            T_abij_direct[i, j, 0, 4:13] = T2.reshape(9)
+            T_abij_direct[i, j, 4:13, 0] = T2.reshape(9)
     
     mu_induced_0 = np.zeros((n_atoms, 3))
     if zero_dipoles:
         M[:, 1:4] = 0.0
 
-    if zero_quadrupoles:
-        M[:, 4:13] = 0.0
+    # if zero_quadrupoles:
+    #     M[:, 4:13] = 0.0
 
     mu_induced_0[:, :] = np.einsum(
-        "a,abi,b->ai", alpha, T_abij[:, :, 1:4, 0], M[:, 0]
+        "a,abi,b->ai", alpha, T_abij_direct[:, :, 1:4, 0], M[:, 0]
     )
     mu_induced_0[:, :] += np.einsum(
-        "a,abij,bj->ai", alpha, T_abij[:, :, 1:4, 1:4], M[:, 1:4]
+        "a,abij,bj->ai", alpha, T_abij_direct[:, :, 1:4, 1:4], M[:, 1:4]
     )
-    mu_induced_0[:, :] += np.einsum(
-        "a,abik,bk->ai", alpha, T_abij[:, :, 1:4, 4:13], M[:, 4:13]
-    )
+    # mu_induced_0[:, :] += np.einsum(
+    #     "a,abik,bk->ai", alpha, T_abij[:, :, 1:4, 4:13], M[:, 4:13]
+    # )
     print("mu(0):")
     print(mu_induced_0)
     
@@ -1660,7 +1701,7 @@ def intramolecular_induced_dipole(
         for i in range(n_atoms):
             mu_sum[i] = alpha[i] * np.einsum(
                 "nij,nj->i",
-                T_abij[i, :, 1:4, 1:4],
+                T_abij_mutual[i, :, 1:4, 1:4],
                 mu_induced,
             )
         mu_sum += mu_induced_0

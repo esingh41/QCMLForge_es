@@ -1383,6 +1383,7 @@ def test_intramolecular_induced_dipole():
     mol = r["qcel_molecule"]
     
     molA = mol.get_fragment(0)
+    print(molA.to_string("psi4"))
     
     qA = r["q_A pbe0/atz"]
     muA = r["mu_A pbe0/atz"]
@@ -1397,6 +1398,8 @@ def test_intramolecular_induced_dipole():
         theta=thetaA,
         hirshfeld_volume_ratio=vrA,
         valence_widths=vwA,
+        thole_damping_param_mutual=0.39,
+        thole_damping_param_direct=0.34,
     )
     # assert mu_induced.shape == (3, 3), f"Expected shape (3, 3) for induced dipoles, got {mu_induced.shape}"
     # assert not np.allclose(mu_induced, 0.0), "Induced dipoles should be non-zero"
@@ -1411,6 +1414,8 @@ def test_intramolecular_induced_dipole():
         hirshfeld_volume_ratio=vrA,
         valence_widths=vwA,
         zero_dipoles=True,
+        thole_damping_param_mutual=0.39,
+        thole_damping_param_direct=0.34,
     )
     diff_mu_mu0 = mu_induced_mu0 - muA.reshape(-1, 3)
 
@@ -1423,6 +1428,8 @@ def test_intramolecular_induced_dipole():
         valence_widths=vwA,
         zero_dipoles=True,
         zero_quadrupoles=True,
+        thole_damping_param_mutual=0.39,
+        thole_damping_param_direct=0.34,
     )
     diff_mu_muQ0 = mu_induced_muQ0 - muA.reshape(-1, 3)
     
