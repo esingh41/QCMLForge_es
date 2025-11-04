@@ -137,8 +137,14 @@ def test_ap3_fused_fsapt_energies():
     # drop row that has frag2 == Tert-B because it has no indices
     df = df[df['Frag2'] != 'T-Butyl_B']
     df = df[df['Frag1'] != 'All']
-    df.to_pickle(f"{data_path}/raw/fsapt_test_simple.pkl")
+    df = df[df['Frag2'] != 'All']
+    pp(df.columns.tolist())
+    df.to_pickle(f"{data_path}/raw/fsapt_test_simple_2.pkl")
+    df.to_pickle(f"{data_path}/raw/fsapt_train_simple_2.pkl")
     print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
+    print(df['Frag1_indices'])
+    print(df['Frag2_indices'])
+
     print(df.columns.tolist())
     fAs = {}
     fBs = {}
@@ -179,6 +185,59 @@ AP3-fused
     """
     return
 
+
+@pytest.mark.skip("incomplete functionality")
+def test_ap3_fused_fsapt_energies_mocking_test():
+    """Test training AP3 fused model on FSAPT fragment energy data"""
+    mol = qcel.models.Molecule.from_data("""1 1
+Na 0.00000000 0.00000000 0.00000000
+--
+0 1
+C 6.44536662 -0.26509169 -0.00000000
+H 7.53536662 -0.26509169 -0.00000000
+H 6.08203329 0.57399070 0.59332085
+H 6.08203329 -0.17080196 -1.02332709
+H 6.08203329 -1.19846381 0.43000624
+symmetry c1
+no_reorient
+no_com
+    """)
+    fAs = {
+        "He": [1],
+    }
+    fBs = {
+        "methyl": [1, 2, 3, 4, 5],
+        "CH": [1, 2],
+    }
+    pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
+        [mol],
+        fAs=[fAs],
+        fBs=[fBs],
+        compile=False,
+    )
+    pp(fAs)
+    pp(fBs)
+    print(df_out)
+    df_out = df_out.rename(columns={
+        'total': 'F-Total',
+        'elst': 'F-Electrostatics',
+        'exch': 'F-Exchange',
+        'indu': 'F-Induction',
+        'disp': 'F-Dispersion',
+
+    })
+    df_out['frag1'] = df_out['fA-fB'].apply(lambda x: x.split('-')[0])
+    df_out['frag2'] = df_out['fA-fB'].apply(lambda x: x.split('-')[1])
+    print(df_out[['frag1', 'frag2']])
+    df_out['Frag1_indices'] = df_out['frag1'].apply(lambda x: fAs[x])
+    df_out['Frag2_indices'] = df_out['frag2'].apply(lambda x: fBs[x])
+    print(df_out)
+    df_out['qcel_molecule'] = [mol] * len(df_out)
+    pp(df_out.columns.tolist())
+    df_out.to_pickle(f"{data_path}/raw/fsapt_test_simple_2.pkl")
+    df_out.to_pickle(f"{data_path}/raw/fsapt_train_simple_2.pkl")
+    return
+
 @pytest.mark.skip("incomplete functionality")
 def test_ap3_fused_fsapt_training():
     """Test training AP3 fused model on FSAPT fragment energy data"""
@@ -188,6 +247,11 @@ frag1_idx= 'Methyl1_A': [1, 2, 7, 8],
 frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25]
                   fA-fB      total       elst      exch      indu      disp
 
+       Frag1      Frag2   F-Total  F-Electrostatics  F-Exchange  F-Induction  F-EDispersion
+0  Methyl1_A  Peptide_B -0.329992         -0.149668    0.040391    -0.126419            0.0
+2  Methyl2_A  Peptide_B -0.329992         -0.149668    0.040391    -0.126419            0.0
+4  Methyl1_A        All  0.400524          0.741581    0.062859    -0.011499            0.0
+5  Methyl2_A        All -0.786009         -2.033033    4.254895    -0.501510            0.0
     """
     temp_dir = tempfile.mkdtemp()
     test_df_path = f"{data_path}/raw/fsapt_test_simple.pkl"
@@ -294,7 +358,7 @@ def test_ap2_ap3_fused_fsapt_energies():
     df["base_id"] = df["id"].str.replace(r"-[a-z][a-z]", "", regex=True)
     unique_ids = df["base_id"].unique()
     print(f"Unique base IDs: {unique_ids}")
-    df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
+    # df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
     # Since dataframes are identical except for the energy predictions, just add ap3 energy cals to ap2
     return
 
@@ -302,5 +366,6 @@ def test_ap2_ap3_fused_fsapt_energies():
 if __name__ == "__main__":
     # test_ap3_fused_fsapt()
     # test_ap3_fused_fsapt_energies()
-    # test_ap3_fused_fsapt_training()
-    test_ap2_ap3_fused_fsapt_energies()
+    # test_ap2_ap3_fused_fsapt_energies()
+    test_ap3_fused_fsapt_energies_mocking_test()
+    test_ap3_fused_fsapt_training()

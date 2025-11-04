@@ -897,8 +897,8 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
             ]
         elif self.spec_type == 6:
             return [
-                "fsapt_train_simple.pkl",
-                "fsapt_test_simple.pkl",
+                "fsapt_train_simple_2.pkl",
+                "fsapt_test_simple_2.pkl",
             ]
 
     @property

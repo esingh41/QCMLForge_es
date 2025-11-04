@@ -1561,6 +1561,7 @@ units angstrom
                 print(batch.frag2_ind)
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
                 full_pairwise_energies = torch.zeros(E_elst.size(0), 4, device=rank_device)
+                print(full_pairwise_energies.shape)
                 full_pairwise_energies[:, 0] = E_elst
                 full_pairwise_energies[:, 2] = E_ind
                 # need to aggregate short range energies correctly into full_pairwise_energies by
