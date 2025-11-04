@@ -367,5 +367,5 @@ if __name__ == "__main__":
     # test_ap3_fused_fsapt()
     # test_ap3_fused_fsapt_energies()
     # test_ap2_ap3_fused_fsapt_energies()
-    test_ap3_fused_fsapt_energies_mocking_test()
+    # test_ap3_fused_fsapt_energies_mocking_test()
     test_ap3_fused_fsapt_training()

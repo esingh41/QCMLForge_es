@@ -1562,8 +1562,8 @@ units angstrom
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
                 full_pairwise_energies = torch.zeros(E_elst.size(0), 4, device=rank_device)
                 print(full_pairwise_energies.shape)
-                full_pairwise_energies[:, 0] = E_elst
-                full_pairwise_energies[:, 2] = E_ind
+                # full_pairwise_energies[:, 0] = E_elst
+                # full_pairwise_energies[:, 2] = E_ind
                 # need to aggregate short range energies correctly into full_pairwise_energies by
                 # using e_ABsr_source and e_ABsr_target to map E_sr contributions to correct fragment pairs
                 # TODO: add E_sr contributions to pairwise_energies here
@@ -1572,12 +1572,21 @@ units angstrom
                 E_full = torch.zeros(E_elst.size(0), 4, device=rank_device)
                 e_ABsr_source = batch.e_ABsr_source
                 e_ABsr_target = batch.e_ABsr_target
+                print(f"{E_sr = }")
                 for edge_idx in range(E_sr.size(0)):
                     # print(f"Processing edge {edge_idx}: source {e_ABsr_source[edge_idx]}, target {e_ABsr_target[edge_idx]}, E_sr {E_sr[edge_idx]}")
                     src = e_ABsr_source[edge_idx]
                     tgt = e_ABsr_target[edge_idx]
+                    print(edge_idx, src, tgt)
                     E_full[src, :] += E_sr[edge_idx]
-                    E_full[tgt, :] += E_sr[edge_idx]
+                    # E_full[tgt, :] += E_sr[edge_idx]
+                for edge_idx in range(E_elst.size(0)):
+                    src = batch.e_ABfull_source[edge_idx]
+                    tgt = batch.e_ABfull_target[edge_idx]
+                    print(edge_idx, src, tgt)
+                    E_full[src, 0] += E_elst[edge_idx]
+                    # E_full[tgt, 0] += E_elst[edge_idx]
+                print(f"{full_pairwise_energies = }")
                 full_pairwise_energies += E_full
                 print(f"{full_pairwise_energies = }")
                 tmp_sum = torch.sum(full_pairwise_energies, dim=0)
