@@ -1005,9 +1005,6 @@ class APNet3_AtomType_Model:
 
         indsA_sr = inp_batch["e_ABsr_source"]
         indsB_sr = inp_batch["e_ABsr_target"]
-        indsA_lr = inp_batch["e_ABlr_source"]
-        indsB_lr = inp_batch["e_ABlr_target"]
-
         indsA = inp_batch['e_ABfull_source']
         indsB = inp_batch['e_ABfull_target']
 
@@ -1035,16 +1032,20 @@ class APNet3_AtomType_Model:
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
+            print(f"{i = }, {atomA = }, {atomB = }, {e_elst = }")
             pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
-            pair_energies_batch[i][0, atomA, atomB] += e_ind.numpy()
+            pair_energies_batch[i][2, atomA, atomB] += e_ind.numpy()
 
+        print(f"{pair_energies_batch = }")
         # E_sr, E_elst_sr, E_elst_lr
         for e_pair, indA, indB in zip(E_sr, indsA_sr, indsB_sr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
+            print(f"{i = }, {atomA = }, {atomB = }, {e_pair = }")
             pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
+        print(f"{pair_energies_batch = }")
 
         return pair_energies_batch
 
@@ -1221,6 +1222,11 @@ class APNet3_AtomType_Model:
             )
             # print(dimer_batch)
             dimer_batch.to(device=self.device)
+            print(dimer_batch)
+            print(f"{dimer_batch.ZB = }")
+            print(f"{dimer_batch.RB = }")
+            print(f"{dimer_batch.e_ABfull_source = }")
+            print(f"{dimer_batch.e_ABfull_target = }")
             preds = self.model(dimer_batch)
             if self.model.return_hidden_states:
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA, cutoff = preds
@@ -1479,51 +1485,47 @@ units angstrom
             optimizer.zero_grad()
             batch = batch.to(rank_device, non_blocking=True)
             E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
-            
-            print(f"Train E_sr_dimer shape: {E_sr_dimer.shape}\nE_sr shape: {E_sr.shape}")
-            print(f"{E_elst.shape = }\n{E_ind.shape = }")
-            print(f"{E_elst = }\n{E_ind = }")
-            # E_sr has shape [n_edges, 4] with atomic pair-level SAPT predictions
-            # We need to aggregate these to fragment-level energies
-            batch_size = len(batch.frag1_ind)
-            
-            # Get edge information
-            e_ABsr_source = batch.e_ABsr_source  # atom indices from monomer A
-            e_ABsr_target = batch.e_ABsr_target  # atom indices from monomer B
-            
-            # Aggregate predictions for each dimer in batch - build list to preserve gradients
-            preds_list = []
-            for i in range(batch_size):
-                frag1_idx = batch.frag1_ind[i]  # offset atom indices for fragment 1
-                frag2_idx = batch.frag2_ind[i]  # offset atom indices for fragment 2
-                print(f"{frag1_idx = }\n{frag2_idx = }")
-                print(f"{e_ABsr_source = }\n{e_ABsr_target = }")
-                
-                # Find edges where source is in frag1 AND target is in frag2
-                # This gives us the fragment-fragment interaction
-                mask_source = torch.isin(e_ABsr_source, frag1_idx)
-                mask_target = torch.isin(e_ABsr_target, frag2_idx)
+            full_pairwise_energies = torch.zeros(E_elst.size(0), 4, device=rank_device)
+            full_pairwise_energies[:, 0] = E_elst
+            full_pairwise_energies[:, 2] = E_ind
+            # Everything is ordered based on e_ABfull_source/target, so we
+            # need to map e_ABsr edges to full edges. We can do this by
+            # learning the mapping from e_ABsr to e_ABfull.
+            e_ABsr_source = batch.e_ABsr_source
+            e_ABsr_target = batch.e_ABsr_target
+            e_ABfull_source = batch.e_ABfull_source
+            e_ABfull_target = batch.e_ABfull_target
+            # For each edge in e_ABsr, find the corresponding index in e_ABfull
+            mapping_indices = []
+            for src, tgt in zip(e_ABsr_source, e_ABsr_target):
+                mask_source = (e_ABfull_source == src)
+                mask_target = (e_ABfull_target == tgt)
                 mask = mask_source & mask_target
-                
+                index = torch.nonzero(mask, as_tuple=False).squeeze()
+                mapping_indices.append(index)
+            mapping_indices = torch.stack(mapping_indices)
+            # Now we add the short-range energies to the full pairwise
+            # energies to assemble all pairwise contributions in one tensor
+            full_pairwise_energies[mapping_indices, :] += E_sr
+            ndimer = batch.total_charge_A.size(0)
+            preds = torch.zeros(ndimer, 4, device=rank_device)
+            # Okay, now we want to only sum over SPECIFIC pairwise contributions
+            # defined by frag1_ind and frag2_ind. We will loop over dimers
+            # in the batch and sum only the relevant pairwise contributions. Note,
+            # frag1_ind and frag2_ind are lists of atom indices for each fragment that
+            # are comparable to the atom indices in e_ABfull_source/target.
+            for i in range(ndimer):
+                frag1_idx = batch.frag1_ind[i]
+                frag2_idx = batch.frag2_ind[i]
+                # Find edges where source is in frag1 AND target is in frag2
+                mask_source = torch.isin(e_ABfull_source, frag1_idx)
+                mask_target = torch.isin(e_ABfull_target, frag2_idx)
+                mask = mask_source & mask_target
                 # Sum the edge contributions for this fragment pair
-                # Always sum E_sr with the mask to preserve gradient flow
-                preds_list.append(E_sr[mask].sum(dim=0, keepdim=True))
+                preds[i, :] = full_pairwise_energies[mask, :].sum(dim=0)
             
-            # Stack to create [batch_size, 4] tensor with gradients
-            preds = torch.cat(preds_list, dim=0)
-            print(f"{preds = }")
-            
-            # Labels are [batch_size, 5] = [F-Elst, F-Exch, F-Disp, F-Ind, F-Total]
-            # Predictions are [batch_size, 4] = [Elst, Exch, Ind, Disp]
-            # We need to compare the first 4 components
-            labels = batch.y[:, :4]  # [F-Elst, F-Exch, F-Disp, F-Ind]
-            print(f"{labels = }")
-            
-            if self.use_precomputed_classical:
-                # Adjust labels if using precomputed classical components
-                labels[:, 0] -= batch.E_classical_elst if hasattr(batch, 'E_classical_elst') else 0
-                labels[:, 2] -= batch.E_classical_ind if hasattr(batch, 'E_classical_ind') else 0
-            
+            # Labels are [batch_size, 5], we use first 4 components
+            labels = batch.y[:, :4]
             comp_errors = preds - labels
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
@@ -1556,87 +1558,53 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                print(batch)
-                print(batch.frag1_ind)
-                print(batch.frag2_ind)
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
                 full_pairwise_energies = torch.zeros(E_elst.size(0), 4, device=rank_device)
-                print(full_pairwise_energies.shape)
-                # full_pairwise_energies[:, 0] = E_elst
-                # full_pairwise_energies[:, 2] = E_ind
-                # need to aggregate short range energies correctly into full_pairwise_energies by
-                # using e_ABsr_source and e_ABsr_target to map E_sr contributions to correct fragment pairs
-                # TODO: add E_sr contributions to pairwise_energies here
-                # pad each dimer contribution in E_sr to full size with zeros and sum
-                # print(f"Full pairwise energies: {full_pairwise_energies}")
-                E_full = torch.zeros(E_elst.size(0), 4, device=rank_device)
+                full_pairwise_energies[:, 0] = E_elst
+                full_pairwise_energies[:, 2] = E_ind
+                # Everything is ordered based on e_ABfull_source/target, so we
+                # need to map e_ABsr edges to full edges. We can do this by
+                # learning the mapping from e_ABsr to e_ABfull.
                 e_ABsr_source = batch.e_ABsr_source
                 e_ABsr_target = batch.e_ABsr_target
-                print(f"{E_sr = }")
-                for edge_idx in range(E_sr.size(0)):
-                    # print(f"Processing edge {edge_idx}: source {e_ABsr_source[edge_idx]}, target {e_ABsr_target[edge_idx]}, E_sr {E_sr[edge_idx]}")
-                    src = e_ABsr_source[edge_idx]
-                    tgt = e_ABsr_target[edge_idx]
-                    print(edge_idx, src, tgt)
-                    E_full[src, :] += E_sr[edge_idx]
-                    # E_full[tgt, :] += E_sr[edge_idx]
-                for edge_idx in range(E_elst.size(0)):
-                    src = batch.e_ABfull_source[edge_idx]
-                    tgt = batch.e_ABfull_target[edge_idx]
-                    print(edge_idx, src, tgt)
-                    E_full[src, 0] += E_elst[edge_idx]
-                    # E_full[tgt, 0] += E_elst[edge_idx]
-                print(f"{full_pairwise_energies = }")
-                full_pairwise_energies += E_full
-                print(f"{full_pairwise_energies = }")
-                tmp_sum = torch.sum(full_pairwise_energies, dim=0)
-                print(f"{tmp_sum = }")
-                print(f"{E_sr_dimer = }")
-                assert torch.allclose(tmp_sum, E_sr_dimer), "Sum of pairwise energies does not match dimer energies"
-                # print(f"Full pairwise energies shape: {full_pairwise_energies.shape}")
-                # print(f"Full pairwise energies: {full_pairwise_energies}")
-                #
-                # print(f"Eval E_sr_dimer shape: {E_sr_dimer.shape}, E_sr shape: {E_sr.shape}")
-                # print(f"E_sr_dimer shape: {E_sr_dimer.shape}\nE_sr shape: {E_sr.shape}")
-                # print(f"{E_elst.shape = }\n{E_ind.shape = }")
-                # print(f"{E_elst = }\n{E_ind = }")
-                
-                # E_sr has shape [n_edges, 4] with atomic pair-level SAPT predictions
+                e_ABfull_source = batch.e_ABfull_source
+                e_ABfull_target = batch.e_ABfull_target
+                # For each edge in e_ABsr, find the corresponding index in e_ABfull
+                mapping_indices = []
+                for src, tgt in zip(e_ABsr_source, e_ABsr_target):
+                    mask_source = (e_ABfull_source == src)
+                    mask_target = (e_ABfull_target == tgt)
+                    mask = mask_source & mask_target
+                    index = torch.nonzero(mask, as_tuple=False).squeeze()
+                    mapping_indices.append(index)
+                mapping_indices = torch.stack(mapping_indices)
+                # Now we add the short-range energies to the full pairwise
+                # energies to assemble all pairwise contributions in one tensor
+                full_pairwise_energies[mapping_indices, :] += E_sr
                 ndimer = batch.total_charge_A.size(0)
-                print(f"{ndimer = }")
                 preds = torch.zeros(ndimer, 4, device=rank_device)
-                
-                # Get edge information
-                e_ABsr_source = batch.e_ABsr_source
-                e_ABsr_target = batch.e_ABsr_target
-                e_ABlr_source = batch.e_ABlr_source
-                e_ABlr_target = batch.e_ABlr_target
-                
-                # Aggregate predictions for each dimer in batch
+                # Okay, now we want to only sum over SPECIFIC pairwise contributions
+                # defined by frag1_ind and frag2_ind. We will loop over dimers
+                # in the batch and sum only the relevant pairwise contributions. Note,
+                # frag1_ind and frag2_ind are lists of atom indices for each fragment that
+                # are comparable to the atom indices in e_ABfull_source/target.
                 for i in range(ndimer):
                     frag1_idx = batch.frag1_ind[i]
                     frag2_idx = batch.frag2_ind[i]
-                    print(f"{frag1_idx = }\n{frag2_idx = }")
-                    print(f"{e_ABsr_source = }\n{e_ABsr_target = }")
-                    print(f"{e_ABlr_source = }\n{e_ABlr_target = }")
-                    
                     # Find edges where source is in frag1 AND target is in frag2
-                    mask_source = torch.isin(e_ABsr_source, frag1_idx)
-                    mask_target = torch.isin(e_ABsr_target, frag2_idx)
+                    mask_source = torch.isin(e_ABfull_source, frag1_idx)
+                    mask_target = torch.isin(e_ABfull_target, frag2_idx)
                     mask = mask_source & mask_target
-                    
                     # Sum the edge contributions for this fragment pair
-                    if mask.any():
-                        preds[i] = E_sr[mask].sum(dim=0)
+                    preds[i, :] = full_pairwise_energies[mask, :].sum(dim=0)
                 
                 # Labels are [batch_size, 5], we use first 4 components
                 labels = batch.y[:, :4]
-                print(f"{preds = }")
-                print(f"{labels = }")
                 
-                if self.use_precomputed_classical:
-                    labels[:, 0] -= batch.E_classical_elst if hasattr(batch, 'E_classical_elst') else 0
-                    labels[:, 2] -= batch.E_classical_ind if hasattr(batch, 'E_classical_ind') else 0
+                # No precomputed classical correction for FSAPT supported currently
+                # if self.use_precomputed_classical:
+                #     labels[:, 0] -= batch.E_classical_elst if hasattr(batch, 'E_classical_elst') else 0
+                #     labels[:, 2] -= batch.E_classical_ind if hasattr(batch, 'E_classical_ind') else 0
                 
                 comp_errors = preds - labels
                 batch_loss = (

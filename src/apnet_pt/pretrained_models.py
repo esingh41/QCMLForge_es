@@ -263,6 +263,7 @@ monA-monB full IE: {pred_IEs[i]}
         nA = len(monA.atomic_numbers)
         for kA, vA in fAs[i].items():
             for kB, vB in fBs[i].items():
+                assert min(vB) > nA, ("fB atom indices must be for fragment B. min(vB) <= nA, meaning atom index in fragment A. Please check your input.")
                 elst_sum = 0.0
                 exch_sum = 0.0
                 indu_sum = 0.0
@@ -378,10 +379,13 @@ monA-monB full IE: {pred_IEs[i]}
  Frag1      Frag2         Elst       Exch       Ind        Disp       Total
             """
             print(header)
+        if print_results:
+            print(mol.to_string('psi4'))
         monA = mol.get_fragment([0])
         nA = len(monA.atomic_numbers)
         for kA, vA in fAs[i].items():
             for kB, vB in fBs[i].items():
+                assert min(vB) > nA, ("fB atom indices must be for fragment B. min(vB) <= nA, meaning atom index in fragment A. Please check your input.")
                 elst_sum = 0.0
                 exch_sum = 0.0
                 indu_sum = 0.0

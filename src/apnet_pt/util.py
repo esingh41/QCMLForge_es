@@ -289,7 +289,7 @@ def load_dimer_dataset(
     aQB = [TQB[i] / np.sum(ZB[i] > 0) for i in range(N)]
     try:
         labels = df[columns].to_numpy()
-    except:
+    except Exception:
         labels = None
 
     if return_qcel_mons:
@@ -306,7 +306,21 @@ def load_dimer_dataset(
         return dimers, labels
     if return_fragment_indices:
         frag1_indices = df["Frag1_indices"].tolist()
+        # frag2_indices are defined in the dimer geometry context, but
+        # we need them in the monomer B context, so subtract
+        # len(frag1_ind)
         frag2_indices = df["Frag2_indices"].tolist()
+        # Use frag1_indice length to correct indexing for frag2
+        for i in range(N):
+            frag1_indices[i] = [idx - 1 for idx in frag1_indices[i]]
+            len_frag1 = len(frag1_indices[i])
+            frag2_indices[i] = [
+                idx - len_frag1 - 1 for idx in frag2_indices[i]
+            ]
+            
+            assert np.all(np.array(frag1_indices[i]) >= 0), (
+                "Fragment 2 indices do not seem to be defined in the dimer context properly with 1-based indexing."
+            )
         return RA, RB, ZA, ZB, TQA, TQB, labels, frag1_indices, frag2_indices
     return RA, RB, ZA, ZB, TQA, TQB, labels
 

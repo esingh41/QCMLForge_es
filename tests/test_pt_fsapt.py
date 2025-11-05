@@ -206,14 +206,15 @@ no_com
         "He": [1],
     }
     fBs = {
-        "methyl": [1, 2, 3, 4, 5],
-        "CH": [1, 2],
+        "methyl": [2, 3, 4, 5, 6],
+        "CH": [2, 3],
     }
     pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
         [mol],
         fAs=[fAs],
         fBs=[fBs],
         compile=False,
+        print_results=True,
     )
     pp(fAs)
     pp(fBs)
@@ -239,19 +240,76 @@ no_com
     return
 
 @pytest.mark.skip("incomplete functionality")
-def test_ap3_fused_fsapt_training():
-    """Test training AP3 fused model on FSAPT fragment energy data"""
+def test_ap3_fused_fsapt_training_mock():
     """
-# First summation should be...
-frag1_idx= 'Methyl1_A': [1, 2, 7, 8],
-frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25]
-                  fA-fB      total       elst      exch      indu      disp
+    Test training AP3 fused model on FSAPT fragment energy data on extremely
+    simple mock example of Na-Methyl. Checks that eval correctly sums
+    fragments.
+    """
+    temp_dir = tempfile.mkdtemp()
+    test_df_path = f"{data_path}/raw/fsapt_test_simple_2.pkl"
+    train_df_path = f"{data_path}/raw/fsapt_train_simple_2.pkl"
+    # mkdir raw under temp_dir and copy test_df there
+    raw_dir = os.path.join(temp_dir, "raw")
+    os.makedirs(raw_dir, exist_ok=True)
+    print(f"Copying test dataframe to {raw_dir}")
+    shutil.copy(test_df_path, raw_dir)
+    shutil.copy(train_df_path, raw_dir)
+    try:
+        # Initialize atom models (required for AP3)
+        atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model_pre_trained_path=am_path,
+            pre_trained_model_path=at_hf_vw_path,
+        )
+        atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model=atom_type_hf_vw_model.model,
+            atom_model_type="AtomTypeParamNN",
+            pre_trained_model_path=at_elst_path,
+        )
 
-       Frag1      Frag2   F-Total  F-Electrostatics  F-Exchange  F-Induction  F-EDispersion
-0  Methyl1_A  Peptide_B -0.329992         -0.149668    0.040391    -0.126419            0.0
-2  Methyl2_A  Peptide_B -0.329992         -0.149668    0.040391    -0.126419            0.0
-4  Methyl1_A        All  0.400524          0.741581    0.062859    -0.011499            0.0
-5  Methyl2_A        All -0.786009         -2.033033    4.254895    -0.501510            0.0
+        # Initialize AP3 model for FSAPT training
+
+        ap3 = APNet3_AtomType_Model(
+            # ds_root=temp_dir,
+            ds_root=data_path,
+            atom_type_model=atom_type_hf_vw_model.model,
+            dimer_prop_model=atom_type_elst_model.dimer_model,
+            am_dimer_param_model=atom_type_elst_model,
+            use_precomputed_classical=False,
+            ignore_database_null=False,
+            ds_spec_type=7,  
+            ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
+            pre_trained_model_path=ap3_path,
+            ds_batch_size=1,
+        )
+
+        print("\nStarting FSAPT training...")
+
+        # Train for a few epochs
+        ap3.train(
+            n_epochs=0,
+            lr=5e-5,
+            skip_compile=True,  # Skip compilation for faster testing
+        )
+
+        print("\nFSAPT training test completed successfully!")
+    finally:
+        # Clean up temporary directory
+        shutil.rmtree(temp_dir)
+    return
+
+
+@pytest.mark.skip("incomplete functionality")
+def test_ap3_fused_fsapt_training():
+    """
+    Test training AP3 fused model on FSAPT fragment energy data on 
+    simple system dataset to ensure training loop works.
     """
     temp_dir = tempfile.mkdtemp()
     test_df_path = f"{data_path}/raw/fsapt_test_simple.pkl"
@@ -300,7 +358,7 @@ frag2_idx= 'All': [9, 10, 11, 16, 26, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23
 
         # Train for a few epochs
         ap3.train(
-            n_epochs=0,
+            n_epochs=3,
             lr=5e-5,
             skip_compile=True,  # Skip compilation for faster testing
         )
@@ -317,13 +375,14 @@ def test_ap2_ap3_fused_fsapt_energies():
     df = pd.read_pickle(f"{data_path}/raw/fsapt_full_data.pkl")
     df['fA-fB'] = df.apply(lambda r: f"{r['Frag1']}-{r['Frag2']}", axis=1)
     print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', 'qcel_molecule']])
-    print(df.columns.tolist())
     fAs = []
     fBs = []
     for f1, inds in zip(df['Frag1'], df['Frag1_indices']):
         fAs.append({f1: inds})
     for f2, inds in zip(df['Frag2'], df['Frag2_indices']):
         fBs.append({f2: inds})
+    print(fAs[0])
+    print(fBs[0])
     pred_IEs, pairwise_energies, df_out_ap2 = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
         df['qcel_molecule'].tolist(),
         fAs=fAs,
@@ -358,14 +417,16 @@ def test_ap2_ap3_fused_fsapt_energies():
     df["base_id"] = df["id"].str.replace(r"-[a-z][a-z]", "", regex=True)
     unique_ids = df["base_id"].unique()
     print(f"Unique base IDs: {unique_ids}")
-    # df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
+    df.to_pickle("fsapt_ap2_ap3_fused_comparison.pkl")
     # Since dataframes are identical except for the energy predictions, just add ap3 energy cals to ap2
     return
 
 
 if __name__ == "__main__":
+    # Application tests
+    # test_ap2_ap3_fused_fsapt_energies()
+
     # test_ap3_fused_fsapt()
     # test_ap3_fused_fsapt_energies()
-    # test_ap2_ap3_fused_fsapt_energies()
     # test_ap3_fused_fsapt_energies_mocking_test()
     test_ap3_fused_fsapt_training()
