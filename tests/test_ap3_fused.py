@@ -14,6 +14,11 @@ from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
 from glob import glob
 import pandas as pd
 
+from apnet_pt.AtomPairwiseModels.mtp_mtp import classical_dispersion_scatter
+import tad_mctc as mctc
+import tad_dftd3 as d3
+
+
 torch.manual_seed(42)
 spec_type = 5
 current_file_path = os.path.dirname(os.path.realpath(__file__))
@@ -599,11 +604,67 @@ def test_classical_ap3_dispersion():
     #print(torch.sum(Disp))
     return
 
+def test_scatter_dispersion():
+    param = {
+    "a1": torch.tensor(0.095),
+    "s8": torch.tensor(0.738),
+    "a2": torch.tensor(3.637),
+    }
+    water_water_dimer = qcel.models.Molecule.from_data("""
+    0 1
+    --
+    0 1
+    O                    -1.326958230000    -0.105938530000     0.018788150000
+    H                    -1.931665240000     1.600174320000    -0.021710520000
+    H                     0.486644280000     0.079598090000     0.009862480000
+    --
+    0 1
+    O                     4.287563290000     0.049775580000     0.000960040000
+    H                     4.999275000000    -0.778642690000     1.448725300000
+    H                     4.991040900000    -0.850136520000    -1.407646550000
+    units bohr
+    no_com
+    no_reorient
+    """)
+
+    mols = [water_water_dimer, water_water_dimer]
+    batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut=5.0, dimer_ind=n, r_cut_im=torch.inf
+            )
+            for n, mol in enumerate(mols)
+        ]
+    )
+
+    # classical_dispersion_scatter(
+    #     ZA=batch.ZA,
+    #     RA=batch.RA,
+    #     ZB=batch.ZB,
+    #     RB=batch.RB,
+    #     molecule_ind_A=batch.molecule_ind_A,
+    #     molecule_ind_B=batch.molecule_ind_B,
+    # )
+    
+    energy, _ = d3.dftd3(
+        numbers=torch.tensor(water_water_dimer.atomic_numbers),
+        positions=torch.tensor(water_water_dimer.geometry),
+        param=param,
+        mon_A_indices=torch.tensor(water_water_dimer.fragments[0]),
+        mon_B_indices=torch.tensor(water_water_dimer.fragments[1]),
+        pairwise_matrix=True
+    )
+
+    
+    print(torch.sum(energy))
+
 if __name__ == "__main__":
     # test_classical_ap3()
     # test_classical_ap3_long_range()
     # test_ap3_fused_train_qcel_molecules_in_memory()
     #test_classical_ap3_induction()
     test_classical_ap3_dispersion()
+    #test_scatter_dispersion()
+    
     #test_ap3_fused_train_qcel_molecules_in_memory()
     # test_classical_ap3_induction()
