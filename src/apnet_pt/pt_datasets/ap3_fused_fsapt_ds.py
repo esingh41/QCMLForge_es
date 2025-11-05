@@ -720,7 +720,7 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         self.json = json
         self.print_level = print_level
         try:
-            assert spec_type in [5, 6, None]
+            assert spec_type in [5, 6, 7, None]
         except Exception:
             print("Currently spec_type must be 5 or None")
             raise ValueError

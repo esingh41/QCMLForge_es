@@ -1032,20 +1032,16 @@ class APNet3_AtomType_Model:
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            print(f"{i = }, {atomA = }, {atomB = }, {e_elst = }")
             pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
             pair_energies_batch[i][2, atomA, atomB] += e_ind.numpy()
 
-        print(f"{pair_energies_batch = }")
         # E_sr, E_elst_sr, E_elst_lr
         for e_pair, indA, indB in zip(E_sr, indsA_sr, indsB_sr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            print(f"{i = }, {atomA = }, {atomB = }, {e_pair = }")
             pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
-        print(f"{pair_energies_batch = }")
 
         return pair_energies_batch
 
@@ -1222,11 +1218,6 @@ class APNet3_AtomType_Model:
             )
             # print(dimer_batch)
             dimer_batch.to(device=self.device)
-            print(dimer_batch)
-            print(f"{dimer_batch.ZB = }")
-            print(f"{dimer_batch.RB = }")
-            print(f"{dimer_batch.e_ABfull_source = }")
-            print(f"{dimer_batch.e_ABfull_target = }")
             preds = self.model(dimer_batch)
             if self.model.return_hidden_states:
                 E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA, cutoff = preds
@@ -1503,17 +1494,21 @@ units angstrom
                 mask = mask_source & mask_target
                 index = torch.nonzero(mask, as_tuple=False).squeeze()
                 mapping_indices.append(index)
-            mapping_indices = torch.stack(mapping_indices)
-            # Now we add the short-range energies to the full pairwise
-            # energies to assemble all pairwise contributions in one tensor
-            full_pairwise_energies[mapping_indices, :] += E_sr
-            ndimer = batch.total_charge_A.size(0)
-            preds = torch.zeros(ndimer, 4, device=rank_device)
+            # if only long-range edges, mapping_indices will be empty.
+            # Generally, long-range models will not be trainable here, but
+            # we need to handle this case and not adjust model outputs.
+            if len(mapping_indices) > 0:
+                mapping_indices = torch.stack(mapping_indices)
+                # Now we add the short-range energies to the full pairwise
+                # energies to assemble all pairwise contributions in one tensor
+                full_pairwise_energies[mapping_indices, :] += E_sr
             # Okay, now we want to only sum over SPECIFIC pairwise contributions
             # defined by frag1_ind and frag2_ind. We will loop over dimers
             # in the batch and sum only the relevant pairwise contributions. Note,
             # frag1_ind and frag2_ind are lists of atom indices for each fragment that
             # are comparable to the atom indices in e_ABfull_source/target.
+            ndimer = batch.total_charge_A.size(0)
+            preds = torch.zeros(ndimer, 4, device=rank_device)
             for i in range(ndimer):
                 frag1_idx = batch.frag1_ind[i]
                 frag2_idx = batch.frag2_ind[i]
@@ -1577,10 +1572,14 @@ units angstrom
                     mask = mask_source & mask_target
                     index = torch.nonzero(mask, as_tuple=False).squeeze()
                     mapping_indices.append(index)
-                mapping_indices = torch.stack(mapping_indices)
-                # Now we add the short-range energies to the full pairwise
-                # energies to assemble all pairwise contributions in one tensor
-                full_pairwise_energies[mapping_indices, :] += E_sr
+                # if only long-range edges, mapping_indices will be empty.
+                # Generally, long-range models will not be trainable here, but
+                # we need to handle this case and not adjust model outputs.
+                if len(mapping_indices) > 0:
+                    mapping_indices = torch.stack(mapping_indices)
+                    # Now we add the short-range energies to the full pairwise
+                    # energies to assemble all pairwise contributions in one tensor
+                    full_pairwise_energies[mapping_indices, :] += E_sr
                 ndimer = batch.total_charge_A.size(0)
                 preds = torch.zeros(ndimer, 4, device=rank_device)
                 # Okay, now we want to only sum over SPECIFIC pairwise contributions
@@ -1944,7 +1943,7 @@ units angstrom
         if is_fsapt:
             collate_fn = ap3_fused_fsapt_collate_update
             # TODO: remove in production
-            batch_size = 1
+            # batch_size = 1
         else:
             collate_fn = ap3_fused_collate_update if self.model.use_precomputed_classical else ap3_fused_collate_update
         

@@ -135,28 +135,42 @@ def test_ap3_fused_fsapt_energies():
     """Test training AP3 fused model on FSAPT fragment energy data"""
     df = pd.read_pickle(f"{data_path}/raw/fsapt_test_simple.pkl")
     # drop row that has frag2 == Tert-B because it has no indices
-    df = df[df['Frag2'] != 'T-Butyl_B']
-    df = df[df['Frag1'] != 'All']
-    df = df[df['Frag2'] != 'All']
+    df = df[df["Frag2"] != "T-Butyl_B"]
+    df = df[df["Frag1"] != "All"]
+    df = df[df["Frag2"] != "All"]
     pp(df.columns.tolist())
     df.to_pickle(f"{data_path}/raw/fsapt_test_simple_2.pkl")
     df.to_pickle(f"{data_path}/raw/fsapt_train_simple_2.pkl")
-    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', ]].head())
-    print(df['Frag1_indices'])
-    print(df['Frag2_indices'])
+    print(
+        df[
+            [
+                "Frag1",
+                "Frag2",
+                "F-Total",
+                "F-Electrostatics",
+                "F-Exchange",
+                "F-Induction",
+                "F-EDispersion",
+            ]
+        ].head()
+    )
+    print(df["Frag1_indices"])
+    print(df["Frag2_indices"])
 
     print(df.columns.tolist())
     fAs = {}
     fBs = {}
-    for f1, inds in zip(df['Frag1'], df['Frag1_indices']):
+    for f1, inds in zip(df["Frag1"], df["Frag1_indices"]):
         fAs[f1] = inds
-    for f2, inds in zip(df['Frag2'], df['Frag2_indices']):
+    for f2, inds in zip(df["Frag2"], df["Frag2_indices"]):
         fBs[f2] = inds
-    pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
-        [df['qcel_molecule'].iloc[0]],
-        fAs=[fAs],
-        fBs=[fBs],
-        compile=False,
+    pred_IEs, pairwise_energies, df_out = (
+        apnet_pt.pretrained_models.apnet3_model_predict_pairs(
+            [df["qcel_molecule"].iloc[0]],
+            fAs=[fAs],
+            fBs=[fBs],
+            compile=False,
+        )
     )
     pp(fAs)
     pp(fBs)
@@ -189,8 +203,21 @@ AP3-fused
 @pytest.mark.skip("incomplete functionality")
 def test_ap3_fused_fsapt_energies_mocking_test():
     """Test training AP3 fused model on FSAPT fragment energy data"""
-    mol = qcel.models.Molecule.from_data("""1 1
+    Na_methyl_sr = qcel.models.Molecule.from_data("""1 1
 Na 0.00000000 0.00000000 0.00000000
+--
+0 1
+C 6.44536662 -0.26509169 -0.00000000
+H 7.53536662 -0.26509169 -0.00000000
+H 6.08203329 0.57399070 0.59332085
+H 6.08203329 -0.17080196 -1.02332709
+H 6.08203329 -1.19846381 0.43000624
+symmetry c1
+no_reorient
+no_com
+    """)
+    Na_methyl_lr = qcel.models.Molecule.from_data("""1 1
+Na -10.00000000 0.00000000 0.00000000
 --
 0 1
 C 6.44536662 -0.26509169 -0.00000000
@@ -209,35 +236,40 @@ no_com
         "methyl": [2, 3, 4, 5, 6],
         "CH": [2, 3],
     }
-    pred_IEs, pairwise_energies, df_out = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
-        [mol],
-        fAs=[fAs],
-        fBs=[fBs],
-        compile=False,
-        print_results=True,
+    dimers = [Na_methyl_sr, Na_methyl_lr]
+    pred_IEs, pairwise_energies, df_out = (
+        apnet_pt.pretrained_models.apnet3_model_predict_pairs(
+            dimers,
+            fAs=[fAs for i in range(2)],
+            fBs=[fBs for i in range(2)],
+            compile=False,
+            print_results=True,
+        )
     )
     pp(fAs)
     pp(fBs)
     print(df_out)
-    df_out = df_out.rename(columns={
-        'total': 'F-Total',
-        'elst': 'F-Electrostatics',
-        'exch': 'F-Exchange',
-        'indu': 'F-Induction',
-        'disp': 'F-Dispersion',
-
-    })
-    df_out['frag1'] = df_out['fA-fB'].apply(lambda x: x.split('-')[0])
-    df_out['frag2'] = df_out['fA-fB'].apply(lambda x: x.split('-')[1])
-    print(df_out[['frag1', 'frag2']])
-    df_out['Frag1_indices'] = df_out['frag1'].apply(lambda x: fAs[x])
-    df_out['Frag2_indices'] = df_out['frag2'].apply(lambda x: fBs[x])
+    df_out = df_out.rename(
+        columns={
+            "total": "F-Total",
+            "elst": "F-Electrostatics",
+            "exch": "F-Exchange",
+            "indu": "F-Induction",
+            "disp": "F-Dispersion",
+        }
+    )
+    df_out["frag1"] = df_out["fA-fB"].apply(lambda x: x.split("-")[0])
+    df_out["frag2"] = df_out["fA-fB"].apply(lambda x: x.split("-")[1])
+    print(df_out[["frag1", "frag2"]])
+    df_out["Frag1_indices"] = df_out["frag1"].apply(lambda x: fAs[x])
+    df_out["Frag2_indices"] = df_out["frag2"].apply(lambda x: fBs[x])
     print(df_out)
-    df_out['qcel_molecule'] = [mol] * len(df_out)
+    df_out["qcel_molecule"] = [Na_methyl_sr, Na_methyl_sr, Na_methyl_lr, Na_methyl_lr]
     pp(df_out.columns.tolist())
     df_out.to_pickle(f"{data_path}/raw/fsapt_test_simple_2.pkl")
     df_out.to_pickle(f"{data_path}/raw/fsapt_train_simple_2.pkl")
     return
+
 
 @pytest.mark.skip("incomplete functionality")
 def test_ap3_fused_fsapt_training_mock():
@@ -283,10 +315,10 @@ def test_ap3_fused_fsapt_training_mock():
             am_dimer_param_model=atom_type_elst_model,
             use_precomputed_classical=False,
             ignore_database_null=False,
-            ds_spec_type=7,  
+            ds_spec_type=7,
             ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
             pre_trained_model_path=ap3_path,
-            ds_batch_size=1,
+            ds_batch_size=2,
         )
 
         print("\nStarting FSAPT training...")
@@ -308,7 +340,7 @@ def test_ap3_fused_fsapt_training_mock():
 @pytest.mark.skip("incomplete functionality")
 def test_ap3_fused_fsapt_training():
     """
-    Test training AP3 fused model on FSAPT fragment energy data on 
+    Test training AP3 fused model on FSAPT fragment energy data on
     simple system dataset to ensure training loop works.
     """
     temp_dir = tempfile.mkdtemp()
@@ -348,17 +380,17 @@ def test_ap3_fused_fsapt_training():
             am_dimer_param_model=atom_type_elst_model,
             use_precomputed_classical=False,
             ignore_database_null=False,
-            ds_spec_type=6,  # NOTE spec_type 5 for FSAPT
+            ds_spec_type=5,  # NOTE spec_type 5 for FSAPT
             ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
             pre_trained_model_path=ap3_path,
-            ds_batch_size=1,
+            ds_batch_size=16,
         )
 
         print("\nStarting FSAPT training...")
 
         # Train for a few epochs
         ap3.train(
-            n_epochs=3,
+            n_epochs=20,
             lr=5e-5,
             skip_compile=True,  # Skip compilation for faster testing
         )
@@ -369,49 +401,67 @@ def test_ap3_fused_fsapt_training():
         shutil.rmtree(temp_dir)
     return
 
+
 @pytest.mark.skip("data analysis")
 def test_ap2_ap3_fused_fsapt_energies():
     """Test training AP3 fused model on FSAPT fragment energy data"""
     df = pd.read_pickle(f"{data_path}/raw/fsapt_full_data.pkl")
-    df['fA-fB'] = df.apply(lambda r: f"{r['Frag1']}-{r['Frag2']}", axis=1)
-    print(df[['Frag1', 'Frag2', 'F-Total', 'F-Electrostatics', 'F-Exchange', 'F-Induction', 'F-EDispersion', 'qcel_molecule']])
+    df["fA-fB"] = df.apply(lambda r: f"{r['Frag1']}-{r['Frag2']}", axis=1)
+    print(
+        df[
+            [
+                "Frag1",
+                "Frag2",
+                "F-Total",
+                "F-Electrostatics",
+                "F-Exchange",
+                "F-Induction",
+                "F-EDispersion",
+                "qcel_molecule",
+            ]
+        ]
+    )
     fAs = []
     fBs = []
-    for f1, inds in zip(df['Frag1'], df['Frag1_indices']):
+    for f1, inds in zip(df["Frag1"], df["Frag1_indices"]):
         fAs.append({f1: inds})
-    for f2, inds in zip(df['Frag2'], df['Frag2_indices']):
+    for f2, inds in zip(df["Frag2"], df["Frag2_indices"]):
         fBs.append({f2: inds})
     print(fAs[0])
     print(fBs[0])
-    pred_IEs, pairwise_energies, df_out_ap2 = apnet_pt.pretrained_models.apnet2_model_predict_pairs(
-        df['qcel_molecule'].tolist(),
-        fAs=fAs,
-        fBs=fBs,
-        ap2_fused=True,
-        compile=False,
+    pred_IEs, pairwise_energies, df_out_ap2 = (
+        apnet_pt.pretrained_models.apnet2_model_predict_pairs(
+            df["qcel_molecule"].tolist(),
+            fAs=fAs,
+            fBs=fBs,
+            ap2_fused=True,
+            compile=False,
+        )
     )
     print(df_out_ap2)
     # df_out_ap2.to_pickle("fsapt_ap2_fused_predictions.pkl")
-    df['total_ap2'] = df_out_ap2['total']
-    df['elst_ap2'] = df_out_ap2['elst']
-    df['exch_ap2'] = df_out_ap2['exch']
-    df['indu_ap2'] = df_out_ap2['indu']
-    df['disp_ap2'] = df_out_ap2['disp']
-    df['fA-fB_ap2'] = df_out_ap2['fA-fB']
-    pred_IEs, pairwise_energies, df_out_ap3 = apnet_pt.pretrained_models.apnet3_model_predict_pairs(
-        df['qcel_molecule'].tolist(),
-        fAs=fAs,
-        fBs=fBs,
-        compile=False,
+    df["total_ap2"] = df_out_ap2["total"]
+    df["elst_ap2"] = df_out_ap2["elst"]
+    df["exch_ap2"] = df_out_ap2["exch"]
+    df["indu_ap2"] = df_out_ap2["indu"]
+    df["disp_ap2"] = df_out_ap2["disp"]
+    df["fA-fB_ap2"] = df_out_ap2["fA-fB"]
+    pred_IEs, pairwise_energies, df_out_ap3 = (
+        apnet_pt.pretrained_models.apnet3_model_predict_pairs(
+            df["qcel_molecule"].tolist(),
+            fAs=fAs,
+            fBs=fBs,
+            compile=False,
+        )
     )
     print(df_out_ap3)
     # df_out_ap3.to_pickle("fsapt_ap3_fused_predictions.pkl")
-    df['total_ap3'] = df_out_ap3['total']
-    df['elst_ap3'] = df_out_ap3['elst']
-    df['exch_ap3'] = df_out_ap3['exch']
-    df['indu_ap3'] = df_out_ap3['indu']
-    df['disp_ap3'] = df_out_ap3['disp']
-    df['fA-fB_ap3'] = df_out_ap3['fA-fB']
+    df["total_ap3"] = df_out_ap3["total"]
+    df["elst_ap3"] = df_out_ap3["elst"]
+    df["exch_ap3"] = df_out_ap3["exch"]
+    df["indu_ap3"] = df_out_ap3["indu"]
+    df["disp_ap3"] = df_out_ap3["disp"]
+    df["fA-fB_ap3"] = df_out_ap3["fA-fB"]
     print(df)
     pp(df.columns.tolist())
     df["base_id"] = df["id"].str.replace(r"-[a-z][a-z]", "", regex=True)
@@ -429,4 +479,5 @@ if __name__ == "__main__":
     # test_ap3_fused_fsapt()
     # test_ap3_fused_fsapt_energies()
     # test_ap3_fused_fsapt_energies_mocking_test()
+    # test_ap3_fused_fsapt_training_mock()
     test_ap3_fused_fsapt_training()
