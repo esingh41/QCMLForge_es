@@ -1979,6 +1979,8 @@ units angstrom
         # (4) Set eval functions
         if is_fsapt:
             # FSAPT fragment energy training
+            # ensure pre-compute is not enabled
+            assert not self.use_precomputed_classical, "Precomputed classical corrections not supported for FSAPT training."
             __evaluate_batch = self.__evaluate_batches_fsapt_single_proc
             __train_batch = self.__train_batches_fsapt_single_proc
             print(

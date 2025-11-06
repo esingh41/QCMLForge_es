@@ -380,7 +380,7 @@ def test_ap3_fused_fsapt_training():
             am_dimer_param_model=atom_type_elst_model,
             use_precomputed_classical=False,
             ignore_database_null=False,
-            ds_spec_type=5,  # NOTE spec_type 5 for FSAPT
+            ds_spec_type=6,
             ds_type="fsapt_energies",  # Important: set ds_type for FSAPT
             pre_trained_model_path=ap3_path,
             ds_batch_size=16,
