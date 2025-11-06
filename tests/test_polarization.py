@@ -242,10 +242,13 @@ water.key  water.xyz  w.xyz
       3       H    1    0.185752
 """
 
-def build_local_frame_rotation_matrix(mol_coords, atom_idx, z_axis_atom, x_axis_atom, frame_type):
+
+def build_local_frame_rotation_matrix(
+    mol_coords, atom_idx, z_axis_atom, x_axis_atom, frame_type
+):
     """
     Build rotation matrix from local AMOEBA frame to global Cartesian XYZ frame.
-    
+
     Parameters
     ----------
     mol_coords : np.ndarray
@@ -258,7 +261,7 @@ def build_local_frame_rotation_matrix(mol_coords, atom_idx, z_axis_atom, x_axis_
         Index of atom helping define the local x-axis
     frame_type : str
         Either "Bisector" or "Z-then-X"
-        
+
     Returns
     -------
     R : np.ndarray
@@ -268,61 +271,61 @@ def build_local_frame_rotation_matrix(mol_coords, atom_idx, z_axis_atom, x_axis_
     pos = mol_coords[atom_idx]
     pos_z = mol_coords[z_axis_atom]
     pos_x = mol_coords[x_axis_atom]
-    
+
     if frame_type == "Bisector":
         # Local z-axis bisects the angle between z_axis_atom and x_axis_atom
         vec_z = pos_z - pos  # vector to z_axis_atom
         vec_x = pos_x - pos  # vector to x_axis_atom
-        
+
         # Normalize both vectors
         vec_z = vec_z / np.linalg.norm(vec_z)
         vec_x = vec_x / np.linalg.norm(vec_x)
-        
+
         # Local z-axis is the bisector (average of the two unit vectors)
-        z_local = (vec_z + vec_x)
+        z_local = vec_z + vec_x
         z_local = z_local / np.linalg.norm(z_local)
-        
+
         # Local x-axis is perpendicular to z in the plane containing both bonds
         # First get the normal to the plane
         normal = np.cross(vec_z, vec_x)
-        
+
         # Local y-axis is perpendicular to both z and the plane normal
         y_local = np.cross(z_local, normal)
         y_local = y_local / np.linalg.norm(y_local)
-        
+
         # Local x-axis completes the right-handed system
         x_local = np.cross(y_local, z_local)
         x_local = x_local / np.linalg.norm(x_local)
-        
+
     elif frame_type == "Z-then-X":
         # Local z-axis points from atom to z_axis_atom
         z_local = pos_z - pos
         z_local = z_local / np.linalg.norm(z_local)
-        
+
         # Vector toward x_axis_atom helps define x-axis
         vec_to_x = pos_x - pos
-        
+
         # Local y-axis is perpendicular to z and the vector to x_axis_atom
         y_local = np.cross(z_local, vec_to_x)
         y_local = y_local / np.linalg.norm(y_local)
-        
+
         # Local x-axis completes the right-handed system
         x_local = np.cross(y_local, z_local)
         x_local = x_local / np.linalg.norm(x_local)
     else:
         raise ValueError(f"Unknown frame type: {frame_type}")
-    
+
     # Rotation matrix has local axes as columns
     # R @ v_local = v_global
     R = np.column_stack([x_local, y_local, z_local])
-    
+
     return R
 
 
 def transform_multipoles_to_cartesian(mol_coords, atom_frames, multipoles_local):
     """
     Transform AMOEBA multipole moments from local frames to Cartesian XYZ.
-    
+
     Parameters
     ----------
     mol_coords : np.ndarray
@@ -333,7 +336,7 @@ def transform_multipoles_to_cartesian(mol_coords, atom_frames, multipoles_local)
         Each dict contains: {'q': float, 'mu': array(3), 'theta': array(6)}
         where theta is in lower-triangular format [XX, XY, YY, XZ, YZ, ZZ]
         in the LOCAL frame
-        
+
     Returns
     -------
     q_global : np.ndarray
@@ -347,32 +350,36 @@ def transform_multipoles_to_cartesian(mol_coords, atom_frames, multipoles_local)
     q_global = np.zeros(n_atoms)
     mu_global = np.zeros((n_atoms, 3))
     theta_global = np.zeros((n_atoms, 3, 3))
-    
+
     for i in range(n_atoms):
         # Get rotation matrix
         R = build_local_frame_rotation_matrix(
-            mol_coords, i, 
-            atom_frames[i]['z_axis'],
-            atom_frames[i]['x_axis'],
-            atom_frames[i]['frame_type']
+            mol_coords,
+            i,
+            atom_frames[i]["z_axis"],
+            atom_frames[i]["x_axis"],
+            atom_frames[i]["frame_type"],
         )
-        
+
         # Charge is invariant
-        q_global[i] = multipoles_local[i]['q']
-        
+        q_global[i] = multipoles_local[i]["q"]
+
         # Dipole transforms as a vector: mu_global = R @ mu_local
-        mu_local = multipoles_local[i]['mu']  # shape (3,) in local frame
+        mu_local = multipoles_local[i]["mu"]  # shape (3,) in local frame
         mu_global[i] = R @ mu_local
-        
+
         # Quadrupole transforms as rank-2 tensor: Q_global = R @ Q_local @ R^T
-        theta_lt = multipoles_local[i]['theta']  # [XX, XY, YY, XZ, YZ, ZZ] in LOCAL frame
-        theta_local = np.array([
-            [theta_lt[0], theta_lt[1], theta_lt[3]],  # XX, XY, XZ
-            [theta_lt[1], theta_lt[2], theta_lt[4]],  # XY, YY, YZ
-            [theta_lt[3], theta_lt[4], theta_lt[5]]   # XZ, YZ, ZZ
-        ])
+        # [XX, XY, YY, XZ, YZ, ZZ] in LOCAL frame
+        theta_lt = multipoles_local[i]["theta"]
+        theta_local = np.array(
+            [
+                [theta_lt[0], theta_lt[1], theta_lt[3]],  # XX, XY, XZ
+                [theta_lt[1], theta_lt[2], theta_lt[4]],  # XY, YY, YZ
+                [theta_lt[3], theta_lt[4], theta_lt[5]],  # XZ, YZ, ZZ
+            ]
+        )
         theta_global[i] = R @ theta_local @ R.T
-    
+
     return q_global, mu_global, theta_global
 
 
@@ -385,17 +392,19 @@ H      0.756950    0.585882    0.000000
 units angstrom
     """)
     print(molA.to_string("psi4"))
-    
+
     qA = np.array([-0.51966, 0.25983, 0.25983])
     # Need to switch ZXY to XYZ and multiply dipoles by -1 to match sign
     # convention
     muA = 1.0 * np.array(
-[[ 0.          , 0.14279     ,0.        ] ,
- [-0.06962867  , 0.00509394  ,0.        ] ,
- [ 0.06962867  , 0.00509394  ,0.        ],]
-)
+        [
+            [0.0, 0.14279, 0.0],
+            [-0.06962867, 0.00509394, 0.0],
+            [0.06962867, 0.00509394, 0.0],
+        ]
+    )
     thetaA = [
-        # They have order of ZXY... 
+        # They have order of ZXY...
         [0.37928, 0.0, -0.41809, 0.0, 0.0, 0.03881],
         [-0.03673, 0.0, -0.10739, -0.00203, 0.0, 0.14412],
         [-0.03673, 0.0, -0.10739, -2.03e-03, 0.0, 0.14412],
@@ -404,11 +413,13 @@ units angstrom
     # Lower-triangular format: [XX, XY, YY, XZ, YZ, ZZ]
     thetaA_full = []
     for theta_lt in thetaA:
-        theta_3x3 = np.array([
-            [theta_lt[3], theta_lt[1], theta_lt[0]],  # XX, XY, XZ
-            [theta_lt[4], theta_lt[2], theta_lt[1]],  # XY, YY, YZ
-            [theta_lt[5], theta_lt[4], theta_lt[3]],  # XZ, YZ, ZZ
-        ])
+        theta_3x3 = np.array(
+            [
+                [theta_lt[3], theta_lt[1], theta_lt[0]],  # XX, XY, XZ
+                [theta_lt[4], theta_lt[2], theta_lt[1]],  # XY, YY, YZ
+                [theta_lt[5], theta_lt[4], theta_lt[3]],  # XZ, YZ, ZZ
+            ]
+        )
         thetaA_full.append(theta_3x3)
     thetaA = np.array(thetaA_full)
 
@@ -417,65 +428,145 @@ units angstrom
     # convert from angstrom^3 to atomic units (1 A^3 = 0.148184711 au)
     # ang2bohr = qcel.constants.conversion_factor("angstrom", "bohr")
     # atomic_polarizabilities *= (ang2bohr ** 3)
-    
-    q_returned, mu_induced, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
-        qcel_mol=molA,
-        q=qA,
-        mu=muA,
-        theta=thetaA,
-        atom_polarizabilities=atomic_polarizabilities,
-        # hirshfeld_volume_ratio=vrA,
-        # valence_widths=vwA,
-        # AMOEBA+ uses a=0.75 for direct, a=39 for mutual
-        # https://pubs.acs.org/doi/pdf/10.1021/acs.jctc.7b00225?ref=article_openPDF
-        thole_damping_param_direct=0.34,
-        thole_damping_param_mutual=0.39,
-        zero_quadrupoles=True
+
+    q_returned, mu_induced, theta_returned = (
+        apnet_pt.multipole.intramolecular_induced_dipole(
+            qcel_mol=molA,
+            q=qA,
+            mu=muA,
+            theta=thetaA,
+            atom_polarizabilities=atomic_polarizabilities,
+            # hirshfeld_volume_ratio=vrA,
+            # valence_widths=vwA,
+            # AMOEBA+ uses a=0.75 for direct, a=39 for mutual
+            # https://pubs.acs.org/doi/pdf/10.1021/acs.jctc.7b00225?ref=article_openPDF
+            thole_damping_param_direct=0.34,
+            thole_damping_param_mutual=0.39,
+            zero_quadrupoles=True,
+        )
     )
     print(f"charges: {q_returned}")
     print(f"perm    dipoles:\n{muA}")
     print(f"Induced dipoles:\n{mu_induced}")
     return
 
+
+def test_intramolecular_induced_dipole_MPID():
+    molA = qcel.models.Molecule.from_data("""
+0 1
+O      0.000000    0.000000    0.000000
+H     -0.756950    0.585882    0.000000
+H      0.756950    0.585882    0.000000
+units angstrom
+    """)
+    print(molA.to_string("psi4"))
+
+    qA = np.array([-0.51966, 0.25983, 0.25983])
+    # Need to switch ZXY to XYZ and multiply dipoles by -1 to match sign
+    # convention
+    muA = 1.0 * np.array(
+        [
+            [0.0, 0.14279, 0.0],
+            [-0.06962867, 0.00509394, 0.0],
+            [0.06962867, 0.00509394, 0.0],
+        ]
+    )
+    thetaA = [
+        # They have order of ZXY...
+        [0.37928, 0.0, -0.41809, 0.0, 0.0, 0.03881],
+        [-0.03673, 0.0, -0.10739, -0.00203, 0.0, 0.14412],
+        [-0.03673, 0.0, -0.10739, -2.03e-03, 0.0, 0.14412],
+    ]
+    # expand thetaA to full 3x3 tensors from the lower-triangular representation
+    # Lower-triangular format: [XX, XY, YY, XZ, YZ, ZZ]
+    thetaA_full = []
+    for theta_lt in thetaA:
+        theta_3x3 = np.array(
+            [
+                [theta_lt[3], theta_lt[1], theta_lt[0]],  # XX, XY, XZ
+                [theta_lt[4], theta_lt[2], theta_lt[1]],  # XY, YY, YZ
+                [theta_lt[5], theta_lt[4], theta_lt[3]],  # XZ, YZ, ZZ
+            ]
+        )
+        thetaA_full.append(theta_3x3)
+    thetaA = np.array(thetaA_full)
+
+    # vrA = r["vol_ratios_A pbe0/atz"]
+    atomic_polarizabilities = np.array([0.8370, 0.4960, 0.4960])  # in angstrom^3
+    # convert from angstrom^3 to atomic units (1 A^3 = 0.148184711 au)
+    # ang2bohr = qcel.constants.conversion_factor("angstrom", "bohr")
+    # atomic_polarizabilities *= (ang2bohr ** 3)
+
+    q_returned, mu_induced, theta_returned = (
+        apnet_pt.multipole.intramolecular_induced_dipole(
+            qcel_mol=molA,
+            q=qA,
+            mu=muA,
+            theta=thetaA,
+            atom_polarizabilities=atomic_polarizabilities,
+            # hirshfeld_volume_ratio=vrA,
+            # valence_widths=vwA,
+            # AMOEBA+ uses a=0.75 for direct, a=39 for mutual
+            # https://pubs.acs.org/doi/pdf/10.1021/acs.jctc.7b00225?ref=article_openPDF
+            thole_damping_param_direct=0.34,
+            thole_damping_param_mutual=0.39,
+            zero_quadrupoles=True,
+        )
+    )
+    print(f"charges: {q_returned}")
+    print(f"perm    dipoles:\n{muA}")
+    print(f"Induced dipoles:\n{mu_induced}")
+    return
+
+
 def amoeba_transform():
     # Example: Transform AMOEBA water multipoles to Cartesian XYZ
     # Water geometry
-    coords = np.array([
-        [0.000000, 0.000000, 0.000000],  # O
-        [-0.756950, 0.585882, 0.000000],  # H
-        [0.756950, 0.585882, 0.000000],   # H
-    ])
-    
+    coords = np.array(
+        [
+            [0.000000, 0.000000, 0.000000],  # O
+            [-0.756950, 0.585882, 0.000000],  # H
+            [0.756950, 0.585882, 0.000000],  # H
+        ]
+    )
+
     # Define local frames from AMOEBA parameters (lines 152-170)
     # Atom indices are 0-based (subtract 1 from AMOEBA 1-based indices)
     frames = [
-        {'z_axis': 1, 'x_axis': 2, 'frame_type': 'Bisector'},   # O: bisector of H-O-H
-        {'z_axis': 0, 'x_axis': 2, 'frame_type': 'Z-then-X'},   # H1: z toward O, x using H2
-        {'z_axis': 0, 'x_axis': 1, 'frame_type': 'Z-then-X'},   # H2: z toward O, x using H1
+        # O: bisector of H-O-H
+        {"z_axis": 1, "x_axis": 2, "frame_type": "Bisector"},
+        # H1: z toward O, x using H2
+        {"z_axis": 0, "x_axis": 2, "frame_type": "Z-then-X"},
+        # H2: z toward O, x using H1
+        {"z_axis": 0, "x_axis": 1, "frame_type": "Z-then-X"},
     ]
-    
+
     # AMOEBA multipoles in LOCAL frames
     multipoles_local = [
         {  # Atom 1 (O)
-            'q': -0.51966,
-            'mu': np.array([0.00000, 0.00000, 0.14279]),  # in local frame (x, y, z)
-            'theta': np.array([0.37928, 0.0, -0.41809, 0.0, 0.0, 0.03881])  # XX, XY, YY, XZ, YZ, ZZ
+            "q": -0.51966,
+            # in local frame (x, y, z)
+            "mu": np.array([0.00000, 0.00000, 0.14279]),
+            # XX, XY, YY, XZ, YZ, ZZ
+            "theta": np.array([0.37928, 0.0, -0.41809, 0.0, 0.0, 0.03881]),
         },
         {  # Atom 2 (H)
-            'q': 0.25983,
-            'mu': np.array([-0.03859, 0.00000, -0.05818]),
-            'theta': np.array([-0.03673, 0.0, -0.10739, -0.00203, 0.0, 0.14412])
+            "q": 0.25983,
+            "mu": np.array([-0.03859, 0.00000, -0.05818]),
+            "theta": np.array([-0.03673, 0.0, -0.10739, -0.00203, 0.0, 0.14412]),
         },
         {  # Atom 3 (H)
-            'q': 0.25983,
-            'mu': np.array([-0.03859, 0.00000, -0.05818]),
-            'theta': np.array([-0.03673, 0.0, -0.10739, -0.00203, 0.0, 0.14412])
+            "q": 0.25983,
+            "mu": np.array([-0.03859, 0.00000, -0.05818]),
+            "theta": np.array([-0.03673, 0.0, -0.10739, -0.00203, 0.0, 0.14412]),
         },
     ]
-    
+
     # Transform to Cartesian XYZ
-    q_cart, mu_cart, theta_cart = transform_multipoles_to_cartesian(coords, frames, multipoles_local)
-    
+    q_cart, mu_cart, theta_cart = transform_multipoles_to_cartesian(
+        coords, frames, multipoles_local
+    )
+
     print("=" * 60)
     print("AMOEBA Multipoles transformed to Cartesian XYZ:")
     print("=" * 60)
@@ -488,7 +579,7 @@ def amoeba_transform():
         print(f"\nAtom {i}:")
         print(theta)
     print("\n" + "=" * 60)
-    
+
 
 if __name__ == "__main__":
     # Now run the actual test

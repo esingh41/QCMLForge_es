@@ -391,7 +391,7 @@ def test_ap3_fused_fsapt_training():
         # Train for a few epochs
         ap3.train(
             n_epochs=20,
-            lr=5e-5,
+            lr=5e-4,
             skip_compile=True,  # Skip compilation for faster testing
         )
 
