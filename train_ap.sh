@@ -5,39 +5,39 @@ export iter=1
 # do
 # done
 
-# for seed in 0 1 2 3 4
-# do
-    # export iter=$seed
-    # python3 -u ./train_models.py \
-    #     --train_am "AtomModel" \
-    #     --am_model_path ./models/ap3_ensemble/am_$iter.pt \
-    #     --spec_type_am 1 \
-    #     --random_seed $iter \
-    #     --n_epochs 400 \
-    #     --lr 5e-5 \
-    #     --data_dir ./data_dir \
-    #     --world_size 1 \
-    #     --omp_num_threads 16 
-# done
+for seed in 0 # 1 2 3 4
+do
+    export iter=$seed
+    python3 -u ./train_models.py \
+        --train_am "AtomModel" \
+        --am_model_path ./models/ap3_ensemble/am_$iter.pt \
+        --spec_type_am 10 \
+        --random_seed $iter \
+        --n_epochs 500 \
+        --lr 5e-4 \
+        --data_dir ./data_dir \
+        --world_size 1 \
+        --omp_num_threads 16 
+done
 #
 # AP3-fused FSAPT training
-python3 -u ./train_models.py \
-    --train_apnet APNet3-fused \
-    --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
-    --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
-    --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
-    --random_seed $iter \
-    --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
-    --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
-    --n_epochs 100 \
-    --data_dir ./data_dimer_$iter \
-    --spec_type_ap 6 \
-    --ds_type fsapt_energies \
-    --ds_class_type lmdb \
-    --lr 5e-4 \
-    --ds_in_memory False \
-
-export iter=1
+# python3 -u ./train_models.py \
+#     --train_apnet APNet3-fused \
+#     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+#     --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
+#     --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
+#     --random_seed $iter \
+#     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
+#     --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
+#     --n_epochs 100 \
+#     --data_dir ./data_dimer_$iter \
+#     --spec_type_ap 6 \
+#     --ds_type fsapt_energies \
+#     --ds_class_type lmdb \
+#     --lr 5e-4 \
+#     --ds_in_memory False \
+#
+# export iter=1
 # Hirshfeld + Valence widths
 # python3 -u ./train_models.py \
 #     --train_apnet AtomTypeParamModel \

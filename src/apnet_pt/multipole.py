@@ -348,7 +348,7 @@ def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a, damping_term="mutual"):
     # l5 = np.ones_like(l5)
     # print(f"{alpha_i:.2f}-{alpha_j:.2f} {l3 = }, {l5 = }")
     T0 = R**-1
-    print(f"{damping_term}, {l3=:.2f}")
+    # print(f"{damping_term}, {l3=:.2f}")
     T1 = l3 * (R**-3) * (-1.0 * dR)
     T2 = (R**-5) * (l5 * 3 * np.outer(dR, dR) - l3 * R * R * delta)
 
@@ -1577,9 +1577,10 @@ def intramolecular_induced_dipole(
     zero_dipoles: bool = False,
     zero_quadrupoles: bool = False,
     screening: bool = True,
+    screening_distance: float = 1.8,
     heavy_atoms_only: bool = True,
     compute_energies: bool = False,
-    verbose: bool = False,
+    verbose: int = 0,
 ) -> tuple:
     """
     Calculate intramolecular induced dipoles for a single molecule using
@@ -1624,8 +1625,7 @@ def intramolecular_induced_dipole(
     """
     
     R = qcel_mol.geometry
-    dist = np.linalg.norm(R[:, np.newaxis, :] - R[np.newaxis, :, :], axis=-1)
-    print(f"{dist=}")
+    # dist = np.linalg.norm(R[:, np.newaxis, :] - R[np.newaxis, :, :], axis=-1)
     Z = qcel_mol.atomic_numbers
     # print(f"{R=}")
     # print(f"{Z=}")
@@ -1636,8 +1636,9 @@ def intramolecular_induced_dipole(
         alpha_0 = np.array([free_atom_polarizabilities[i] for i in Z])
         hirshfeld_volume_ratio = hirshfeld_volume_ratio.flatten()
         alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
-    print(f"{alpha=}")
-    print(f"{thole_damping_param_mutual=}")
+    if verbose > 0:
+        print(f"{alpha=}")
+        print(f"{thole_damping_param_mutual=}")
     
     n_atoms = len(R)
     q_flat = q.flatten()
@@ -1670,9 +1671,9 @@ def intramolecular_induced_dipole(
             T0, T1, T2, T3, T4 = T_cart_Thole_damping(
                 R[i], R[j], alpha[i], alpha[j], thole_damping_param_direct, damping_term="direct"
             )
-            if screening and T0 ** -1 < 1.8 / constants.au2ang:
+            if screening and T0 ** -1 < screening_distance / constants.au2ang:
                 # screening out 1-2 and 1-3 type interactions crudely
-                print(f"  Screening direct {i}-{j} at distance {T0**-1:.2f} < {1.8 / constants.au2ang} bohr")
+                # print(f"  Screening direct {i}-{j} at distance {T0**-1:.2f} < {1.8 / constants.au2ang} bohr")
                 T0 *= 0
                 T1 *= 0
                 T2 *= 0
@@ -1745,7 +1746,6 @@ def intramolecular_induced_dipole(
                 M[:, 1:4],
             )
         ) * constants.h2kcalmol
-        print(f"{E_ind_pairs =}")
         E_ind = np.sum(E_ind_pairs) / -2
         print(f"Total intramolecular E_ind: {E_ind:.4f} kcal/mol")
         # Electrostatics energies using all permanent multipoles only
@@ -1763,14 +1763,16 @@ def intramolecular_induced_dipole(
                 M[:, 1:4],
             )
         ) * constants.h2kcalmol
-        print(f"{E_elst_pairs =}")
         # Now that you don't have an A and B, you have to divide by 2 to avoid double counting
-        E_elst = np.sum(E_elst_pairs) / 2
+        E_elst = np.sum(E_elst_pairs) / -2
         print(f"Total intramolecular E_elst: {E_elst:.4f} kcal/mol")
         # difference of pairs
-        E_diff_pairs = E_elst_pairs - E_ind_pairs
-        print(f"{E_diff_pairs =}")
-    if verbose:
+        if verbose > 1:
+            E_diff_pairs = E_elst_pairs - E_ind_pairs
+            print(f"{E_ind_pairs =}")
+            print(f"{E_elst_pairs =}")
+            print(f"{E_diff_pairs =}")
+    if verbose > 0:
         mu_diff = mu_induced - mu.reshape(-1, 3)
         print(f"Original   dipoles:\n{mu}")
         print(f"Induced    dipoles:\n{mu_induced}")
