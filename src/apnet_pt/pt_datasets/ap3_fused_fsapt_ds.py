@@ -933,18 +933,17 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
                 )
                 with env.begin() as txn:
                     metadata_bytes = txn.get(b"__metadata__")
-                    print(f"{metadata_bytes=}")
                     if metadata_bytes:
                         metadata = json.loads(metadata_bytes.decode("utf-8"))
                         length = metadata.get("length", 0)
 
-                        print(f"LMDB length: {length}")
                         if length > 0:
                             split_name = f"_{self.split}" if self.split != "all" else ""
-                            return [
-                                f"lmdb_ap3_fused{split_name}_spec_{self.spec_type}/data.mbd",
-                                f"lmdb_ap3_fused{split_name}_spec_{self.spec_type}/lock.mbd",
+                            files_to_return = [
+                                f"lmdb_ap3_fused_fsapt{split_name}_spec_{self.spec_type}/data.mdb",
+                                f"lmdb_ap3_fused_fsapt{split_name}_spec_{self.spec_type}/lock.mdb",
                             ]
+                            return files_to_return
             except Exception as e:
                 print(f"Error checking LMDB: {e}")
             finally:
