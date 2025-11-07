@@ -1578,6 +1578,8 @@ def intramolecular_induced_dipole(
     zero_quadrupoles: bool = False,
     screening: bool = True,
     heavy_atoms_only: bool = True,
+    compute_energies: bool = False,
+    verbose: bool = False,
 ) -> tuple:
     """
     Calculate intramolecular induced dipoles for a single molecule using
@@ -1707,8 +1709,6 @@ def intramolecular_induced_dipole(
     # mu_induced_0[:, :] += np.einsum(
     #     "a,abik,bk->ai", alpha, T_abij[:, :, 1:4, 4:13], M[:, 4:13]
     # )
-    print("mu(0):")
-    print(mu_induced_0)
     
     mu_induced = mu_induced_0.copy()
     
@@ -1727,7 +1727,62 @@ def intramolecular_induced_dipole(
         delta = np.linalg.norm(mu_induced - mu_induced_old)
         if delta < convergence_threshold:
             break
-    
+
+    # Energies
+    if compute_energies:
+
+        E_ind_pairs = (
+            np.einsum(
+                "ai,abi,b->ab",
+                mu_induced,
+                T_abij_direct[:, :, 1:4, 0],
+                M[:, 0],
+            )
+            + np.einsum(
+                "ai,abij,bj->ab",
+                mu_induced,
+                T_abij_direct[:, :, 1:4, 1:4],
+                M[:, 1:4],
+            )
+        ) * constants.h2kcalmol
+        print(f"{E_ind_pairs =}")
+        E_ind = np.sum(E_ind_pairs) / -2
+        print(f"Total intramolecular E_ind: {E_ind:.4f} kcal/mol")
+        # Electrostatics energies using all permanent multipoles only
+        E_elst_pairs = (
+            np.einsum(
+                "ai,abi,b->ab",
+                M[:, 1:4],
+                T_abij_direct[:, :, 1:4, 0],
+                M[:, 0],
+            )
+            + np.einsum(
+                "ai,abij,bj->ab",
+                M[:, 1:4],
+                T_abij_direct[:, :, 1:4, 1:4],
+                M[:, 1:4],
+            )
+        ) * constants.h2kcalmol
+        print(f"{E_elst_pairs =}")
+        # Now that you don't have an A and B, you have to divide by 2 to avoid double counting
+        E_elst = np.sum(E_elst_pairs) / 2
+        print(f"Total intramolecular E_elst: {E_elst:.4f} kcal/mol")
+        # difference of pairs
+        E_diff_pairs = E_elst_pairs - E_ind_pairs
+        print(f"{E_diff_pairs =}")
+    if verbose:
+        mu_diff = mu_induced - mu.reshape(-1, 3)
+        print(f"Original   dipoles:\n{mu}")
+        print(f"Induced    dipoles:\n{mu_induced}")
+        print("mu(0)=direct induced-dipoles:")
+        print(mu_induced_0)
+        # get magnitudes of dipoles
+        mu_magnitudes = np.linalg.norm(mu.reshape(-1, 3), axis=1)
+        mu_induced_magnitudes = np.linalg.norm(mu_induced, axis=1)
+        mu_diff_magnitudes = np.linalg.norm(mu_diff, axis=1)
+        print(f"Original   dipole magnitudes: {mu_magnitudes}")
+        print(f"Induced    dipole magnitudes: {mu_induced_magnitudes}")
+        print(f"Difference dipole magnitudes: {mu_diff_magnitudes}")
     return q_flat, mu_induced, theta
 
 

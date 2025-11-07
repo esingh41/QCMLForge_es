@@ -516,6 +516,20 @@ def test_intramolecular_induced_dipole_MPID_df_bz():
     vrA = r["vol_ratios_A pbe0/atz"]
     vwA = r["val_widths_A pbe0/atz"]
     np.set_printoptions(precision=6, suppress=True)
+
+    q_returned, mu_induced, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
+        qcel_mol=molA,
+        q=qA,
+        mu=muA,
+        theta=thetaA,
+        hirshfeld_volume_ratio=vrA,
+        valence_widths=vwA,
+        thole_damping_param_mutual=0.39,
+        thole_damping_param_direct=0.34,
+        compute_energies=True,
+        heavy_atoms_only=False,
+        verbose=True
+    )
     
     q_returned, mu_induced, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
         qcel_mol=molA,
@@ -526,19 +540,9 @@ def test_intramolecular_induced_dipole_MPID_df_bz():
         valence_widths=vwA,
         thole_damping_param_mutual=0.39,
         thole_damping_param_direct=0.34,
+        compute_energies=True,
+        verbose=True
     )
-    mu_diff = mu_induced - muA.reshape(-1, 3)
-
-    print(f"charges: {q_returned}")
-    print(f"Original   dipoles:\n{muA}")
-    print(f"Induced    dipoles:\n{mu_induced}")
-    # get magnitudes of dipoles
-    muA_magnitudes = np.linalg.norm(muA.reshape(-1, 3), axis=1)
-    mu_induced_magnitudes = np.linalg.norm(mu_induced, axis=1)
-    mu_diff_magnitudes = np.linalg.norm(mu_diff, axis=1)
-    print(f"Original   dipole magnitudes: {muA_magnitudes}")
-    print(f"Induced    dipole magnitudes: {mu_induced_magnitudes}")
-    print(f"Difference dipole magnitudes: {mu_diff_magnitudes}")
     return
 
 
