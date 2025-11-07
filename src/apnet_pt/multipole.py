@@ -1576,6 +1576,8 @@ def intramolecular_induced_dipole(
     thole_damping_param_direct: float = 0.340,
     zero_dipoles: bool = False,
     zero_quadrupoles: bool = False,
+    screening: bool = True,
+    heavy_atoms_only: bool = True,
 ) -> tuple:
     """
     Calculate intramolecular induced dipoles for a single molecule using
@@ -1620,6 +1622,8 @@ def intramolecular_induced_dipole(
     """
     
     R = qcel_mol.geometry
+    dist = np.linalg.norm(R[:, np.newaxis, :] - R[np.newaxis, :, :], axis=-1)
+    print(f"{dist=}")
     Z = qcel_mol.atomic_numbers
     # print(f"{R=}")
     # print(f"{Z=}")
@@ -1664,6 +1668,14 @@ def intramolecular_induced_dipole(
             T0, T1, T2, T3, T4 = T_cart_Thole_damping(
                 R[i], R[j], alpha[i], alpha[j], thole_damping_param_direct, damping_term="direct"
             )
+            if screening and T0 ** -1 < 1.8 / constants.au2ang:
+                # screening out 1-2 and 1-3 type interactions crudely
+                print(f"  Screening direct {i}-{j} at distance {T0**-1:.2f} < {1.8 / constants.au2ang} bohr")
+                T0 *= 0
+                T1 *= 0
+                T2 *= 0
+                T3 *= 0
+                T4 *= 0
             T_abij_direct[i, j, 0, 0] = T0
             T_abij_direct[i, j, 0, 1:4] = T1
             T_abij_direct[i, j, 1:4, 0] = T1
@@ -1687,6 +1699,11 @@ def intramolecular_induced_dipole(
     mu_induced_0[:, :] += np.einsum(
         "a,abij,bj->ai", alpha, T_abij_direct[:, :, 1:4, 1:4], M[:, 1:4]
     )
+    if heavy_atoms_only:
+        h_inds = np.where(Z == 1)[0]
+        mu_induced_0[h_inds, :] *= 0
+        T_abij_mutual[h_inds, :, :, :] *= 0
+
     # mu_induced_0[:, :] += np.einsum(
     #     "a,abik,bk->ai", alpha, T_abij[:, :, 1:4, 4:13], M[:, 4:13]
     # )
