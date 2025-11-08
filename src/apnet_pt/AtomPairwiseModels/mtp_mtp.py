@@ -1766,6 +1766,9 @@ def classical_dispersion(
         #All of this nonsense is necessary because I am trying to use their batching
         #but lowkey their batching is stupid and this is a very unnatural way to use
         #APNet batching, need to change later
+        
+
+        
         unique_values_A, repeats_A = np.unique(
             [molecule_ind_A[i] for i in range(len(molecule_ind_A))],
             return_counts=True,
@@ -1812,6 +1815,43 @@ def classical_dispersion(
         pairwise_energies_tad = pairwise_energies[mask]
         return pairwise_energies_tad
 
+def classical_dispersion_scatter(
+        ZA,
+        RA,
+        ZB,
+        RB,
+        molecule_ind_A,
+        molecule_ind_B,
+):
+        
+        h2kcalmol = qcel.constants.conversion_factor("hartree", "kcal/mol")
+        ang2bohr = qcel.constants.conversion_factor("angstrom", "bohr")
+
+        #fitted parameters for BJ damping function from Austin's paper but probably need to change
+        param = {
+            "a1": torch.tensor(0.095),
+            "s8": torch.tensor(0.738),
+            "a2": torch.tensor(3.637),
+        }
+
+        ZA = ZA
+        ZB = ZB
+
+        RA = RA * ang2bohr
+        RB = RB * ang2bohr
+
+        #All of this nonsense is necessary because I am trying to use their batching
+        #but lowkey their batching is stupid and this is a very unnatural way to use
+        #APNet batching, need to change later
+        
+        
+        print(molecule_ind_A)
+        ndimer = torch.max(molecule_ind_A) + 1
+        print(RA)
+        
+        RA = scatter_sum_compile(RA, molecule_ind_A, ndimer)
+        print(RA)
+        return
 
 def isolate_atom_parameter_predictions(batch, output):
     batch_size = batch.natom_per_mol.size(0)

@@ -18,6 +18,7 @@ from apnet_pt.AtomPairwiseModels.mtp_mtp import classical_dispersion_scatter
 import tad_mctc as mctc
 import tad_dftd3 as d3
 
+from tad_dftd3 import my_disp
 
 torch.manual_seed(42)
 spec_type = 5
@@ -645,26 +646,39 @@ def test_scatter_dispersion():
     #     molecule_ind_A=batch.molecule_ind_A,
     #     molecule_ind_B=batch.molecule_ind_B,
     # )
+
+
+    print(dir(batch))
     
-    energy, _ = d3.dftd3(
+    if not hasattr(batch, "e_ABfull_source"):
+        batch.e_ABfull_source = torch.cat([batch.e_ABsr_source, batch.e_ABlr_source], dim=0)
+        batch.e_ABfull_target = torch.cat([batch.e_ABsr_target, batch.e_ABlr_target], dim=0)
+
+    d3.my_disp.apnet_dispersion(
         numbers=torch.tensor(water_water_dimer.atomic_numbers),
         positions=torch.tensor(water_water_dimer.geometry),
         param=param,
+        ZA=batch.ZA,
+        RA=batch.RA,
+        ZB=batch.ZB,
+        RB=batch.RB,
+        e_source=batch.e_ABfull_source,
+        e_target=batch.e_ABfull_target,
         mon_A_indices=torch.tensor(water_water_dimer.fragments[0]),
         mon_B_indices=torch.tensor(water_water_dimer.fragments[1]),
         pairwise_matrix=True
     )
 
     
-    print(torch.sum(energy))
+    #print(torch.sum(energy))
 
 if __name__ == "__main__":
     # test_classical_ap3()
     # test_classical_ap3_long_range()
     # test_ap3_fused_train_qcel_molecules_in_memory()
     #test_classical_ap3_induction()
-    test_classical_ap3_dispersion()
-    #test_scatter_dispersion()
+    #test_classical_ap3_dispersion()
+    test_scatter_dispersion()
     
     #test_ap3_fused_train_qcel_molecules_in_memory()
     # test_classical_ap3_induction()
