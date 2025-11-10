@@ -450,6 +450,40 @@ def eval_qcel_dimer_individual(
     return total_energy * constants.h2kcalmol
 
 
+def eval_qcel_dimer_individual_pairs(
+    mol_dimer, qA, muA, thetaA, qB, muB, thetaB, match_cliff=False
+) -> float:
+    """
+    Evaluate the electrostatic interaction energy between two molecules using
+    their multipole moments. Dimensionalities of qA should be [N], muA should
+    be [N, 3], and thetaA should be [N, 3, 3]. Same for qB, muB, and thetaB.
+    """
+    total_energy = np.zeros(3)
+    RA = mol_dimer.get_fragment(0).geometry
+    RB = mol_dimer.get_fragment(1).geometry
+    ZA = mol_dimer.get_fragment(0).atomic_numbers
+    ZB = mol_dimer.get_fragment(1).atomic_numbers
+    elst_pairs = np.zeros((len(ZA), len(ZB)))
+    for i in range(len(ZA)):
+        for j in range(len(ZB)):
+            rA = RA[i]
+            qA_i = qA[i]
+            muA_i = muA[i]
+            thetaA_i = thetaA[i]
+
+            rB = RB[j]
+            qB_j = qB[j]
+            muB_j = muB[j]
+            thetaB_j = thetaB[j]
+
+            E_q, E_dp, E_qpole = eval_interaction_individual(
+                rA, qA_i, muA_i, thetaA_i, rB, qB_j, muB_j, thetaB_j
+            )
+            elst_pairs[i, j] += E_q
+            elst_pairs[i, j] += E_dp
+            elst_pairs[i, j] += E_qpole
+    return elst_pairs * constants.h2kcalmol
+
 def eval_qcel_dimer_individual_components(
     mol_dimer,
     qA,
