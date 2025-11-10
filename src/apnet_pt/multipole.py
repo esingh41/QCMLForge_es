@@ -9,6 +9,7 @@ from . import constants
 import torch
 from typing import Tuple
 import qcelemental as qcel
+import re
 from .util import scatter_sum_compile
 # from .AtomPairwiseModels.mtp_mtp import get_distances
 
@@ -548,6 +549,165 @@ def eval_qcel_dimer_individual_components(
         E_ZA_MBs,
         E_ZB_MAs,
     )
+
+def get_fragments(dat_file):
+    fragments = {}
+    with open(dat_file, 'r') as f:
+        lines = f.readlines()
+        for line in lines:
+            fragments[line.split()[0]] = line.split()[1:]
+            indices = line.split()[1:]
+            indices = np.array(indices).astype(int)
+            indices = indices - 1 #For zero based indexing.
+            fragments[line.split()[0]] = indices
+    return fragments
+
+def eval_qcel_dimer_individual_components_fsapt(
+    mol_dimer,
+    fA, #fA.dat
+    qA,
+    muA,
+    thetaA,
+    fB, #fB.dat
+    qB,
+    muB,
+    thetaB,
+    alphaA=None,
+    alphaB=None,
+    traceless=True,
+    amoeba_eq=False,
+    match_cliff=True,
+) -> Tuple[
+    float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
+]:
+    """
+    Evaluate the electrostatic interaction energy between two molecules using
+    their multipole moments. Dimensionalities of qA should be [N], muA should
+    be [N, 3], and thetaA should be [N, 3, 3]. Same for qB, muB, and thetaB.
+
+    NOTE: the mu-Q and Q-Q damping terms do not agree with the CLIFF
+    implementation. If damping is disabled or only care about the q-q, q-u,
+    u-u, and q-Q terms then this function can be used. AP2 only uses these q-q,
+    q-u, u-u, and q-Q terms, so this implementation is sufficient for AP2.
+    """
+    RA_all = mol_dimer.get_fragment(0).geometry
+    RB_all = mol_dimer.get_fragment(1).geometry
+    ZA_all = mol_dimer.get_fragment(0).atomic_numbers
+    ZB_all = mol_dimer.get_fragment(1).atomic_numbers
+
+    qA_all = qA
+    muA_all = muA
+    thetaA_all = thetaA
+    
+    qB_all = qB
+    muB_all = muB
+    thetaB_all = thetaB
+
+    #This will account for all the possible fragment pairs.
+    frags_A = get_fragments(fA)
+    frags_A['All'] = mol_dimer.fragments[0]
+
+    frags_B = get_fragments(fB)
+    frags_B['All'] = mol_dimer.fragments[1]
+    length = len(frags_A) * len(frags_B)
+    mtp_elst = np.zeros(length, 10)
+
+    count = 0
+    for x in frags_A:
+        ZA = ZA_all[frags_A[x]]
+        RA = RA_all[frags_A[x]]
+        qA = qA_all[frags_A[x]]
+        muA = muA_all[frags_A[x]]
+        thetaA = thetaA_all[frags_A[x]]
+    
+        for y in frags_B:
+            ZB = ZB_all[frags_B[x]]
+            RB = RB_all[frags_B[x]]
+            qB = qB_all[frags_B[x]]
+            muB = muB_all[frags_B[x]]
+            thetaB = thetaB_all[frags_B[x]]
+            t = np.zeros((len(ZA), len(ZB)))
+            E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs = (
+                t.copy(),
+                t.copy(),
+                t.copy(),
+                t.copy(),
+                t.copy(),
+                t.copy(),
+            )
+            E_ZA_MBs, E_ZB_MAs, E_ZA_ZBs = (
+                t.copy(),
+                t.copy(),
+                t.copy(),
+            )
+            for i in range(len(ZA)):
+                for j in range(len(ZB)):
+                    rA = RA[i]
+                    qA_i = qA[i]
+                    muA_i = muA[i]
+                    thetaA_i = thetaA[i]
+
+                    rB = RB[j]
+                    qB_j = qB[j]
+                    muB_j = muB[j]
+                    thetaB_j = thetaB[j]
+                    a_i = alphaA[i] if alphaA is not None and alphaB is not None else None
+                    a_j = alphaB[j] if alphaA is not None and alphaB is not None else None
+                    za_i = ZA[i] if amoeba_eq else None
+                    zb_j = ZB[j] if amoeba_eq else None
+                    E_qq, E_qu, E_uu, E_qQ, E_uQ, E_QQ, E_ZA_ZB, E_ZA_MB, E_ZB_MA = (
+                        eval_interaction_individual_components(
+                            rA,
+                            qA_i,
+                            muA_i,
+                            thetaA_i,
+                            rB,
+                            qB_j,
+                            muB_j,
+                            thetaB_j,
+                            ZA=za_i,
+                            ZB=zb_j,
+                            alpha_i=a_i,
+                            alpha_j=a_j,
+                            traceless=traceless,
+                            match_cliff=match_cliff,
+                        )
+                    )
+                    E_qqs[i, j] = E_qq
+                    E_qus[i, j] = E_qu
+                    E_uus[i, j] = E_uu
+                    E_qQs[i, j] = E_qQ
+                    E_uQs[i, j] = E_uQ
+                    E_QQs[i, j] = E_QQ
+                    if amoeba_eq:
+                        E_ZA_ZBs[i, j] = E_ZA_ZB
+                        E_ZA_MBs[i, j] = E_ZA_MB
+                        E_ZB_MAs[i, j] = E_ZB_MA
+            total_energy = (
+                np.sum(E_qqs)
+                + np.sum(E_qus)
+                + np.sum(E_uus)
+                + np.sum(E_qQs)
+                + np.sum(E_uQs)
+                + np.sum(E_QQs)
+                + np.sum(E_ZA_MBs)
+                + np.sum(E_ZB_MAs)
+                + np.sum(E_ZA_ZBs)
+            )
+            total_energy *= constants.h2kcalmol
+            E_qqs *= constants.h2kcalmol
+            E_qus *= constants.h2kcalmol
+            E_uus *= constants.h2kcalmol
+            E_qQs *= constants.h2kcalmol
+            E_uQs *= constants.h2kcalmol
+            E_QQs *= constants.h2kcalmol
+            E_ZA_MBs *= constants.h2kcalmol
+            E_ZB_MAs *= constants.h2kcalmol
+            E_ZA_ZBs *= constants.h2kcalmol
+            mtp_elst[count, :] = np.array([total_energy, E_qqs, E_qus, E_uus, E_qQs, E_uQs, E_QQs, E_ZA_ZBs, E_ZA_MBs, E_ZB_MAs])
+        count += 1
+
+    return mtp_elst
 
 
 def eval_interaction_individual(
