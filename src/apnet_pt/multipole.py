@@ -1784,18 +1784,48 @@ def intramolecular_induced_dipole(
         print(f"Total intramolecular E_ind: {E_ind:.4f} kcal/mol")
         # Electrostatics energies using all permanent multipoles only
         E_elst_pairs = (
+            # q-q
             np.einsum(
+                "a,ab,b->ab",
+                M[:, 0],
+                T_abij_direct[:, :, 0, 0],
+                M[:, 0],
+            )
+            # q-mu
+            + np.einsum(
                 "ai,abi,b->ab",
                 M[:, 1:4],
                 T_abij_direct[:, :, 1:4, 0],
                 M[:, 0],
             )
+            # q-Q
+            + np.einsum(
+                "ai,abi,b->ab",
+                M[:, 4:13],
+                T_abij_direct[:, :, 4:13, 0],
+                M[:, 0],
+            )
+            # mu-mu
             + np.einsum(
                 "ai,abij,bj->ab",
                 M[:, 1:4],
                 T_abij_direct[:, :, 1:4, 1:4],
                 M[:, 1:4],
             )
+            # mu-Q
+            + np.einsum(
+                "ai,abik,bl->ab",
+                M[:, 1:4],
+                T_abij_direct[:, :, 1:4, 4:13],
+                M[:, 4:13],
+            )
+            # Q-Q
+            + np.einsum(
+                "ak,abkl,bl->ab",
+                M[:, 4:13],
+                T_abij_direct[:, :, 4:13, 4:13],
+                M[:, 4:13],
+                )
         ) * constants.h2kcalmol
         # Now that you don't have an A and B, you have to divide by 2 to avoid double counting
         E_elst = np.sum(E_elst_pairs) / -2
