@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from apnet_pt import atomic_datasets
 from apnet_pt import constants
+import torch
 
 
 lr_water_dimer = qcel.models.Molecule.from_data("""
@@ -33,6 +34,7 @@ am_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_3.pt"
 at_hf_vw_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_h+1_3.pt"
 at_elst_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_elst_h+1_3.pt"
 ap3_path = f"{current_file_path}/test_models/ap3_ensemble_0/ap3_.pt"
+
 
 def test_elst_multipoles_AP2():
     atom_model = apnet_pt.AtomModels.ap2_atom_model.AtomModel(
@@ -66,7 +68,9 @@ def test_elst_multipoles_MTP_torch_no_damping():
     import torch
 
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     # print(r['SAPT0 ELST ENERGY adz'])
@@ -164,7 +168,9 @@ def test_elst_multipoles_MTP_torch_damping():
     import torch
 
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
@@ -341,7 +347,9 @@ def test_elst_multipoles_am_hirshfeld():
         ignore_database_null=True,
         use_GPU=False,
     )
-    atom_model.set_pretrained_model(current_file_path + "/../models/am_hf_ensemble/am_0.pt")
+    atom_model.set_pretrained_model(
+        current_file_path + "/../models/am_hf_ensemble/am_0.pt"
+    )
     print(atom_model)
     monA = lr_water_dimer.get_fragment(0).copy()
     monB = lr_water_dimer.get_fragment(1).copy()
@@ -368,7 +376,9 @@ def test_elst_multipoles_am_hirshfeld():
 def test_induced_dipole():
     # check here for CLIFF eval: /home/awallace43/projects/multipoles/cliff_tests
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -497,7 +507,9 @@ def test_induced_dipole_bz_meoh():
 
 def test_classical_cliff():
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     # pprint(df.columns.to_list())
     ap_elst, ap_ind = [], []
@@ -598,7 +610,9 @@ def test_classical_cliff():
 
 def test_elst_ameoba():
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
@@ -717,7 +731,9 @@ def test_elst_ameoba():
 
 def test_elst_damping():
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     r = df.iloc[0]
     mol = r["qcel_molecule"]
@@ -836,7 +852,9 @@ def test_elst_damping():
 
 def test_induced_dipole_no_damping():
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -892,7 +910,9 @@ def test_induced_dipole_torch():
     import torch
 
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -941,7 +961,9 @@ def test_induced_dipole_torch():
     #     f"Expected {ref_e}, got {ap_q_mu_induction}"
     # )
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1021,7 +1043,9 @@ def test_induced_dipole_torch_alphas():
     np.set_printoptions(precision=4)
     torch.set_printoptions(precision=4)
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1097,7 +1121,9 @@ def test_induced_dipole_torch_alphas_dimer_eval():
     np.set_printoptions(precision=4)
     torch.set_printoptions(precision=4)
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1181,7 +1207,9 @@ def test_induced_dipole_torch_df():
     import torch
 
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1301,7 +1329,9 @@ def test_elst_damping_dipole_torch_df():
     )
 
     df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1376,7 +1406,7 @@ def test_elst_damping_dipole_torch_df():
 
 
 def test_induced_dipole_torch_intramolecular():
-    import torch
+
     # Load the monomer data
     df = pd.read_pickle(
         current_file_path + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
@@ -1394,11 +1424,9 @@ def test_induced_dipole_torch_intramolecular():
     thetaA = np.zeros_like(thetaA)
     # Create monomer batch with edge indices
     monomer_batch = apnet_pt.atomic_datasets.atomic_collate_update_no_target(
-        [
-            atomic_datasets.qcel_mon_to_pyg_data(mol, r_cut=99999.0)
-        ]
+        [atomic_datasets.qcel_mon_to_pyg_data(mol, r_cut=99999.0)]
     )
-    
+
     # Get atomic numbers and positions
     Z = torch.tensor(mol.atomic_numbers, dtype=torch.long)
     R = torch.tensor(mol.geometry, dtype=torch.float32) * constants.au2ang
@@ -1409,69 +1437,84 @@ def test_induced_dipole_torch_intramolecular():
     quad_tensor = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
     vr_tensor = torch.tensor(vrA, dtype=torch.float32)
     vw_tensor = torch.tensor(vwA, dtype=torch.float32)
-    
+
     # Get edge indices from the batch
     e_source = monomer_batch.edge_index[0]
     e_target = monomer_batch.edge_index[1]
-    
+
     # Call the updated monomer_induced_dipole_torch function
     print("\n=== PyTorch Version ===")
-    q_torch, mu_induced_torch, quad_torch = apnet_pt.multipole.monomer_induced_dipole_torch(
-        Z=Z,
-        R=R,
-        q=q_tensor,
-        mu=mu_tensor,
-        quad=quad_tensor,
-        e_source=e_source,
-        e_target=e_target,
-        hirshfeld_volume_ratio=vr_tensor,
-        valence_widths=vw_tensor,
-        compute_energies=False,
-        screening_distance=1.8,
-        verbose=1,
+    q_torch, mu_induced_torch, quad_torch = (
+        apnet_pt.multipole.monomer_induced_dipole_torch(
+            Z=Z,
+            R=R,
+            q=q_tensor,
+            mu=mu_tensor,
+            quad=quad_tensor,
+            e_source=e_source,
+            e_target=e_target,
+            hirshfeld_volume_ratio=vr_tensor,
+            valence_widths=vw_tensor,
+            compute_energies=False,
+            screening_distance=1.8,
+            verbose=1,
+        )
     )
-    
+
     # Call the numpy version for comparison
     print("\n=== NumPy Version ===")
-    q_numpy, mu_induced_numpy, quad_numpy = apnet_pt.multipole.intramolecular_induced_dipole(
-        qcel_mol=mol,
-        q=qA,
-        mu=muA,
-        theta=thetaA,
-        hirshfeld_volume_ratio=vrA,
-        valence_widths=vwA,
-        thole_damping_param_mutual=0.39,
-        thole_damping_param_direct=0.34,
-        heavy_atoms_only=False,
-        screening_distance=1.8,
-        compute_energies=False,
-        verbose=1,
+    q_numpy, mu_induced_numpy, quad_numpy = (
+        apnet_pt.multipole.intramolecular_induced_dipole(
+            qcel_mol=mol,
+            q=qA,
+            mu=muA,
+            theta=thetaA,
+            hirshfeld_volume_ratio=vrA,
+            valence_widths=vwA,
+            thole_damping_param_mutual=0.39,
+            thole_damping_param_direct=0.34,
+            heavy_atoms_only=False,
+            screening_distance=1.8,
+            compute_energies=False,
+            verbose=1,
+        )
     )
-    
+
     # Compare results
     print("\n=== Comparison ===")
     q_torch_np = q_torch.detach().numpy()
     mu_torch_np = mu_induced_torch.detach().numpy()
     quad_torch_np = quad_torch.detach().numpy()
-    
+
     print(f"Charges match: {np.allclose(q_torch_np, q_numpy, rtol=1e-4, atol=1e-6)}")
     print(f"Max charge difference: {np.abs(q_torch_np - q_numpy).max():.2e}")
-    
-    print(f"Induced dipoles match: {np.allclose(mu_torch_np, mu_induced_numpy, rtol=1e-4, atol=1e-6)}")
-    print(f"Max induced dipole difference: {np.abs(mu_torch_np - mu_induced_numpy).max():.2e}")
-    
-    print(f"Quadrupoles match: {np.allclose(quad_torch_np, quad_numpy, rtol=1e-4, atol=1e-6)}")
+
+    print(
+        f"Induced dipoles match: {np.allclose(mu_torch_np, mu_induced_numpy, rtol=1e-4, atol=1e-6)}"
+    )
+    print(
+        f"Max induced dipole difference: {np.abs(mu_torch_np - mu_induced_numpy).max():.2e}"
+    )
+
+    print(
+        f"Quadrupoles match: {np.allclose(quad_torch_np, quad_numpy, rtol=1e-4, atol=1e-6)}"
+    )
     print(f"Max quadrupole difference: {np.abs(quad_torch_np - quad_numpy).max():.2e}")
-    
+
     # Assert they match within tolerance
-    assert np.allclose(q_torch_np, q_numpy, rtol=1e-4, atol=1e-6), "Charges don't match!"
-    assert np.allclose(mu_torch_np, mu_induced_numpy, rtol=1e-4, atol=1e-6), "Induced dipoles don't match!"
-    assert np.allclose(quad_torch_np, quad_numpy, rtol=1e-4, atol=1e-6), "Quadrupoles don't match!"
+    assert np.allclose(q_torch_np, q_numpy, rtol=1e-4, atol=1e-6), (
+        "Charges don't match!"
+    )
+    assert np.allclose(mu_torch_np, mu_induced_numpy, rtol=1e-4, atol=1e-6), (
+        "Induced dipoles don't match!"
+    )
+    assert np.allclose(quad_torch_np, quad_numpy, rtol=1e-4, atol=1e-6), (
+        "Quadrupoles don't match!"
+    )
 
 
 if __name__ == "__main__":
     test_induced_dipole_torch_intramolecular()
-    # test_induced_dipole_torch_intramolecular()
     # test_elst_damping_dipole_torch_df()
     # test_elst_multipoles_MTP_torch_damping()
     # test_elst_damping_dipole_torch_df()

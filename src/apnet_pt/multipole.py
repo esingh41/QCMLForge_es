@@ -344,14 +344,14 @@ def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a, damping_term="mutual"):
         raise ValueError("damping_term must be 'direct' or 'mutual'")
 
     # l3, l5, l7, l9 = (1.0, 1.0, 1.0, 1.0)  # Turn off Thole damping
-    print(f"   {l3 = }")
-    print(f"   {l5 = }")
 
     # l3 = np.ones_like(l3)
     # l5 = np.ones_like(l5)
     # print(f"{alpha_i:.2f}-{alpha_j:.2f} {l3 = }, {l5 = }")
     T0 = R**-1
     # print(f"{damping_term}, {l3=:.2f}")
+    # Note: dR = RB - RA points FROM RA TO RB (source at RB, field at RA)
+    # Field at RA due to charge at RB should point FROM RB TO RA, hence -dR
     T1 = l3 * (R**-3) * (-1.0 * dR)
     T2 = (R**-5) * (l5 * 3 * np.outer(dR, dR) - l3 * R * R * delta)
 
@@ -1786,8 +1786,6 @@ def intramolecular_induced_dipole(
             )
             if screening and T0**-1 < screening_distance / constants.au2ang:
                 # screening out 1-2 and 1-3 type interactions crudely
-                # print(f"  Screening direct {i}-{j} at distance {T0**-1:.2f} < {1.8 / constants.au2ang} bohr")
-                print(f"  Screening direct {i}-{j} at distance {T0**-1:.2f} bohr")
                 T0 *= 0
                 T1 *= 0
                 T2 *= 0
@@ -1866,7 +1864,7 @@ def intramolecular_induced_dipole(
             (
                 # q-q
                 np.einsum(
-                    "ai,ab,b->ab",
+                    "a,ab,b->ab",
                     M[:, 0],
                     T_abij_direct[:, :, 0, 0],
                     M[:, 0],
@@ -2053,10 +2051,6 @@ def monomer_induced_dipole_torch(
             au3, lam_3, lam_5 = thole_damping_mutual_torch(
                 dR, alpha_source, alpha_target, thole_param
             )
-        print(f"{e_source=}")
-        print(f"{e_target=}")
-        print(f"{lam_3=}")
-        print(f"{lam_5=}")
 
         # Apply distance-based screening for direct interactions (exclude 1-2, 1-3 bonds)
         if apply_screening and screening:
@@ -2069,7 +2063,9 @@ def monomer_induced_dipole_torch(
         oodR = 1.0 / dR
 
         # T1: field tensor (rank 1)
-        T1 = torch.einsum("x,xy,x->xy", oodR**3, -1.0 * dR_xyz, lam_3)
+        # Note: dR_xyz points FROM source TO target, which is the correct direction
+        # for the field at target due to source. No negation needed.
+        T1 = torch.einsum("x,xy,x->xy", oodR**3, dR_xyz, lam_3)
 
         # T2: field gradient tensor (rank 2)
         T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam_5) - torch.einsum(
@@ -2118,11 +2114,10 @@ def monomer_induced_dipole_torch(
     mu_charge = torch.einsum("a,ai,a->ai", alpha_target, T1_direct, q_source)
     mu_induced_0 = scatter_sum_compile(mu_charge, e_target, n_atoms)
 
-    print(f"{mu_induced_0=}")
     # Contribution from dipoles: mu_ind += alpha * T2 * mu
     mu_dipole = torch.einsum("a,aij,aj->ai", alpha_target, T2_direct, mu_source)
-    mu_induced_0 += scatter_sum_compile(mu_dipole, e_target, n_atoms)
-    print(f"{mu_induced_0=}")
+    mu_dipole_summed = scatter_sum_compile(mu_dipole, e_target, n_atoms)
+    mu_induced_0 += mu_dipole_summed
 
     if verbose > 1:
         print(f"Initial induced dipoles (mu_induced_0):\n{mu_induced_0}")
