@@ -14,7 +14,7 @@ from torch_geometric.data import download_url
 
 from . import util
 from .AtomModels.ap2_atom_model import AtomModel
-from .AtomModels.ap3_atom_model import AtomHirshfeldModel
+from .AtomModels.ap2_hirshfeld_atom_model import AtomHirshfeldModel
 from . import atomic_datasets
 from glob import glob
 import tarfile

@@ -17,7 +17,7 @@ from ..atomic_datasets import (
     atomic_collate_update_no_target,
     atomic_collate_update_prebatched,
 )
-from ..AtomModels.ap3_atom_model import (
+from ..AtomModels.ap2_hirshfeld_atom_model import (
     AtomHirshfeldMPNN,
     atomic_hirshfeld_module_dataset,
 )

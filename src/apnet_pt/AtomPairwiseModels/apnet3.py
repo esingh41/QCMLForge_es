@@ -5,7 +5,7 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap3_atom_model import (
+from ..AtomModels.ap2_hirshfeld_atom_model import (
     AtomHirshfeldMPNN,
     isolate_atomic_property_predictions,
 )

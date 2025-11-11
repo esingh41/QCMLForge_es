@@ -175,7 +175,7 @@ def test_AM_hirshfeld_induction_DimerParam():
     mol = r["qcel_molecule"]
     print(mol.to_string("psi4"))
     print(r["SAPT0 IND ENERGY adz"] * qcel.constants.hartree2kcalmol)
-    am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
+    am = apnet_pt.AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel(
         use_GPU=False,
         ignore_database_null=True,
     )

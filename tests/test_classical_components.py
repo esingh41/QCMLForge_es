@@ -334,7 +334,7 @@ def test_elst_charge_dipole_qpole_pairwise():
 
 
 def test_elst_multipoles_am_hirshfeld():
-    atom_model = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
+    atom_model = apnet_pt.AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel(
         ds_root=None,
         ignore_database_null=True,
         use_GPU=False,

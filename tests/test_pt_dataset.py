@@ -1768,7 +1768,7 @@ def test_atomhirshfeld_model_train():
         batch_size=1,
     )
     print(ds)
-    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+    am = AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel(
         use_GPU=False,
         ignore_database_null=False,
         dataset=ds,
@@ -1803,7 +1803,7 @@ def test_atomhirshfeld_model_train():
         batch_size=1,
     )
     print(ds)
-    am = AtomModels.ap3_atom_model.AtomHirshfeldModel(
+    am = AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel(
         use_GPU=False,
         ignore_database_null=False,
         dataset=ds,
@@ -1922,7 +1922,7 @@ def test_induced_dipole_qcel_mols():
         for _ in range(len(qcel_molecules))
     ]
     print(energy_labels)
-    am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
+    am = apnet_pt.AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel(
         ds_root=None,
         ignore_database_null=True,
         use_GPU=False,
@@ -1953,7 +1953,7 @@ def test_induced_dipole_qcel_mols():
 
 
 def test_induced_dipole_dataset():
-    am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
+    am = apnet_pt.AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel(
         ds_root=None,
         ignore_database_null=True,
         use_GPU=True,
@@ -1981,7 +1981,7 @@ def test_induced_dipole_dataset():
 
 
 def test_induced_dipole_eval():
-    am = apnet_pt.AtomModels.ap3_atom_model.AtomHirshfeldModel(
+    am = apnet_pt.AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel(
         ds_root=None,
         ignore_database_null=True,
         use_GPU=False,

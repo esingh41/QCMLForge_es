@@ -1,5 +1,5 @@
 from apnet_pt.AtomModels.ap2_atom_model import AtomModel
-# from apnet_pt.AtomModels.ap3_atom_model import AtomHirshfeldModel
+# from apnet_pt.AtomModels.ap2_hirshfeld_atom_model import AtomHirshfeldModel
 import os
 import torch
 import apnet_pt
@@ -252,4 +252,3 @@ if __name__ == "__main__":
     # test_am_architecture()
     # test_am_element()
     # test_am_architecture()
-    test_am_hirshfeld()
