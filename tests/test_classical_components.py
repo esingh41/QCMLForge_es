@@ -7,6 +7,7 @@ from pprint import pprint
 import numpy as np
 import torch
 from apnet_pt import atomic_datasets
+from apnet_pt import constants
 
 
 lr_water_dimer = qcel.models.Molecule.from_data("""
@@ -1376,97 +1377,96 @@ def test_elst_damping_dipole_torch_df():
 
 def test_induced_dipole_torch_intramolecular():
     import torch
-
+    # Load the monomer data
     df = pd.read_pickle(
+        # current_file_path + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
         current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
-    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
-    df = df.sort_values(by="system_id")
-    r = df.iloc[0]
-    mol = r["qcel_molecule"]
-    qA = r["q_A pbe0/atz"]
-    muA = r["mu_A pbe0/atz"]
-    thetaA = r["theta_A pbe0/atz"]
-    vrA = r["vol_ratios_A pbe0/atz"]
-    vwA = r["val_widths_A pbe0/atz"]
-    atom_alpha_iso = np.array(
-        [
-            [8.38374595553467, 0.4842211422539944, 0.4977805639070765],
-            [8.388563748172823, 0.4855270362311864, 0.4855449542590184],
-        ]
-    )
-    thetaA = np.zeros_like(thetaA)
-    np.set_printoptions(precision=4)
-    torch.set_printoptions(precision=4)
-    ap_q_mu_induction = apnet_pt.multipole.monomer_induced_dipole_torch(
-        mol,
-        qA=qA,
-        muA=muA,
-        thetaA=thetaA,
-        hirshfeld_volume_ratio_A=vrA,
-        # Use computed polarizabilities
-        atom_polarizabilities_A=atom_alpha_iso[0],
-        # Use computed polarizabilities
-        valence_widths_A=vwA,
-    )
-    df = pd.read_pickle(
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
-    )
-    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    # df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
     r = df.iloc[0]
     mol = r["qcel_molecule"].get_fragment(0)
     qA = r["q_A pbe0/atz"]
     muA = r["mu_A pbe0/atz"]
     thetaA = r["theta_A pbe0/atz"]
-    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
     vrA = r["vol_ratios_A pbe0/atz"]
     vwA = r["val_widths_A pbe0/atz"]
-    atom_alpha_iso = torch.tensor(
-        [
-            [8.38374595553467, 0.4842211422539944, 0.4977805639070765],
-            [8.388563748172823, 0.4855270362311864, 0.4855449542590184],
-        ]
-    )
     thetaA = np.zeros_like(thetaA)
+    # Create monomer batch with edge indices
     monomer_batch = apnet_pt.atomic_datasets.atomic_collate_update_no_target(
         [
             atomic_datasets.qcel_mon_to_pyg_data(mol, r_cut=5.0)
         ]
     )
-    monomer_batch.K = torch.tensor(alphaA, dtype=torch.float32)
-    monomer_batch.q = torch.tensor(qA, dtype=torch.float32)
+    
+    # Get atomic numbers and positions
+    Z = torch.tensor(mol.atomic_numbers, dtype=torch.long)
+    R = torch.tensor(mol.geometry, dtype=torch.float32) * constants.au2ang
 
-    monomer_batch.mu = torch.tensor(muA, dtype=torch.float32)
-    monomer_batch.quad = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
-
-    ap_q_mu_induction = apnet_pt.multipole.dimer_induced_dipole_torch(
-        ZA=monomer_batch.ZA,
-        RA=monomer_batch.RA,
-        qA=monomer_batch.qA,
-        muA=monomer_batch.muA,
-        quadA=monomer_batch.quadA,
-        ZB=monomer_batch.ZB,
-        RB=monomer_batch.RB,
-        qB=monomer_batch.qB,
-        muB=monomer_batch.muB,
-        quadB=monomer_batch.quadB,
-        e_AA_source=monomer_batch.e_AA_source,
-        e_BB_source=monomer_batch.e_BB_source,
-        e_AA_target=monomer_batch.e_AA_target,
-        e_BB_target=monomer_batch.e_BB_target,
-        e_AB_source=monomer_batch.e_ABsr_source,
-        e_AB_target=monomer_batch.e_ABsr_target,
-        hirshfeld_volume_ratio_A=torch.tensor(vrA),
-        hirshfeld_volume_ratio_B=torch.tensor(vrB),
-        valence_widths_A=torch.tensor(vwA),
-        valence_widths_B=torch.tensor(vwB),
-        atom_polarizabilities_A=torch.tensor(atom_alpha_iso[0]),
-        atom_polarizabilities_B=torch.tensor(atom_alpha_iso[1]),
-        # Q_const=1.0, # Agree with CLIFF
+    # Convert to torch tensors
+    q_tensor = torch.tensor(qA, dtype=torch.float32)
+    mu_tensor = torch.tensor(muA, dtype=torch.float32)
+    quad_tensor = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
+    vr_tensor = torch.tensor(vrA, dtype=torch.float32)
+    vw_tensor = torch.tensor(vwA, dtype=torch.float32)
+    
+    # Get edge indices from the batch
+    e_source = monomer_batch.edge_index[0]
+    e_target = monomer_batch.edge_index[1]
+    
+    # Call the updated monomer_induced_dipole_torch function
+    print("\n=== PyTorch Version ===")
+    q_torch, mu_induced_torch, quad_torch = apnet_pt.multipole.monomer_induced_dipole_torch(
+        Z=Z,
+        R=R,
+        q=q_tensor,
+        mu=mu_tensor,
+        quad=quad_tensor,
+        e_source=e_source,
+        e_target=e_target,
+        hirshfeld_volume_ratio=vr_tensor,
+        valence_widths=vw_tensor,
+        compute_energies=False,
+        screening_distance=1.8,
+        verbose=1,
     )
-    torch_ap_indu = ap_q_mu_induction.detach().numpy().sum()
-    print(f"{torch_ap_indu = }")
+    
+    # Call the numpy version for comparison
+    print("\n=== NumPy Version ===")
+    q_numpy, mu_induced_numpy, quad_numpy = apnet_pt.multipole.intramolecular_induced_dipole(
+        qcel_mol=mol,
+        q=qA,
+        mu=muA,
+        theta=thetaA,
+        hirshfeld_volume_ratio=vrA,
+        valence_widths=vwA,
+        thole_damping_param_mutual=0.39,
+        thole_damping_param_direct=0.34,
+        heavy_atoms_only=False,
+        screening_distance=1.8,
+        compute_energies=False,
+        verbose=1,
+    )
+    
+    # Compare results
+    print("\n=== Comparison ===")
+    q_torch_np = q_torch.detach().numpy()
+    mu_torch_np = mu_induced_torch.detach().numpy()
+    quad_torch_np = quad_torch.detach().numpy()
+    
+    print(f"Charges match: {np.allclose(q_torch_np, q_numpy, rtol=1e-4, atol=1e-6)}")
+    print(f"Max charge difference: {np.abs(q_torch_np - q_numpy).max():.2e}")
+    
+    print(f"Induced dipoles match: {np.allclose(mu_torch_np, mu_induced_numpy, rtol=1e-4, atol=1e-6)}")
+    print(f"Max induced dipole difference: {np.abs(mu_torch_np - mu_induced_numpy).max():.2e}")
+    
+    print(f"Quadrupoles match: {np.allclose(quad_torch_np, quad_numpy, rtol=1e-4, atol=1e-6)}")
+    print(f"Max quadrupole difference: {np.abs(quad_torch_np - quad_numpy).max():.2e}")
+    
+    # Assert they match within tolerance
+    assert np.allclose(q_torch_np, q_numpy, rtol=1e-4, atol=1e-6), "Charges don't match!"
+    assert np.allclose(mu_torch_np, mu_induced_numpy, rtol=1e-4, atol=1e-6), "Induced dipoles don't match!"
+    assert np.allclose(quad_torch_np, quad_numpy, rtol=1e-4, atol=1e-6), "Quadrupoles don't match!"
 
 
 if __name__ == "__main__":
