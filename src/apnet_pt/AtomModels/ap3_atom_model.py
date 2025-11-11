@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from ..util import scatter_sum_compile
-from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings
 from .. import multipole
@@ -13,8 +11,6 @@ from ..atomic_datasets import (
     atomic_collate_update,
     qcel_mon_to_pyg_data,
     atomic_collate_update_no_target,
-    isolate_atomic_property_predictions,
-    unwrap_model,
 )
 
 import torch.distributed as dist
@@ -23,22 +19,22 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import os
 from importlib import resources
 import qcelemental as qcel
-from pprint import pprint as pp
 from .ap2_atom_model import (
     unsorted_segment_sum_3d,
-    make_quad,
     get_distances,
-    Envelope,
     DistanceLayer,
     max_Z,
+    isolate_atomic_property_predictions,
+    unwrap_model,
 )
+from pprint import pprint as pp
 
 warnings.filterwarnings("ignore")
 
 
-class AtomMPNN(MessagePassing):
+class AtomMPNN(torch.nn.Module):
     def __init__(self, n_message=3, n_rbf=8, n_neuron=128, n_embed=8, r_cut=5.0):
-        super().__init__(aggr="add")
+        super().__init__()
         self.n_message = n_message
         self.n_rbf = n_rbf
         self.n_neuron = n_neuron

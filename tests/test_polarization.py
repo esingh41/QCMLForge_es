@@ -546,6 +546,55 @@ def test_intramolecular_induced_dipole_MPID_df_bz():
     return
 
 
+def test_intramolecular_induced_dipole_MPID_df_bz_torch():
+    current_file_path = os.path.dirname(os.path.abspath(__file__))
+    df = pd.read_pickle(
+        current_file_path + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
+    )
+    print(df)
+    df = df.sort_values(by="system_id")
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    
+    molA = mol.get_fragment(0)
+    print(molA.to_string("psi4"))
+    
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    vrA = r["vol_ratios_A pbe0/atz"]
+    vwA = r["val_widths_A pbe0/atz"]
+    np.set_printoptions(precision=6, suppress=True)
+
+    q_returned, mu_induced, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
+        qcel_mol=molA,
+        q=qA,
+        mu=muA,
+        theta=thetaA,
+        hirshfeld_volume_ratio=vrA,
+        valence_widths=vwA,
+        thole_damping_param_mutual=0.39,
+        thole_damping_param_direct=0.34,
+        compute_energies=True,
+        heavy_atoms_only=False,
+        verbose=True
+    )
+    
+    q_returned, mu_induced, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
+        qcel_mol=molA,
+        q=qA,
+        mu=muA,
+        theta=thetaA,
+        hirshfeld_volume_ratio=vrA,
+        valence_widths=vwA,
+        thole_damping_param_mutual=0.39,
+        thole_damping_param_direct=0.34,
+        compute_energies=True,
+        verbose=True
+    )
+    return
+
+
 def amoeba_transform():
     # Example: Transform AMOEBA water multipoles to Cartesian XYZ
     # Water geometry

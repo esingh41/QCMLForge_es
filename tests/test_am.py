@@ -251,4 +251,4 @@ if __name__ == "__main__":
     # test_am()
     # test_am_architecture()
     # test_am_element()
-    # test_am_architecture()
+    test_am_architecture()
