@@ -344,7 +344,8 @@ def T_cart_Thole_damping(RA, RB, alpha_i, alpha_j, a, damping_term="mutual"):
         raise ValueError("damping_term must be 'direct' or 'mutual'")
 
     # l3, l5, l7, l9 = (1.0, 1.0, 1.0, 1.0)  # Turn off Thole damping
-    # print(f"   {l3 = }")
+    print(f"   {l3 = }")
+    print(f"   {l5 = }")
 
     # l3 = np.ones_like(l3)
     # l5 = np.ones_like(l5)
@@ -1069,7 +1070,6 @@ def dimer_induced_dipole(
             if i == j:
                 T_abij[i, j, :, :] = np.zeros((13, 13))
                 continue
-            # print(f"{i}::{j}")
             T0, T1, T2, T3, T4 = T_cart_Thole_damping(
                 R_all[i], R_all[j], alpha_all[i], alpha_all[j], thole_damping_param
             )
@@ -1363,7 +1363,6 @@ def thole_damping_torch(r_ij, alpha_i, alpha_j, a):
     """Apply Thole damping to interaction tensor (mutual damping)"""
     # Compute damping factor
     u = r_ij / ((alpha_i * alpha_j) ** (1.0 / 6.0))
-    print(f"{u = }")
     au3 = a * (u**3)
     l3 = 1 - torch.exp(-au3)
     l5 = 1 - (1 + au3) * torch.exp(-au3)
@@ -2054,15 +2053,15 @@ def monomer_induced_dipole_torch(
             au3, lam_3, lam_5 = thole_damping_mutual_torch(
                 dR, alpha_source, alpha_target, thole_param
             )
+        print(f"{e_source=}")
+        print(f"{e_target=}")
+        print(f"{lam_3=}")
+        print(f"{lam_5=}")
 
         # Apply distance-based screening for direct interactions (exclude 1-2, 1-3 bonds)
         if apply_screening and screening:
-            print(f"{dR_ang=}")
             screening_mask = dR_ang < screening_distance
-            print(f"{screening_mask=}")
-            print(f"{lam_3=}")
             lam_3 = torch.where(screening_mask, torch.zeros_like(lam_3), lam_3)
-            print(f"{lam_3=}")
             lam_5 = torch.where(screening_mask, torch.zeros_like(lam_5), lam_5)
             dR = torch.where(screening_mask, torch.ones_like(dR), dR)
 
@@ -2109,7 +2108,7 @@ def monomer_induced_dipole_torch(
     mu_induced_0 = torch.zeros((n_atoms, 3), device=q.device)
 
     # Select relevant tensors for atom pairs
-    alpha_source = alpha.index_select(0, e_source)
+    # alpha_source = alpha.index_select(0, e_source)
     alpha_target = alpha.index_select(0, e_target)
     q_source = q.squeeze(-1).index_select(0, e_source)
     mu_source = mu.index_select(0, e_source)
@@ -2119,9 +2118,11 @@ def monomer_induced_dipole_torch(
     mu_charge = torch.einsum("a,ai,a->ai", alpha_target, T1_direct, q_source)
     mu_induced_0 = scatter_sum_compile(mu_charge, e_target, n_atoms)
 
+    print(f"{mu_induced_0=}")
     # Contribution from dipoles: mu_ind += alpha * T2 * mu
     mu_dipole = torch.einsum("a,aij,aj->ai", alpha_target, T2_direct, mu_source)
     mu_induced_0 += scatter_sum_compile(mu_dipole, e_target, n_atoms)
+    print(f"{mu_induced_0=}")
 
     if verbose > 1:
         print(f"Initial induced dipoles (mu_induced_0):\n{mu_induced_0}")

@@ -1379,8 +1379,8 @@ def test_induced_dipole_torch_intramolecular():
     import torch
     # Load the monomer data
     df = pd.read_pickle(
-        # current_file_path + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
-        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+        current_file_path + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
+        # current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
     # df = df[df["system_id"].str.contains("01_Water-Water")].copy()
     df = df.sort_values(by="system_id")
@@ -1389,13 +1389,13 @@ def test_induced_dipole_torch_intramolecular():
     qA = r["q_A pbe0/atz"]
     muA = r["mu_A pbe0/atz"]
     thetaA = r["theta_A pbe0/atz"]
-    vrA = r["vol_ratios_A pbe0/atz"]
-    vwA = r["val_widths_A pbe0/atz"]
+    vrA = r["vol_ratios_A pbe0/atz"].flatten()
+    vwA = r["val_widths_A pbe0/atz"].flatten()
     thetaA = np.zeros_like(thetaA)
     # Create monomer batch with edge indices
     monomer_batch = apnet_pt.atomic_datasets.atomic_collate_update_no_target(
         [
-            atomic_datasets.qcel_mon_to_pyg_data(mol, r_cut=5.0)
+            atomic_datasets.qcel_mon_to_pyg_data(mol, r_cut=99999.0)
         ]
     )
     
