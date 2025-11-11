@@ -25,6 +25,15 @@ from glob import glob
 
 # from torch_geometric.data import download_url
 
+def qcel_monomer_to_atomic_data(monomer, r_cut=5.0, **kwargs):
+    return create_atomic_data(
+        monomer.atomic_numbers,
+        monomer.geometry * constants.au2ang,
+        monomer.molecular_charge,
+        r_cut=r_cut,
+        **kwargs,
+    )
+
 
 def natural_key(text):
     return [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", text)]
@@ -352,6 +361,16 @@ def create_atomic_data(
     edge_index_only=True,
     custom=False,
 ):
+    """
+    Create a PyG Data object from atomic numbers, positions, and total charge.
+    Parameters
+    ----------
+    Z : List[int]
+        Atomic numbers of the atoms.
+    R : np.ndarray
+        Atomic positions in Angstroms (N x 3 array)
+    ...
+    """
     node_features = np.array(Z, dtype=np.int64)
     node_features = torch.tensor(node_features)
     if isinstance(R, np.ndarray):

@@ -6,6 +6,7 @@ import pandas as pd
 from pprint import pprint
 import numpy as np
 import torch
+from apnet_pt import atomic_datasets
 
 
 lr_water_dimer = qcel.models.Molecule.from_data("""
@@ -1373,7 +1374,9 @@ def test_elst_damping_dipole_torch_df():
         print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
 
 
-def test_intramolecular_induced_dipole():
+def test_induced_dipole_torch_intramolecular():
+    import torch
+
     df = pd.read_pickle(
         current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
     )
@@ -1381,73 +1384,93 @@ def test_intramolecular_induced_dipole():
     df = df.sort_values(by="system_id")
     r = df.iloc[0]
     mol = r["qcel_molecule"]
-    
-    molA = mol.get_fragment(0)
-    print(molA.to_string("psi4"))
-    
     qA = r["q_A pbe0/atz"]
     muA = r["mu_A pbe0/atz"]
     thetaA = r["theta_A pbe0/atz"]
     vrA = r["vol_ratios_A pbe0/atz"]
     vwA = r["val_widths_A pbe0/atz"]
-    
-    q_returned, mu_induced, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
-        qcel_mol=molA,
-        q=qA,
-        mu=muA,
-        theta=thetaA,
-        hirshfeld_volume_ratio=vrA,
-        valence_widths=vwA,
-        thole_damping_param_mutual=0.39,
-        thole_damping_param_direct=0.34,
+    atom_alpha_iso = np.array(
+        [
+            [8.38374595553467, 0.4842211422539944, 0.4977805639070765],
+            [8.388563748172823, 0.4855270362311864, 0.4855449542590184],
+        ]
     )
-    # assert mu_induced.shape == (3, 3), f"Expected shape (3, 3) for induced dipoles, got {mu_induced.shape}"
-    # assert not np.allclose(mu_induced, 0.0), "Induced dipoles should be non-zero"
-    # assert np.max(np.abs(mu_induced)) < 1.0, f"Induced dipoles seem too large: max={np.max(np.abs(mu_induced))}"
-    mu_diff = mu_induced - muA.reshape(-1, 3)
+    thetaA = np.zeros_like(thetaA)
+    np.set_printoptions(precision=4)
+    torch.set_printoptions(precision=4)
+    ap_q_mu_induction = apnet_pt.multipole.monomer_induced_dipole_torch(
+        mol,
+        qA=qA,
+        muA=muA,
+        thetaA=thetaA,
+        hirshfeld_volume_ratio_A=vrA,
+        # Use computed polarizabilities
+        atom_polarizabilities_A=atom_alpha_iso[0],
+        # Use computed polarizabilities
+        valence_widths_A=vwA,
+    )
+    df = pd.read_pickle(
+        current_file_path + os.sep + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    r = df.iloc[0]
+    mol = r["qcel_molecule"].get_fragment(0)
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    vrA = r["vol_ratios_A pbe0/atz"]
+    vwA = r["val_widths_A pbe0/atz"]
+    atom_alpha_iso = torch.tensor(
+        [
+            [8.38374595553467, 0.4842211422539944, 0.4977805639070765],
+            [8.388563748172823, 0.4855270362311864, 0.4855449542590184],
+        ]
+    )
+    thetaA = np.zeros_like(thetaA)
+    monomer_batch = apnet_pt.atomic_datasets.atomic_collate_update_no_target(
+        [
+            atomic_datasets.qcel_mon_to_pyg_data(mol, r_cut=5.0)
+        ]
+    )
+    monomer_batch.K = torch.tensor(alphaA, dtype=torch.float32)
+    monomer_batch.q = torch.tensor(qA, dtype=torch.float32)
 
-    q_returned, mu_induced_mu0, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
-        qcel_mol=molA,
-        q=qA,
-        mu=muA,
-        theta=thetaA,
-        hirshfeld_volume_ratio=vrA,
-        valence_widths=vwA,
-        zero_dipoles=True,
-        thole_damping_param_mutual=0.39,
-        thole_damping_param_direct=0.34,
-    )
-    diff_mu_mu0 = mu_induced_mu0 - muA.reshape(-1, 3)
+    monomer_batch.mu = torch.tensor(muA, dtype=torch.float32)
+    monomer_batch.quad = torch.zeros_like(torch.tensor(thetaA, dtype=torch.float32))
 
-    q_returned, mu_induced_muQ0, theta_returned = apnet_pt.multipole.intramolecular_induced_dipole(
-        qcel_mol=molA,
-        q=qA,
-        mu=muA,
-        theta=thetaA,
-        hirshfeld_volume_ratio=vrA,
-        valence_widths=vwA,
-        zero_dipoles=True,
-        zero_quadrupoles=True,
-        thole_damping_param_mutual=0.39,
-        thole_damping_param_direct=0.34,
+    ap_q_mu_induction = apnet_pt.multipole.dimer_induced_dipole_torch(
+        ZA=monomer_batch.ZA,
+        RA=monomer_batch.RA,
+        qA=monomer_batch.qA,
+        muA=monomer_batch.muA,
+        quadA=monomer_batch.quadA,
+        ZB=monomer_batch.ZB,
+        RB=monomer_batch.RB,
+        qB=monomer_batch.qB,
+        muB=monomer_batch.muB,
+        quadB=monomer_batch.quadB,
+        e_AA_source=monomer_batch.e_AA_source,
+        e_BB_source=monomer_batch.e_BB_source,
+        e_AA_target=monomer_batch.e_AA_target,
+        e_BB_target=monomer_batch.e_BB_target,
+        e_AB_source=monomer_batch.e_ABsr_source,
+        e_AB_target=monomer_batch.e_ABsr_target,
+        hirshfeld_volume_ratio_A=torch.tensor(vrA),
+        hirshfeld_volume_ratio_B=torch.tensor(vrB),
+        valence_widths_A=torch.tensor(vwA),
+        valence_widths_B=torch.tensor(vwB),
+        atom_polarizabilities_A=torch.tensor(atom_alpha_iso[0]),
+        atom_polarizabilities_B=torch.tensor(atom_alpha_iso[1]),
+        # Q_const=1.0, # Agree with CLIFF
     )
-    diff_mu_muQ0 = mu_induced_muQ0 - muA.reshape(-1, 3)
-    
-    print(molA.to_string("psi4"))
-    print(f"charges: {q_returned}")
-    print(f"Quadrupoles:\n{theta_returned}")
-    print(f"Original   dipoles:\n{muA}")
-    print(f"Induced    dipoles:\n{mu_induced}")
-    print(f"Difference (induced - original) dipoles:\n{mu_diff}")
-    print(f"Induced mu0  dipoles:\n{mu_induced_mu0}")
-    print(f"Difference (induced mu0 - original) dipoles:\n{diff_mu_mu0}")
-    print(f"Induced muQ0 dipoles:\n{mu_induced_muQ0}")
-    print(f"Difference (induced muQ0 - original) dipoles:\n{diff_mu_muQ0}")
-    return
+    torch_ap_indu = ap_q_mu_induction.detach().numpy().sum()
+    print(f"{torch_ap_indu = }")
 
 
 if __name__ == "__main__":
-    test_intramolecular_induced_dipole()
+    test_induced_dipole_torch_intramolecular()
     # test_induced_dipole_torch_intramolecular()
     # test_elst_damping_dipole_torch_df()
     # test_elst_multipoles_MTP_torch_damping()
