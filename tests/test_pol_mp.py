@@ -24,6 +24,44 @@ ap3_path = f"{current_file_path}/test_models/ap3_ensemble_0/ap3_.pt"
 am_hf_path = f"{current_file_path}/test_models/am_hf_0.pt"
 
 
+def test_train_ap3_atomTypeparamMPNN():
+    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=5,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=16,
+    )
+    print(ds)
+    # DDP
+    os.environ["OMP_NUM_THREADS"] = "4"
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    atpm.train(
+        n_epochs=3,
+        batch_size=16,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        shuffle=True,
+        skip_compile=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=4,
+        random_seed=42,
+    )
+    return
+
+
+
 def test_train_ap3_atom_model():
     ds = atomic_datasets.atomic_module_dataset(
         root=data_path,
@@ -62,4 +100,5 @@ def test_train_ap3_atom_model():
 
 
 if __name__ == "__main__":
-    test_train_ap3_atom_model()
+    test_train_ap3_atomTypeparamMPNN()
+    # test_train_ap3_atom_model()

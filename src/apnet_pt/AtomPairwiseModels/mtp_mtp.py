@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-
 from ..util import scatter_sum_compile
 import numpy as np
 import time
@@ -28,10 +27,6 @@ from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_collate_update_no_target,
     qcel_dimer_to_fused_data,
 )
-from ..pt_datasets.ap3_fused_ds import (
-    ap3_fused_collate_update,
-    ap3_fused_collate_update_no_target,
-)
 from .. import constants
 import os
 import torch.distributed as dist
@@ -41,6 +36,7 @@ from importlib import resources
 from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
 from torch_geometric.data import Data
+from ..multipole import thole_damping_mutual_torch, thole_damping_direct_torch
 
 
 max_Z = 118
@@ -573,228 +569,229 @@ class AtomTypeParamNN(nn.Module):
         )
 
 
-class AtomTypeParamMPNN(nn.Module):
-    def __init__(
-        self,
-        atom_model: AtomMPNN = AtomMPNN(),
-        n_message=3,
-        n_rbf=8,
-        n_neuron=128,
-        n_embed=8,
-        r_cut=5.0,
-        param_start_mean=1.8,
-        param_start_std=0.01,
-        n_params=1,
-    ):
-        super().__init__()
-        self.atom_model = atom_model
-        self.atom_model.requires_grad_(False)
-        self.n_message = n_message
-        if type(self.atom_model) in [AtomMPNN, AtomHirshfeldMPNN]:
-            self.h_list_ind = -1
-        elif type(self.atom_model) is AtomTypeParamNN:
-            self.h_list_ind = 3
-        else:
-            raise ValueError("Unknown atom_model type")
-        self.n_neuron = n_neuron
-        self.n_embed = n_embed
-        self.n_rbf = n_rbf
-        self.r_cut = r_cut
-        # Convert to lists if scalars
-        if not isinstance(param_start_mean, (list, tuple)):
-            param_start_mean = [param_start_mean] * n_params
-        if not isinstance(param_start_std, (list, tuple)):
-            param_start_std = [param_start_std] * n_params
-        # Ensure they are the right length
-        if len(param_start_mean) != n_params:
-            raise ValueError(
-                f"param_start_mean length {len(param_start_mean)} doesn't match n_params {n_params}"
-            )
-        if len(param_start_std) != n_params:
-            raise ValueError(
-                f"param_start_std length {len(param_start_std)} doesn't match n_params {n_params}"
-            )
-
-        # embed interatomic distances into large orthogonal basis
-        self.distance_layer = DistanceLayer(n_rbf, r_cut)
-
-        self.param_start_mean = param_start_mean
-        self.param_start_std = param_start_std
-        self.n_params = n_params
-        self.embed_layer = nn.ModuleList(
-            [nn.Embedding(max_Z + 1, n_embed) for p in range(n_params)]
-        )
-        self.guess_layer = nn.ModuleList(
-            [
-                NoisyConstantEmbedding(
-                    max_Z + 1,
-                    1,
-                    mean=self.param_start_mean[p],
-                    std=self.param_start_std[p],
-                )
-                for p in range(n_params)
-            ]
-        )
-        # self.set_weights_excluding_guess(0.01)
-
-        # readout layers for predicting multipoles from hidden states
-        self.param_update_layers = nn.ModuleList(
-            [nn.ModuleList() for _ in range(n_params)]
-        )
-        self.param_readout_layers = nn.ModuleList(
-            [nn.ModuleList() for _ in range(n_params)]
-        )
-        layer_nodes_readout = [
-            n_embed,
-            n_neuron * 2,
-            n_neuron,
-            n_neuron // 2,
-            1,
-        ]
-        layer_activations = [
-            nn.ReLU(),
-            nn.ReLU(),
-            nn.ReLU(),
-            None,
-        ]
-        input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf
-        layer_nodes_hidden = [
-            input_layer_size,
-            n_neuron * 2,
-            n_neuron,
-            n_neuron // 2,
-            n_embed,
-        ]
-        for p in range(n_params):
-            for i in range(n_message + 1):
-                self.param_readout_layers[p].append(
-                    self._make_layers(layer_nodes_readout, layer_activations)
-                )
-                self.param_update_layers[p].append(
-                    self._make_layers(layer_nodes_hidden, layer_activations)
-                )
-
-    def set_weights_excluding_guess(self, value=0.01):
-        """Sets all weights and biases in the model to a specific value."""
-        with torch.no_grad():
-            for name, param in self.state_dict().items():
-                if "guess_layer" not in name:
-                    param.fill_(value)
-
-    def get_messages(self, h0, h, rbf, e_source, e_target):
-        nedge = e_source.size(0)
-
-        h0_source = h0.index_select(0, e_source)
-        h0_target = h0.index_select(0, e_target)
-        h_source = h.index_select(0, e_source)
-        h_target = h.index_select(0, e_target)
-
-        # [edges x 4 * n_embed]
-        h_all = torch.cat([h0_source, h0_target, h_source, h_target], dim=-1)
-
-        # [edges, 4 * n_embed, n_rbf]
-        h_all_dot = torch.einsum("ez,er->ezr", h_all, rbf)
-        # [edges, 4 * n_embed * n_rbf]
-        h_all_dot = h_all_dot.view(nedge, -1)
-
-        # [edges,  n_embed * 4 * n_rbf + n_embed * 4 + n_rbf]
-        m_ij = torch.cat([h_all, h_all_dot, rbf], dim=-1)
-        return m_ij
-
-    def _make_layers(self, layer_nodes, activations):
-        layers = []
-        for i in range(len(layer_nodes) - 1):
-            layers.append(nn.Linear(layer_nodes[i], layer_nodes[i + 1]))
-            # layers[-1].weight.data.normal_(1.0, 0.1)
-            if activations[i] is not None:
-                layers.append(activations[i])
-        return nn.Sequential(*layers)
-
-    def forward(
-        self,
-        batch,
-    ):
-        """
-        Use each h_list to predict a correction to the initial guess, might be
-        overkill for some properties...
-        """
-        x = batch.x
-        edge_index = batch.edge_index
-        molecule_ind = batch.molecule_ind
-        R = batch.R
-        am_out = self.atom_model(batch)
-        charge, dipole, qpole, h_list = (
-            am_out[0],
-            am_out[1],
-            am_out[2],
-            am_out[self.h_list_ind],
-        )
-        Z = x
-        K_list = [self.guess_layer[p](Z) for p in range(self.n_params)]
-        K = torch.cat(K_list, dim=-1)  # shape (n_atoms, n_params)
-        # print(f"{K = }")
-        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
-        keep_mask = torch.isin(
-            torch.arange(len(molecule_ind), device=molecule_ind.device),
-            atoms_with_edges,
-        )
-        if not keep_mask.any():
-            return (
-                charge.squeeze(-1),
-                dipole,
-                qpole,
-                *am_out[3:],
-                K.squeeze(-1) if self.n_params == 1 else K,
-            )
-        K_filtered = K[keep_mask]
-        e_source = edge_index[0]
-        e_target = edge_index[1]
-        edge_keep = keep_mask[e_source] & keep_mask[e_target]
-        e_source = e_source[edge_keep]
-        e_target = e_target[edge_keep]
-        idx_map = (torch.cumsum(keep_mask, dim=0) - 1).long()
-        e_source = idx_map[e_source]
-        e_target = idx_map[e_target]
-
-        R = R[keep_mask, :]
-        natom_filtered = keep_mask.sum()
-
-        dR, dR_xyz = get_distances(R, R, e_source, e_target)
-        rbf = self.distance_layer(dR)
-
-        hlists = []
-        for p in range(self.n_params):
-            h_list_0 = [self.embed_layer[p](Z)]
-            h_list = [h_list_0[0][keep_mask]]
-            for i in range(self.n_message):
-                # [edges x message_embedding_dim]
-                m_ij = self.get_messages(h_list[0], h_list[-1], rbf, e_source, e_target)
-                m_i = scatter_sum_compile(
-                    m_ij, e_source, int(natom_filtered), reduce="sum"
-                )
-                # [atomx x hidden_dim]
-                h_next = self.param_update_layers[p][i](m_i)
-                h_list.append(h_next)
-                param_update = self.param_readout_layers[p][i](h_list[i + 1])
-                K_filtered[:, p] += param_update.squeeze(-1)
-            hlists.append(torch.stack(h_list, dim=1))
-        h_list = torch.stack(hlists, dim=2)
-        K[keep_mask] = K_filtered
-        # print(f"{K = }")
-        # if K.isnan().any():
-        #     print("K has NaN values, debugging info:")
-        #     print(f"{K_filtered =}")
-        #     print(f"{Z =}")
-        #     print(f"{h_list=}")
-            # raise ValueError("K has NaN values")
-        return (
-            charge,
-            dipole,
-            qpole,
-            *am_out[3:],
-            # h_list,
-            K.squeeze(-1) if self.n_params == 1 else K,
-        )
+# MOVED TO AtomModels/ap3_atomtype_mpnn.py
+# class AtomTypeParamMPNN(nn.Module):
+#     def __init__(
+#         self,
+#         atom_model: AtomMPNN = AtomMPNN(),
+#         n_message=3,
+#         n_rbf=8,
+#         n_neuron=128,
+#         n_embed=8,
+#         r_cut=5.0,
+#         param_start_mean=1.8,
+#         param_start_std=0.01,
+#         n_params=1,
+#     ):
+#         super().__init__()
+#         self.atom_model = atom_model
+#         self.atom_model.requires_grad_(False)
+#         self.n_message = n_message
+#         if type(self.atom_model) in [AtomMPNN, AtomHirshfeldMPNN]:
+#             self.h_list_ind = -1
+#         elif type(self.atom_model) is AtomTypeParamNN:
+#             self.h_list_ind = 3
+#         else:
+#             raise ValueError("Unknown atom_model type")
+#         self.n_neuron = n_neuron
+#         self.n_embed = n_embed
+#         self.n_rbf = n_rbf
+#         self.r_cut = r_cut
+#         # Convert to lists if scalars
+#         if not isinstance(param_start_mean, (list, tuple)):
+#             param_start_mean = [param_start_mean] * n_params
+#         if not isinstance(param_start_std, (list, tuple)):
+#             param_start_std = [param_start_std] * n_params
+#         # Ensure they are the right length
+#         if len(param_start_mean) != n_params:
+#             raise ValueError(
+#                 f"param_start_mean length {len(param_start_mean)} doesn't match n_params {n_params}"
+#             )
+#         if len(param_start_std) != n_params:
+#             raise ValueError(
+#                 f"param_start_std length {len(param_start_std)} doesn't match n_params {n_params}"
+#             )
+#
+#         # embed interatomic distances into large orthogonal basis
+#         self.distance_layer = DistanceLayer(n_rbf, r_cut)
+#
+#         self.param_start_mean = param_start_mean
+#         self.param_start_std = param_start_std
+#         self.n_params = n_params
+#         self.embed_layer = nn.ModuleList(
+#             [nn.Embedding(max_Z + 1, n_embed) for p in range(n_params)]
+#         )
+#         self.guess_layer = nn.ModuleList(
+#             [
+#                 NoisyConstantEmbedding(
+#                     max_Z + 1,
+#                     1,
+#                     mean=self.param_start_mean[p],
+#                     std=self.param_start_std[p],
+#                 )
+#                 for p in range(n_params)
+#             ]
+#         )
+#         # self.set_weights_excluding_guess(0.01)
+#
+#         # readout layers for predicting multipoles from hidden states
+#         self.param_update_layers = nn.ModuleList(
+#             [nn.ModuleList() for _ in range(n_params)]
+#         )
+#         self.param_readout_layers = nn.ModuleList(
+#             [nn.ModuleList() for _ in range(n_params)]
+#         )
+#         layer_nodes_readout = [
+#             n_embed,
+#             n_neuron * 2,
+#             n_neuron,
+#             n_neuron // 2,
+#             1,
+#         ]
+#         layer_activations = [
+#             nn.ReLU(),
+#             nn.ReLU(),
+#             nn.ReLU(),
+#             None,
+#         ]
+#         input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf
+#         layer_nodes_hidden = [
+#             input_layer_size,
+#             n_neuron * 2,
+#             n_neuron,
+#             n_neuron // 2,
+#             n_embed,
+#         ]
+#         for p in range(n_params):
+#             for i in range(n_message + 1):
+#                 self.param_readout_layers[p].append(
+#                     self._make_layers(layer_nodes_readout, layer_activations)
+#                 )
+#                 self.param_update_layers[p].append(
+#                     self._make_layers(layer_nodes_hidden, layer_activations)
+#                 )
+#
+#     def set_weights_excluding_guess(self, value=0.01):
+#         """Sets all weights and biases in the model to a specific value."""
+#         with torch.no_grad():
+#             for name, param in self.state_dict().items():
+#                 if "guess_layer" not in name:
+#                     param.fill_(value)
+#
+#     def get_messages(self, h0, h, rbf, e_source, e_target):
+#         nedge = e_source.size(0)
+#
+#         h0_source = h0.index_select(0, e_source)
+#         h0_target = h0.index_select(0, e_target)
+#         h_source = h.index_select(0, e_source)
+#         h_target = h.index_select(0, e_target)
+#
+#         # [edges x 4 * n_embed]
+#         h_all = torch.cat([h0_source, h0_target, h_source, h_target], dim=-1)
+#
+#         # [edges, 4 * n_embed, n_rbf]
+#         h_all_dot = torch.einsum("ez,er->ezr", h_all, rbf)
+#         # [edges, 4 * n_embed * n_rbf]
+#         h_all_dot = h_all_dot.view(nedge, -1)
+#
+#         # [edges,  n_embed * 4 * n_rbf + n_embed * 4 + n_rbf]
+#         m_ij = torch.cat([h_all, h_all_dot, rbf], dim=-1)
+#         return m_ij
+#
+#     def _make_layers(self, layer_nodes, activations):
+#         layers = []
+#         for i in range(len(layer_nodes) - 1):
+#             layers.append(nn.Linear(layer_nodes[i], layer_nodes[i + 1]))
+#             # layers[-1].weight.data.normal_(1.0, 0.1)
+#             if activations[i] is not None:
+#                 layers.append(activations[i])
+#         return nn.Sequential(*layers)
+#
+#     def forward(
+#         self,
+#         batch,
+#     ):
+#         """
+#         Use each h_list to predict a correction to the initial guess, might be
+#         overkill for some properties...
+#         """
+#         x = batch.x
+#         edge_index = batch.edge_index
+#         molecule_ind = batch.molecule_ind
+#         R = batch.R
+#         am_out = self.atom_model(batch)
+#         charge, dipole, qpole, h_list = (
+#             am_out[0],
+#             am_out[1],
+#             am_out[2],
+#             am_out[self.h_list_ind],
+#         )
+#         Z = x
+#         K_list = [self.guess_layer[p](Z) for p in range(self.n_params)]
+#         K = torch.cat(K_list, dim=-1)  # shape (n_atoms, n_params)
+#         # print(f"{K = }")
+#         atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
+#         keep_mask = torch.isin(
+#             torch.arange(len(molecule_ind), device=molecule_ind.device),
+#             atoms_with_edges,
+#         )
+#         if not keep_mask.any():
+#             return (
+#                 charge.squeeze(-1),
+#                 dipole,
+#                 qpole,
+#                 *am_out[3:],
+#                 K.squeeze(-1) if self.n_params == 1 else K,
+#             )
+#         K_filtered = K[keep_mask]
+#         e_source = edge_index[0]
+#         e_target = edge_index[1]
+#         edge_keep = keep_mask[e_source] & keep_mask[e_target]
+#         e_source = e_source[edge_keep]
+#         e_target = e_target[edge_keep]
+#         idx_map = (torch.cumsum(keep_mask, dim=0) - 1).long()
+#         e_source = idx_map[e_source]
+#         e_target = idx_map[e_target]
+#
+#         R = R[keep_mask, :]
+#         natom_filtered = keep_mask.sum()
+#
+#         dR, dR_xyz = get_distances(R, R, e_source, e_target)
+#         rbf = self.distance_layer(dR)
+#
+#         hlists = []
+#         for p in range(self.n_params):
+#             h_list_0 = [self.embed_layer[p](Z)]
+#             h_list = [h_list_0[0][keep_mask]]
+#             for i in range(self.n_message):
+#                 # [edges x message_embedding_dim]
+#                 m_ij = self.get_messages(h_list[0], h_list[-1], rbf, e_source, e_target)
+#                 m_i = scatter_sum_compile(
+#                     m_ij, e_source, int(natom_filtered), reduce="sum"
+#                 )
+#                 # [atomx x hidden_dim]
+#                 h_next = self.param_update_layers[p][i](m_i)
+#                 h_list.append(h_next)
+#                 param_update = self.param_readout_layers[p][i](h_list[i + 1])
+#                 K_filtered[:, p] += param_update.squeeze(-1)
+#             hlists.append(torch.stack(h_list, dim=1))
+#         h_list = torch.stack(hlists, dim=2)
+#         K[keep_mask] = K_filtered
+#         # print(f"{K = }")
+#         # if K.isnan().any():
+#         #     print("K has NaN values, debugging info:")
+#         #     print(f"{K_filtered =}")
+#         #     print(f"{Z =}")
+#         #     print(f"{h_list=}")
+#             # raise ValueError("K has NaN values")
+#         return (
+#             charge,
+#             dipole,
+#             qpole,
+#             *am_out[3:],
+#             # h_list,
+#             K.squeeze(-1) if self.n_params == 1 else K,
+#         )
 
 
 def get_distances(RA, RB, e_source, e_target):
@@ -1284,6 +1281,209 @@ def induced_dipole_induction(
     E_ind = (E_qu + E_uu) / 2.0
     E_ind -= E_ind_overlap
     return E_ind
+
+
+def monomer_induced_dipole_torch(
+    self,
+    Z,
+    R,
+    q,
+    mu,
+    quad,
+    e_source,
+    e_target,
+    hirshfeld_volume_ratio: torch.Tensor,
+    valence_widths: torch.Tensor = None,
+    atom_polarizabilities: torch.Tensor = None,
+    max_iterations: int = 200,
+    convergence_threshold: float = 1e-8,
+    omega: float = 0.7,
+    thole_damping_param_mutual: float = 0.39,
+    thole_damping_param_direct: float = 0.34,
+    screening: bool = True,
+    screening_distance: float = 1.8,
+    compute_energies: bool = False,
+    verbose: int = 0,
+) -> tuple:
+    """
+    Calculate intramolecular induced dipoles for a single molecule using
+    its multipole moments and Hirshfeld volume ratios. This is the PyTorch
+    version of the intramolecular_induced_dipole function, following the
+    classical induction model from CLIFF paper.
+
+    Reference: https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
+
+    Parameters
+    ----------
+    Z : torch.Tensor
+        Atomic numbers (n_atoms,)
+    R : torch.Tensor
+        Atomic positions in Bohr (n_atoms, 3)
+    q : torch.Tensor
+        Atomic charges (n_atoms, 1) or (n_atoms,)
+    mu : torch.Tensor
+        Atomic dipole moments (n_atoms, 3)
+    quad : torch.Tensor
+        Atomic quadrupole moments (n_atoms, 3, 3)
+    e_source : torch.Tensor
+        Source atom indices for intramolecular pairs
+    e_target : torch.Tensor
+        Target atom indices for intramolecular pairs
+    hirshfeld_volume_ratio : torch.Tensor
+        Hirshfeld volume ratios for polarizability scaling (n_atoms,)
+    valence_widths : torch.Tensor, optional
+        Valence widths for each atom (n_atoms,)
+    atom_polarizabilities : torch.Tensor, optional
+        Explicit atomic polarizabilities. If None, calculated from Hirshfeld ratios
+    max_iterations : int
+        Maximum number of SCF iterations (default: 200)
+    convergence_threshold : float
+        Convergence threshold for induced dipoles (default: 1e-8)
+    omega : float
+        Damping parameter for SCF convergence (default: 0.7, recommended)
+    thole_damping_param_mutual : float
+        Thole damping parameter for induced-induced interactions (default: 0.39)
+    thole_damping_param_direct : float
+        Thole damping parameter for permanent-induced interactions (default: 0.34)
+    screening : bool
+        Enable distance-based screening for 1-2, 1-3 interactions (default: True)
+    screening_distance : float
+        Distance threshold in Angstroms for screening (default: 1.8)
+    compute_energies : bool
+        If True, compute and return intramolecular induction energy (default: False)
+    verbose : int
+        Verbosity level: 0=quiet, 1=basic, 2=detailed (default: 0)
+
+    Returns
+    -------
+    tuple
+        (charges, induced_dipoles, quadrupoles) or
+        (charges, induced_dipoles, quadrupoles, energy) if compute_energies=True
+        - charges: original charges (n_atoms,)
+        - induced_dipoles: converged induced dipole moments (n_atoms, 3)
+        - quadrupoles: original quadrupoles (n_atoms, 3, 3)
+        - energy (optional): intramolecular induction energy in kcal/mol
+    """
+    # Calculate atomic polarizabilities
+    alpha_0 = torch.index_select(self.polarizability_table, 0, Z.long())
+    alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
+
+    # Define helper function to calculate distance tensors with Thole damping
+    def distance_tensors(
+        Ri, Rj, e_source, e_target, alpha_i, alpha_j, thole_param,
+        thole_type='direct',
+    ):
+        """Calculate interaction tensors between atoms with optional screening"""
+        dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
+        dR_xyz = dR_xyz_ang / constants.au2ang
+        dR = dR_ang / constants.au2ang
+
+        alpha_source = alpha_i.index_select(0, e_source)
+        alpha_target = alpha_j.index_select(0, e_target)
+
+        # Apply Thole damping and screening
+        if thole_type == 'mutual':
+            au3, lam_3, lam_5 = thole_damping_mutual_torch(
+                dR, alpha_source, alpha_target, thole_param
+            )
+        else:
+            au3, lam_3, lam_5 = thole_damping_direct_torch(
+                dR, alpha_source, alpha_target, thole_param
+            )
+
+        # Apply distance-based screening for direct interactions (excluding 1-2, 1-3 type terms)
+        screening_mask = dR_ang < screening_distance
+        lam_3 = torch.where(screening_mask, torch.zeros_like(lam_3), lam_3)
+        lam_5 = torch.where(screening_mask, torch.zeros_like(lam_5), lam_5)
+        dR = torch.where(screening_mask, torch.ones_like(dR), dR)
+
+        delta = torch.eye(3, device=dR.device)
+        oodR = 1.0 / dR
+
+        # T1: field tensor (rank 1)
+        # Note: dR_xyz points FROM source TO target, which is the correct direction
+        # for the field at target due to source. No negation needed.
+        T1 = torch.einsum("x,xy,x->xy", oodR**3, dR_xyz, lam_3)
+
+        # T2: field gradient tensor (rank 2)
+        T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam_5) - torch.einsum(
+            "x,x,yz,x->xyz", dR, dR, delta, lam_3
+        )
+        T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+
+        return dR, dR_xyz, oodR, T1, T2
+
+    # Calculate direct tensors (permanent → induced) with screening
+    dR_direct, dR_xyz_direct, T0_direct, T1_direct, T2_direct = distance_tensors(
+        R,
+        R,
+        e_source,
+        e_target,
+        alpha,
+        alpha,
+        thole_damping_param_direct,
+        apply_screening=True,
+        thole_type='direct',
+    )
+
+    # Calculate mutual tensors (induced ↔ induced) without screening
+    dR_mutual, dR_xyz_mutual, T0_mutual, T1_mutual, T2_mutual = distance_tensors(
+        R,
+        R,
+        e_source,
+        e_target,
+        alpha,
+        alpha,
+        thole_damping_param_mutual,
+        apply_screening=False,
+        thole_type='mutual',
+    )
+
+    # Initialize induced dipoles
+    n_atoms = R.shape[0]
+    mu_induced_0 = torch.zeros((n_atoms, 3), device=q.device)
+
+    # Select relevant tensors for atom pairs
+    # alpha_source = alpha.index_select(0, e_source)
+    alpha_target = alpha.index_select(0, e_target)
+    q_source = q.squeeze(-1).index_select(0, e_source)
+    mu_source = mu.index_select(0, e_source)
+
+    # Calculate initial induced dipoles from permanent multipoles (using direct tensors)
+    # Contribution from charges: mu_ind = alpha * T1 * q
+    mu_charge = torch.einsum("a,ai,a->ai", alpha_target, T1_direct, q_source)
+    mu_induced_0 = scatter_sum_compile(mu_charge, e_target, n_atoms)
+
+    # Contribution from dipoles: mu_ind += alpha * T2 * mu
+    mu_dipole = torch.einsum("a,aij,aj->ai", alpha_target, T2_direct, mu_source)
+    mu_dipole_summed = scatter_sum_compile(mu_dipole, e_target, n_atoms)
+    mu_induced_0 += mu_dipole_summed
+
+    # Self-consistent field (SCF) iteration to converge induced dipoles
+    mu_induced = mu_induced_0.clone()
+
+    for iteration in range(max_iterations):
+        mu_induced_old = mu_induced.clone()
+
+        # Induced dipoles due to other induced dipoles (using mutual tensors)
+        mu_induced_contrib = torch.einsum(
+            "a,aij,aj->ai",
+            alpha_target,
+            T2_mutual,
+            mu_induced.index_select(0, e_source),
+        )
+        mu_induced_new = scatter_sum_compile(mu_induced_contrib, e_target, n_atoms)
+        # Add initial induced dipoles from permanent multipoles
+        mu_induced_new += mu_induced_0
+
+        # Apply mixing for numerical stability
+        mu_induced = (1 - omega) * mu_induced_old + omega * mu_induced_new
+
+        # Check convergence
+        delta = torch.norm(mu_induced - mu_induced_old)
+        if delta < convergence_threshold:
+            break
+    return mu_induced
 
 
 @torch.compile
@@ -1854,9 +2054,9 @@ class AM_DimerParam_Model:
         elif atom_model_type == "AtomTypeParamNN":
             self.atom_model = AtomTypeParamNN()
             am_type = AtomTypeParamNN
-        elif atom_model_type == "AtomTypeParamMPNN":
-            self.atom_model = AtomTypeParamMPNN()
-            am_type = AtomTypeParamMPNN
+        # elif atom_model_type == "AtomTypeParamMPNN":
+        #     self.atom_model = AtomTypeParamMPNN()
+        #     am_type = AtomTypeParamMPNN
         else:
             raise ValueError(f"Unknown atom_model_type: {atom_model_type}")
 
@@ -1884,17 +2084,17 @@ class AM_DimerParam_Model:
                     param_start_std=checkpoint["config"]["param_start_std"],
                     n_params=checkpoint["config"]["n_params"],
                 )
-            elif atom_model_type == "AtomTypeParamMPNN":
-                self.atom_model = am_type(
-                    n_message=checkpoint["config"]["n_message"],
-                    n_rbf=checkpoint["config"]["n_rbf"],
-                    n_neuron=checkpoint["config"]["n_neuron"],
-                    n_embed=checkpoint["config"]["n_embed"],
-                    r_cut=checkpoint["config"]["r_cut"],
-                    param_start_mean=checkpoint["config"]["param_start_mean"],
-                    param_start_std=checkpoint["config"]["param_start_std"],
-                    n_params=checkpoint["config"]["n_params"],
-                )
+            # elif atom_model_type == "AtomTypeParamMPNN":
+            #     self.atom_model = am_type(
+            #         n_message=checkpoint["config"]["n_message"],
+            #         n_rbf=checkpoint["config"]["n_rbf"],
+            #         n_neuron=checkpoint["config"]["n_neuron"],
+            #         n_embed=checkpoint["config"]["n_embed"],
+            #         r_cut=checkpoint["config"]["r_cut"],
+            #         param_start_mean=checkpoint["config"]["param_start_mean"],
+            #         param_start_std=checkpoint["config"]["param_start_std"],
+            #         n_params=checkpoint["config"]["n_params"],
+            #     )
             # model_state_dict = checkpoint["model_state_dict"]
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -1924,18 +2124,18 @@ class AM_DimerParam_Model:
                     param_start_std=checkpoint["config"]["param_start_std"],
                     n_params=checkpoint["config"].get("n_params", 1),
                 )
-            elif model_type == "AtomTypeParamMPNN":
-                self.model = AtomTypeParamMPNN(
-                    atom_model=self.atom_model,
-                    n_message=checkpoint["config"]["n_message"],
-                    n_rbf=checkpoint["config"]["n_rbf"],
-                    n_neuron=checkpoint["config"]["n_neuron"],
-                    n_embed=checkpoint["config"]["n_embed"],
-                    r_cut=checkpoint["config"]["r_cut"],
-                    param_start_mean=checkpoint["config"]["param_start_mean"],
-                    param_start_std=checkpoint["config"]["param_start_std"],
-                    n_params=checkpoint["config"].get("n_params", 1),
-                )
+            # elif model_type == "AtomTypeParamMPNN":
+            #     self.model = AtomTypeParamMPNN(
+            #         atom_model=self.atom_model,
+            #         n_message=checkpoint["config"]["n_message"],
+            #         n_rbf=checkpoint["config"]["n_rbf"],
+            #         n_neuron=checkpoint["config"]["n_neuron"],
+            #         n_embed=checkpoint["config"]["n_embed"],
+            #         r_cut=checkpoint["config"]["r_cut"],
+            #         param_start_mean=checkpoint["config"]["param_start_mean"],
+            #         param_start_std=checkpoint["config"]["param_start_std"],
+            #         n_params=checkpoint["config"].get("n_params", 1),
+            #     )
             else:
                 raise ValueError(f"Unknown model_type: {model_type}")
             model_state_dict = {
@@ -1954,18 +2154,18 @@ class AM_DimerParam_Model:
                     param_start_std=param_start_std,
                     n_params=n_params,
                 )
-            elif model_type == "AtomTypeParamMPNN":
-                self.model = AtomTypeParamMPNN(
-                    atom_model=self.atom_model,
-                    n_message=n_message,
-                    n_rbf=n_rbf,
-                    n_neuron=n_neuron,
-                    n_embed=n_embed,
-                    r_cut=r_cut,
-                    param_start_mean=param_start_mean,
-                    param_start_std=param_start_std,
-                    n_params=n_params,
-                )
+            # elif model_type == "AtomTypeParamMPNN":
+            #     self.model = AtomTypeParamMPNN(
+            #         atom_model=self.atom_model,
+            #         n_message=n_message,
+            #         n_rbf=n_rbf,
+            #         n_neuron=n_neuron,
+            #         n_embed=n_embed,
+            #         r_cut=r_cut,
+            #         param_start_mean=param_start_mean,
+            #         param_start_std=param_start_std,
+            #         n_params=n_params,
+            #     )
             else:
                 raise ValueError(f"Unknown model_type: {model_type}")
         self.n_params = n_params
@@ -2925,7 +3125,6 @@ class AtomTypeParamModel:
             device = torch.device("cpu")
             print("running on the CPU")
         self.ds_spec_type = ds_spec_type
-        # TODO UPDATE TO AP3
         if atom_model_type == "AtomMPNN":
             self.atom_model = AtomMPNN()
             am_type = AtomMPNN

@@ -19,6 +19,12 @@ def train_atom_model(
     ds_max_size=None,
     world_size=1,
     omp_num_threads=1,
+    lr=5e-4,
+    n_message=3,
+    n_rbf=8,
+    n_neuron=128,
+    n_embed=8,
+    r_cut=5.0,
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
@@ -26,6 +32,9 @@ def train_atom_model(
     elif atom_model_type == "AtomHirshfeldModel":
         AM = AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel
         batch_size = 1
+    elif atom_model_type == "AtomTypeParamModel":
+        AM = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel
+        batch_size = 16
     else:
         raise ValueError("Invalid Atom Model Type")
     pretrained_model = None
@@ -33,11 +42,11 @@ def train_atom_model(
         pretrained_model = model_path
     print("Training {}...".format(atom_model_type))
     atom_model = AM(
-        n_message=3,
-        n_rbf=8,
-        n_neuron=128,
-        n_embed=8,
-        r_cut=5.0,
+        n_message=n_message,
+        n_rbf=n_rbf,
+        n_neuron=n_neuron,
+        n_embed=n_embed,
+        r_cut=r_cut,
         ds_root=data_dir,
         ds_spec_type=spec_type,
         ds_max_size=ds_max_size,
@@ -53,7 +62,7 @@ def train_atom_model(
     atom_model.train(
         n_epochs=n_epochs,
         batch_size=batch_size,
-        lr=5e-4,
+        lr=lr,
         split_percent=0.9,
         model_path=model_path,
         shuffle=True,
@@ -100,7 +109,7 @@ def train_pairwise_model(
         param_start_mean = [param_start_mean] * n_params
     if not isinstance(param_start_std, (list, tuple)):
         param_start_std = [param_start_std] * n_params
-    ds_atomic_batch_size = 4  * 256
+    ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
@@ -170,7 +179,10 @@ def train_pairwise_model(
             ds_m2=m2,
         )
     elif apnet_model_type in ["AM-DimerParam"]:
-        if dimer_eval_type in ["elst_damping__induced_dipole", "elst_damping"] and atom_type_param_model_path is not None:
+        if (
+            dimer_eval_type in ["elst_damping__induced_dipole", "elst_damping"]
+            and atom_type_param_model_path is not None
+        ):
             print("Using AtomTypeParamModel for Dimer Prop Model")
             atom_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
                 ds_root=None,
@@ -207,7 +219,7 @@ def train_pairwise_model(
             param_start_std=param_start_std,
             dimer_eval_type=dimer_eval_type,
             n_params=n_params,
-            model_type=DimerProp_model_type
+            model_type=DimerProp_model_type,
         )
     elif apnet_model_type in ["APNet3-fused"]:
         print("Setting AtomTypeParams...")
@@ -467,6 +479,33 @@ def main():
         "--n_params", type=int, default=2, help="specify AP n_params (default: 2)"
     )
     args.add_argument(
+        "--n_message_atom",
+        type=int,
+        default=3,
+        help="specify AtomModel n_message (default: 3)",
+    )
+    args.add_argument(
+        "--n_rbf_atom", type=int, default=8, help="specify AtomModel n_rbf (default: 8)"
+    )
+    args.add_argument(
+        "--n_neuron_atom",
+        type=int,
+        default=128,
+        help="specify AtomModel n_neuron (default: 128)",
+    )
+    args.add_argument(
+        "--n_embed_atom",
+        type=int,
+        default=8,
+        help="specify AtomModel n_embed (default: 8)",
+    )
+    args.add_argument(
+        "--r_cut_atom",
+        type=float,
+        default=5.0,
+        help="specify AtomModel r_cut (default: 5.0)",
+    )
+    args.add_argument(
         "--param_start_mean",
         type=str,
         default="2.0",
@@ -503,7 +542,10 @@ def main():
         help="Dataset class type: (pt or lmdb) (default: pt)",
     )
     args.add_argument(
-        "--DimerProp_model_type", type=str, default="AtomTypeParamNN", help="Dimer Prop Model Type (default: AtomTypeParamNN, other options: AtomTypeParamMPNN)"
+        "--DimerProp_model_type",
+        type=str,
+        default="AtomTypeParamNN",
+        help="Dimer Prop Model Type (default: AtomTypeParamNN, other options: AtomTypeParamMPNN)",
     )
     args.add_argument(
         "--ds_type",
@@ -528,6 +570,12 @@ def main():
             ds_max_size=args.ds_max_size,
             world_size=args.world_size_ddp,
             omp_num_threads=args.omp_num_threads,
+            lr=args.lr,
+            n_message=args.n_message_atom,
+            n_rbf=args.n_rbf_atom,
+            n_neuron=args.n_neuron_atom,
+            n_embed=args.n_embed_atom,
+            r_cut=args.r_cut_atom,
         )
     if args.train_apnet != "":
         train_pairwise_model(

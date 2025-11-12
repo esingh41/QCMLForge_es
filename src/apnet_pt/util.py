@@ -497,6 +497,16 @@ def load_monomer_dataset(
     df = pd.read_pickle(file)
     N = len(df.index)
     print(f"Reading {file} with {N} rows")
+    if hirshfeld_props:
+        # drop rows with missing hirshfeld properties
+        pre_drop_N = len(df.index)
+        df = df.dropna(subset=["volume ratios", "valence widths"])
+        post_drop_N = len(df.index)
+        if pre_drop_N != post_drop_N:
+            print(
+                f"Dropped {pre_drop_N - post_drop_N} rows with missing hirshfeld properties"
+            )
+        N = post_drop_N 
 
     if max_size is not None and max_size < N:
         print("Truncating dataset to max_size:", max_size)

@@ -5,13 +5,15 @@ import numpy as np
 import warnings
 from .. import multipole
 import time
-from ..atomic_datasets import (
+from apnet_pt.atomic_datasets import (
     atomic_module_dataset,
     AtomicDataLoader,
     atomic_collate_update,
     qcel_mon_to_pyg_data,
     atomic_collate_update_no_target,
 )
+from apnet_pt.multipole import thole_damping_mutual_torch, thole_damping_direct_torch
+from apnet_pt import constants
 
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -41,6 +43,7 @@ class AtomMPNN(torch.nn.Module):
         self.n_embed = n_embed
         self.r_cut = r_cut
 
+        self.polarizability_table = constants.polarizability_table.clone()
         # embed interatomic distances into large orthogonal basis
         self.distance_layer = DistanceLayer(n_rbf, r_cut)
 
@@ -131,6 +134,7 @@ class AtomMPNN(torch.nn.Module):
         # [edges,  n_embed * 4 * n_rbf + n_embed * 4 + n_rbf]
         m_ij = torch.cat([h_all, h_all_dot, rbf], dim=-1)
         return m_ij
+
 
     # @torch.jit.trace
     def forward(
@@ -301,6 +305,17 @@ class AtomMPNN(torch.nn.Module):
         # print(len(h_list), h_list[0].size())
         h_list = torch.stack(h_list, dim=1)
         # print(h_list.size())
+
+        # TODO: induced dipoles computed and summed with permanent dipoles here
+        self.monomer_induced_dipole_torch(
+            Z,
+            R,
+            charge.unsqueeze(1),
+            dipole,
+            qpole,
+            e_source,
+            e_target,
+        )
         return charge, dipole, qpole, h_list
 
 

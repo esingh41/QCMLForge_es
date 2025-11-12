@@ -5,20 +5,20 @@ export iter=1
 # do
 # done
 
-for seed in 0 # 1 2 3 4
-do
-    export iter=$seed
-    python3 -u ./train_models.py \
-        --train_am "AtomModel" \
-        --am_model_path ./models/ap3_ensemble/am_$iter.pt \
-        --spec_type_am 10 \
-        --random_seed $iter \
-        --n_epochs 500 \
-        --lr 5e-4 \
-        --data_dir ./data_dir \
-        --world_size 1 \
-        --omp_num_threads 16 
-done
+# for seed in 0 # 1 2 3 4
+# do
+#     export iter=$seed
+#     python3 -u ./train_models.py \
+#         --train_am "AtomModel" \
+#         --am_model_path ./models/ap3_ensemble/am_$iter.pt \
+#         --spec_type_am 10 \
+#         --random_seed $iter \
+#         --n_epochs 500 \
+#         --lr 5e-4 \
+#         --data_dir ./data_dir \
+#         --world_size 1 \
+#         --omp_num_threads 16 
+# done
 #
 # AP3-fused FSAPT training
 # python3 -u ./train_models.py \
@@ -38,7 +38,17 @@ done
 #     --ds_in_memory False \
 #
 # export iter=1
-# Hirshfeld + Valence widths
+# Hirshfeld + Valence widths, AtomTypeParamMPNN
+python3 -u ./train_models.py \
+    --train_am AtomTypeParamModel \
+    --am_model_path ./models/ap3_ensemble/$iter/atp_mpnn_$iter.pt \
+    --random_seed $iter \
+    --lr 5e-5 \
+    --n_epochs_atom 500 \
+    --n_neuron 32 \
+    --data_dir ./data_dimer_$iter \
+    --spec_type_am 10 \
+# Hirshfeld + Valence widths, AtomTypeParamNN
 # python3 -u ./train_models.py \
 #     --train_apnet AtomTypeParamModel \
 #     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
