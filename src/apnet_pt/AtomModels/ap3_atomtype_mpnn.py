@@ -15,9 +15,7 @@ from apnet_pt.atomic_datasets import (
     AtomicDataLoader,
     atomic_collate_update_no_target,
     atomic_hfvr_vw_collate_update,
-)
-from apnet_pt.AtomModels.ap2_hirshfeld_atom_model import (
-    atomic_hirshfeld_module_dataset,
+    atomic_hirshfeld_valencewdith_only_module_dataset,
 )
 import os
 import torch.distributed as dist
@@ -319,7 +317,7 @@ class AtomTypeParamModel:
         self.dataset = dataset
         mp.set_sharing_strategy("file_system")
         if not ignore_database_null and self.dataset is None:
-            self.dataset = atomic_hirshfeld_module_dataset(
+            self.dataset = atomic_hirshfeld_valencewdith_only_module_dataset(
                 root=ds_root,
                 testing=ds_testing,
                 spec_type=ds_spec_type,

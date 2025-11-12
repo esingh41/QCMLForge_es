@@ -415,12 +415,6 @@ def main():
         help="dataset spec_type recommended: (2 for AP2)",
     )
     args.add_argument(
-        "--data_dir_atom",
-        type=str,
-        default="./data_dir",
-        help="specify data_dir for datasets (default: ./data_dir)",
-    )
-    args.add_argument(
         "--data_dir",
         type=str,
         default="./data_dir",
@@ -563,7 +557,7 @@ def main():
         train_atom_model(
             atom_model_type=args.train_am,
             model_path=args.am_model_path,
-            data_dir=args.data_dir_atom,
+            data_dir=args.data_dir,
             spec_type=args.spec_type_am,
             n_epochs=args.n_epochs_atom,
             random_seed=args.random_seed,

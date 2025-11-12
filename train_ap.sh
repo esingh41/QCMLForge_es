@@ -48,7 +48,7 @@ python3 -u ./train_models.py \
     --n_epochs_atom 100 \
     --n_neuron 32 \
     --data_dir ./data_dimer_$iter \
-    --spec_type_am 5 \
+    --spec_type_am 10 \
 # Hirshfeld + Valence widths, AtomTypeParamNN
 # python3 -u ./train_models.py \
 #     --train_apnet AtomTypeParamModel \

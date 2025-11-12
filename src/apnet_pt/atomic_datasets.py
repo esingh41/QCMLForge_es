@@ -22,6 +22,8 @@ from qm_tools_aw import tools
 import re
 from . import multipole
 from glob import glob
+import lmdb
+import json
 
 # from torch_geometric.data import download_url
 
@@ -909,7 +911,19 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
         force_reprocess=False,
         in_memory=True,
         batch_size=1,
+        lmdb_map_size=1099511627776,
+        lmdb_readonly=False,
+        cache_size=1000,
     ):
+        """
+        LMDB-based dataset for atomic Hirshfeld valence width training.
+
+        Args:
+            lmdb_map_size: Maximum size of LMDB database in bytes (default 1TB)
+            lmdb_readonly: Open LMDB in read-only mode
+            cache_size: Number of recently accessed items to keep in memory
+        """
+
         try:
             assert spec_type in [1, 5, 10]
         except Exception:
@@ -927,25 +941,96 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
         self.force_reprocess = force_reprocess
         self.root = root
         self.in_memory = in_memory
+        self.r_cut = r_cut
+
+        self.lmdb_map_size = lmdb_map_size
+        self.lmdb_readonly = lmdb_readonly
+        self.cache_size = cache_size
+        self._cache = {}
+        self._cache_keys = []
+
+        self.lmdb_env = None
+        self.lmdb_path = None
+        self._length = None
+        self._worker_id = None
+
         if os.path.exists(root) is False:
             os.makedirs(root)
+
         print(
             f"{self.root = }, {self.spec_type = }, {self.testing = }, {self.in_memory = }"
         )
+
+        self._init_lmdb_path(root)
+        self._init_lmdb()
+
         super(atomic_hirshfeld_valencewdith_only_module_dataset, self).__init__(
             root, transform, pre_transform
         )
+
+        if self.force_reprocess:
+            self.force_reprocess = False
+            self._close_lmdb()
+            super(atomic_hirshfeld_valencewdith_only_module_dataset, self).__init__(
+                root, transform, pre_transform
+            )
+            self._init_lmdb()
+
         if self.in_memory:
             print("Loading data into memory")
             t = time()
             self.data = []
-            for i in self.processed_file_names:
-                self.data.append(
-                    torch.load(osp.join(self.processed_dir, i), weights_only=False)
-                )
+            for i in range(len(self)):
+                self.data.append(self.get(i))
             total_time_seconds = int(time() - t)
             print(f"Loaded in {total_time_seconds:4d} seconds")
             self.get = self.get_in_memory
+
+    def _init_lmdb_path(self, root):
+        """Initialize LMDB path before parent class init"""
+        self.lmdb_path = osp.join(
+            root, "processed", f"lmdb_monomer_ap3_spec_{self.spec_type}"
+        )
+
+    def _init_lmdb(self):
+        """Initialize LMDB environment"""
+        if not osp.exists(self.lmdb_path):
+            os.makedirs(self.lmdb_path, exist_ok=True)
+
+        try:
+            self.lmdb_env = lmdb.open(
+                self.lmdb_path,
+                map_size=self.lmdb_map_size,
+                readonly=self.lmdb_readonly,
+                max_dbs=0,
+                lock=not self.lmdb_readonly,
+                max_readers=256,
+            )
+
+            with self.lmdb_env.begin() as txn:
+                metadata_bytes = txn.get(b"__metadata__")
+                if metadata_bytes:
+                    metadata = json.loads(metadata_bytes.decode("utf-8"))
+                    self._length = metadata.get("length", 0)
+                else:
+                    self._length = 0
+        except Exception as e:
+            print(f"Error initializing LMDB: {e}")
+            self.lmdb_env = None
+            self._length = 0
+
+    def _close_lmdb(self):
+        """Close LMDB environment"""
+        if self.lmdb_env is not None:
+            self.lmdb_env.close()
+            self.lmdb_env = None
+
+    def __del__(self):
+        """Cleanup LMDB on deletion"""
+        try:
+            self._close_lmdb()
+        except:
+            pass
 
     @property
     def raw_file_names(self):
@@ -968,27 +1053,75 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
 
     @property
     def processed_file_names(self):
+        """Check if LMDB database exists and has data"""
         if self.force_reprocess:
             return ["file"]
-        else:
-            file_cmd = f"{self.root}/processed/monomer_ap3_{self.spec_type}_*.pt"
-            spec_files = glob(file_cmd)
-            spec_files = [i.split("/")[-1] for i in spec_files]
-            if len(spec_files) > 0:
-                # want to preserve idx ordering
-                spec_files.sort(key=natural_key)
-                if self.MAX_SIZE is not None and len(spec_files) > self.MAX_SIZE:
-                    spec_files = spec_files[: self.MAX_SIZE]
-                return spec_files
-            else:
-                return [f"data_missing_{i}.pt" for i in range(1)]
+
+        if not hasattr(self, "lmdb_path") or self.lmdb_path is None:
+            return ["lmdb_missing"]
+
+        if osp.exists(self.lmdb_path):
+            env = None
+            try:
+                env = lmdb.open(
+                    self.lmdb_path,
+                    readonly=True,
+                    lock=False,
+                    max_dbs=0,
+                    create=False,
+                    max_readers=256,
+                )
+                with env.begin() as txn:
+                    metadata_bytes = txn.get(b"__metadata__")
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        length = metadata.get("length", 0)
+                        if length > 0:
+                            return [f"lmdb_monomer_ap3_spec_{self.spec_type}"]
+            except Exception as e:
+                print(f"Error checking LMDB: {e}")
+            finally:
+                if env is not None:
+                    try:
+                        env.close()
+                    except:
+                        pass
+
+        return ["lmdb_missing"]
 
     def download(self):
         print(self.raw_file_names)
         raise ValueError("Downloads are not available!")
 
+    def _store_to_lmdb(self, data_objects, start_idx):
+        """Store data objects to LMDB"""
+        import pickle
+
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+
+        with self.lmdb_env.begin(write=True) as txn:
+            for i, data_obj in enumerate(data_objects):
+                idx = start_idx + i
+                key = str(idx).encode("utf-8")
+                value = pickle.dumps(data_obj)
+                txn.put(key, value)
+
+            metadata = {
+                "length": start_idx + len(data_objects),
+                "r_cut": self.r_cut,
+                "spec_type": self.spec_type,
+            }
+            txn.put(b"__metadata__", json.dumps(metadata).encode("utf-8"))
+
+        self._length = start_idx + len(data_objects)
+
     def process(self, r_cut=5.0, edge_index_only=True):
+        """Process dataset and store in LMDB"""
         idx = 0
+        data_objects = []
+        batch_size = 256  # Store in batches for efficiency
+
         for raw_path in self.raw_paths:
             print(f"raw_path: {raw_path}")
             # converting to qcel monomer to crudely validate structure
@@ -1019,29 +1152,124 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
                 if self.pre_transform is not None:
                     data = self.pre_transform(data)
 
-                torch.save(
-                    data,
-                    osp.join(
-                        self.processed_dir,
-                        f"monomer_ap3_{self.spec_type}_{idx}.pt",
-                    ),
-                )
-                if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
+                data_objects.append(data)
+
+                # Store in batches
+                if len(data_objects) >= batch_size:
+                    start_idx = idx - len(data_objects) + 1
+                    self._store_to_lmdb(data_objects, start_idx)
+                    data_objects = []
+
+                if self.MAX_SIZE is not None and idx >= self.MAX_SIZE:
                     break
                 idx += 1
+
+            if self.MAX_SIZE is not None and idx >= self.MAX_SIZE:
+                break
+
+        # Store remaining data
+        if len(data_objects) > 0:
+            start_idx = idx - len(data_objects)
+            self._store_to_lmdb(data_objects, start_idx)
+            print(
+                f"Final: Stored {len(data_objects)} objects to LMDB at index {start_idx}"
+            )
+
+        print(f"Processing complete. Total time: {time() - t:.2f}s")
         return
 
     def len(self):
-        return len(self.processed_file_names)
+        """Return dataset length from LMDB metadata"""
+        if self._length is not None:
+            return self._length
+
+        if self.lmdb_env is None:
+            return 0
+
+        with self.lmdb_env.begin() as txn:
+            metadata_bytes = txn.get(b"__metadata__")
+            if metadata_bytes:
+                metadata = json.loads(metadata_bytes.decode("utf-8"))
+                self._length = metadata.get("length", 0)
+            else:
+                self._length = 0
+
+        return self._length
+
+    def _check_worker_init(self):
+        """Ensure LMDB env is initialized for current worker process"""
+        import torch.utils.data
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+        else:
+            worker_id = None
+
+        if worker_id != self._worker_id:
+            if self.lmdb_env is not None:
+                self._close_lmdb()
+
+            self._worker_id = worker_id
+            self._init_lmdb()
+            self._cache = {}
+            self._cache_keys = []
 
     def get(self, idx):
-        return torch.load(
-            osp.join(self.processed_dir, f"monomer_ap3_{self.spec_type}_{idx}.pt"),
-            weights_only=False,
-        )
+        """Retrieve item from LMDB with caching"""
+        import pickle
+
+        self._check_worker_init()
+
+        if idx in self._cache:
+            self._cache_keys.remove(idx)
+            self._cache_keys.append(idx)
+            return self._cache[idx]
+
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+
+        with self.lmdb_env.begin() as txn:
+            key = str(idx).encode("utf-8")
+            value_bytes = txn.get(key)
+
+            if value_bytes is None:
+                raise IndexError(f"Index {idx} not found in LMDB database")
+
+            data = pickle.loads(value_bytes)
+
+        self._cache[idx] = data
+        self._cache_keys.append(idx)
+
+        if len(self._cache) > self.cache_size:
+            oldest_key = self._cache_keys.pop(0)
+            del self._cache[oldest_key]
+
+        return data
 
     def get_in_memory(self, idx):
         return self.data[idx]
+
+    def prefetch(self, indices):
+        """Prefetch multiple items into cache"""
+        import pickle
+
+        if self.lmdb_env is None:
+            return
+
+        with self.lmdb_env.begin() as txn:
+            for idx in indices:
+                if idx not in self._cache:
+                    key = str(idx).encode("utf-8")
+                    value_bytes = txn.get(key)
+                    if value_bytes:
+                        data = pickle.loads(value_bytes)
+                        self._cache[idx] = data
+                        self._cache_keys.append(idx)
+
+        while len(self._cache) > self.cache_size:
+            oldest_key = self._cache_keys.pop(0)
+            del self._cache[oldest_key]
 
     def train_test_loaders(self):
         indices = np.random.permutation(len(self))
