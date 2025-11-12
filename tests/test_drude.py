@@ -82,6 +82,7 @@ data_dir = os.path.join(os.path.dirname(__file__), "drude_test_data/")
 # model to another. Energies will be bad
 
 
+@pytest.mark.skip(reason="Drude not used in codebase")
 @pytest.mark.parametrize(
     "molecule,ref_uind",
     [

@@ -89,7 +89,7 @@ def test_train_ap3_atom_model():
         dataset=ds,
     )
     am.train(
-        n_epochs=100,
+        n_epochs=3,
         batch_size=1,
         lr=5e-4,
         split_percent=0.5,

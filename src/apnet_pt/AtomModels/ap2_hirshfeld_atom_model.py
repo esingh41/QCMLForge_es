@@ -948,8 +948,8 @@ class AtomHirshfeldModel:
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=atomic_collate_update,
-            # collate_fn=atomic_hirshfeld_collate_update,
+            # collate_fn=atomic_collate_update,
+            collate_fn=atomic_hirshfeld_collate_update,
         )
 
         test_loader = AtomicDataLoader(
@@ -959,8 +959,8 @@ class AtomHirshfeldModel:
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=atomic_collate_update,
-            # collate_fn=atomic_hirshfeld_collate_update,
+            # collate_fn=atomic_collate_update,
+            collate_fn=atomic_hirshfeld_collate_update,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -1044,8 +1044,8 @@ class AtomHirshfeldModel:
             shuffle=self.train_shuffle,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            collate_fn=atomic_collate_update,
-            # collate_fn=atomic_hirshfeld_collate_update,
+            # collate_fn=atomic_collate_update,
+            collate_fn=atomic_hirshfeld_collate_update,
         )
 
         test_loader = AtomicDataLoader(
@@ -1054,8 +1054,8 @@ class AtomHirshfeldModel:
             shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            collate_fn=atomic_collate_update,
-            # collate_fn=atomic_hirshfeld_collate_update,
+            # collate_fn=atomic_collate_update,
+            collate_fn=atomic_hirshfeld_collate_update,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)

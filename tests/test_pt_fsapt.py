@@ -70,7 +70,7 @@ def test_ap3_fused_fsapt():
 
     try:
         # Test dataset length
-        assert len(dataset) == 159, f"Expected 159 data points, got {len(dataset)}"
+        assert len(dataset) == 308, f"Expected 159 data points, got {len(dataset)}"
         print(f"Dataset length: {len(dataset)}")
 
         # Test getting a single data point

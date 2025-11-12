@@ -1582,7 +1582,7 @@ def test_AtomTypeParamModel_AM_DimerProp_train_elst_only():
     )
 
 
-def test_AtomTypeMPNNParamModel_AM_DimerProp_train_elst_only():
+def test_AtomTypeNNParamModel_AM_DimerProp_train_elst_only():
     df = pd.read_pickle(current_file_path + "/dataset_data/elst_damping_test.pkl")
     qcel_molecules = df["qcel_molecule"].to_list()
     energy_labels = (
@@ -1602,7 +1602,7 @@ def test_AtomTypeMPNNParamModel_AM_DimerProp_train_elst_only():
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         atom_model_type="AtomTypeParamNN",
-        model_type="AtomTypeParamMPNN",
+        model_type="AtomTypeParamNN",
         ds_root=data_path,
         ignore_database_null=False,
         ds_force_reprocess=True,
@@ -1625,7 +1625,7 @@ def test_AtomTypeMPNNParamModel_AM_DimerProp_train_elst_only():
     )
 
 
-def test_AtomTypeParamMPNNModel_AM_DimerProp_train_elst_only_spec7():
+def test_AtomTypeParamNNModel_AM_DimerProp_train_elst_only_spec7():
     am = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -1638,7 +1638,7 @@ def test_AtomTypeParamMPNNModel_AM_DimerProp_train_elst_only_spec7():
     param_mod = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
         atom_model=am.model,
         atom_model_type="AtomTypeParamNN",
-        model_type="AtomTypeParamMPNN",
+        model_type="AtomTypeParamNN",
         ds_root=data_path,
         ignore_database_null=False,
         ds_force_reprocess=True,
@@ -1752,41 +1752,6 @@ def test_ap2_spec7():
     )
     for i in glob(f"{data_path}/processed/dimer_ap2_spec_*.pt"):
         os.remove(i)
-
-
-def test_atomhirshfeld_model_train():
-    ds = atomic_datasets.atomic_hirshfeld_module_dataset(
-        root=data_path,
-        transform=None,
-        pre_transform=None,
-        r_cut=5.0,
-        testing=False,
-        spec_type=5,
-        max_size=None,
-        force_reprocess=False,
-        in_memory=True,
-        batch_size=1,
-    )
-    print(ds)
-    am = AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel(
-        use_GPU=False,
-        ignore_database_null=False,
-        dataset=ds,
-    )
-    print(am)
-    am.train(
-        n_epochs=3,
-        batch_size=1,
-        lr=5e-4,
-        split_percent=0.5,
-        model_path=None,
-        shuffle=True,
-        dataloader_num_workers=0,
-        world_size=1,
-        omp_num_threads_per_process=None,
-        random_seed=42,
-    )
-    return
 
 
 def test_atomhirshfeld_model_train():
@@ -2043,7 +2008,7 @@ def test_ap2_elst_dataset():
 
 if __name__ == "__main__":
     # test_AtomTypeParamModel_AM_DimerProp_train_elst_only_spec7()
-    # test_AtomTypeParamMPNNModel_AM_DimerProp_train_elst_only_spec7()
+    # test_AtomTypeParamNNModel_AM_DimerProp_train_elst_only_spec7()
     # test_AtomTypeParamModel_train()
     # test_induced_dipole_qcel_mols()
     # test_AtomTypeParamModel_AM_DimerProp_train()
