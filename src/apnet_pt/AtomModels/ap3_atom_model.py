@@ -29,19 +29,29 @@ from .ap2_atom_model import (
     isolate_atomic_property_predictions,
     unwrap_model,
 )
-from pprint import pprint as pp
+from .ap3_atomtype_mpnn import AtomTypeParamMPNN
 
 warnings.filterwarnings("ignore")
 
 
-class AtomMPNN(torch.nn.Module):
-    def __init__(self, n_message=3, n_rbf=8, n_neuron=128, n_embed=8, r_cut=5.0):
+class AtomInducedDipoleMPNN(torch.nn.Module):
+    def __init__(
+        self,
+        atomtype_hfvr_model=AtomTypeParamMPNN(),
+        n_message=3,
+        n_rbf=8,
+        n_neuron=128,
+        n_embed=8,
+        r_cut=5.0,
+    ):
         super().__init__()
         self.n_message = n_message
         self.n_rbf = n_rbf
         self.n_neuron = n_neuron
         self.n_embed = n_embed
         self.r_cut = r_cut
+        self.atomtype_hfvr_model = atomtype_hfvr_model
+        self.atomtype_hfvr_model.requires_grad_(False)
 
         self.polarizability_table = constants.polarizability_table.clone()
         # embed interatomic distances into large orthogonal basis
@@ -64,7 +74,7 @@ class AtomMPNN(torch.nn.Module):
         self.dipole_readout_layers = nn.ModuleList()
         self.qpole_readout_layers = nn.ModuleList()
 
-        input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf
+        input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf + 4
 
         layer_nodes_hidden = [
             input_layer_size,
@@ -115,14 +125,19 @@ class AtomMPNN(torch.nn.Module):
                 layers.append(activations[i])
         return nn.Sequential(*layers)
 
-    def get_messages(self, h0, h, rbf, e_source, e_target):
+    def get_messages(self, h0, h, rbf, hfvr, vw, e_source, e_target):
         nedge = e_source.size(0)
 
         h0_source = h0.index_select(0, e_source)
         h0_target = h0.index_select(0, e_target)
         h_source = h.index_select(0, e_source)
         h_target = h.index_select(0, e_target)
-
+        # hfvr, vw
+        hfvr_source = hfvr.index_select(0, e_source)
+        hfvr_target = hfvr.index_select(0, e_target)
+        vw_source = vw.index_select(0, e_source)
+        vw_target = vw.index_select(0, e_target)
+        param_all = torch.cat([hfvr_source, hfvr_target, vw_source, vw_target], dim=-1)
         # [edges x 4 * n_embed]
         h_all = torch.cat([h0_source, h0_target, h_source, h_target], dim=-1)
 
@@ -130,11 +145,204 @@ class AtomMPNN(torch.nn.Module):
         h_all_dot = torch.einsum("ez,er->ezr", h_all, rbf)
         # [edges, 4 * n_embed * n_rbf]
         h_all_dot = h_all_dot.view(nedge, -1)
-
-        # [edges,  n_embed * 4 * n_rbf + n_embed * 4 + n_rbf]
-        m_ij = torch.cat([h_all, h_all_dot, rbf], dim=-1)
+        m_ij = torch.cat([h_all, h_all_dot, rbf, param_all], dim=-1)
         return m_ij
 
+    def monomer_induced_dipole_torch(
+        self,
+        Z,
+        R,
+        q,
+        mu,
+        quad,
+        e_source,
+        e_target,
+        hirshfeld_volume_ratio: torch.Tensor,
+        max_iterations: int = 200,
+        convergence_threshold: float = 1e-8,
+        omega: float = 0.7,
+        thole_damping_param_mutual: float = 0.39,
+        thole_damping_param_direct: float = 0.34,
+        screening: bool = True,
+        screening_distance: float = 2.0,
+        compute_energies: bool = False,
+    ) -> tuple:
+        """
+        Calculate intramolecular induced dipoles for a single molecule using
+        its multipole moments and Hirshfeld volume ratios. This is the PyTorch
+        version of the intramolecular_induced_dipole function, following the
+        classical induction model from CLIFF paper.
+
+        Reference: https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
+
+        Parameters
+        ----------
+        Z : torch.Tensor
+            Atomic numbers (n_atoms,)
+        R : torch.Tensor
+            Atomic positions in Bohr (n_atoms, 3)
+        q : torch.Tensor
+            Atomic charges (n_atoms, 1) or (n_atoms,)
+        mu : torch.Tensor
+            Atomic dipole moments (n_atoms, 3)
+        quad : torch.Tensor
+            Atomic quadrupole moments (n_atoms, 3, 3)
+        e_source : torch.Tensor
+            Source atom indices for intramolecular pairs
+        e_target : torch.Tensor
+            Target atom indices for intramolecular pairs
+        hirshfeld_volume_ratio : torch.Tensor
+            Hirshfeld volume ratios for polarizability scaling (n_atoms,)
+        max_iterations : int
+            Maximum number of SCF iterations (default: 200)
+        convergence_threshold : float
+            Convergence threshold for induced dipoles (default: 1e-8)
+        omega : float
+            Damping parameter for SCF convergence (default: 0.7, recommended)
+        thole_damping_param_mutual : float
+            Thole damping parameter for induced-induced interactions (default: 0.39)
+        thole_damping_param_direct : float
+            Thole damping parameter for permanent-induced interactions (default: 0.34)
+        screening : bool
+            Enable distance-based screening for 1-2, 1-3 interactions (default: True)
+        screening_distance : float
+            Distance threshold in Angstroms for screening (default: 1.8)
+        compute_energies : bool
+            If True, compute and return intramolecular induction energy (default: False)
+
+        Returns
+        -------
+        tuple
+            (charges, induced_dipoles, quadrupoles) or
+            (charges, induced_dipoles, quadrupoles, energy) if compute_energies=True
+            - charges: original charges (n_atoms,)
+            - induced_dipoles: converged induced dipole moments (n_atoms, 3)
+            - quadrupoles: original quadrupoles (n_atoms, 3, 3)
+            - energy (optional): intramolecular induction energy in kcal/mol
+        """
+        from apnet_pt.AtomPairwiseModels.mtp_mtp import get_distances
+
+        h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
+
+        # Calculate atomic polarizabilities
+        alpha_0 = torch.index_select(self.polarizability_table, 0, Z.long())
+        alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
+
+        # Define helper function to calculate distance tensors with Thole damping
+        def distance_tensors(
+            Ri, Rj, e_source, e_target, alpha_i, alpha_j, thole_param, apply_screening=False
+        ):
+            """Calculate interaction tensors between atoms with optional screening"""
+            dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
+            dR_xyz = dR_xyz_ang / constants.au2ang
+            dR = dR_ang / constants.au2ang
+
+            alpha_source = alpha_i.index_select(0, e_source)
+            alpha_target = alpha_j.index_select(0, e_target)
+
+            # Apply Thole damping
+            if apply_screening:
+                au3, lam_3, lam_5 = thole_damping_direct_torch(
+                    dR, alpha_source, alpha_target, thole_param
+                )
+            else:
+                au3, lam_3, lam_5 = thole_damping_mutual_torch(
+                    dR, alpha_source, alpha_target, thole_param
+                )
+
+            # Apply distance-based screening for direct interactions (exclude 1-2, 1-3 bonds)
+            if apply_screening and screening:
+                screening_mask = dR_ang < screening_distance
+                lam_3 = torch.where(screening_mask, torch.zeros_like(lam_3), lam_3)
+                lam_5 = torch.where(screening_mask, torch.zeros_like(lam_5), lam_5)
+                dR = torch.where(screening_mask, torch.ones_like(dR), dR)
+
+            delta = torch.eye(3, device=dR.device)
+            oodR = 1.0 / dR
+
+            # T1: field tensor (rank 1)
+            # Note: dR_xyz points FROM source TO target, which is the correct direction
+            # for the field at target due to source. No negation needed.
+            T1 = torch.einsum("x,xy,x->xy", oodR**3, dR_xyz, lam_3)
+
+            # T2: field gradient tensor (rank 2)
+            T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam_5) - torch.einsum(
+                "x,x,yz,x->xyz", dR, dR, delta, lam_3
+            )
+            T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+
+            return dR, dR_xyz, oodR, T1, T2
+
+        # Calculate direct tensors (permanent → induced) with screening
+        dR_direct, dR_xyz_direct, T0_direct, T1_direct, T2_direct = distance_tensors(
+            R,
+            R,
+            e_source,
+            e_target,
+            alpha,
+            alpha,
+            thole_damping_param_direct,
+            apply_screening=True,
+        )
+
+        # Calculate mutual tensors (induced ↔ induced) without screening
+        dR_mutual, dR_xyz_mutual, T0_mutual, T1_mutual, T2_mutual = distance_tensors(
+            R,
+            R,
+            e_source,
+            e_target,
+            alpha,
+            alpha,
+            thole_damping_param_mutual,
+            apply_screening=False,
+        )
+
+        # Initialize induced dipoles
+        n_atoms = R.shape[0]
+        mu_induced_0 = torch.zeros((n_atoms, 3), device=q.device)
+
+        # Select relevant tensors for atom pairs
+        # alpha_source = alpha.index_select(0, e_source)
+        alpha_target = alpha.index_select(0, e_target)
+        q_source = q.squeeze(-1).index_select(0, e_source)
+        mu_source = mu.index_select(0, e_source)
+
+        # Calculate initial induced dipoles from permanent multipoles (using direct tensors)
+        # Contribution from charges: mu_ind = alpha * T1 * q
+        mu_charge = torch.einsum("a,ai,a->ai", alpha_target, T1_direct, q_source)
+        mu_induced_0 = scatter_sum_compile(mu_charge, e_target, n_atoms)
+
+        # Contribution from dipoles: mu_ind += alpha * T2 * mu
+        mu_dipole = torch.einsum("a,aij,aj->ai", alpha_target, T2_direct, mu_source)
+        mu_dipole_summed = scatter_sum_compile(mu_dipole, e_target, n_atoms)
+        mu_induced_0 += mu_dipole_summed
+
+        # Self-consistent field (SCF) iteration to converge induced dipoles
+        mu_induced = mu_induced_0.clone()
+
+        for iteration in range(max_iterations):
+            mu_induced_old = mu_induced.clone()
+
+            # Induced dipoles due to other induced dipoles (using mutual tensors)
+            mu_induced_contrib = torch.einsum(
+                "a,aij,aj->ai",
+                alpha_target,
+                T2_mutual,
+                mu_induced.index_select(0, e_source),
+            )
+            mu_induced_new = scatter_sum_compile(mu_induced_contrib, e_target, n_atoms)
+            # Add initial induced dipoles from permanent multipoles
+            mu_induced_new += mu_induced_0
+
+            # Apply mixing for numerical stability
+            mu_induced = (1 - omega) * mu_induced_old + omega * mu_induced_new
+
+            # Check convergence
+            delta = torch.norm(mu_induced - mu_induced_old)
+            if delta < convergence_threshold:
+                break
+
+        return mu_induced
 
     # @torch.jit.trace
     def forward(
@@ -181,6 +389,9 @@ class AtomMPNN(torch.nn.Module):
             charge = charge - charge_err
             return charge, dipole, qpole, h_list
 
+        Ks = self.atomtype_hfvr_model(batch)
+        hfvr = Ks[:, 0].unsqueeze(1)
+        vw = Ks[:, 1].unsqueeze(1)
         # 1) Filter out atoms that don't have edges
         atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
         keep_mask = torch.isin(
@@ -221,7 +432,7 @@ class AtomMPNN(torch.nn.Module):
             #####################
 
             # [edges x message_embedding_dim]
-            m_ij = self.get_messages(h_list[0], h_list[-1], rbf, e_source, e_target)
+            m_ij = self.get_messages(h_list[0], h_list[-1], rbf, hfvr, vw, e_source, e_target)
 
             # [atoms x message_embedding_dim]
             m_i = scatter_sum_compile(m_ij, e_source, int(natom_filtered), reduce="sum")  # type: ignore
@@ -302,12 +513,9 @@ class AtomMPNN(torch.nn.Module):
         # changed to dim=0 from dim=1 for usage in Param fitting # AMW 8/20/25
         # Breaks test_apnet2_train_qcel_molecules_in_memory_transfer test,
         # dimensions no longer correct... figure out another way to fix this. reverting back to dim=1 # AMW 9/17/25
-        # print(len(h_list), h_list[0].size())
         h_list = torch.stack(h_list, dim=1)
-        # print(h_list.size())
 
-        # TODO: induced dipoles computed and summed with permanent dipoles here
-        self.monomer_induced_dipole_torch(
+        induced_dipoles = self.monomer_induced_dipole_torch(
             Z,
             R,
             charge.unsqueeze(1),
@@ -315,15 +523,19 @@ class AtomMPNN(torch.nn.Module):
             qpole,
             e_source,
             e_target,
+            hirshfeld_volume_ratio=Ks[:, 0],
         )
+        dipole += induced_dipoles
         return charge, dipole, qpole, h_list
 
 
-class AtomModel:
+class AtomInducedDipoleModel:
     def __init__(
         self,
         dataset=None,
         pre_trained_model_path=None,
+        atomtype_hfvr_model=None,
+        atomtype_hfvr_pre_trained_path=None,
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -345,6 +557,14 @@ class AtomModel:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
+        if (
+            atomtype_hfvr_model is None
+            and atomtype_hfvr_pre_trained_path is None
+        ):
+            raise ValueError(
+                "Either atomtypeparam_hfvr_model or atomtypeparam_hfvr_pre_trained_path must be provided.\n"
+                "Without a model predicting hirshfeld volumes, induced dipoles cannot be computed correctly"
+            )
         if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
@@ -352,10 +572,31 @@ class AtomModel:
             device = torch.device("cpu")
             print("running on the CPU")
 
+        if atomtype_hfvr_model is not None:
+            self.atomtype_hfvr_model = atomtype_hfvr_model
+
+        if atomtype_hfvr_pre_trained_path is not None:
+            print(f"Loading pre-trained AtomTypeParamMPNN hfvr model from {atomtype_hfvr_pre_trained_path}")
+            checkpoint = torch.load(atomtype_hfvr_pre_trained_path, weights_only=False)
+            self.atomtype_hfvr_model = AtomTypeParamMPNN(
+                n_message=checkpoint["config"]["n_message"],
+                n_neuron=checkpoint["config"]["n_neuron"],
+                n_embed=checkpoint["config"]["n_embed"],
+                param_start_mean=checkpoint["config"]["param_start_mean"],
+                param_start_std=checkpoint["config"]["param_start_std"],
+                n_params=checkpoint["config"].get("n_params", 1),
+                r_cut=checkpoint["config"]["r_cut"],
+            )
+            model_state_dict = {
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
+            self.atomtype_hfvr_model.load_state_dict(model_state_dict)
+
         if pre_trained_model_path:
-            # print(f"Loading pre-trained AtomMPNN model from {pre_trained_model_path}")
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = AtomMPNN(
+            self.model = AtomInducedDipoleMPNN(
+                atomtype_hfvr_model=self.atomtype_hfvr_model,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -368,7 +609,8 @@ class AtomModel:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = AtomMPNN(
+            self.model = AtomInducedDipoleMPNN(
+                atomtype_hfvr_model=self.atomtype_hfvr_model,
                 n_message=n_message,
                 n_rbf=n_rbf,
                 n_neuron=n_neuron,
@@ -576,7 +818,6 @@ units angstrom
                     train_loader,  # loss_fn=criterion
                 )
             )
-            print(charge_errors_t.shape, dipole_errors_t.shape, qpole_errors_t.shape)
             charge_MAE_t = np.mean(np.abs(charge_errors_t.numpy()))
             dipole_MAE_t = np.mean(np.abs(dipole_errors_t.numpy()))
             qpole_MAE_t = np.mean(np.abs(qpole_errors_t.numpy()))
@@ -802,7 +1043,6 @@ units angstrom
         pin_memory,
         num_workers,
     ):
-        # print(f"{self.device.type = }")
         if self.device.type == "cpu":
             # rank = "cpu"
             rank_device = "cpu"
@@ -957,8 +1197,6 @@ units angstrom
         criterion = torch.nn.MSELoss()
 
         lowest_test_loss = torch.tensor(float("inf"))
-        print(f"{rank=}")
-
         test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
 
         for epoch in range(n_epochs):
@@ -1131,8 +1369,6 @@ units angstrom
         qA, muA, thA, hlistA = self.model(batch)
         batch = batch.cpu()
         qA = qA.detach().detach().cpu()
-        # print("predict_multipoles_batch")
-        # print(qA)
         muA = muA.detach().detach().cpu()
         thA = thA.detach().detach().cpu()
         hlistA = hlistA.detach().cpu()

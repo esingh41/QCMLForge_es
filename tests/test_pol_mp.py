@@ -18,10 +18,7 @@ data_path = f"{current_file_path}/test_data_path"
 am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
 
 am_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_3.pt"
-at_hf_vw_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_h+1_3.pt"
-at_elst_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_elst_h+1_3.pt"
-ap3_path = f"{current_file_path}/test_models/ap3_ensemble_0/ap3_.pt"
-am_hf_path = f"{current_file_path}/test_models/am_hf_0.pt"
+atp_path = f"{current_file_path}/test_models/ap3_ensemble_0/atp_mpnn_1.pt"
 
 
 def test_train_ap3_atomTypeparamMPNN():
@@ -76,15 +73,23 @@ def test_train_ap3_atom_model():
         batch_size=1,
     )
     print(ds)
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+        pre_trained_model_path=atp_path,
+    )
+    print(atpm)
     # DDP
     os.environ["OMP_NUM_THREADS"] = "4"
-    am = AtomModels.ap3_atom_model.AtomModel(
+    am = AtomModels.ap3_atom_model.AtomInducedDipoleModel(
+        atomtype_hfvr_model=atpm.model,
         use_GPU=False,
         ignore_database_null=False,
         dataset=ds,
     )
     am.train(
-        n_epochs=3,
+        n_epochs=100,
         batch_size=1,
         lr=5e-4,
         split_percent=0.5,
@@ -100,5 +105,5 @@ def test_train_ap3_atom_model():
 
 
 if __name__ == "__main__":
-    test_train_ap3_atomTypeparamMPNN()
-    # test_train_ap3_atom_model()
+    # test_train_ap3_atomTypeparamMPNN()
+    test_train_ap3_atom_model()
