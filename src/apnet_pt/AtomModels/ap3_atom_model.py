@@ -317,6 +317,25 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         mu_dipole_summed = scatter_sum_compile(mu_dipole, e_target, n_atoms)
         mu_induced_0 += mu_dipole_summed
 
+        # apply heavy_atoms_only logic in torch
+        mu_induced_0 = torch.where(
+            Z.unsqueeze(-1) == 1, torch.zeros_like(mu_induced_0), mu_induced_0
+        )
+        Z_source = Z.index_select(0, e_source)
+        Z_target = Z.index_select(0, e_target)
+        # set all T tenors to zero where either source or target is hydrogen
+        hydrogen_mask = (Z_source == 1) | (Z_target == 1)
+        T2_mutual = torch.where(
+            hydrogen_mask.unsqueeze(-1).unsqueeze(-1),
+            torch.zeros_like(T2_mutual),
+            T2_mutual,
+        )
+        T1_direct = torch.where(
+            hydrogen_mask.unsqueeze(-1),
+            torch.zeros_like(T1_direct),
+            T1_direct,
+        )
+
         # Self-consistent field (SCF) iteration to converge induced dipoles
         mu_induced = mu_induced_0.clone()
 
@@ -525,6 +544,8 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             e_target,
             hirshfeld_volume_ratio=Ks[:, 0],
         )
+        # print(f"{induced_dipoles = }")
+        # print(f"{Z = }")
         dipole += induced_dipoles
         return charge, dipole, qpole, h_list
 

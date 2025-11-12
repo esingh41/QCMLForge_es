@@ -1473,7 +1473,7 @@ def test_induced_dipole_torch_intramolecular():
             valence_widths=vwA,
             thole_damping_param_mutual=0.39,
             thole_damping_param_direct=0.34,
-            heavy_atoms_only=False,
+            heavy_atoms_only=True,
             screening_distance=1.8,
             compute_energies=False,
             verbose=1,
