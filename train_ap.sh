@@ -39,15 +39,16 @@ export iter=1
 #
 # export iter=1
 # Hirshfeld + Valence widths, AtomTypeParamMPNN
+# rm ./models/ap3_ensemble/$iter/atp_mpnn_$iter.pt
 python3 -u ./train_models.py \
     --train_am AtomTypeParamModel \
     --am_model_path ./models/ap3_ensemble/$iter/atp_mpnn_$iter.pt \
     --random_seed $iter \
     --lr 5e-5 \
-    --n_epochs_atom 500 \
+    --n_epochs_atom 100 \
     --n_neuron 32 \
     --data_dir ./data_dimer_$iter \
-    --spec_type_am 10 \
+    --spec_type_am 5 \
 # Hirshfeld + Valence widths, AtomTypeParamNN
 # python3 -u ./train_models.py \
 #     --train_apnet AtomTypeParamModel \

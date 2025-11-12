@@ -5,7 +5,6 @@ from apnet_pt.util import scatter_sum_compile
 import numpy as np
 import time
 from .ap2_atom_model import (
-    AtomMPNN,
     isolate_atomic_property_predictions,
     qcel_mon_to_pyg_data,
     unwrap_model,
@@ -15,14 +14,11 @@ from .ap2_atom_model import (
 from apnet_pt.atomic_datasets import (
     AtomicDataLoader,
     atomic_collate_update_no_target,
-    atomic_collate_update,
-    atomic_hirshfeld_collate_update,
+    atomic_hfvr_vw_collate_update,
 )
 from apnet_pt.AtomModels.ap2_hirshfeld_atom_model import (
-    AtomHirshfeldMPNN,
     atomic_hirshfeld_module_dataset,
 )
-from apnet_pt import constants
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -714,7 +710,7 @@ class AtomTypeParamModel:
             pin_memory=pin_memory,
             sampler=train_sampler,
             # collate_fn=atomic_collate_update,
-            collate_fn=atomic_hirshfeld_collate_update,
+            collate_fn=atomic_hfvr_vw_collate_update,
         )
 
         test_loader = AtomicDataLoader(
@@ -725,7 +721,7 @@ class AtomTypeParamModel:
             pin_memory=pin_memory,
             sampler=test_sampler,
             # collate_fn=atomic_collate_update,
-            collate_fn=atomic_hirshfeld_collate_update,
+            collate_fn=atomic_hfvr_vw_collate_update,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -763,6 +759,7 @@ class AtomTypeParamModel:
                                     "param_start_mean": cpu_model.param_start_mean,
                                     "param_start_std": cpu_model.param_start_std,
                                     "n_params": cpu_model.n_params,
+                                    "r_cut": cpu_model.r_cut,
                                 },
                             },
                             self.model_save_path,
@@ -810,7 +807,7 @@ class AtomTypeParamModel:
             num_workers=num_workers,
             pin_memory=pin_memory,
             # collate_fn=atomic_collate_update,
-            collate_fn=atomic_hirshfeld_collate_update,
+            collate_fn=atomic_hfvr_vw_collate_update,
         )
 
         test_loader = AtomicDataLoader(
@@ -820,7 +817,7 @@ class AtomTypeParamModel:
             num_workers=num_workers,
             pin_memory=pin_memory,
             # collate_fn=atomic_collate_update,
-            collate_fn=atomic_hirshfeld_collate_update,
+            collate_fn=atomic_hfvr_vw_collate_update,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -871,6 +868,7 @@ class AtomTypeParamModel:
                                     "param_start_mean": cpu_model.param_start_mean,
                                     "param_start_std": cpu_model.param_start_std,
                                     "n_params": cpu_model.n_params,
+                                    "r_cut": cpu_model.r_cut,
                                 },
                             },
                             self.model_save_path,
