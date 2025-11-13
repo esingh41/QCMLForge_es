@@ -469,6 +469,26 @@ def isolate_atomic_property_predictions(batch, output):
     return mol_charges, mol_dipoles, mol_qpoles, mol_hlist
 
 
+def isolate_atomic_property_predictions_q_mu_theta_hlist_hfvr_vw(batch, output):
+    batch_size = batch.natom_per_mol.size(0)
+    qA = output[0]
+    muA = output[1]
+    thA = output[2]
+    hlistA = output[3]
+    mol_charges = [[] for i in range(batch_size)]
+    mol_dipoles = [[] for i in range(batch_size)]
+    mol_qpoles = [[] for i in range(batch_size)]
+    mol_hlist = [[] for i in range(batch_size)]
+    i_offset = 0
+    for n, i in enumerate(batch.natom_per_mol):
+        mol_charges[n] = qA[i_offset : i_offset + i]
+        mol_dipoles[n] = muA[i_offset : i_offset + i]
+        mol_qpoles[n] = thA[i_offset : i_offset + i]
+        mol_hlist[n] = hlistA[i_offset : i_offset + i]
+        i_offset += i
+    return mol_charges, mol_dipoles, mol_qpoles, mol_hlist
+
+
 class AtomModel:
     def __init__(
         self,

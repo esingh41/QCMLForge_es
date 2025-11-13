@@ -5,10 +5,13 @@ import numpy as np
 import time
 from ..AtomModels.ap2_atom_model import (
     AtomMPNN,
-    isolate_atomic_property_predictions,
+    # isolate_atomic_property_predictions,
     qcel_mon_to_pyg_data,
     unwrap_model,
-    DistanceLayer,
+    # DistanceLayer,
+)
+from ..AtomModels.ap2_hirshfeld_atom_model import (
+    isolate_atomic_property_predictions
 )
 from ..atomic_datasets import (
     AtomicDataLoader,
@@ -3948,7 +3951,9 @@ class AtomTypeParamModel:
             if len(mol_data) == batch_size or cnt == len(mols):
                 batch = atomic_collate_update_no_target(mol_data)
                 with torch.no_grad():
-                    charge, dipole, qpole, hfvr, vw, hlist = self.model(batch)
+                    charge, dipole, qpole, hlist, Ks = self.model(batch)
+                    hfvr = Ks[:, 0]
+                    vw = Ks[:, 1]
                     # Isolate atomic properties by molecule
                     (
                         mol_charges,
