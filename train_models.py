@@ -11,6 +11,7 @@ from pprint import pprint
 def train_atom_model(
     atom_model_type="AtomModel",
     model_path="./models/am_amw_1.pt",
+    atom_type_param_model_path=None,
     data_dir="data_atomic",
     spec_type=3,
     testing=False,
@@ -35,26 +36,46 @@ def train_atom_model(
     elif atom_model_type == "AtomTypeParamModel":
         AM = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel
         batch_size = 16
+    elif atom_model_type == "AtomInducedDipoleModel":
+        AM = AtomModels.ap3_atom_model.AtomInducedDipoleModel
+        batch_size = 16
     else:
         raise ValueError("Invalid Atom Model Type")
     pretrained_model = None
     if os.path.exists(model_path):
         pretrained_model = model_path
     print("Training {}...".format(atom_model_type))
-    atom_model = AM(
-        n_message=n_message,
-        n_rbf=n_rbf,
-        n_neuron=n_neuron,
-        n_embed=n_embed,
-        r_cut=r_cut,
-        ds_root=data_dir,
-        ds_spec_type=spec_type,
-        ds_max_size=ds_max_size,
-        ignore_database_null=False,
-        ds_in_memory=True,
-        use_GPU=True,
-        pre_trained_model_path=pretrained_model,
-    )
+    # TODO complete
+    if atom_model_type in ['AtomModel', 'AtomHirshfeldModel', 'AtomTypeParamModel']:
+        atom_model = AM(
+            n_message=n_message,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            ds_root=data_dir,
+            ds_spec_type=spec_type,
+            ds_max_size=ds_max_size,
+            ignore_database_null=False,
+            ds_in_memory=True,
+            use_GPU=True,
+            pre_trained_model_path=pretrained_model,
+        )
+    elif atom_model_type in ['AtomInducedDipoleModel']:
+        atom_model = AM(
+            atomtype_hfvr_pre_trained_path=atom_type_param_model_path,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            ds_root=data_dir,
+            ds_spec_type=spec_type,
+            ds_max_size=ds_max_size,
+            ignore_database_null=False,
+            ds_in_memory=True,
+            use_GPU=True,
+            pre_trained_model_path=pretrained_model,
+        )
     dataloader_num_workers = 0
     if torch.cuda.is_available() and omp_num_threads > 2:
         dataloader_num_workers = omp_num_threads - 2
@@ -355,7 +376,7 @@ def main():
         "--atom_type_param_model_path",
         type=str,
         default=None,
-        help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props (default: None)",
+        help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props or AtomInducedDipoleModel (default: None)",
     )
     args.add_argument(
         "--atom_type_param_model_path2",
@@ -556,6 +577,7 @@ def main():
     if args.train_am != "":
         train_atom_model(
             atom_model_type=args.train_am,
+            atom_type_param_model_path=args.atom_type_param_model_path,
             model_path=args.am_model_path,
             data_dir=args.data_dir,
             spec_type=args.spec_type_am,

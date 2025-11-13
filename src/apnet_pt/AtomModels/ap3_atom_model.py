@@ -298,6 +298,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         )
 
         # Initialize induced dipoles
+        # print(f"{R.size() = }")
         n_atoms = R.shape[0]
         mu_induced_0 = torch.zeros((n_atoms, 3), device=q.device)
 
@@ -317,6 +318,11 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         mu_dipole_summed = scatter_sum_compile(mu_dipole, e_target, n_atoms)
         mu_induced_0 += mu_dipole_summed
 
+        # print(f"{mu_induced_0.size()}")
+        # print(f"{Z.size()}")
+        # print(f"{Z = }")
+        # print(f"{e_source = }")
+        # print(f"{e_target = }")
         # apply heavy_atoms_only logic in torch
         mu_induced_0 = torch.where(
             Z.unsqueeze(-1) == 1, torch.zeros_like(mu_induced_0), mu_induced_0
@@ -435,11 +441,11 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         e_source = idx_map[e_source]
         e_target = idx_map[e_target]
 
-        R = R[keep_mask, :]
+        R_mask = R[keep_mask, :]
         natom_filtered = keep_mask.sum()
 
         #  [edges]
-        dR, dR_xyz = get_distances(R, R, e_source, e_target)
+        dR, dR_xyz = get_distances(R_mask, R_mask, e_source, e_target)
 
         # [edges x 3]
         dr_unit = dR_xyz / dR.unsqueeze(1)
@@ -544,8 +550,6 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             e_target,
             hirshfeld_volume_ratio=Ks[:, 0],
         )
-        # print(f"{induced_dipoles = }")
-        # print(f"{Z = }")
         dipole += induced_dipoles
         return charge, dipole, qpole, h_list
 
@@ -801,6 +805,8 @@ units angstrom
         self.model.eval()
         with torch.no_grad():
             for batch in data_loader:
+                # print('saving batch for debug')
+                # torch.save(batch, "debug_batch.pt")
                 batch_loss = 0.0
                 batch = batch.to(self.device)
                 charge, dipole, qpole, hlist = self.model(batch)
@@ -874,6 +880,8 @@ units angstrom
         for batch in dataloader:
             batch = batch.to(rank_device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
+            # print('saving batch for debug')
+            # torch.save(batch, "debug_batch.pt")
             charge, dipole, qpole, _ = self.model(batch)
 
             q_error = charge - batch.charges
@@ -969,6 +977,8 @@ units angstrom
 
         with torch.no_grad():
             for batch in dataloader:
+                # print('saving batch for debug')
+                # torch.save(batch, "debug_batch.pt")
                 batch = batch.to(rank_device, non_blocking=True)
                 charge, dipole, qpole, _ = self.model(batch)
 
@@ -1006,6 +1016,8 @@ units angstrom
 
         with torch.no_grad():
             for batch in dataloader:
+                # print('saving batch for debug')
+                # torch.save(batch, "debug_batch.pt")
                 batch = batch.to(rank_device)
                 charge, dipole, qpole, _ = self.model(batch)
 

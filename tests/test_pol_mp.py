@@ -58,7 +58,6 @@ def test_train_ap3_atomTypeparamMPNN():
     return
 
 
-
 def test_train_ap3_atom_model():
     ds = atomic_datasets.atomic_module_dataset(
         root=data_path,
@@ -103,7 +102,74 @@ def test_train_ap3_atom_model():
     )
     return
 
+def train_ap3_atom_model():
+    ds = atomic_datasets.atomic_module_dataset(
+        root=f"{current_file_path}/../data_dimer_1",
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=10,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=16,
+    )
+    torch.set_printoptions(profile="full")
+    print(ds)
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+        pre_trained_model_path=atp_path,
+    )
+    print(atpm)
+    # DDP
+    os.environ["OMP_NUM_THREADS"] = "4"
+    am = AtomModels.ap3_atom_model.AtomInducedDipoleModel(
+        atomtype_hfvr_model=atpm.model,
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    am.train(
+        n_epochs=100,
+        batch_size=16,
+        lr=5e-4,
+        split_percent=0.9,
+        shuffle=True,
+        skip_compile=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=4,
+        random_seed=42,
+        model_path=f"{current_file_path}/..models/ap3_ensemble/ap3_am_spec10.pt",
+    )
+    return
+
+
+def debug_ap3_atom_model():
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=True,
+        dataset=None,
+        pre_trained_model_path=atp_path,
+    )
+    print(atpm)
+    # DDP
+    os.environ["OMP_NUM_THREADS"] = "4"
+    am = AtomModels.ap3_atom_model.AtomInducedDipoleModel(
+        atomtype_hfvr_model=atpm.model,
+        use_GPU=False,
+        ignore_database_null=True,
+        dataset=None,
+    )
+    am.model(torch.load(f"{current_file_path}/../debug_batch.pt", weights_only=False))
+    return
+
 
 if __name__ == "__main__":
     # test_train_ap3_atomTypeparamMPNN()
-    test_train_ap3_atom_model()
+    # test_train_ap3_atom_model()
+    train_ap3_atom_model()
+    # debug_ap3_atom_model()
