@@ -69,7 +69,6 @@ def unsorted_segment_sum_3d(data, segment_ids, num_segments):
 
 
 def make_quad(flat_quad):
-
     natom = flat_quad.size()[0]
     full_quad = torch.zeros(
         (natom, 3, 3), device=flat_quad.device, dtype=flat_quad.dtype
@@ -299,8 +298,12 @@ class AtomMPNN(MessagePassing):
             h_list = torch.stack(h_list, dim=1)
             molecule_ind.requires_grad_(False)
             molecule_ind = molecule_ind.long()
-            num_mols = int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
-            total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
+            num_mols = (
+                int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+            )
+            total_charge_pred = scatter_sum_compile(
+                charge, molecule_ind, num_mols, reduce="sum"
+            )
             total_charge_pred = total_charge_pred.squeeze()
             total_charge_err = total_charge_pred - total_charge
             charge_err = torch.repeat_interleave(
@@ -308,10 +311,16 @@ class AtomMPNN(MessagePassing):
             ).unsqueeze(1)
             charge = charge - charge_err
             return charge, dipole, qpole, h_list
-        
+
         # 1) Filter out atoms that don't have edges
-        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
-        keep_mask = torch.isin(torch.arange(len(molecule_ind), device=molecule_ind.device), atoms_with_edges)
+        # Create keep_mask directly from edge_index without using torch.isin
+        # This is more compile-friendly than torch.isin with unbacked symbolic shapes
+        natom = len(molecule_ind)
+        keep_mask = torch.zeros(natom, dtype=torch.bool, device=molecule_ind.device)
+        if edge_index.size(1) > 0:
+            # Mark all atoms that appear in edge_index as True
+            keep_mask.scatter_(0, edge_index[0], True)
+            keep_mask.scatter_(0, edge_index[1], True)
         filtered_charge = charge[keep_mask]
 
         # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms and edges
@@ -324,8 +333,10 @@ class AtomMPNN(MessagePassing):
         edge_keep = keep_mask[e_source] & keep_mask[e_target]
         e_source = e_source[edge_keep]
         e_target = e_target[edge_keep]
-        idx_map = torch.cumsum(keep_mask, dim=0) - 1  # shape [N], each kept atom -> new index
-        idx_map = idx_map.long()                     # ensure integer
+        idx_map = (
+            torch.cumsum(keep_mask, dim=0) - 1
+        )  # shape [N], each kept atom -> new index
+        idx_map = idx_map.long()  # ensure integer
         e_source = idx_map[e_source]
         e_target = idx_map[e_target]
 
@@ -413,7 +424,9 @@ class AtomMPNN(MessagePassing):
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
         num_mols = int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
-        total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
+        total_charge_pred = scatter_sum_compile(
+            charge, molecule_ind, num_mols, reduce="sum"
+        )
         # return charge, dipole, qpole, h_list
 
         total_charge_pred = total_charge_pred.squeeze()
@@ -499,7 +512,10 @@ class AtomModel:
                 n_embed=checkpoint["config"]["n_embed"],
                 r_cut=checkpoint["config"]["r_cut"],
             )
-            model_state_dict = {k.replace("_orig_mod.", ""): v for k,v in checkpoint["model_state_dict"].items()}
+            model_state_dict = {
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
+            }
             self.model.load_state_dict(model_state_dict)
         else:
             self.model = AtomMPNN(
@@ -515,8 +531,13 @@ class AtomModel:
         self.ds_spec_type = ds_spec_type
         mp.set_sharing_strategy("file_system")
         split_dbs = [7]
-        if not ignore_database_null and self.dataset is None and self.ds_spec_type not in split_dbs:
+        if (
+            not ignore_database_null
+            and self.dataset is None
+            and self.ds_spec_type not in split_dbs
+        ):
             print("Setting up dataset...")
+
             def setup_ds(fp=ds_force_reprocess):
                 return atomic_module_dataset(
                     root=ds_root,
@@ -526,6 +547,7 @@ class AtomModel:
                     force_reprocess=fp,
                     in_memory=ds_in_memory,
                 )
+
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
         elif (
@@ -534,6 +556,7 @@ class AtomModel:
             and self.ds_spec_type in split_dbs
         ):
             print("Processing Split dataset...")
+
             def setup_ds(fp=ds_force_reprocess):
                 return [
                     atomic_module_dataset(
@@ -555,6 +578,7 @@ class AtomModel:
                         in_memory=ds_in_memory,
                     ),
                 ]
+
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
         print(f"{self.dataset = }")
@@ -568,7 +592,9 @@ class AtomModel:
     def set_pretrained_model(self, model_path=None, model_id=None):
         if model_id is not None:
             # model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
-            model_path = resources.files("apnet_pt").joinpath("models", "am_ensemble", f"am_{model_id}.pt")
+            model_path = resources.files("apnet_pt").joinpath(
+                "models", "am_ensemble", f"am_{model_id}.pt"
+            )
         elif model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
@@ -576,12 +602,12 @@ class AtomModel:
         # pp(checkpoint)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
-                k.replace("_orig_mod.", ""):
-                v for k, v in checkpoint["model_state_dict"].items()
+                k.replace("_orig_mod.", ""): v
+                for k, v in checkpoint["model_state_dict"].items()
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.model.load_state_dict(checkpoint["model_state_dict"])
         return self
 
     def compile_model(self):
@@ -604,7 +630,7 @@ class AtomModel:
         mol_data = [qcel_mon_to_pyg_data(mol) for mol in mols]
         batches = []
         for i in range(0, len(mol_data), batch_size):
-            batch_mol_data = mol_data[i: i + batch_size]
+            batch_mol_data = mol_data[i : i + batch_size]
             batch_A = atomic_collate_update_no_target(batch_mol_data)
             batches.append(batch_A)
         return batches
@@ -743,9 +769,9 @@ units angstrom
             d_error = dipole - batch.dipoles
             qp_error = qpole - batch.quadrupoles
 
-            charge_loss = (q_error ** 2).mean()
-            dipole_loss = (d_error ** 2).mean()
-            qpole_loss = (qp_error ** 2).mean()
+            charge_loss = (q_error**2).mean()
+            dipole_loss = (d_error**2).mean()
+            qpole_loss = (qp_error**2).mean()
 
             loss = charge_loss + dipole_loss + qpole_loss
             loss.backward()
@@ -839,9 +865,9 @@ units angstrom
                 d_error = dipole - batch.dipoles
                 qp_error = qpole - batch.quadrupoles
 
-                charge_loss = (q_error ** 2).mean()
-                dipole_loss = (d_error ** 2).mean()
-                qpole_loss = (qp_error ** 2).mean()
+                charge_loss = (q_error**2).mean()
+                dipole_loss = (d_error**2).mean()
+                qpole_loss = (qp_error**2).mean()
 
                 loss = charge_loss + dipole_loss + qpole_loss
                 total_loss += loss.item()
@@ -1314,10 +1340,14 @@ units angstrom
                 with torch.no_grad():
                     charge, dipole, qpole, hlist = self.model(batch)
                     # Isolate atomic properties by molecule
-                    mol_charges, mol_dipoles, mol_qpoles, mol_hlists = isolate_atomic_property_predictions(
-                        batch, (charge, dipole, qpole, hlist)
+                    mol_charges, mol_dipoles, mol_qpoles, mol_hlists = (
+                        isolate_atomic_property_predictions(
+                            batch, (charge, dipole, qpole, hlist)
+                        )
                     )
-                    output.extend(list(zip(mol_charges, mol_dipoles, mol_qpoles, mol_hlists)))
+                    output.extend(
+                        list(zip(mol_charges, mol_dipoles, mol_qpoles, mol_hlists))
+                    )
                 mol_data = []
         return output
 
@@ -1333,4 +1363,3 @@ units angstrom
             natom_per_mol=data.natom_per_mol,
         )
         return charge, dipole, qpole, hlist
-

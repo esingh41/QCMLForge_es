@@ -191,8 +191,14 @@ class AtomHirshfeldMPNN(MessagePassing):
             )
 
         # 1) Filter out atoms that don't have edges
-        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
-        keep_mask = torch.isin(torch.arange(len(molecule_ind), device=molecule_ind.device), atoms_with_edges)
+        # Create keep_mask directly from edge_index without using torch.isin
+        # This is more compile-friendly than torch.isin with unbacked symbolic shapes
+        natom = len(molecule_ind)
+        keep_mask = torch.zeros(natom, dtype=torch.bool, device=molecule_ind.device)
+        if edge_index.size(1) > 0:
+            # Mark all atoms that appear in edge_index as True
+            keep_mask.scatter_(0, edge_index[0], True)
+            keep_mask.scatter_(0, edge_index[1], True)
 
         filtered_charge = charge[keep_mask]
         filtered_volume_ratio = volume_ratio[keep_mask]
@@ -208,8 +214,10 @@ class AtomHirshfeldMPNN(MessagePassing):
         edge_keep = keep_mask[e_source] & keep_mask[e_target]
         e_source = e_source[edge_keep]
         e_target = e_target[edge_keep]
-        idx_map = torch.cumsum(keep_mask, dim=0) - 1  # shape [N], each kept atom -> new index
-        idx_map = idx_map.long()                     # ensure integer
+        idx_map = (
+            torch.cumsum(keep_mask, dim=0) - 1
+        )  # shape [N], each kept atom -> new index
+        idx_map = idx_map.long()  # ensure integer
         e_source = idx_map[e_source]
         e_target = idx_map[e_target]
 
@@ -1069,9 +1077,7 @@ class AtomHirshfeldModel:
             )
         )
         test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v, vw_MAE_v = (
-            self.evaluate_batches_single_proc(
-                rank, test_loader, criterion, rank_device
-            )
+            self.evaluate_batches_single_proc(rank, test_loader, criterion, rank_device)
         )
         dt = time.time() - t1
         print(

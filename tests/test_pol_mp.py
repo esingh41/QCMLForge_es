@@ -102,6 +102,7 @@ def test_train_ap3_atom_model():
     )
     return
 
+
 def train_ap3_atom_model():
     ds = atomic_datasets.atomic_module_dataset(
         root=f"{current_file_path}/../data_dimer_1",

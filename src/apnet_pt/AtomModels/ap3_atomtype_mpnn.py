@@ -192,11 +192,14 @@ class AtomTypeParamMPNN(nn.Module):
         K_list = [self.guess_layer[p](Z) for p in range(self.n_params)]
         K = torch.cat(K_list, dim=-1)  # shape (n_atoms, n_params)
         # print(f"{K = }")
-        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
-        keep_mask = torch.isin(
-            torch.arange(len(molecule_ind), device=molecule_ind.device),
-            atoms_with_edges,
-        )
+        # Create keep_mask directly from edge_index without using torch.isin
+        # This is more compile-friendly than torch.isin with unbacked symbolic shapes
+        natom = len(molecule_ind)
+        keep_mask = torch.zeros(natom, dtype=torch.bool, device=molecule_ind.device)
+        if edge_index.size(1) > 0:
+            # Mark all atoms that appear in edge_index as True
+            keep_mask.scatter_(0, edge_index[0], True)
+            keep_mask.scatter_(0, edge_index[1], True)
         if not keep_mask.any():
             return K.squeeze(-1) if self.n_params == 1 else K
         K_filtered = K[keep_mask]

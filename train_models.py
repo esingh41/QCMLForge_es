@@ -61,6 +61,7 @@ def train_atom_model(
             use_GPU=True,
             pre_trained_model_path=pretrained_model,
         )
+        skip_compile = False
     elif atom_model_type in ['AtomInducedDipoleModel']:
         atom_model = AM(
             atomtype_hfvr_pre_trained_path=atom_type_param_model_path,
@@ -76,6 +77,7 @@ def train_atom_model(
             use_GPU=True,
             pre_trained_model_path=pretrained_model,
         )
+        skip_compile = True
     dataloader_num_workers = 0
     if torch.cuda.is_available() and omp_num_threads > 2:
         dataloader_num_workers = omp_num_threads - 2
@@ -91,6 +93,7 @@ def train_atom_model(
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads,
         random_seed=random_seed,
+        skip_compile=skip_compile,
     )
     return
 

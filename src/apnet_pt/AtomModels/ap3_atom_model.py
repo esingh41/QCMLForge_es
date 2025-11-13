@@ -230,7 +230,14 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
 
         # Define helper function to calculate distance tensors with Thole damping
         def distance_tensors(
-            Ri, Rj, e_source, e_target, alpha_i, alpha_j, thole_param, apply_screening=False
+            Ri,
+            Rj,
+            e_source,
+            e_target,
+            alpha_i,
+            alpha_j,
+            thole_param,
+            apply_screening=False,
         ):
             """Calculate interaction tensors between atoms with optional screening"""
             dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
@@ -418,11 +425,14 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         hfvr = Ks[:, 0].unsqueeze(1)
         vw = Ks[:, 1].unsqueeze(1)
         # 1) Filter out atoms that don't have edges
-        atoms_with_edges = torch.cat([edge_index[0], edge_index[1]]).unique()
-        keep_mask = torch.isin(
-            torch.arange(len(molecule_ind), device=molecule_ind.device),
-            atoms_with_edges,
-        )
+        # Create keep_mask directly from edge_index without using torch.isin
+        # This is more compile-friendly than torch.isin with unbacked symbolic shapes
+        natom = len(molecule_ind)
+        keep_mask = torch.zeros(natom, dtype=torch.bool, device=molecule_ind.device)
+        if edge_index.size(1) > 0:
+            # Mark all atoms that appear in edge_index as True
+            keep_mask.scatter_(0, edge_index[0], True)
+            keep_mask.scatter_(0, edge_index[1], True)
         filtered_charge = charge[keep_mask]
 
         # Now `filtered_charge` contains only atoms from molecules that have >= 2 atoms and edges
@@ -457,7 +467,9 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             #####################
 
             # [edges x message_embedding_dim]
-            m_ij = self.get_messages(h_list[0], h_list[-1], rbf, hfvr, vw, e_source, e_target)
+            m_ij = self.get_messages(
+                h_list[0], h_list[-1], rbf, hfvr, vw, e_source, e_target
+            )
 
             # [atoms x message_embedding_dim]
             m_i = scatter_sum_compile(m_ij, e_source, int(natom_filtered), reduce="sum")  # type: ignore
@@ -582,10 +594,7 @@ class AtomInducedDipoleModel:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
-        if (
-            atomtype_hfvr_model is None
-            and atomtype_hfvr_pre_trained_path is None
-        ):
+        if atomtype_hfvr_model is None and atomtype_hfvr_pre_trained_path is None:
             raise ValueError(
                 "Either atomtypeparam_hfvr_model or atomtypeparam_hfvr_pre_trained_path must be provided.\n"
                 "Without a model predicting hirshfeld volumes, induced dipoles cannot be computed correctly"
@@ -601,7 +610,9 @@ class AtomInducedDipoleModel:
             self.atomtype_hfvr_model = atomtype_hfvr_model
 
         if atomtype_hfvr_pre_trained_path is not None:
-            print(f"Loading pre-trained AtomTypeParamMPNN hfvr model from {atomtype_hfvr_pre_trained_path}")
+            print(
+                f"Loading pre-trained AtomTypeParamMPNN hfvr model from {atomtype_hfvr_pre_trained_path}"
+            )
             checkpoint = torch.load(atomtype_hfvr_pre_trained_path, weights_only=False)
             self.atomtype_hfvr_model = AtomTypeParamMPNN(
                 n_message=checkpoint["config"]["n_message"],
