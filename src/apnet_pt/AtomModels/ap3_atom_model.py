@@ -43,6 +43,8 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         n_neuron=128,
         n_embed=8,
         r_cut=5.0,
+        use_nn_screening=False,
+        precompute_hfvr=False,
     ):
         super().__init__()
         self.n_message = n_message
@@ -50,8 +52,17 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         self.n_neuron = n_neuron
         self.n_embed = n_embed
         self.r_cut = r_cut
-        self.atomtype_hfvr_model = atomtype_hfvr_model
-        self.atomtype_hfvr_model.requires_grad_(False)
+        self.use_nn_screening = use_nn_screening
+        self.precompute_hfvr = precompute_hfvr
+
+        print(f"Precompute HFVR: {precompute_hfvr}")
+        # Only store and freeze model if NOT precomputing
+        if not precompute_hfvr:
+            self.atomtype_hfvr_model = atomtype_hfvr_model
+            self.atomtype_hfvr_model.requires_grad_(False)
+        else:
+            # Don't store model to save memory - will read from batch
+            self.atomtype_hfvr_model = None
 
         self.polarizability_table = constants.polarizability_table.clone()
         # embed interatomic distances into large orthogonal basis
@@ -73,6 +84,11 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         self.charge_readout_layers = nn.ModuleList()
         self.dipole_readout_layers = nn.ModuleList()
         self.qpole_readout_layers = nn.ModuleList()
+
+        # damping layers for NN screening (only used if use_nn_screening=True)
+        if use_nn_screening:
+            self.damping_update_layers = nn.ModuleList()
+            self.damping_readout_layers = nn.ModuleList()
 
         input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf + 4
 
@@ -116,6 +132,15 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             )
             self.dipole_readout_layers.append(nn.Linear(n_embed, 1))
             self.qpole_readout_layers.append(nn.Linear(n_embed, 1))
+
+            # Add damping layers for NN screening
+            if use_nn_screening:
+                self.damping_update_layers.append(
+                    self._make_layers(layer_nodes_hidden, layer_activations)
+                )
+                self.damping_readout_layers.append(
+                    self._make_layers(layer_nodes_readout, layer_activations)
+                )
 
     def _make_layers(self, layer_nodes, activations):
         layers = []
@@ -220,9 +245,6 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             - quadrupoles: original quadrupoles (n_atoms, 3, 3)
             - energy (optional): intramolecular induction energy in kcal/mol
         """
-        from apnet_pt.AtomPairwiseModels.mtp_mtp import get_distances
-
-        h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
 
         # Calculate atomic polarizabilities
         alpha_0 = torch.index_select(self.polarizability_table, 0, Z.long())
@@ -376,6 +398,242 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
 
         return mu_induced
 
+    def monomer_induced_dipole_torch_NN_screening(
+        self,
+        Z,
+        R,
+        q,
+        mu,
+        quad,
+        e_source,
+        e_target,
+        hirshfeld_volume_ratio: torch.Tensor,
+        h_list,
+        rbf,
+        hfvr,
+        vw,
+        max_iterations: int = 200,
+        convergence_threshold: float = 1e-8,
+        omega: float = 0.7,
+        thole_damping_param_mutual: float = 0.39,
+        thole_damping_param_direct: float = 0.34,
+        compute_energies: bool = False,
+    ) -> tuple:
+        """
+        Calculate intramolecular induced dipoles for a single molecule using
+        its multipole moments and Hirshfeld volume ratios with NN-based screening.
+
+        Reference: https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
+
+        Parameters
+        ----------
+        Z : torch.Tensor
+            Atomic numbers (n_atoms,)
+        R : torch.Tensor
+            Atomic positions in Bohr (n_atoms, 3)
+        q : torch.Tensor
+            Atomic charges (n_atoms, 1) or (n_atoms,)
+        mu : torch.Tensor
+            Atomic dipole moments (n_atoms, 3)
+        quad : torch.Tensor
+            Atomic quadrupole moments (n_atoms, 3, 3)
+        e_source : torch.Tensor
+            Source atom indices for intramolecular pairs
+        e_target : torch.Tensor
+            Target atom indices for intramolecular pairs
+        hirshfeld_volume_ratio : torch.Tensor
+            Hirshfeld volume ratios for polarizability scaling (n_atoms,)
+        h_list : torch.Tensor
+            Hidden states from message passing for NN screening
+        rbf : torch.Tensor
+            RBF features for edge-wise predictions
+        hfvr : torch.Tensor
+            Hirshfeld features
+        vw : torch.Tensor
+            Van der Waals features
+        max_iterations : int
+            Maximum number of SCF iterations (default: 200)
+        convergence_threshold : float
+            Convergence threshold for induced dipoles (default: 1e-8)
+        omega : float
+            Damping parameter for SCF convergence (default: 0.7, recommended)
+        thole_damping_param_mutual : float
+            Thole damping parameter for induced-induced interactions (default: 0.39)
+        thole_damping_param_direct : float
+            Thole damping parameter for permanent-induced interactions (default: 0.34)
+        compute_energies : bool
+            If True, compute and return intramolecular induction energy (default: False)
+
+        Returns
+        -------
+        torch.Tensor
+            Converged induced dipole moments (n_atoms, 3)
+        """
+
+        # Calculate atomic polarizabilities
+        alpha_0 = torch.index_select(self.polarizability_table, 0, Z.long())
+        alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
+
+        # Compute NN-based screening factors using damping layers
+        # Process messages through damping network
+        screening_factors_list = []
+        for i in range(self.n_message):
+            m_ij = self.get_messages(
+                h_list[0], h_list[-1], rbf, hfvr, vw, e_source, e_target
+            )
+            h_damping = self.damping_update_layers[i](m_ij)
+            # Get screening factor (sigmoid to constrain to [0, 1])
+            screen_factor = torch.sigmoid(self.damping_readout_layers[i](h_damping))
+            # have screening_factor be 1-screen_factor so that 0 = fully screened, 1 = no screening
+            screen_factor = 1.0 - screen_factor
+            screening_factors_list.append(screen_factor)
+
+        # Average screening factors across message passing steps
+        screening_factors = (
+            torch.stack(screening_factors_list, dim=0).mean(dim=0).squeeze(-1)
+        )
+
+        # print(f"{screening_factors = }")
+        # Define helper function to calculate distance tensors with Thole damping
+        def distance_tensors(
+            Ri,
+            Rj,
+            e_source,
+            e_target,
+            alpha_i,
+            alpha_j,
+            thole_param,
+            apply_screening=False,
+            screening_factors=None,
+        ):
+            """Calculate interaction tensors between atoms with optional NN screening"""
+            dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
+            dR_xyz = dR_xyz_ang / constants.au2ang
+            dR = dR_ang / constants.au2ang
+
+            alpha_source = alpha_i.index_select(0, e_source)
+            alpha_target = alpha_j.index_select(0, e_target)
+
+            # Apply Thole damping
+            if apply_screening:
+                au3, lam_3, lam_5 = thole_damping_direct_torch(
+                    dR, alpha_source, alpha_target, thole_param
+                )
+            else:
+                au3, lam_3, lam_5 = thole_damping_mutual_torch(
+                    dR, alpha_source, alpha_target, thole_param
+                )
+
+            # Apply NN-based screening for direct interactions if provided
+            if apply_screening and screening_factors is not None:
+                # screening_factors should be in range [0, 1] where 0 = fully screened, 1 = no screening
+                lam_3 = lam_3 * screening_factors
+                lam_5 = lam_5 * screening_factors
+
+            delta = torch.eye(3, device=dR.device)
+            oodR = 1.0 / dR
+
+            # T1: field tensor (rank 1)
+            T1 = torch.einsum("x,xy,x->xy", oodR**3, dR_xyz, lam_3)
+
+            # T2: field gradient tensor (rank 2)
+            T2 = 3 * torch.einsum("xy,xz,x->xyz", dR_xyz, dR_xyz, lam_5) - torch.einsum(
+                "x,x,yz,x->xyz", dR, dR, delta, lam_3
+            )
+            T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
+
+            return dR, dR_xyz, oodR, T1, T2
+
+        # Calculate direct tensors (permanent → induced) with NN screening
+        dR_direct, dR_xyz_direct, T0_direct, T1_direct, T2_direct = distance_tensors(
+            R,
+            R,
+            e_source,
+            e_target,
+            alpha,
+            alpha,
+            thole_damping_param_direct,
+            apply_screening=True,
+            screening_factors=screening_factors,
+        )
+
+        # Calculate mutual tensors (induced ↔ induced) without screening
+        dR_mutual, dR_xyz_mutual, T0_mutual, T1_mutual, T2_mutual = distance_tensors(
+            R,
+            R,
+            e_source,
+            e_target,
+            alpha,
+            alpha,
+            thole_damping_param_mutual,
+            apply_screening=False,
+        )
+
+        # Initialize induced dipoles
+        n_atoms = R.shape[0]
+        mu_induced_0 = torch.zeros((n_atoms, 3), device=q.device)
+
+        # Select relevant tensors for atom pairs
+        alpha_target = alpha.index_select(0, e_target)
+        q_source = q.squeeze(-1).index_select(0, e_source)
+        mu_source = mu.index_select(0, e_source)
+
+        # Calculate initial induced dipoles from permanent multipoles (using direct tensors with NN screening)
+        # Contribution from charges: mu_ind = alpha * T1 * q
+        mu_charge = torch.einsum("a,ai,a->ai", alpha_target, T1_direct, q_source)
+        mu_induced_0 = scatter_sum_compile(mu_charge, e_target, n_atoms)
+
+        # Contribution from dipoles: mu_ind += alpha * T2 * mu
+        mu_dipole = torch.einsum("a,aij,aj->ai", alpha_target, T2_direct, mu_source)
+        mu_dipole_summed = scatter_sum_compile(mu_dipole, e_target, n_atoms)
+        mu_induced_0 += mu_dipole_summed
+
+        # Apply heavy_atoms_only logic in torch
+        mu_induced_0 = torch.where(
+            Z.unsqueeze(-1) == 1, torch.zeros_like(mu_induced_0), mu_induced_0
+        )
+        Z_source = Z.index_select(0, e_source)
+        Z_target = Z.index_select(0, e_target)
+        # Set all T tensors to zero where either source or target is hydrogen
+        hydrogen_mask = (Z_source == 1) | (Z_target == 1)
+        T2_mutual = torch.where(
+            hydrogen_mask.unsqueeze(-1).unsqueeze(-1),
+            torch.zeros_like(T2_mutual),
+            T2_mutual,
+        )
+        T1_direct = torch.where(
+            hydrogen_mask.unsqueeze(-1),
+            torch.zeros_like(T1_direct),
+            T1_direct,
+        )
+
+        # Self-consistent field (SCF) iteration to converge induced dipoles
+        mu_induced = mu_induced_0.clone()
+
+        for iteration in range(max_iterations):
+            mu_induced_old = mu_induced.clone()
+
+            # Induced dipoles due to other induced dipoles (using mutual tensors)
+            mu_induced_contrib = torch.einsum(
+                "a,aij,aj->ai",
+                alpha_target,
+                T2_mutual,
+                mu_induced.index_select(0, e_source),
+            )
+            mu_induced_new = scatter_sum_compile(mu_induced_contrib, e_target, n_atoms)
+            # Add initial induced dipoles from permanent multipoles
+            mu_induced_new += mu_induced_0
+
+            # Apply mixing for numerical stability
+            mu_induced = (1 - omega) * mu_induced_old + omega * mu_induced_new
+
+            # Check convergence
+            delta = torch.norm(mu_induced - mu_induced_old)
+            if delta < convergence_threshold:
+                break
+
+        return mu_induced
+
     # @torch.jit.trace
     def forward(
         self,
@@ -421,9 +679,17 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             charge = charge - charge_err
             return charge, dipole, qpole, h_list
 
-        Ks = self.atomtype_hfvr_model(batch)
-        hfvr = Ks[:, 0].unsqueeze(1)
-        vw = Ks[:, 1].unsqueeze(1)
+        # Conditional hfvr/vw retrieval based on precompute_hfvr flag
+        if self.precompute_hfvr:
+            # Read directly from batch (pre-computed during dataset processing)
+            hfvr = batch.volume_ratios.unsqueeze(1)  # [n_atoms, 1]
+            vw = batch.valence_widths.unsqueeze(1)  # [n_atoms, 1]
+        else:
+            # Compute on-the-fly using model (existing behavior)
+            Ks = self.atomtype_hfvr_model(batch)
+            hfvr = Ks[:, 0].unsqueeze(1)
+            vw = Ks[:, 1].unsqueeze(1)
+
         # 1) Filter out atoms that don't have edges
         # Create keep_mask directly from edge_index without using torch.isin
         # This is more compile-friendly than torch.isin with unbacked symbolic shapes
@@ -550,20 +816,49 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         # changed to dim=0 from dim=1 for usage in Param fitting # AMW 8/20/25
         # Breaks test_apnet2_train_qcel_molecules_in_memory_transfer test,
         # dimensions no longer correct... figure out another way to fix this. reverting back to dim=1 # AMW 9/17/25
-        h_list = torch.stack(h_list, dim=1)
+        h_list_stacked = torch.stack(h_list, dim=1)
 
-        induced_dipoles = self.monomer_induced_dipole_torch(
-            Z,
-            R,
-            charge.unsqueeze(1),
-            dipole,
-            qpole,
-            e_source,
-            e_target,
-            hirshfeld_volume_ratio=Ks[:, 0],
-        )
+        # Choose induced dipole calculation method based on use_nn_screening flag
+        if self.use_nn_screening:
+            # For NN screening, we need to expand h_list back to full size for get_messages
+            # Create full h_list by scattering filtered values back
+            h_list_full = []
+            for h_layer in h_list:
+                h_full = torch.zeros(
+                    natom, h_layer.size(-1), device=h_layer.device, dtype=h_layer.dtype
+                )
+                h_full[keep_mask] = h_layer
+                h_list_full.append(h_full)
+
+            induced_dipoles = self.monomer_induced_dipole_torch_NN_screening(
+                Z,
+                R,
+                charge.unsqueeze(1),
+                dipole,
+                qpole,
+                edge_index[0],  # Use original edge indices
+                edge_index[1],
+                hirshfeld_volume_ratio=hfvr.squeeze(1),
+                h_list=h_list_full,
+                rbf=self.distance_layer(
+                    get_distances(R, R, edge_index[0], edge_index[1])[0]
+                ),
+                hfvr=hfvr,
+                vw=vw,
+            )
+        else:
+            induced_dipoles = self.monomer_induced_dipole_torch(
+                Z,
+                R,
+                charge.unsqueeze(1),
+                dipole,
+                qpole,
+                edge_index[0],  # Use original edge indices
+                edge_index[1],
+                hirshfeld_volume_ratio=hfvr.squeeze(1),
+            )
         dipole += induced_dipoles
-        return charge, dipole, qpole, h_list
+        return charge, dipole, qpole, h_list_stacked
 
 
 class AtomInducedDipoleModel:
@@ -578,6 +873,8 @@ class AtomInducedDipoleModel:
         n_neuron=128,
         n_embed=8,
         r_cut=5.0,
+        use_nn_screening=False,
+        precompute_hfvr=False,
         use_GPU=None,
         ignore_database_null=True,
         ds_spec_type=1,
@@ -593,11 +890,24 @@ class AtomInducedDipoleModel:
         the path and all other parameters will be ignored except for dataset.
 
         use_GPU will check for a GPU and use it if available unless set to false.
+
+        Parameters
+        ----------
+        precompute_hfvr : bool
+            If True, expects dataset to have pre-computed volume_ratios and valence_widths.
+            The forward pass will read these from batch instead of computing on-the-fly.
+            This significantly speeds up training but requires using
+            atomic_induced_dipole_precomputed_dataset.
         """
-        if atomtype_hfvr_model is None and atomtype_hfvr_pre_trained_path is None:
+        if (
+            not precompute_hfvr
+            and atomtype_hfvr_model is None
+            and atomtype_hfvr_pre_trained_path is None
+        ):
             raise ValueError(
                 "Either atomtypeparam_hfvr_model or atomtypeparam_hfvr_pre_trained_path must be provided.\n"
-                "Without a model predicting hirshfeld volumes, induced dipoles cannot be computed correctly"
+                "Without a model predicting hirshfeld volumes, induced dipoles cannot be computed correctly.\n"
+                "Alternatively, set precompute_hfvr=True and use atomic_induced_dipole_precomputed_dataset."
             )
         if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
@@ -631,28 +941,68 @@ class AtomInducedDipoleModel:
 
         if pre_trained_model_path:
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
+            # Prioritize user-provided precompute_hfvr over checkpoint value
+            # This allows users to switch modes when loading old checkpoints
+            checkpoint_precompute = checkpoint["config"].get("precompute_hfvr", False)
+            use_precompute = (
+                precompute_hfvr if precompute_hfvr else checkpoint_precompute
+            )
+
             self.model = AtomInducedDipoleMPNN(
-                atomtype_hfvr_model=self.atomtype_hfvr_model,
+                atomtype_hfvr_model=self.atomtype_hfvr_model
+                if not use_precompute
+                else None,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
                 n_embed=checkpoint["config"]["n_embed"],
                 r_cut=checkpoint["config"]["r_cut"],
+                use_nn_screening=checkpoint["config"].get("use_nn_screening", False),
+                precompute_hfvr=use_precompute,
             )
+
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
                 for k, v in checkpoint["model_state_dict"].items()
             }
-            self.model.load_state_dict(model_state_dict)
+
+            # If switching between precompute modes, filter atomtype_hfvr_model keys
+            if use_precompute and not checkpoint_precompute:
+                # User wants precompute=True but checkpoint has atomtype_hfvr_model keys
+                # Filter them out since new model doesn't have that submodule
+                model_state_dict = {
+                    k: v
+                    for k, v in model_state_dict.items()
+                    if not k.startswith("atomtype_hfvr_model.")
+                }
+                print(
+                    "Note: Filtered out atomtype_hfvr_model weights (switching to precompute mode)"
+                )
+            elif not use_precompute and checkpoint_precompute:
+                # User wants precompute=False but checkpoint doesn't have atomtype_hfvr_model
+                # This is fine, we'll just load what's available
+                print(
+                    "Note: Checkpoint was saved with precompute mode, loading available weights"
+                )
+
+            self.model.load_state_dict(model_state_dict, strict=False)
+            # Store the precompute flag used for model creation
+            self.precompute_hfvr = use_precompute
         else:
             self.model = AtomInducedDipoleMPNN(
-                atomtype_hfvr_model=self.atomtype_hfvr_model,
+                atomtype_hfvr_model=self.atomtype_hfvr_model
+                if not precompute_hfvr
+                else None,
                 n_message=n_message,
                 n_rbf=n_rbf,
                 n_neuron=n_neuron,
                 n_embed=n_embed,
                 r_cut=r_cut,
+                use_nn_screening=use_nn_screening,
+                precompute_hfvr=precompute_hfvr,
             )
+            # Store the precompute flag used for model creation
+            self.precompute_hfvr = precompute_hfvr
         self.device = device
         self.dataset = dataset
         self.ds_spec_type = ds_spec_type
@@ -666,14 +1016,31 @@ class AtomInducedDipoleModel:
             print("Setting up dataset...")
 
             def setup_ds(fp=ds_force_reprocess):
-                return atomic_module_dataset(
-                    root=ds_root,
-                    testing=ds_testing,
-                    spec_type=ds_spec_type,
-                    max_size=ds_max_size,
-                    force_reprocess=fp,
-                    in_memory=ds_in_memory,
-                )
+                if precompute_hfvr:
+                    # Use pre-computed dataset
+                    from apnet_pt.atomic_datasets import (
+                        atomic_induced_dipole_precomputed_dataset,
+                    )
+
+                    return atomic_induced_dipole_precomputed_dataset(
+                        root=ds_root,
+                        atomtype_hfvr_model=self.atomtype_hfvr_model,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    )
+                else:
+                    # Use regular atomic_module_dataset
+                    return atomic_module_dataset(
+                        root=ds_root,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    )
 
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
@@ -1126,6 +1493,14 @@ units angstrom
             else None
         )
 
+        # Use appropriate collate function based on precompute_hfvr
+        if self.precompute_hfvr:
+            from apnet_pt.atomic_datasets import atomic_hirshfeld_collate_update
+
+            collate_fn = atomic_hirshfeld_collate_update
+        else:
+            collate_fn = atomic_collate_update
+
         train_loader = AtomicDataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1133,7 +1508,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=atomic_collate_update,
+            collate_fn=collate_fn,
         )
 
         test_loader = AtomicDataLoader(
@@ -1143,7 +1518,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=atomic_collate_update,
+            collate_fn=collate_fn,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -1179,6 +1554,8 @@ units angstrom
                                     "n_neuron": cpu_model.n_neuron,
                                     "n_embed": cpu_model.n_embed,
                                     "r_cut": cpu_model.r_cut,
+                                    "use_nn_screening": cpu_model.use_nn_screening,
+                                    "precompute_hfvr": cpu_model.precompute_hfvr,
                                 },
                             },
                             self.model_save_path,
@@ -1219,13 +1596,21 @@ units angstrom
         if not skip_compile:
             self.compile_model()
 
+        # Use appropriate collate function based on precompute_hfvr
+        if self.precompute_hfvr:
+            from apnet_pt.atomic_datasets import atomic_hirshfeld_collate_update
+
+            collate_fn = atomic_hirshfeld_collate_update
+        else:
+            collate_fn = atomic_collate_update
+
         train_loader = AtomicDataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
             shuffle=self.train_shuffle,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            collate_fn=atomic_collate_update,
+            collate_fn=collate_fn,
         )
 
         test_loader = AtomicDataLoader(
@@ -1234,7 +1619,7 @@ units angstrom
             shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            collate_fn=atomic_collate_update,
+            collate_fn=collate_fn,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -1273,6 +1658,8 @@ units angstrom
                                     "n_neuron": cpu_model.n_neuron,
                                     "n_embed": cpu_model.n_embed,
                                     "r_cut": cpu_model.r_cut,
+                                    "use_nn_screening": cpu_model.use_nn_screening,
+                                    "precompute_hfvr": cpu_model.precompute_hfvr,
                                 },
                             },
                             self.model_save_path,
