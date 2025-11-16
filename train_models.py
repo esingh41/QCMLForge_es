@@ -26,6 +26,7 @@ def train_atom_model(
     n_neuron=128,
     n_embed=8,
     r_cut=5.0,
+    use_nn_screening=False,
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
@@ -46,7 +47,7 @@ def train_atom_model(
         pretrained_model = model_path
     print("Training {}...".format(atom_model_type))
     # TODO complete
-    if atom_model_type in ['AtomModel', 'AtomHirshfeldModel', 'AtomTypeParamModel']:
+    if atom_model_type in ["AtomModel", "AtomHirshfeldModel", "AtomTypeParamModel"]:
         atom_model = AM(
             n_message=n_message,
             n_rbf=n_rbf,
@@ -62,13 +63,14 @@ def train_atom_model(
             pre_trained_model_path=pretrained_model,
         )
         skip_compile = False
-    elif atom_model_type in ['AtomInducedDipoleModel']:
+    elif atom_model_type in ["AtomInducedDipoleModel"]:
         atom_model = AM(
             atomtype_hfvr_pre_trained_path=atom_type_param_model_path,
             n_rbf=n_rbf,
             n_neuron=n_neuron,
             n_embed=n_embed,
             r_cut=r_cut,
+            use_nn_screening=use_nn_screening,
             ds_root=data_dir,
             ds_spec_type=spec_type,
             ds_max_size=ds_max_size,
@@ -524,6 +526,12 @@ def main():
         help="specify AtomModel r_cut (default: 5.0)",
     )
     args.add_argument(
+        "--use_nn_screening",
+        action="store_true",
+        default=False,
+        help="use NN-based screening for induced dipole calculation in AtomInducedDipoleModel (default: False)",
+    )
+    args.add_argument(
         "--param_start_mean",
         type=str,
         default="2.0",
@@ -595,6 +603,7 @@ def main():
             n_neuron=args.n_neuron_atom,
             n_embed=args.n_embed_atom,
             r_cut=args.r_cut_atom,
+            use_nn_screening=args.use_nn_screening,
         )
     if args.train_apnet != "":
         train_pairwise_model(

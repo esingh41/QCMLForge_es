@@ -41,14 +41,25 @@ export iter=1
 # Induced Dipole AtomType
 python3 -u ./train_models.py \
     --train_am AtomInducedDipoleModel \
-    --am_model_path ./models/ap3_ensemble/$iter/atomInducedDipole_atp_$iter.pt \
+    --am_model_path ./models/ap3_ensemble/$iter/atomInducedDipole_atp_screeningNN_$iter.pt \
     --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1.pt \
     --random_seed $iter \
     --lr 5e-5 \
-    --n_epochs_atom 500 \
+    --n_epochs_atom 20 \
     --n_neuron 64 \
     --data_dir ./data_dimer_$iter \
+    --use_nn_screening \
     --spec_type_am 10
+# python3 -u ./train_models.py \
+#     --train_am AtomInducedDipoleModel \
+#     --am_model_path ./models/ap3_ensemble/$iter/atomInducedDipole_atp_$iter.pt \
+#     --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1.pt \
+#     --random_seed $iter \
+#     --lr 5e-5 \
+#     --n_epochs_atom 500 \
+#     --n_neuron 64 \
+#     --data_dir ./data_dimer_$iter \
+#     --spec_type_am 10
 # Hirshfeld + Valence widths, AtomTypeParamMPNN
 # rm ./models/ap3_ensemble/$iter/atp_mpnn_$iter.pt
 # python3 -u ./train_models.py \
