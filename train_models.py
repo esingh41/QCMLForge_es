@@ -27,6 +27,7 @@ def train_atom_model(
     n_embed=8,
     r_cut=5.0,
     use_nn_screening=False,
+    precompute_hfvr=False,
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
@@ -71,6 +72,7 @@ def train_atom_model(
             n_embed=n_embed,
             r_cut=r_cut,
             use_nn_screening=use_nn_screening,
+            precompute_hfvr=precompute_hfvr,
             ds_root=data_dir,
             ds_spec_type=spec_type,
             ds_max_size=ds_max_size,
@@ -532,6 +534,12 @@ def main():
         help="use NN-based screening for induced dipole calculation in AtomInducedDipoleModel (default: False)",
     )
     args.add_argument(
+        "--precompute_hfvr",
+        action="store_true",
+        default=False,
+        help="pre-compute Hirshfeld volume ratios and valence widths during dataset processing for faster training (default: False)",
+    )
+    args.add_argument(
         "--param_start_mean",
         type=str,
         default="2.0",
@@ -604,6 +612,7 @@ def main():
             n_embed=args.n_embed_atom,
             r_cut=args.r_cut_atom,
             use_nn_screening=args.use_nn_screening,
+            precompute_hfvr=args.precompute_hfvr,
         )
     if args.train_apnet != "":
         train_pairwise_model(

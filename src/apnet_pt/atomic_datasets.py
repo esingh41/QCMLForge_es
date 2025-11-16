@@ -898,6 +898,242 @@ class atomic_hirshfeld_module_dataset(Dataset):
         )
 
 
+class atomic_induced_dipole_precomputed_dataset(Dataset):
+    """
+    Dataset that pre-computes hirshfeld volume ratios and valence widths
+    using an AtomTypeParamMPNN model during processing, storing them
+    alongside multipole moments for efficient induced dipole training.
+
+    This avoids the need to run atomtype_hfvr_model forward pass during training,
+    significantly speeding up training by computing these values once during
+    dataset processing.
+    """
+
+    def __init__(
+        self,
+        root,
+        atomtype_hfvr_model,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=9,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    ):
+        """
+        Initialize dataset with pre-computation of hfvr and vw.
+
+        Parameters
+        ----------
+        root : str
+            Root directory for dataset
+        atomtype_hfvr_model : nn.Module
+            Pre-trained AtomTypeParamMPNN model to compute hfvr and vw
+        spec_type : int
+            Specification type (default 9 for PBE0/aug-cc-pVDZ with Hirshfeld)
+        """
+        # Validate spec_type supports Hirshfeld properties
+        try:
+            assert spec_type in [5, 9, 10]
+        except Exception:
+            print(
+                "spec_type must be 5, 9, or 10 for datasets with Hirshfeld properties."
+            )
+            raise ValueError
+
+        # Store model for processing
+        self.atomtype_hfvr_model = atomtype_hfvr_model
+        self.atomtype_hfvr_model.eval()  # Set to eval mode
+        self.atomtype_hfvr_model.requires_grad_(False)  # Disable gradients
+
+        self.batch_size = batch_size
+        self.testing = testing
+        if self.testing and max_size is None:
+            self.MAX_SIZE = 200
+        else:
+            self.MAX_SIZE = max_size
+        self.spec_type = spec_type
+        self.force_reprocess = force_reprocess
+        self.root = root
+        self.in_memory = in_memory
+        self.r_cut = r_cut
+
+        if os.path.exists(root) is False:
+            os.makedirs(root)
+
+        print(
+            f"atomic_induced_dipole_precomputed_dataset: {self.root = }, {self.spec_type = }, {self.testing = }, {self.in_memory = }"
+        )
+
+        super(atomic_induced_dipole_precomputed_dataset, self).__init__(
+            root, transform, pre_transform
+        )
+
+        # After processing, reset force_reprocess so we can properly list files
+        if self.force_reprocess:
+            self.force_reprocess = False
+
+        if self.in_memory:
+            print("Loading pre-computed data into memory")
+            t = time()
+            self.data = []
+            for i in self.processed_file_names:
+                self.data.append(
+                    torch.load(osp.join(self.processed_dir, i), weights_only=False)
+                )
+            total_time_seconds = int(time() - t)
+            print(f"Loaded in {total_time_seconds:4d} seconds")
+            self.get = self.get_in_memory
+
+    @property
+    def raw_file_names(self):
+        """Use same raw files as atomic_hirshfeld_module_dataset"""
+        if self.spec_type in [5]:
+            return [f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl"]
+        elif self.spec_type in [9]:
+            # spec_type 9 uses spec_5 data
+            return ["monomers_ap3_spec_5_pbe0.pkl"]
+        elif self.spec_type in [10]:
+            return [f"monomers_ap3_spec_{self.spec_type}_HF.pkl"]
+        raise ValueError("spec_type must be 5, 9, or 10!")
+
+    @property
+    def processed_file_names(self):
+        if self.force_reprocess:
+            return ["file"]
+        else:
+            file_cmd = f"{self.root}/processed/monomer_induced_dipole_precomputed_{self.spec_type}_*.pt"
+            spec_files = glob(file_cmd)
+            spec_files = [i.split("/")[-1] for i in spec_files]
+            if len(spec_files) > 0:
+                spec_files.sort(key=natural_key)
+                if self.MAX_SIZE is not None and len(spec_files) > self.MAX_SIZE:
+                    spec_files = spec_files[: self.MAX_SIZE]
+                return spec_files
+            else:
+                return [f"data_missing_{i}.pt" for i in range(1)]
+
+    def download(self):
+        print(self.raw_file_names)
+        raise ValueError("Downloads are not available!")
+
+    def process(self, r_cut=5.0, edge_index_only=True):
+        """
+        Process raw data and compute hfvr/vw using atomtype_hfvr_model.
+
+        This is the key method that pre-computes volume_ratios and valence_widths
+        using the provided model, avoiding the need to run the model during training.
+        """
+        idx = 0
+        for raw_path in self.raw_paths:
+            print(f"Processing raw_path: {raw_path}")
+            print(f"Pre-computing hfvr and vw using atomtype_hfvr_model...")
+
+            # Load data with Hirshfeld properties (for validation/comparison)
+            (
+                monomers,
+                cartesian_multipoles,
+                total_charge,
+                volume_ratios_raw,
+                valence_widths_raw,
+            ) = util.load_monomer_dataset(raw_path, self.MAX_SIZE, hirshfeld_props=True)
+
+            t = time()
+            for i in range(len(monomers)):
+                if i % 100 == 0:
+                    print(f"{i}/{len(monomers)}, took {time() - t:.2f} seconds")
+                    t = time()
+
+                mol = monomers[i]
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
+
+                # Store multipoles (targets for training)
+                cart_mult = np.array(
+                    [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
+                )
+                data.charges = torch.tensor(cart_mult[:, 0], dtype=torch.float32)
+                data.dipoles = torch.tensor(cart_mult[:, 1:4], dtype=torch.float32)
+                data.quadrupoles = torch.tensor(
+                    multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
+                )
+
+                # PRE-COMPUTE hfvr and vw using the model
+                with torch.no_grad():
+                    Ks = self.atomtype_hfvr_model(data)  # [n_atoms, 2]
+                    data.volume_ratios = Ks[:, 0].clone()  # hfvr
+                    data.valence_widths = Ks[:, 1].clone()  # vw
+
+                # Optional: Validate against raw values if available
+                if not np.isnan(volume_ratios_raw[i]).any():
+                    raw_vr = torch.tensor(volume_ratios_raw[i], dtype=torch.float32)
+                    computed_vr = data.volume_ratios
+                    if len(raw_vr) == len(computed_vr):
+                        max_diff = torch.abs(raw_vr - computed_vr).max().item()
+                        if max_diff > 0.1 and i % 100 == 0:
+                            print(
+                                f"  Note: Max difference between raw and computed hfvr: {max_diff:.4f}"
+                            )
+
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+
+                torch.save(
+                    data,
+                    osp.join(
+                        self.processed_dir,
+                        f"monomer_induced_dipole_precomputed_{self.spec_type}_{idx}.pt",
+                    ),
+                )
+
+                if self.MAX_SIZE is not None and idx >= self.MAX_SIZE:
+                    break
+                idx += 1
+
+        print(f"Finished processing {idx} molecules with pre-computed hfvr/vw")
+        return
+
+    def len(self):
+        return len(self.processed_file_names)
+
+    def get(self, idx):
+        return torch.load(
+            osp.join(
+                self.processed_dir,
+                f"monomer_induced_dipole_precomputed_{self.spec_type}_{idx}.pt",
+            ),
+            weights_only=False,
+        )
+
+    def get_in_memory(self, idx):
+        return self.data[idx]
+
+    def train_test_loaders(self):
+        indices = np.random.permutation(len(self))
+        split = int(0.9 * len(self))
+        train_indices = indices[:split]
+        test_indices = indices[split:]
+        return (
+            AtomicDataLoader(
+                self[train_indices],
+                batch_size=self.batch_size,
+                shuffle=True,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+            AtomicDataLoader(
+                self[test_indices],
+                batch_size=self.batch_size,
+                shuffle=False,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+        )
+
+
 class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
     def __init__(
         self,

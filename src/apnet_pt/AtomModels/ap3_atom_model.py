@@ -44,6 +44,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         n_embed=8,
         r_cut=5.0,
         use_nn_screening=False,
+        precompute_hfvr=False,
     ):
         super().__init__()
         self.n_message = n_message
@@ -52,8 +53,16 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         self.n_embed = n_embed
         self.r_cut = r_cut
         self.use_nn_screening = use_nn_screening
-        self.atomtype_hfvr_model = atomtype_hfvr_model
-        self.atomtype_hfvr_model.requires_grad_(False)
+        self.precompute_hfvr = precompute_hfvr
+
+        print(f"Precompute HFVR: {precompute_hfvr}")
+        # Only store and freeze model if NOT precomputing
+        if not precompute_hfvr:
+            self.atomtype_hfvr_model = atomtype_hfvr_model
+            self.atomtype_hfvr_model.requires_grad_(False)
+        else:
+            # Don't store model to save memory - will read from batch
+            self.atomtype_hfvr_model = None
 
         self.polarizability_table = constants.polarizability_table.clone()
         # embed interatomic distances into large orthogonal basis
@@ -670,9 +679,17 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             charge = charge - charge_err
             return charge, dipole, qpole, h_list
 
-        Ks = self.atomtype_hfvr_model(batch)
-        hfvr = Ks[:, 0].unsqueeze(1)
-        vw = Ks[:, 1].unsqueeze(1)
+        # Conditional hfvr/vw retrieval based on precompute_hfvr flag
+        if self.precompute_hfvr:
+            # Read directly from batch (pre-computed during dataset processing)
+            hfvr = batch.volume_ratios.unsqueeze(1)  # [n_atoms, 1]
+            vw = batch.valence_widths.unsqueeze(1)  # [n_atoms, 1]
+        else:
+            # Compute on-the-fly using model (existing behavior)
+            Ks = self.atomtype_hfvr_model(batch)
+            hfvr = Ks[:, 0].unsqueeze(1)
+            vw = Ks[:, 1].unsqueeze(1)
+
         # 1) Filter out atoms that don't have edges
         # Create keep_mask directly from edge_index without using torch.isin
         # This is more compile-friendly than torch.isin with unbacked symbolic shapes
@@ -821,7 +838,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 qpole,
                 edge_index[0],  # Use original edge indices
                 edge_index[1],
-                hirshfeld_volume_ratio=Ks[:, 0],
+                hirshfeld_volume_ratio=hfvr.squeeze(1),
                 h_list=h_list_full,
                 rbf=self.distance_layer(
                     get_distances(R, R, edge_index[0], edge_index[1])[0]
@@ -838,7 +855,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 qpole,
                 edge_index[0],  # Use original edge indices
                 edge_index[1],
-                hirshfeld_volume_ratio=Ks[:, 0],
+                hirshfeld_volume_ratio=hfvr.squeeze(1),
             )
         dipole += induced_dipoles
         return charge, dipole, qpole, h_list_stacked
@@ -857,6 +874,7 @@ class AtomInducedDipoleModel:
         n_embed=8,
         r_cut=5.0,
         use_nn_screening=False,
+        precompute_hfvr=False,
         use_GPU=None,
         ignore_database_null=True,
         ds_spec_type=1,
@@ -872,11 +890,24 @@ class AtomInducedDipoleModel:
         the path and all other parameters will be ignored except for dataset.
 
         use_GPU will check for a GPU and use it if available unless set to false.
+
+        Parameters
+        ----------
+        precompute_hfvr : bool
+            If True, expects dataset to have pre-computed volume_ratios and valence_widths.
+            The forward pass will read these from batch instead of computing on-the-fly.
+            This significantly speeds up training but requires using
+            atomic_induced_dipole_precomputed_dataset.
         """
-        if atomtype_hfvr_model is None and atomtype_hfvr_pre_trained_path is None:
+        if (
+            not precompute_hfvr
+            and atomtype_hfvr_model is None
+            and atomtype_hfvr_pre_trained_path is None
+        ):
             raise ValueError(
                 "Either atomtypeparam_hfvr_model or atomtypeparam_hfvr_pre_trained_path must be provided.\n"
-                "Without a model predicting hirshfeld volumes, induced dipoles cannot be computed correctly"
+                "Without a model predicting hirshfeld volumes, induced dipoles cannot be computed correctly.\n"
+                "Alternatively, set precompute_hfvr=True and use atomic_induced_dipole_precomputed_dataset."
             )
         if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
@@ -910,30 +941,68 @@ class AtomInducedDipoleModel:
 
         if pre_trained_model_path:
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
+            # Prioritize user-provided precompute_hfvr over checkpoint value
+            # This allows users to switch modes when loading old checkpoints
+            checkpoint_precompute = checkpoint["config"].get("precompute_hfvr", False)
+            use_precompute = (
+                precompute_hfvr if precompute_hfvr else checkpoint_precompute
+            )
+
             self.model = AtomInducedDipoleMPNN(
-                atomtype_hfvr_model=self.atomtype_hfvr_model,
+                atomtype_hfvr_model=self.atomtype_hfvr_model
+                if not use_precompute
+                else None,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
                 n_embed=checkpoint["config"]["n_embed"],
                 r_cut=checkpoint["config"]["r_cut"],
                 use_nn_screening=checkpoint["config"].get("use_nn_screening", False),
+                precompute_hfvr=use_precompute,
             )
+
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
                 for k, v in checkpoint["model_state_dict"].items()
             }
-            self.model.load_state_dict(model_state_dict)
+
+            # If switching between precompute modes, filter atomtype_hfvr_model keys
+            if use_precompute and not checkpoint_precompute:
+                # User wants precompute=True but checkpoint has atomtype_hfvr_model keys
+                # Filter them out since new model doesn't have that submodule
+                model_state_dict = {
+                    k: v
+                    for k, v in model_state_dict.items()
+                    if not k.startswith("atomtype_hfvr_model.")
+                }
+                print(
+                    "Note: Filtered out atomtype_hfvr_model weights (switching to precompute mode)"
+                )
+            elif not use_precompute and checkpoint_precompute:
+                # User wants precompute=False but checkpoint doesn't have atomtype_hfvr_model
+                # This is fine, we'll just load what's available
+                print(
+                    "Note: Checkpoint was saved with precompute mode, loading available weights"
+                )
+
+            self.model.load_state_dict(model_state_dict, strict=False)
+            # Store the precompute flag used for model creation
+            self.precompute_hfvr = use_precompute
         else:
             self.model = AtomInducedDipoleMPNN(
-                atomtype_hfvr_model=self.atomtype_hfvr_model,
+                atomtype_hfvr_model=self.atomtype_hfvr_model
+                if not precompute_hfvr
+                else None,
                 n_message=n_message,
                 n_rbf=n_rbf,
                 n_neuron=n_neuron,
                 n_embed=n_embed,
                 r_cut=r_cut,
                 use_nn_screening=use_nn_screening,
+                precompute_hfvr=precompute_hfvr,
             )
+            # Store the precompute flag used for model creation
+            self.precompute_hfvr = precompute_hfvr
         self.device = device
         self.dataset = dataset
         self.ds_spec_type = ds_spec_type
@@ -947,14 +1016,31 @@ class AtomInducedDipoleModel:
             print("Setting up dataset...")
 
             def setup_ds(fp=ds_force_reprocess):
-                return atomic_module_dataset(
-                    root=ds_root,
-                    testing=ds_testing,
-                    spec_type=ds_spec_type,
-                    max_size=ds_max_size,
-                    force_reprocess=fp,
-                    in_memory=ds_in_memory,
-                )
+                if precompute_hfvr:
+                    # Use pre-computed dataset
+                    from apnet_pt.atomic_datasets import (
+                        atomic_induced_dipole_precomputed_dataset,
+                    )
+
+                    return atomic_induced_dipole_precomputed_dataset(
+                        root=ds_root,
+                        atomtype_hfvr_model=self.atomtype_hfvr_model,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    )
+                else:
+                    # Use regular atomic_module_dataset
+                    return atomic_module_dataset(
+                        root=ds_root,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    )
 
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
@@ -1407,6 +1493,14 @@ units angstrom
             else None
         )
 
+        # Use appropriate collate function based on precompute_hfvr
+        if self.precompute_hfvr:
+            from apnet_pt.atomic_datasets import atomic_hirshfeld_collate_update
+
+            collate_fn = atomic_hirshfeld_collate_update
+        else:
+            collate_fn = atomic_collate_update
+
         train_loader = AtomicDataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1414,7 +1508,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=atomic_collate_update,
+            collate_fn=collate_fn,
         )
 
         test_loader = AtomicDataLoader(
@@ -1424,7 +1518,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=atomic_collate_update,
+            collate_fn=collate_fn,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -1461,6 +1555,7 @@ units angstrom
                                     "n_embed": cpu_model.n_embed,
                                     "r_cut": cpu_model.r_cut,
                                     "use_nn_screening": cpu_model.use_nn_screening,
+                                    "precompute_hfvr": cpu_model.precompute_hfvr,
                                 },
                             },
                             self.model_save_path,
@@ -1501,13 +1596,21 @@ units angstrom
         if not skip_compile:
             self.compile_model()
 
+        # Use appropriate collate function based on precompute_hfvr
+        if self.precompute_hfvr:
+            from apnet_pt.atomic_datasets import atomic_hirshfeld_collate_update
+
+            collate_fn = atomic_hirshfeld_collate_update
+        else:
+            collate_fn = atomic_collate_update
+
         train_loader = AtomicDataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
             shuffle=self.train_shuffle,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            collate_fn=atomic_collate_update,
+            collate_fn=collate_fn,
         )
 
         test_loader = AtomicDataLoader(
@@ -1516,7 +1619,7 @@ units angstrom
             shuffle=False,
             num_workers=num_workers,
             pin_memory=pin_memory,
-            collate_fn=atomic_collate_update,
+            collate_fn=collate_fn,
         )
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -1556,6 +1659,7 @@ units angstrom
                                     "n_embed": cpu_model.n_embed,
                                     "r_cut": cpu_model.r_cut,
                                     "use_nn_screening": cpu_model.use_nn_screening,
+                                    "precompute_hfvr": cpu_model.precompute_hfvr,
                                 },
                             },
                             self.model_save_path,

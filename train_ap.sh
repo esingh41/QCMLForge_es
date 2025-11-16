@@ -49,6 +49,7 @@ python3 -u ./train_models.py \
     --n_neuron 64 \
     --data_dir ./data_dimer_$iter \
     --use_nn_screening \
+    --precompute_hfvr \
     --spec_type_am 10
 # python3 -u ./train_models.py \
 #     --train_am AtomInducedDipoleModel \
