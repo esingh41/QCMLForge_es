@@ -944,9 +944,10 @@ class AtomInducedDipoleModel:
             # Prioritize user-provided precompute_hfvr over checkpoint value
             # This allows users to switch modes when loading old checkpoints
             checkpoint_precompute = checkpoint["config"].get("precompute_hfvr", False)
-            use_precompute = (
-                precompute_hfvr if precompute_hfvr else checkpoint_precompute
-            )
+            # use_precompute = (
+            #     precompute_hfvr if precompute_hfvr else checkpoint_precompute
+            # )
+            use_precompute = precompute_hfvr
 
             self.model = AtomInducedDipoleMPNN(
                 atomtype_hfvr_model=self.atomtype_hfvr_model
