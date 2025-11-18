@@ -10,6 +10,12 @@ import torch
 import pandas as pd
 from pprint import pprint as pp
 
+# Handle both pytest and direct execution
+try:
+    from . import mols
+except ImportError:
+    import mols
+
 
 torch.manual_seed(42)
 spec_type = 5
@@ -19,6 +25,8 @@ am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
 
 am_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_3.pt"
 atp_path = f"{current_file_path}/test_models/ap3_ensemble_0/atp_mpnn_1.pt"
+# aidm_path = f"{current_file_path}/test_models/ap3_ensemble_0/atomInducedDipole_atp_screeningNN_1.pt"
+aidm_path = f"{current_file_path}/test_models/ap3_ensemble_0/atomInducedDipole_atp_screeningNN_lr_1.pt"
 
 
 def test_train_ap3_atomTypeparamMPNN():
@@ -103,6 +111,31 @@ def test_train_ap3_atom_model():
     return
 
 
+def test_inference_ap3_atom_model():
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=atp_path,
+    )
+    am = AtomModels.ap3_atom_model.AtomInducedDipoleModel(
+        atomtype_hfvr_model=atpm.model,
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=aidm_path,
+        use_nn_screening=True,
+    )
+    v = am.predict_qcel_mols(
+        mols=[
+            mols.lr_water_dimer,
+            mols.lr_water_dimer,
+            # mols.mol_cliff_water_close,
+        ],
+        batch_size=2,
+    )
+    print(f"{v = }")
+    return
+
+
 def train_ap3_atom_model():
     ds = atomic_datasets.atomic_module_dataset(
         root=f"{current_file_path}/../data_dimer_1",
@@ -172,5 +205,6 @@ def debug_ap3_atom_model():
 if __name__ == "__main__":
     # test_train_ap3_atomTypeparamMPNN()
     # test_train_ap3_atom_model()
-    train_ap3_atom_model()
+    # train_ap3_atom_model()
     # debug_ap3_atom_model()
+    test_inference_ap3_atom_model()

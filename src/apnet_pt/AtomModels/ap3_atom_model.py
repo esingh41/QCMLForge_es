@@ -191,7 +191,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         screening: bool = True,
         screening_distance: float = 2.0,
         compute_energies: bool = False,
-    ) -> tuple:
+    ) -> torch.Tensor:
         """
         Calculate intramolecular induced dipoles for a single molecule using
         its multipole moments and Hirshfeld volume ratios. This is the PyTorch
@@ -398,6 +398,63 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
 
         return mu_induced
 
+    def expand_screening_to_full_edges(
+        self,
+        screening_factors_short: torch.Tensor,
+        e_source_short: torch.Tensor,
+        e_target_short: torch.Tensor,
+        e_source_full: torch.Tensor,
+        e_target_full: torch.Tensor,
+        default_value: float = 1.0,
+    ) -> torch.Tensor:
+        """
+        Expand screening factors from short-range edges to full edge set.
+
+        For edges that exist in short-range but not in full set, screening is applied.
+        For edges that exist only in full set (long-range), default_value is used (1.0 = no screening).
+
+        Parameters
+        ----------
+        screening_factors_short : torch.Tensor
+            Screening factors for short-range edges (n_short_edges,)
+        e_source_short : torch.Tensor
+            Source atom indices for short-range edges
+        e_target_short : torch.Tensor
+            Target atom indices for short-range edges
+        e_source_full : torch.Tensor
+            Source atom indices for full edges
+        e_target_full : torch.Tensor
+            Target atom indices for full edges
+        default_value : float
+            Default screening value for edges not in short-range set (default: 1.0 = no screening)
+
+        Returns
+        -------
+        torch.Tensor
+            Screening factors for full edges (n_full_edges,)
+        """
+        n_full_edges = e_source_full.size(0)
+        screening_factors_full = torch.full(
+            (n_full_edges,),
+            default_value,
+            device=screening_factors_short.device,
+            dtype=screening_factors_short.dtype,
+        )
+
+        # Create edge pair hashes for efficient lookup
+        # Hash: source * max_nodes + target (assumes max_nodes < sqrt(max_long))
+        max_nodes = max(e_source_short.max().item(), e_target_short.max().item()) + 1
+        hash_short = e_source_short * max_nodes + e_target_short
+        hash_full = e_source_full * max_nodes + e_target_full
+
+        # For each unique edge in short-range, find matching edges in full
+        for i in range(hash_short.size(0)):
+            mask = hash_full == hash_short[i]
+            if mask.any():
+                screening_factors_full[mask] = screening_factors_short[i]
+
+        return screening_factors_full
+
     def monomer_induced_dipole_torch_NN_screening(
         self,
         Z,
@@ -405,11 +462,13 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         q,
         mu,
         quad,
-        e_source,
-        e_target,
+        e_source_short: torch.Tensor,
+        e_target_short: torch.Tensor,
+        e_source_full: torch.Tensor,
+        e_target_full: torch.Tensor,
         hirshfeld_volume_ratio: torch.Tensor,
         h_list,
-        rbf,
+        rbf_short: torch.Tensor,
         hfvr,
         vw,
         max_iterations: int = 200,
@@ -418,7 +477,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         thole_damping_param_mutual: float = 0.39,
         thole_damping_param_direct: float = 0.34,
         compute_energies: bool = False,
-    ) -> tuple:
+    ) -> torch.Tensor:
         """
         Calculate intramolecular induced dipoles for a single molecule using
         its multipole moments and Hirshfeld volume ratios with NN-based screening.
@@ -437,16 +496,20 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             Atomic dipole moments (n_atoms, 3)
         quad : torch.Tensor
             Atomic quadrupole moments (n_atoms, 3, 3)
-        e_source : torch.Tensor
-            Source atom indices for intramolecular pairs
-        e_target : torch.Tensor
-            Target atom indices for intramolecular pairs
+        e_source_short : torch.Tensor
+            Source atom indices for short-range edges (used for NN screening)
+        e_target_short : torch.Tensor
+            Target atom indices for short-range edges (used for NN screening)
+        e_source_full : torch.Tensor
+            Source atom indices for full edges (used for induced dipole calculations)
+        e_target_full : torch.Tensor
+            Target atom indices for full edges (used for induced dipole calculations)
         hirshfeld_volume_ratio : torch.Tensor
             Hirshfeld volume ratios for polarizability scaling (n_atoms,)
         h_list : torch.Tensor
             Hidden states from message passing for NN screening
-        rbf : torch.Tensor
-            RBF features for edge-wise predictions
+        rbf_short : torch.Tensor
+            RBF features for short-range edges (for NN screening)
         hfvr : torch.Tensor
             Hirshfeld features
         vw : torch.Tensor
@@ -474,25 +537,58 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         alpha_0 = torch.index_select(self.polarizability_table, 0, Z.long())
         alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
 
-        # Compute NN-based screening factors using damping layers
-        # Process messages through damping network
-        screening_factors_list = []
+        # Compute NN-based screening factors using damping layers on SHORT-RANGE edges
+        # Initialize screening factors tensor (size: n_short_edges)
+        n_short_edges = e_source_short.size(0)
+        screening_factors_short = torch.zeros(
+            n_short_edges,
+            device=e_source_short.device,
+            dtype=rbf_short.dtype,
+        )
+
+        # Accumulate screening factors across message passing steps
         for i in range(self.n_message):
             m_ij = self.get_messages(
-                h_list[0], h_list[-1], rbf, hfvr, vw, e_source, e_target
+                h_list[0],
+                h_list[-1],
+                rbf_short,
+                hfvr,
+                vw,
+                e_source_short,
+                e_target_short,
             )
             h_damping = self.damping_update_layers[i](m_ij)
             # Get screening factor (sigmoid to constrain to [0, 1])
-            screen_factor = torch.sigmoid(self.damping_readout_layers[i](h_damping))
-            # have screening_factor be 1-screen_factor so that 0 = fully screened, 1 = no screening
-            screen_factor = 1.0 - screen_factor
-            screening_factors_list.append(screen_factor)
+            # screen_factor = torch.sigmoid(self.damping_readout_layers[i](h_damping))
+            # # Invert so that 0 = fully screened, 1 = no screening
+            # screen_factor = 1.0 - screen_factor
+            # # Accumulate screening factors
+            # screening_factors_short += screen_factor.squeeze(-1)
+            screening_factors_short += self.damping_readout_layers[i](h_damping).squeeze(-1)
+        # Apply 1-screening accumulation
+        screening_factors_short = 1.0 - screening_factors_short
+        # Apply sigmoid function on everything to constrain to [0, 1]
+        screening_factors_short = torch.sigmoid(screening_factors_short)
 
-        # Average screening factors across message passing steps
-        screening_factors = (
-            torch.stack(screening_factors_list, dim=0).mean(dim=0).squeeze(-1)
+        # Expand screening factors from short-range to full edges
+        # Long-range edges get default value of 1.0 (no screening)
+        # print(f"{e_source_short = }")
+        # print(f"{e_target_short = }")
+        # print(f"{e_source_full = }")
+        # print(f"{e_target_full = }")
+        # print(f"{screening_factors_short = }")
+        screening_factors = self.expand_screening_to_full_edges(
+            screening_factors_short,
+            e_source_short,
+            e_target_short,
+            e_source_full,
+            e_target_full,
+            default_value=1.0,
         )
-
+        # screening_factors = screening_factors_short
+        # e_source_full = e_source_short
+        # e_target_full = e_target_short
+        # print(f"{screening_factors = }")
         # print(f"{screening_factors = }")
         # Define helper function to calculate distance tensors with Thole damping
         def distance_tensors(
@@ -528,6 +624,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             if apply_screening and screening_factors is not None:
                 # screening_factors should be in range [0, 1] where 0 = fully screened, 1 = no screening
                 lam_3 = lam_3 * screening_factors
+                # print(f"{lam_3 = }")
                 lam_5 = lam_5 * screening_factors
 
             delta = torch.eye(3, device=dR.device)
@@ -545,11 +642,12 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             return dR, dR_xyz, oodR, T1, T2
 
         # Calculate direct tensors (permanent → induced) with NN screening
+        # Use FULL EDGES for induced dipole calculations (long-range interactions)
         dR_direct, dR_xyz_direct, T0_direct, T1_direct, T2_direct = distance_tensors(
             R,
             R,
-            e_source,
-            e_target,
+            e_source_full,
+            e_target_full,
             alpha,
             alpha,
             thole_damping_param_direct,
@@ -561,8 +659,8 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         dR_mutual, dR_xyz_mutual, T0_mutual, T1_mutual, T2_mutual = distance_tensors(
             R,
             R,
-            e_source,
-            e_target,
+            e_source_full,
+            e_target_full,
             alpha,
             alpha,
             thole_damping_param_mutual,
@@ -573,27 +671,27 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         n_atoms = R.shape[0]
         mu_induced_0 = torch.zeros((n_atoms, 3), device=q.device)
 
-        # Select relevant tensors for atom pairs
-        alpha_target = alpha.index_select(0, e_target)
-        q_source = q.squeeze(-1).index_select(0, e_source)
-        mu_source = mu.index_select(0, e_source)
+        # Select relevant tensors for atom pairs (using full edges)
+        alpha_target = alpha.index_select(0, e_target_full)
+        q_source = q.squeeze(-1).index_select(0, e_source_full)
+        mu_source = mu.index_select(0, e_source_full)
 
         # Calculate initial induced dipoles from permanent multipoles (using direct tensors with NN screening)
         # Contribution from charges: mu_ind = alpha * T1 * q
         mu_charge = torch.einsum("a,ai,a->ai", alpha_target, T1_direct, q_source)
-        mu_induced_0 = scatter_sum_compile(mu_charge, e_target, n_atoms)
+        mu_induced_0 = scatter_sum_compile(mu_charge, e_target_full, n_atoms)
 
         # Contribution from dipoles: mu_ind += alpha * T2 * mu
         mu_dipole = torch.einsum("a,aij,aj->ai", alpha_target, T2_direct, mu_source)
-        mu_dipole_summed = scatter_sum_compile(mu_dipole, e_target, n_atoms)
+        mu_dipole_summed = scatter_sum_compile(mu_dipole, e_target_full, n_atoms)
         mu_induced_0 += mu_dipole_summed
 
         # Apply heavy_atoms_only logic in torch
         mu_induced_0 = torch.where(
             Z.unsqueeze(-1) == 1, torch.zeros_like(mu_induced_0), mu_induced_0
         )
-        Z_source = Z.index_select(0, e_source)
-        Z_target = Z.index_select(0, e_target)
+        Z_source = Z.index_select(0, e_source_full)
+        Z_target = Z.index_select(0, e_target_full)
         # Set all T tensors to zero where either source or target is hydrogen
         hydrogen_mask = (Z_source == 1) | (Z_target == 1)
         T2_mutual = torch.where(
@@ -613,14 +711,16 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         for iteration in range(max_iterations):
             mu_induced_old = mu_induced.clone()
 
-            # Induced dipoles due to other induced dipoles (using mutual tensors)
+            # Induced dipoles due to other induced dipoles (using mutual tensors on full edges)
             mu_induced_contrib = torch.einsum(
                 "a,aij,aj->ai",
                 alpha_target,
                 T2_mutual,
-                mu_induced.index_select(0, e_source),
+                mu_induced.index_select(0, e_source_full),
             )
-            mu_induced_new = scatter_sum_compile(mu_induced_contrib, e_target, n_atoms)
+            mu_induced_new = scatter_sum_compile(
+                mu_induced_contrib, e_target_full, n_atoms
+            )
             # Add initial induced dipoles from permanent multipoles
             mu_induced_new += mu_induced_0
 
@@ -818,6 +918,10 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         # dimensions no longer correct... figure out another way to fix this. reverting back to dim=1 # AMW 9/17/25
         h_list_stacked = torch.stack(h_list, dim=1)
 
+        # Use full edge indices for induced dipole calculations
+        e_source_full = batch.edge_index_full[0]
+        e_target_full = batch.edge_index_full[1]
+
         # Choose induced dipole calculation method based on use_nn_screening flag
         if self.use_nn_screening:
             # For NN screening, we need to expand h_list back to full size for get_messages
@@ -830,19 +934,24 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 h_full[keep_mask] = h_layer
                 h_list_full.append(h_full)
 
+            # Compute RBF for SHORT-RANGE edges (for NN screening)
+            rbf_short = self.distance_layer(
+                get_distances(R, R, edge_index[0], edge_index[1])[0]
+            )
+
             induced_dipoles = self.monomer_induced_dipole_torch_NN_screening(
                 Z,
                 R,
                 charge.unsqueeze(1),
                 dipole,
                 qpole,
-                edge_index[0],  # Use original edge indices
+                edge_index[0],  # Short-range edges for NN screening
                 edge_index[1],
+                e_source_full,  # Full edges for induced dipole calculations
+                e_target_full,
                 hirshfeld_volume_ratio=hfvr.squeeze(1),
                 h_list=h_list_full,
-                rbf=self.distance_layer(
-                    get_distances(R, R, edge_index[0], edge_index[1])[0]
-                ),
+                rbf_short=rbf_short,  # RBF for short-range edges
                 hfvr=hfvr,
                 vw=vw,
             )
@@ -853,8 +962,8 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 charge.unsqueeze(1),
                 dipole,
                 qpole,
-                edge_index[0],  # Use original edge indices
-                edge_index[1],
+                e_source_full,  # Use full edge indices for induced dipole
+                e_target_full,
                 hirshfeld_volume_ratio=hfvr.squeeze(1),
             )
         dipole += induced_dipoles
@@ -1122,7 +1231,7 @@ class AtomInducedDipoleModel:
         dist.destroy_process_group()
 
     def _qcel_example_input(self, mols, batch_size=1):
-        mol_data = [qcel_mon_to_pyg_data(mol) for mol in mols]
+        mol_data = [qcel_mon_to_pyg_data(mol, full_indices=True) for mol in mols]
         batches = []
         for i in range(0, len(mol_data), batch_size):
             batch_mol_data = mol_data[i : i + batch_size]
@@ -1849,7 +1958,7 @@ units angstrom
         mol_data = []
         cnt = 0
         for mol in mols:
-            data = qcel_mon_to_pyg_data(mol)
+            data = qcel_mon_to_pyg_data(mol, full_indices=True)
             mol_data.append(data)
             cnt += 1
             if len(mol_data) == batch_size or cnt == len(mols):

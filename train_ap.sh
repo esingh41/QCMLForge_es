@@ -39,18 +39,20 @@ export iter=1
 #
 # export iter=1
 # Induced Dipole AtomType
+# rm ./tests/test_models/ap3_ensemble_0/atomInducedDipole_atp_screeningNN_lr_$iter.pt
 python3 -u ./train_models.py \
     --train_am AtomInducedDipoleModel \
-    --am_model_path ./models/ap3_ensemble/$iter/atomInducedDipole_atp_screeningNN_$iter.pt \
+    --am_model_path ./tests/test_models/ap3_ensemble_0/atomInducedDipole_atp_screeningNN_lr_$iter.pt \
     --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1.pt \
     --random_seed $iter \
     --lr 5e-5 \
-    --n_epochs_atom 20 \
+    --n_epochs_atom 200 \
     --n_neuron 64 \
     --data_dir ./data_dimer_$iter \
     --use_nn_screening \
     --precompute_hfvr \
-    --spec_type_am 10
+    --spec_type_am 9
+    # --am_model_path ./models/ap3_ensemble/$iter/atomInducedDipole_atp_screeningNN_lr_$iter.pt \
 # python3 -u ./train_models.py \
 #     --train_am AtomInducedDipoleModel \
 #     --am_model_path ./models/ap3_ensemble/$iter/atomInducedDipole_atp_$iter.pt \

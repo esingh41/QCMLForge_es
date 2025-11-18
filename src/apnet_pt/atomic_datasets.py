@@ -118,10 +118,15 @@ def atomic_collate_update(batch):
     """
     current_count = 0
     edge_indices = []
+    edge_indices_full = []
+    has_full_edges = hasattr(batch[0], "edge_index_full")
+
     # print('\nCollating')
     for i, data in enumerate(batch):
         # print(data.edge_index.shape)
         edge_indices.append(data.edge_index + current_count)
+        if has_full_edges:
+            edge_indices_full.append(data.edge_index_full + current_count)
         data.molecule_ind = (
             torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
         )
@@ -144,6 +149,10 @@ def atomic_collate_update(batch):
         ),
         natom_per_mol=natom_per_mol,
     )
+
+    if has_full_edges:
+        batched_data.edge_index_full = torch.cat(edge_indices_full, dim=1)
+
     return batched_data
 
 
@@ -155,10 +164,15 @@ def atomic_hfvr_vw_collate_update(batch):
     """
     current_count = 0
     edge_indices = []
+    edge_indices_full = []
+    has_full_edges = hasattr(batch[0], "edge_index_full")
+
     # print('\nCollating')
     for i, data in enumerate(batch):
         # print(data.edge_index.shape)
         edge_indices.append(data.edge_index + current_count)
+        if has_full_edges:
+            edge_indices_full.append(data.edge_index_full + current_count)
         data.molecule_ind = (
             torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
         )
@@ -180,6 +194,10 @@ def atomic_hfvr_vw_collate_update(batch):
         volume_ratios=torch.cat([data.volume_ratios for data in batch], dim=0),
         valence_widths=torch.cat([data.valence_widths for data in batch], dim=0),
     )
+
+    if has_full_edges:
+        batched_data.edge_index_full = torch.cat(edge_indices_full, dim=1)
+
     return batched_data
 
 
@@ -191,10 +209,15 @@ def atomic_hirshfeld_collate_update(batch):
     """
     current_count = 0
     edge_indices = []
+    edge_indices_full = []
+    has_full_edges = hasattr(batch[0], "edge_index_full")
+
     # print('\nCollating')
     for i, data in enumerate(batch):
         # print(data.edge_index.shape)
         edge_indices.append(data.edge_index + current_count)
+        if has_full_edges:
+            edge_indices_full.append(data.edge_index_full + current_count)
         data.molecule_ind = (
             torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
         )
@@ -219,15 +242,24 @@ def atomic_hirshfeld_collate_update(batch):
         volume_ratios=torch.cat([data.volume_ratios for data in batch], dim=0),
         valence_widths=torch.cat([data.valence_widths for data in batch], dim=0),
     )
+
+    if has_full_edges:
+        batched_data.edge_index_full = torch.cat(edge_indices_full, dim=1)
+
     return batched_data
 
 
 def atomic_collate_update_no_target(batch):
     current_count = 0
     edge_indices = []
+    edge_indices_full = []
+    has_full_edges = hasattr(batch[0], "edge_index_full")
+
     # print('\nCollating')
     for i, data in enumerate(batch):
         edge_indices.append(data.edge_index + current_count)
+        if has_full_edges:
+            edge_indices_full.append(data.edge_index_full + current_count)
         data.molecule_ind = (
             torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
         )
@@ -247,6 +279,10 @@ def atomic_collate_update_no_target(batch):
         ),
         natom_per_mol=natom_per_mol,
     )
+
+    if has_full_edges:
+        batched_data.edge_index_full = torch.cat(edge_indices_full, dim=1)
+
     return batched_data
 
 
@@ -346,37 +382,74 @@ class AtomicDataLoader(torch.utils.data.DataLoader):
         )
 
 
-def edges(R, r_cut):
+def edges(R, r_cut, full_indices=False):
+    """
+    Compute edge indices for atoms within r_cut distance.
+
+    Parameters
+    ----------
+    R : array-like
+        Atomic positions (N x 3)
+    r_cut : float
+        Cutoff distance for short-range edges
+    full_indices : bool
+        If True, also return full edge indices (all pairs)
+
+    Returns
+    -------
+    edges : np.ndarray
+        Edge indices for short-range interactions [2, n_edges]
+    full_edges : np.ndarray (optional)
+        Edge indices for all atom pairs [2, n_edges_full]
+        Only returned if full_indices=True
+    """
     natom = np.shape(R)[0]
     RA = np.expand_dims(R, 0)
     RB = np.expand_dims(R, 1)
     RA = np.tile(RA, [natom, 1, 1])
     RB = np.tile(RB, [1, natom, 1])
     dist = np.linalg.norm(RA - RB, axis=2)
-    mask = np.logical_and(dist < r_cut, dist > 0.0)
-    edges = np.array(np.where(mask))  # dimensions [n_edge x 2]
-    return edges
+    mask_sr = np.logical_and(dist < r_cut, dist > 0.0)
+    edges_sr = np.array(np.where(mask_sr))  # dimensions [2, n_edge]
+
+    if full_indices:
+        mask_full = dist > 0.0  # All pairs except self
+        edges_full = np.array(np.where(mask_full))
+        return edges_sr, edges_full
+    return edges_sr
 
 
-def qcel_mon_to_pyg_data(mon, r_cut=5.0, custom=False):
+def qcel_mon_to_pyg_data(mon, r_cut=5.0, custom=False, full_indices=False):
     Z = mon.atomic_numbers
     node_features = torch.tensor(np.array(Z), dtype=torch.int64)
     R = torch.tensor(np.array(mon.geometry) * constants.au2ang, dtype=torch.float32)
     total_charge = torch.tensor(np.array(mon.molecular_charge), dtype=torch.int64)
+
+    edge_index_full = None
     if custom:
         edge_index = edge_function_system_index_only(R, r_c=r_cut)
         edge_index = torch.tensor(np.array(edge_index)).t().long()
     else:
-        edge_index = torch.tensor(edges(R, r_cut)).long()
-    data = Data(
-        x=node_features.long(),
-        edge_index=edge_index.long(),
-        R=R.float(),
-        molecule_ind=torch.tensor(np.full(len(R), 0), dtype=torch.int64),
-        total_charge=total_charge.long(),
-        natom_per_mol=torch.tensor([len(R)], dtype=torch.int64),
-    )
-    return data
+        if full_indices:
+            edge_index_sr, edge_index_full = edges(R, r_cut, full_indices=True)
+            edge_index = torch.tensor(edge_index_sr).long()
+            edge_index_full = torch.tensor(edge_index_full).long()
+        else:
+            edge_index = torch.tensor(edges(R, r_cut)).long()
+
+    data_dict = {
+        "x": node_features.long(),
+        "edge_index": edge_index.long(),
+        "R": R.float(),
+        "molecule_ind": torch.tensor(np.full(len(R), 0), dtype=torch.int64),
+        "total_charge": total_charge.long(),
+        "natom_per_mol": torch.tensor([len(R)], dtype=torch.int64),
+    }
+
+    if edge_index_full is not None:
+        data_dict["edge_index_full"] = edge_index_full
+
+    return Data(**data_dict)
 
 
 def create_atomic_data(
@@ -388,6 +461,7 @@ def create_atomic_data(
     idx=None,
     edge_index_only=True,
     custom=False,
+    full_indices=False,
 ):
     """
     Create a PyG Data object from atomic numbers, positions, and total charge.
@@ -397,6 +471,8 @@ def create_atomic_data(
         Atomic numbers of the atoms.
     R : np.ndarray
         Atomic positions in Angstroms (N x 3 array)
+    full_indices : bool
+        If True, compute and store both short-range and full edge indices
     ...
     """
     node_features = np.array(Z, dtype=np.int64)
@@ -404,6 +480,8 @@ def create_atomic_data(
     if isinstance(R, np.ndarray):
         R = torch.tensor(R, dtype=torch.float32)
     torch_total_charge = torch.tensor(total_charge, dtype=torch.int32)
+
+    edge_index_full = None
     if custom:
         if edge_index_only:
             edge_index = edge_function_system_index_only(R, r_cut)
@@ -412,25 +490,31 @@ def create_atomic_data(
             edge_feature_vector = torch.tensor(edge_feature_vector).view(-1, 8)
         edge_index = torch.tensor(edge_index).t()
     else:
-        edge_index = torch.tensor(edges(R, r_cut)).long()
+        if full_indices:
+            edge_index_sr, edge_index_full = edges(R, r_cut, full_indices=True)
+            edge_index = torch.tensor(edge_index_sr).long()
+            edge_index_full = torch.tensor(edge_index_full).long()
+        else:
+            edge_index = torch.tensor(edges(R, r_cut)).long()
+
     if idx is None:
         idx = 0
+
+    data_dict = {
+        "x": node_features,
+        "edge_index": edge_index.long(),
+        "R": R.float(),
+        "molecule_ind": torch.tensor(np.full(len(R), idx)),
+        "total_charge": torch_total_charge,
+    }
+
+    if edge_index_full is not None:
+        data_dict["edge_index_full"] = edge_index_full
+
     if cartesian_multipoles is not None:
-        return Data(
-            x=node_features,
-            edge_index=edge_index.long(),
-            y=torch.tensor(cartesian_multipoles, dtype=torch.float32),
-            R=R.float(),
-            molecule_ind=torch.tensor(np.full(len(R), idx)),
-            total_charge=torch_total_charge,
-        )
-    return Data(
-        x=node_features,
-        edge_index=edge_index.long(),
-        R=R.float(),
-        molecule_ind=torch.tensor(np.full(len(R), idx)),
-        total_charge=torch_total_charge,
-    )
+        data_dict["y"] = torch.tensor(cartesian_multipoles, dtype=torch.float32)
+
+    return Data(**data_dict)
 
 
 class atomic_module_dataset(Dataset):
@@ -647,7 +731,7 @@ class atomic_module_dataset(Dataset):
                     print(f"{i}/{len(monomers)}, took {time() - t} seconds")
                     t = time()
                 mol = monomers[i]
-                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut, full_indices=True)
                 cart_mult = np.array(
                     [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
                 )
@@ -1048,7 +1132,7 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
                     t = time()
 
                 mol = monomers[i]
-                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut, full_indices=True)
 
                 # Store multipoles (targets for training)
                 cart_mult = np.array(
