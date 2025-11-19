@@ -1684,10 +1684,12 @@ units angstrom
 
         self.model.to(rank_device)
         if world_size > 1 and rank_device == "cpu":
-            torch._dynamo.config.dynamic_shapes = True
-            torch._dynamo.config.capture_dynamic_output_shape_ops = True
-            torch._dynamo.config.capture_scalar_outputs = True
-            self.model = torch.compile(self.model, dynamic=True)
+            # NOTE: torch.compile() with DDP on CPU can cause segfaults
+            # Skip compilation for CPU DDP training
+            # torch._dynamo.config.dynamic_shapes = True
+            # torch._dynamo.config.capture_dynamic_output_shape_ops = True
+            # torch._dynamo.config.capture_scalar_outputs = True
+            # self.model = torch.compile(self.model, dynamic=True)
             self.model = DDP(
                 self.model,
             )
