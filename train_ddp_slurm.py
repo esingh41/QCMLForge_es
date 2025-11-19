@@ -173,7 +173,8 @@ def setup_distributed(args):
 
     # Set environment variables for PyTorch DDP
     os.environ["RANK"] = str(args.rank)
-    os.environ["LOCAL_RANK"] = str(args.local_rank)
+    # os.environ["LOCAL_RANK"] = str(args.local_rank)
+    os.environ["LOCAL_RANK"] = str(args.rank)
     os.environ["WORLD_SIZE"] = str(args.world_size)
     os.environ["MASTER_ADDR"] = args.master_addr
     os.environ["MASTER_PORT"] = args.master_port
