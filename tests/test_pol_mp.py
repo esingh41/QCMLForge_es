@@ -329,6 +329,36 @@ def debug_ap3_atom_model():
     am.model(torch.load(f"{current_file_path}/../debug_batch.pt", weights_only=False))
     return
 
+def test_mtp_elst_dimers():
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=atp_path,
+    )
+    am = AtomModels.ap3_atom_model.AtomInducedDipoleModel(
+        atomtype_hfvr_model=atpm.model,
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=aidm_path,
+        use_nn_screening=True,
+    )
+    ms = [
+        mols.lr_water_dimer,
+        mols.mol_cliff_water_close,
+    ]
+    E_elst, E_elst_dimer, E_indu = am.predict_elst_ind_dimer(
+        ms,
+        batch_size=2,
+    )
+    for i, m in enumerate(ms):
+        elst = E_elst[i]
+        elst_dimer = E_elst_dimer[i]
+        indu = E_indu[i]
+        print(f"mon   {i} elst: {elst:.4f} kcal/mol")
+        print(f"Dimer {i} elst: {elst_dimer:.4f} kcal/mol")
+        print(f"Dimer {i} indu: {indu:.4f} kcal/mol")
+    return
+
 
 if __name__ == "__main__":
     # test_train_ap3_atomTypeparamMPNN()
@@ -336,4 +366,5 @@ if __name__ == "__main__":
     # train_ap3_atom_model()
     # debug_ap3_atom_model()
     # test_inference_ap3_atom_model()
-    test_ddp_train_ap3_atom_model()
+    # test_ddp_train_ap3_atom_model()
+    test_mtp_elst_dimers()

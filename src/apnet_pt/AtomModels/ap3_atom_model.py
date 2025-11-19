@@ -90,10 +90,20 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             self.damping_update_layers = nn.ModuleList()
             self.damping_readout_layers = nn.ModuleList()
 
+        # + 4 for hfvr (2), vw (2)
         input_layer_size = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf + 4
+        # + 6 for hfvr (2), vw (2), q (2)
+        input_layer_size_damping = n_embed * 4 * n_rbf + n_embed * 4 + n_rbf + 6
 
         layer_nodes_hidden = [
             input_layer_size,
+            n_neuron * 2,
+            n_neuron,
+            n_neuron // 2,
+            n_embed,
+        ]
+        layer_nodes_hidden_damping = [
+            input_layer_size_damping,
             n_neuron * 2,
             n_neuron,
             n_neuron // 2,
@@ -163,6 +173,41 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         vw_source = vw.index_select(0, e_source)
         vw_target = vw.index_select(0, e_target)
         param_all = torch.cat([hfvr_source, hfvr_target, vw_source, vw_target], dim=-1)
+        # [edges x 4 * n_embed]
+        h_all = torch.cat([h0_source, h0_target, h_source, h_target], dim=-1)
+
+        # [edges, 4 * n_embed, n_rbf]
+        h_all_dot = torch.einsum("ez,er->ezr", h_all, rbf)
+        # [edges, 4 * n_embed * n_rbf]
+        h_all_dot = h_all_dot.view(nedge, -1)
+        m_ij = torch.cat([h_all, h_all_dot, rbf, param_all], dim=-1)
+        return m_ij
+
+    def get_messages_charges(self, h0, h, rbf, hfvr, vw, q, e_source, e_target):
+        nedge = e_source.size(0)
+
+        h0_source = h0.index_select(0, e_source)
+        h0_target = h0.index_select(0, e_target)
+        h_source = h.index_select(0, e_source)
+        h_target = h.index_select(0, e_target)
+        # hfvr, vw
+        hfvr_source = hfvr.index_select(0, e_source)
+        hfvr_target = hfvr.index_select(0, e_target)
+        vw_source = vw.index_select(0, e_source)
+        vw_target = vw.index_select(0, e_target)
+        # q_source = q.index_select(0, e_source)
+        # q_target = q.index_select(0, e_target)
+        param_all = torch.cat(
+            [
+                hfvr_source,
+                hfvr_target,
+                vw_source,
+                vw_target,
+                # q_source,
+                # q_target,
+            ],
+            dim=-1,
+        )
         # [edges x 4 * n_embed]
         h_all = torch.cat([h0_source, h0_target, h_source, h_target], dim=-1)
 
@@ -482,7 +527,6 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         e_target_short: torch.Tensor,
         e_source_full: torch.Tensor,
         e_target_full: torch.Tensor,
-        hirshfeld_volume_ratio: torch.Tensor,
         h_list,
         rbf_short: torch.Tensor,
         hfvr,
@@ -551,7 +595,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
 
         # Calculate atomic polarizabilities
         alpha_0 = torch.index_select(self.polarizability_table, 0, Z.long())
-        alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
+        alpha = alpha_0 * hfvr.squeeze(1) ** (4 / 3.0)
 
         # Compute NN-based screening factors using damping layers on SHORT-RANGE edges
         # Initialize screening factors tensor (size: n_short_edges)
@@ -570,6 +614,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 rbf_short,
                 hfvr,
                 vw,
+                # q,
                 e_source_short,
                 e_target_short,
             )
@@ -967,7 +1012,6 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 edge_index[1],
                 e_source_full,  # Full edges for induced dipole calculations
                 e_target_full,
-                hirshfeld_volume_ratio=hfvr.squeeze(1),
                 h_list=h_list_full,
                 rbf_short=rbf_short,  # RBF for short-range edges
                 hfvr=hfvr,
@@ -2090,6 +2134,67 @@ units angstrom
                     )
                 mol_data = []
         return output
+
+    @torch.inference_mode()
+    def predict_qcel_mols_dimer(self, mols, batch_size=2):
+        monA = [mol.get_fragment([0]) for mol in mols]
+        monB = [mol.get_fragment([1]) for mol in mols]
+        dimer_output = self.predict_qcel_mols(mols, batch_size=batch_size)
+        monA_output = self.predict_qcel_mols(monA, batch_size=batch_size)
+        monB_output = self.predict_qcel_mols(monB, batch_size=batch_size)
+        return dimer_output, monA_output, monB_output
+
+    def predict_elst_ind_dimer(self, mols, batch_size=2):
+        E_elst, E_elst_dimer, E_induction = [], [], []
+        dimer, monA, monB = self.predict_qcel_mols_dimer(
+            mols,
+            batch_size=batch_size,
+        )
+        for i, m in enumerate(mols):
+            qA, muA, thetaA = (
+                monA[i][0].detach().numpy(),
+                monA[i][1].numpy(),
+                monA[i][2].numpy(),
+            )
+            qB, muB, thetaB = (
+                monB[i][0].detach().numpy(),
+                monB[i][1].numpy(),
+                monB[i][2].numpy(),
+            )
+            elst = multipole.eval_qcel_dimer(
+                m,
+                qA,
+                muA,
+                thetaA,
+                qB,
+                muB,
+                thetaB,
+            )
+            qD, muD, thetaD = dimer[i][0], dimer[i][1], dimer[i][2]
+            qA, muA, thetaA = (
+                qD[m.fragments[0]].detach().numpy(),
+                muD[m.fragments[0], :].numpy(),
+                thetaD[m.fragments[0], :, :].numpy(),
+            )
+            qB, muB, thetaB = (
+                qD[m.fragments[1]].detach().numpy(),
+                muD[m.fragments[1], :].numpy(),
+                thetaD[m.fragments[1], :, :].numpy(),
+            )
+            elst_dimer = multipole.eval_qcel_dimer(
+                m,
+                qA,
+                muA,
+                thetaA,
+                qB,
+                muB,
+                thetaB,
+            )
+            indu = elst_dimer - elst
+            E_elst.append(elst)
+            E_elst_dimer.append(elst_dimer)
+            E_induction.append(indu)
+        return E_elst, E_elst_dimer, E_induction
 
     @torch.inference_mode()
     def model_predict(self, data):
