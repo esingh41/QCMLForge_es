@@ -134,11 +134,11 @@ def test_inference_ap3_atom_model():
         batch_size=2,
     )
     print(f"{v = }")
-    # torch save v for reference 
+    # torch save v for reference
     # torch.save(v, f"{current_file_path}/../debug_ap3_atom_model_inference.pt")
     ref = torch.load(f"{current_file_path}/../debug_ap3_atom_model_inference.pt")
     for i in range(len(v[0])):
-        assert torch.allclose(v[0][i], ref[0][i], atol=1e-6)
+        assert torch.allclose(v[0][i], ref[0][i], atol=1e-6), f"{i}, {v[0][i]}, {ref[0][i]}"
     return
 
 
@@ -188,6 +188,128 @@ def train_ap3_atom_model():
     return
 
 
+def test_lmdb_dataset_creation():
+    """Test LMDB dataset creation and basic functionality"""
+    # Load pre-trained atomtype model
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=atp_path,
+    )
+
+    # Create LMDB dataset
+    from apnet_pt.atomic_datasets import atomic_module_dataset_lmdb
+
+    ds_lmdb = atomic_module_dataset_lmdb(
+        root=data_path,
+        atomtype_hfvr_model=atpm.model,
+        testing=False,
+        spec_type=5,
+        max_size=50,  # Small for testing
+        force_reprocess=False,
+        in_memory=False,
+        cache_size=10,
+    )
+
+    print(f"LMDB dataset length: {len(ds_lmdb)}")
+    assert len(ds_lmdb) > 0, "Dataset should have items"
+
+    # Test item retrieval
+    item = ds_lmdb[0]
+    assert hasattr(item, "x"), "Item should have node features"
+    assert hasattr(item, "edge_index"), "Item should have edges"
+    assert hasattr(item, "volume_ratios"), "Item should have volume ratios"
+    assert hasattr(item, "valence_widths"), "Item should have valence widths"
+
+    print("LMDB dataset tests passed!")
+    return
+
+
+def test_train_with_lmdb():
+    """Test training AtomInducedDipoleModel with LMDB dataset"""
+    # Load pre-trained atomtype model
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=atp_path,
+    )
+
+    # Set up environment
+    os.environ["OMP_NUM_THREADS"] = "4"
+
+    # Create AtomInducedDipoleModel with LMDB dataset
+    am = AtomModels.ap3_atom_model.AtomInducedDipoleModel(
+        atomtype_hfvr_model=atpm.model,
+        use_GPU=False,
+        ignore_database_null=False,
+        ds_root=data_path,
+        ds_spec_type=5,
+        ds_max_size=50,  # Small for testing
+        ds_use_lmdb=True,  # KEY: Use LMDB dataset
+        ds_in_memory=False,  # Don't load all into memory
+        precompute_hfvr=True,  # Pre-compute hfvr/vw during dataset processing
+    )
+
+    # Train (single process)
+    am.train(
+        n_epochs=2,
+        batch_size=2,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        shuffle=True,
+        skip_compile=True,
+        dataloader_num_workers=0,
+        world_size=1,  # Single process
+        omp_num_threads_per_process=4,
+        random_seed=42,
+    )
+    print("Training with LMDB dataset completed successfully!")
+    return
+
+
+def test_ddp_train_ap3_atom_model():
+    """Test distributed data parallel training with world_size=2"""
+    # Load pre-trained atomtype model
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=atp_path,
+    )
+
+    # Set up DDP environment
+    os.environ["OMP_NUM_THREADS"] = "2"
+
+    # Create AtomInducedDipoleModel with LMDB dataset
+    am = AtomModels.ap3_atom_model.AtomInducedDipoleModel(
+        atomtype_hfvr_model=atpm.model,
+        use_GPU=False,
+        ignore_database_null=False,
+        ds_root=data_path,
+        ds_spec_type=5,
+        ds_max_size=50,  # Small for testing
+        ds_use_lmdb=True,  # KEY: Use LMDB dataset
+        ds_in_memory=False,  # Don't load all into memory
+        precompute_hfvr=True,  # Pre-compute hfvr/vw during dataset processing
+    )
+
+    # Train with DDP (world_size=2)
+    am.train(
+        n_epochs=2,
+        batch_size=2,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        shuffle=True,
+        skip_compile=True,
+        dataloader_num_workers=0,
+        world_size=2,  # KEY: DDP with 2 processes
+        omp_num_threads_per_process=2,
+        random_seed=42,
+    )
+    return
+
+
 def debug_ap3_atom_model():
     atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
         use_GPU=False,
@@ -213,4 +335,5 @@ if __name__ == "__main__":
     # test_train_ap3_atom_model()
     # train_ap3_atom_model()
     # debug_ap3_atom_model()
-    test_inference_ap3_atom_model()
+    # test_inference_ap3_atom_model()
+    test_ddp_train_ap3_atom_model()

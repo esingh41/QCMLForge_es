@@ -1011,6 +1011,7 @@ class AtomInducedDipoleModel:
         ds_testing=False,
         ds_force_reprocess=False,
         ds_in_memory=True,
+        ds_use_lmdb=False,
         model_save_path=None,
     ):
         """
@@ -1026,6 +1027,9 @@ class AtomInducedDipoleModel:
             The forward pass will read these from batch instead of computing on-the-fly.
             This significantly speeds up training but requires using
             atomic_induced_dipole_precomputed_dataset.
+        ds_use_lmdb : bool
+            If True, uses atomic_module_dataset_lmdb for LMDB-based storage (more efficient I/O).
+            Can be combined with precompute_hfvr=True to pre-compute hfvr/vw during processing.
         """
         if (
             not precompute_hfvr
@@ -1145,7 +1149,24 @@ class AtomInducedDipoleModel:
             print("Setting up dataset...")
 
             def setup_ds(fp=ds_force_reprocess):
-                if precompute_hfvr:
+                if ds_use_lmdb:
+                    # Use LMDB-based dataset
+                    from apnet_pt.atomic_datasets import (
+                        atomic_module_dataset_lmdb,
+                    )
+
+                    return atomic_module_dataset_lmdb(
+                        root=ds_root,
+                        atomtype_hfvr_model=self.atomtype_hfvr_model
+                        if precompute_hfvr
+                        else None,
+                        testing=ds_testing,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        in_memory=ds_in_memory,
+                    )
+                elif precompute_hfvr:
                     # Use pre-computed dataset
                     from apnet_pt.atomic_datasets import (
                         atomic_induced_dipole_precomputed_dataset,
@@ -1371,6 +1392,58 @@ units angstrom
                 f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f}",
                 flush=True,
             )
+        return test_loss
+
+    def pretrain_statistics_ddp(
+        self, rank, train_loader, test_loader, criterion, rank_device, world_size
+    ):
+        """
+        Compute pretrain statistics for DDP training.
+
+        Uses evaluate_batches which handles all_reduce across processes.
+        Only prints results on rank 0.
+
+        Parameters
+        ----------
+        rank : int
+            Process rank
+        train_loader : DataLoader
+            Training data loader
+        test_loader : DataLoader
+            Test/validation data loader
+        criterion : torch.nn.Module
+            Loss function
+        rank_device : torch.device
+            Device for this rank
+        world_size : int
+            Total number of processes
+
+        Returns
+        -------
+        float
+            Test loss averaged across all processes
+        """
+        t1 = time.time()
+
+        with torch.no_grad():
+            # Use evaluate_batches which handles all_reduce across processes
+            _, charge_MAE_t, dipole_MAE_t, qpole_MAE_t = self.evaluate_batches(
+                rank, train_loader, criterion, rank_device
+            )
+
+            test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v = self.evaluate_batches(
+                rank, test_loader, criterion, rank_device
+            )
+
+            # Only print on rank 0
+            if rank == 0 or world_size == 1:
+                dt = time.time() - t1
+                print(
+                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} "
+                    f"{dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f}",
+                    flush=True,
+                )
+
         return test_loss
 
     def train_batches_single_proc(
@@ -1653,7 +1726,9 @@ units angstrom
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         criterion = torch.nn.MSELoss()
 
-        test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
+        test_loss = self.pretrain_statistics_ddp(
+            rank, train_loader, test_loader, criterion, rank_device, world_size
+        )
 
         lowest_test_loss = test_loss
 

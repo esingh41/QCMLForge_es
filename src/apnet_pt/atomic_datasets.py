@@ -1218,6 +1218,460 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
         )
 
 
+class atomic_module_dataset_lmdb(Dataset):
+    """
+    LMDB-based dataset for atomic induced dipole training with efficient storage.
+
+    This dataset uses LMDB (Lightning Memory-Mapped Database) for efficient
+    storage and retrieval of processed atomic data, with worker-safe initialization
+    and LRU caching for performance.
+    """
+
+    def __init__(
+        self,
+        root,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=9,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=False,
+        batch_size=1,
+        lmdb_map_size=1099511627776,
+        lmdb_readonly=False,
+        cache_size=1000,
+        atomtype_hfvr_model=None,
+    ):
+        """
+        Initialize LMDB-based atomic dataset.
+
+        Parameters
+        ----------
+        root : str
+            Root directory for dataset
+        r_cut : float
+            Cutoff radius for edge construction
+        spec_type : int
+            Specification type (9 for PBE0/aug-cc-pVDZ with Hirshfeld)
+        max_size : int, optional
+            Maximum number of molecules to process
+        lmdb_map_size : int
+            Maximum size of LMDB database in bytes (default 1TB)
+        lmdb_readonly : bool
+            Open LMDB in read-only mode
+        cache_size : int
+            Number of recently accessed items to keep in memory
+        atomtype_hfvr_model : nn.Module, optional
+            Pre-trained model to compute hfvr and vw during processing
+        """
+        try:
+            assert spec_type in [5, 9, 10]
+        except Exception:
+            print(
+                "spec_type must be 5, 9, or 10 for datasets with Hirshfeld properties."
+            )
+            raise ValueError
+
+        self.batch_size = batch_size
+        self.testing = testing
+        if self.testing and max_size is None:
+            self.MAX_SIZE = 200
+        else:
+            self.MAX_SIZE = max_size
+        self.spec_type = spec_type
+        self.force_reprocess = force_reprocess
+        self.root = root
+        self.in_memory = in_memory
+        self.r_cut = r_cut
+
+        # LMDB settings
+        self.lmdb_map_size = lmdb_map_size
+        self.lmdb_readonly = lmdb_readonly
+        self.cache_size = cache_size
+        self._cache = {}
+        self._cache_keys = []
+
+        # LMDB state
+        self.lmdb_env = None
+        self.lmdb_path = None
+        self._length = None
+        self._worker_id = None
+
+        # Optional model for pre-computation
+        self.atomtype_hfvr_model = atomtype_hfvr_model
+        if self.atomtype_hfvr_model is not None:
+            self.atomtype_hfvr_model.eval()
+            self.atomtype_hfvr_model.requires_grad_(False)
+
+        if os.path.exists(root) is False:
+            os.makedirs(root, exist_ok=True)
+
+        self._init_lmdb_path(root)
+        self._init_lmdb()
+
+        print(
+            f"atomic_module_dataset_lmdb: {self.root = }, {self.spec_type = }, "
+            f"{self.testing = }, {self.in_memory = }, {self.lmdb_path = }"
+        )
+
+        super(atomic_module_dataset_lmdb, self).__init__(root, transform, pre_transform)
+
+        # Handle force_reprocess: close LMDB, re-init parent, reopen LMDB
+        if self.force_reprocess:
+            self.force_reprocess = False
+            self._close_lmdb()
+            super(atomic_module_dataset_lmdb, self).__init__(
+                root, transform, pre_transform
+            )
+            self._init_lmdb()
+
+        if self.in_memory:
+            print("Loading LMDB data into memory...")
+            t = time()
+            self.data = []
+            for i in range(len(self)):
+                self.data.append(self.get(i))
+            total_time_seconds = int(time() - t)
+            print(f"Loaded {len(self.data)} items in {total_time_seconds:4d} seconds")
+            self.get = self.get_in_memory
+
+    def _init_lmdb_path(self, root):
+        """Initialize LMDB path before parent class init"""
+        self.lmdb_path = osp.join(
+            root, "processed", f"lmdb_atomic_induced_dipole_spec_{self.spec_type}"
+        )
+
+    def _init_lmdb(self):
+        """Initialize LMDB environment"""
+        if not osp.exists(self.lmdb_path):
+            os.makedirs(self.lmdb_path, exist_ok=True)
+
+        try:
+            self.lmdb_env = lmdb.open(
+                self.lmdb_path,
+                map_size=self.lmdb_map_size,
+                readonly=self.lmdb_readonly,
+                max_dbs=0,
+                lock=not self.lmdb_readonly,
+                max_readers=256,
+            )
+
+            # Read metadata
+            with self.lmdb_env.begin() as txn:
+                metadata_bytes = txn.get(b"__metadata__")
+                if metadata_bytes:
+                    metadata = json.loads(metadata_bytes.decode("utf-8"))
+                    self._length = metadata.get("length", 0)
+                else:
+                    self._length = 0
+        except Exception as e:
+            print(f"Error initializing LMDB: {e}")
+            self.lmdb_env = None
+            self._length = 0
+
+    def _close_lmdb(self):
+        """Close LMDB environment"""
+        if self.lmdb_env is not None:
+            self.lmdb_env.close()
+            self.lmdb_env = None
+
+    def __del__(self):
+        """Cleanup LMDB on deletion"""
+        try:
+            self._close_lmdb()
+        except:
+            pass
+
+    def __getstate__(self):
+        """Prepare object for pickling by closing LMDB"""
+        state = self.__dict__.copy()
+        # Close LMDB environment before pickling
+        if "lmdb_env" in state and state["lmdb_env"] is not None:
+            try:
+                state["lmdb_env"].close()
+            except:
+                pass
+        # Remove unpicklable objects
+        state["lmdb_env"] = None
+        state["_cache"] = {}
+        state["_cache_keys"] = []
+        state["_worker_id"] = None
+        return state
+
+    def __setstate__(self, state):
+        """Restore object after unpickling by reopening LMDB"""
+        self.__dict__.update(state)
+        # Reinitialize LMDB in the new process
+        self._init_lmdb()
+
+    @property
+    def raw_file_names(self):
+        """Use same raw files as atomic_induced_dipole_precomputed_dataset"""
+        if self.spec_type in [5]:
+            return [f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl"]
+        elif self.spec_type in [9]:
+            return ["monomers_ap3_spec_5_pbe0.pkl"]
+        elif self.spec_type in [10]:
+            return [f"monomers_ap3_spec_{self.spec_type}_HF.pkl"]
+        raise ValueError("spec_type must be 5, 9, or 10!")
+
+    @property
+    def processed_file_names(self):
+        """Check if LMDB database exists and has data"""
+        if self.force_reprocess:
+            return ["file"]
+
+        if not hasattr(self, "lmdb_path") or self.lmdb_path is None:
+            return ["lmdb_missing"]
+
+        if osp.exists(self.lmdb_path):
+            env = None
+            try:
+                env = lmdb.open(
+                    self.lmdb_path,
+                    readonly=True,
+                    lock=False,
+                    max_dbs=0,
+                    create=False,
+                    max_readers=256,
+                )
+                with env.begin() as txn:
+                    metadata_bytes = txn.get(b"__metadata__")
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        length = metadata.get("length", 0)
+
+                        if length > 0:
+                            return [f"lmdb_atomic_induced_dipole_spec_{self.spec_type}"]
+            except Exception as e:
+                print(f"Error checking LMDB: {e}")
+            finally:
+                if env is not None:
+                    try:
+                        env.close()
+                    except:
+                        pass
+
+        return ["lmdb_missing"]
+
+    def download(self):
+        """Download not available for this dataset"""
+        print(self.raw_file_names)
+        raise ValueError("Downloads are not available!")
+
+    def _store_to_lmdb(self, data_objects, start_idx):
+        """Store data objects to LMDB"""
+        import pickle
+
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+
+        with self.lmdb_env.begin(write=True) as txn:
+            for i, data_obj in enumerate(data_objects):
+                idx = start_idx + i
+                key = str(idx).encode("utf-8")
+                value = pickle.dumps(data_obj)
+                txn.put(key, value)
+
+            # Update metadata
+            metadata = {
+                "length": start_idx + len(data_objects),
+                "r_cut": self.r_cut,
+                "spec_type": self.spec_type,
+            }
+            txn.put(b"__metadata__", json.dumps(metadata).encode("utf-8"))
+
+        self._length = start_idx + len(data_objects)
+
+    def process(self, r_cut=5.0, edge_index_only=True):
+        """
+        Process raw data and store in LMDB.
+
+        If atomtype_hfvr_model is provided, pre-computes volume_ratios and
+        valence_widths. Otherwise, loads them from raw data.
+        """
+        idx = 0
+        data_objects = []
+        batch_size_lmdb = 100  # Store in batches for efficiency
+
+        for raw_path in self.raw_paths:
+            print(f"Processing raw_path: {raw_path}")
+
+            # Load data with Hirshfeld properties
+            (
+                monomers,
+                cartesian_multipoles,
+                total_charge,
+                volume_ratios_raw,
+                valence_widths_raw,
+            ) = util.load_monomer_dataset(raw_path, self.MAX_SIZE, hirshfeld_props=True)
+
+            t = time()
+            for i in range(len(monomers)):
+                if i % 100 == 0:
+                    print(f"{i}/{len(monomers)}, took {time() - t:.2f} seconds")
+                    t = time()
+
+                mol = monomers[i]
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut, full_indices=True)
+
+                # Store multipoles
+                cart_mult = np.array(
+                    [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
+                )
+                data.charges = torch.tensor(cart_mult[:, 0], dtype=torch.float32)
+                data.dipoles = torch.tensor(cart_mult[:, 1:4], dtype=torch.float32)
+                data.quadrupoles = torch.tensor(
+                    multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
+                )
+
+                # Compute or load volume_ratios and valence_widths
+                if self.atomtype_hfvr_model is not None:
+                    # Pre-compute using model
+                    with torch.no_grad():
+                        Ks = self.atomtype_hfvr_model(data)
+                        data.volume_ratios = Ks[:, 0].clone()
+                        data.valence_widths = Ks[:, 1].clone()
+                else:
+                    # Load from raw data
+                    if np.isnan(volume_ratios_raw[i]).any():
+                        print(f"NaN in volume ratios for index {i}, skipping")
+                        continue
+                    data.volume_ratios = torch.tensor(
+                        volume_ratios_raw[i], dtype=torch.float32
+                    )
+                    data.valence_widths = torch.tensor(
+                        valence_widths_raw[i], dtype=torch.float32
+                    )
+
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+
+                data_objects.append(data.cpu())
+
+                # Store in batches
+                if len(data_objects) >= batch_size_lmdb:
+                    start_idx = idx - len(data_objects) + 1
+                    self._store_to_lmdb(data_objects, start_idx)
+                    data_objects = []
+
+                if self.MAX_SIZE is not None and idx >= self.MAX_SIZE:
+                    break
+                idx += 1
+
+        # Store remaining objects
+        if len(data_objects) > 0:
+            start_idx = idx - len(data_objects)
+            self._store_to_lmdb(data_objects, start_idx)
+
+        print(f"Finished processing {idx} molecules to LMDB")
+        return
+
+    def len(self):
+        """Return dataset length from LMDB metadata"""
+        if self._length is not None:
+            return self._length
+
+        if self.lmdb_env is None:
+            return 0
+
+        with self.lmdb_env.begin() as txn:
+            metadata_bytes = txn.get(b"__metadata__")
+            if metadata_bytes:
+                metadata = json.loads(metadata_bytes.decode("utf-8"))
+                self._length = metadata.get("length", 0)
+            else:
+                self._length = 0
+
+        return self._length
+
+    def _check_worker_init(self):
+        """Ensure LMDB env is initialized for current worker process"""
+        import torch.utils.data
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+        else:
+            worker_id = None
+
+        # Reinitialize LMDB if worker changed
+        if worker_id != self._worker_id:
+            if self.lmdb_env is not None:
+                self._close_lmdb()
+
+            self._worker_id = worker_id
+            self._init_lmdb()
+            self._cache = {}
+            self._cache_keys = []
+
+    def get(self, idx):
+        """Retrieve item from LMDB with LRU caching"""
+        import pickle
+
+        self._check_worker_init()
+
+        # Check cache first
+        if idx in self._cache:
+            self._cache_keys.remove(idx)
+            self._cache_keys.append(idx)
+            return self._cache[idx]
+
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+
+        # Load from LMDB
+        with self.lmdb_env.begin() as txn:
+            key = str(idx).encode("utf-8")
+            value_bytes = txn.get(key)
+
+            if value_bytes is None:
+                raise IndexError(f"Index {idx} not found in LMDB database")
+
+            data = pickle.loads(value_bytes)
+
+        # Update cache
+        self._cache[idx] = data
+        self._cache_keys.append(idx)
+
+        # Evict oldest if cache full
+        if len(self._cache) > self.cache_size:
+            oldest_key = self._cache_keys.pop(0)
+            del self._cache[oldest_key]
+
+        return data
+
+    def get_in_memory(self, idx):
+        """Get item from in-memory storage"""
+        return self.data[idx]
+
+    def train_test_loaders(self):
+        """Create train/test data loaders"""
+        indices = np.random.permutation(len(self))
+        split = int(0.9 * len(self))
+        train_indices = indices[:split]
+        test_indices = indices[split:]
+        return (
+            AtomicDataLoader(
+                self[train_indices],
+                batch_size=self.batch_size,
+                shuffle=True,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+            AtomicDataLoader(
+                self[test_indices],
+                batch_size=self.batch_size,
+                shuffle=False,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+        )
+
+
 class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
     def __init__(
         self,
