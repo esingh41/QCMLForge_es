@@ -1262,8 +1262,26 @@ class AtomInducedDipoleModel:
         return
 
     def setup(self, rank, world_size):
-        os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "12355"
+        """
+        Initialize distributed process group.
+
+        Uses MASTER_ADDR and MASTER_PORT from environment if set (for SLURM),
+        otherwise defaults to localhost:12355 for local testing.
+
+        Parameters
+        ----------
+        rank : int
+            Rank of this process
+        world_size : int
+            Total number of processes
+        """
+        # Use environment variables if set (SLURM sets these), otherwise use defaults
+        if "MASTER_ADDR" not in os.environ:
+            os.environ["MASTER_ADDR"] = "localhost"
+        if "MASTER_PORT" not in os.environ:
+            os.environ["MASTER_PORT"] = "12355"
+
+        # Initialize process group
         dist.init_process_group("gloo", rank=rank, world_size=world_size)
         # torch.manual_seed(42)
 
