@@ -81,7 +81,7 @@ def train_atom_model(
             use_GPU=True,
             pre_trained_model_path=pretrained_model,
         )
-        skip_compile = True
+        skip_compile = False
     dataloader_num_workers = 0
     if torch.cuda.is_available() and omp_num_threads > 2:
         dataloader_num_workers = omp_num_threads - 2
