@@ -124,6 +124,7 @@ def test_inference_ap3_atom_model():
         pre_trained_model_path=aidm_path,
         use_nn_screening=True,
     )
+    am.compile_model()
     v = am.predict_qcel_mols(
         mols=[
             mols.lr_water_dimer,

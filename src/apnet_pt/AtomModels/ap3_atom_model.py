@@ -447,11 +447,20 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         hash_short = e_source_short * max_nodes + e_target_short
         hash_full = e_source_full * max_nodes + e_target_full
 
-        # For each unique edge in short-range, find matching edges in full
-        for i in range(hash_short.size(0)):
-            mask = hash_full == hash_short[i]
-            if mask.any():
-                screening_factors_full[mask] = screening_factors_short[i]
+        # Vectorized edge matching using broadcasting and comparison
+        # Shape: (n_full_edges, n_short_edges)
+        matches = hash_full.unsqueeze(1) == hash_short.unsqueeze(0)
+
+        # Find indices where matches occur
+        # any_match: (n_full_edges,) - whether each full edge has a match
+        # which_match: (n_full_edges,) - index of matching short edge (undefined if no match)
+        any_match = matches.any(dim=1)
+        which_match = matches.long().argmax(dim=1)  # Gets first match index
+
+        # Update screening factors only where matches exist
+        screening_factors_full[any_match] = screening_factors_short[
+            which_match[any_match]
+        ]
 
         return screening_factors_full
 
@@ -546,11 +555,12 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             dtype=rbf_short.dtype,
         )
 
+        # Pre-compute messages once (all inputs are constant across message passing steps)
         # Accumulate screening factors across message passing steps
         for i in range(self.n_message):
             m_ij = self.get_messages(
                 h_list[0],
-                h_list[-1],
+                h_list[i+1],
                 rbf_short,
                 hfvr,
                 vw,
@@ -564,7 +574,9 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             # screen_factor = 1.0 - screen_factor
             # # Accumulate screening factors
             # screening_factors_short += screen_factor.squeeze(-1)
-            screening_factors_short += self.damping_readout_layers[i](h_damping).squeeze(-1)
+            screening_factors_short += self.damping_readout_layers[i](
+                h_damping
+            ).squeeze(-1)
         # Apply 1-screening accumulation
         screening_factors_short = 1.0 - screening_factors_short
         # Apply sigmoid function on everything to constrain to [0, 1]
@@ -585,6 +597,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             e_target_full,
             default_value=1.0,
         )
+
         # screening_factors = screening_factors_short
         # e_source_full = e_source_short
         # e_target_full = e_target_short
@@ -918,12 +931,11 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         # dimensions no longer correct... figure out another way to fix this. reverting back to dim=1 # AMW 9/17/25
         h_list_stacked = torch.stack(h_list, dim=1)
 
-        # Use full edge indices for induced dipole calculations
-        e_source_full = batch.edge_index_full[0]
-        e_target_full = batch.edge_index_full[1]
-
         # Choose induced dipole calculation method based on use_nn_screening flag
         if self.use_nn_screening:
+            # Use full edge indices for induced dipole calculations with NN screening
+            e_source_full = batch.edge_index_full[0]
+            e_target_full = batch.edge_index_full[1]
             # For NN screening, we need to expand h_list back to full size for get_messages
             # Create full h_list by scattering filtered values back
             h_list_full = []
@@ -956,14 +968,15 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 vw=vw,
             )
         else:
+            # For standard induced dipole, use regular short-range edges
             induced_dipoles = self.monomer_induced_dipole_torch(
                 Z,
                 R,
                 charge.unsqueeze(1),
                 dipole,
                 qpole,
-                e_source_full,  # Use full edge indices for induced dipole
-                e_target_full,
+                edge_index[0],  # Use short-range edges
+                edge_index[1],
                 hirshfeld_volume_ratio=hfvr.squeeze(1),
             )
         dipole += induced_dipoles
