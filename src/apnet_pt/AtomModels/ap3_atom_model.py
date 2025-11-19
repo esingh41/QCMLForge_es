@@ -443,7 +443,14 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
 
         # Create edge pair hashes for efficient lookup
         # Hash: source * max_nodes + target (assumes max_nodes < sqrt(max_long))
-        max_nodes = max(e_source_short.max().item(), e_target_short.max().item()) + 1
+        # Use torch.max to avoid .item() which creates data-dependent control flow
+        max_nodes = (
+            torch.max(
+                torch.max(e_source_short.max(), e_target_short.max()),
+                torch.max(e_source_full.max(), e_target_full.max()),
+            )
+            + 1
+        )
         hash_short = e_source_short * max_nodes + e_target_short
         hash_full = e_source_full * max_nodes + e_target_full
 
@@ -555,12 +562,11 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             dtype=rbf_short.dtype,
         )
 
-        # Pre-compute messages once (all inputs are constant across message passing steps)
         # Accumulate screening factors across message passing steps
         for i in range(self.n_message):
             m_ij = self.get_messages(
                 h_list[0],
-                h_list[i+1],
+                h_list[i + 1],
                 rbf_short,
                 hfvr,
                 vw,
@@ -784,7 +790,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             total_charge_pred = scatter_sum_compile(
                 charge, molecule_ind, num_mols, reduce="sum"
             )
-            total_charge_pred = total_charge_pred.squeeze()
+            total_charge_pred = total_charge_pred.squeeze(-1)
             total_charge_err = total_charge_pred - total_charge
             charge_err = torch.repeat_interleave(
                 total_charge_err / natom_per_mol.float(), natom_per_mol
@@ -919,13 +925,13 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         )
         # return charge, dipole, qpole, h_list
 
-        total_charge_pred = total_charge_pred.squeeze()
+        total_charge_pred = total_charge_pred.squeeze(-1)
         total_charge_err = total_charge_pred - total_charge
         charge_err = torch.repeat_interleave(
             total_charge_err / natom_per_mol.float(), natom_per_mol
         ).unsqueeze(1)
         charge = charge - charge_err
-        charge = charge.squeeze()
+        charge = charge.squeeze(-1)
         # changed to dim=0 from dim=1 for usage in Param fitting # AMW 8/20/25
         # Breaks test_apnet2_train_qcel_molecules_in_memory_transfer test,
         # dimensions no longer correct... figure out another way to fix this. reverting back to dim=1 # AMW 9/17/25
