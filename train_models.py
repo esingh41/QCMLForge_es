@@ -12,6 +12,7 @@ def train_atom_model(
     atom_model_type="AtomModel",
     model_path="./models/am_amw_1.pt",
     atom_type_param_model_path=None,
+    atom_mpnn_pretrained_path=None,
     data_dir="data_atomic",
     spec_type=3,
     testing=False,
@@ -41,6 +42,9 @@ def train_atom_model(
     elif atom_model_type == "AtomInducedDipoleModel":
         AM = AtomModels.ap3_atom_model.AtomInducedDipoleModel
         batch_size = 16
+    elif atom_model_type == "InducedDipoleModel":
+        AM = AtomModels.ap3_atom_model_frozen.InducedDipoleModel
+        batch_size = 16
     else:
         raise ValueError("Invalid Atom Model Type")
     pretrained_model = None
@@ -67,6 +71,25 @@ def train_atom_model(
     elif atom_model_type in ["AtomInducedDipoleModel"]:
         atom_model = AM(
             atomtype_hfvr_pre_trained_path=atom_type_param_model_path,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            use_nn_screening=use_nn_screening,
+            precompute_hfvr=precompute_hfvr,
+            ds_root=data_dir,
+            ds_spec_type=spec_type,
+            ds_max_size=ds_max_size,
+            ignore_database_null=False,
+            ds_in_memory=True,
+            use_GPU=True,
+            pre_trained_model_path=pretrained_model,
+        )
+        skip_compile = False
+    elif atom_model_type in ["InducedDipoleModel"]:
+        atom_model = AM(
+            atomtype_hfvr_pre_trained_path=atom_type_param_model_path,
+            atom_mpnn_pre_trained_path=atom_mpnn_pretrained_path,
             n_rbf=n_rbf,
             n_neuron=n_neuron,
             n_embed=n_embed,
@@ -386,6 +409,12 @@ def main():
         help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props or AtomInducedDipoleModel (default: None)",
     )
     args.add_argument(
+        "--atom_mpnn_pretrained_path",
+        type=str,
+        default=None,
+        help="specify pretrained AtomMPNN model path for InducedDipoleModel with frozen charge/dipole/quadrupole layers (default: None)",
+    )
+    args.add_argument(
         "--atom_type_param_model_path2",
         type=str,
         default=None,
@@ -597,6 +626,7 @@ def main():
         train_atom_model(
             atom_model_type=args.train_am,
             atom_type_param_model_path=args.atom_type_param_model_path,
+            atom_mpnn_pretrained_path=args.atom_mpnn_pretrained_path,
             model_path=args.am_model_path,
             data_dir=args.data_dir,
             spec_type=args.spec_type_am,

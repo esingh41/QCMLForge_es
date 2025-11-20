@@ -38,6 +38,7 @@ class InducedDipoleMPNN(torch.nn.Module):
     def __init__(
         self,
         atomtype_hfvr_model=AtomTypeParamMPNN(),
+        atom_mpnn_model=None,
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -64,26 +65,78 @@ class InducedDipoleMPNN(torch.nn.Module):
             # Don't store model to save memory - will read from batch
             self.atomtype_hfvr_model = None
 
+        # Store and freeze the pretrained AtomMPNN model for predicting charges, dipoles, and quadrupoles
+        if atom_mpnn_model is not None:
+            print(
+                "Using pretrained AtomMPNN model for charge, dipole, and quadrupole predictions"
+            )
+            self.atom_mpnn_model = atom_mpnn_model
+            # Freeze all layers in the pretrained model
+            self.atom_mpnn_model.requires_grad_(False)
+            # We'll selectively unfreeze dipole layers later
+        else:
+            self.atom_mpnn_model = None
+
         self.polarizability_table = constants.polarizability_table.clone()
-        # embed interatomic distances into large orthogonal basis
-        self.distance_layer = DistanceLayer(n_rbf, r_cut)
+        # If we have a pretrained AtomMPNN model, use its layers for charge/dipole/qpole prediction
+        # Otherwise, create new layers
+        if self.atom_mpnn_model is not None:
+            # Use pretrained model's layers - these will be frozen except dipole layers
+            self.distance_layer = self.atom_mpnn_model.distance_layer
+            self.embed_layer = self.atom_mpnn_model.embed_layer
+            self.guess_layer = self.atom_mpnn_model.guess_layer
+            self.charge_update_layers = self.atom_mpnn_model.charge_update_layers
+            self.dipole_update_layers = self.atom_mpnn_model.dipole_update_layers
+            self.qpole1_update_layers = self.atom_mpnn_model.qpole1_update_layers
+            self.qpole2_update_layers = self.atom_mpnn_model.qpole2_update_layers
+            self.charge_readout_layers = self.atom_mpnn_model.charge_readout_layers
+            self.dipole_readout_layers = self.atom_mpnn_model.dipole_readout_layers
+            self.qpole_readout_layers = self.atom_mpnn_model.qpole_readout_layers
 
-        # embed atom types
-        self.embed_layer = nn.Embedding(max_Z + 1, n_embed)
+            # Freeze all layers from the pretrained model
+            for param in self.distance_layer.parameters():
+                param.requires_grad = False
+            for param in self.embed_layer.parameters():
+                param.requires_grad = False
+            for param in self.guess_layer.parameters():
+                param.requires_grad = False
+            for param in self.charge_update_layers.parameters():
+                param.requires_grad = False
+            for param in self.qpole1_update_layers.parameters():
+                param.requires_grad = False
+            for param in self.qpole2_update_layers.parameters():
+                param.requires_grad = False
+            for param in self.charge_readout_layers.parameters():
+                param.requires_grad = False
+            for param in self.qpole_readout_layers.parameters():
+                param.requires_grad = False
 
-        # zero-th order charge guess, based solely on atom type
-        self.guess_layer = nn.Embedding(max_Z + 1, 1)
+            # Unfreeze only dipole update and readout layers
+            for param in self.dipole_update_layers.parameters():
+                param.requires_grad = True
+            for param in self.dipole_readout_layers.parameters():
+                param.requires_grad = True
+        else:
+            # Create new layers (original behavior)
+            # embed interatomic distances into large orthogonal basis
+            self.distance_layer = DistanceLayer(n_rbf, r_cut)
 
-        # update layers for hidden states
-        self.charge_update_layers = nn.ModuleList()
-        self.dipole_update_layers = nn.ModuleList()
-        self.qpole1_update_layers = nn.ModuleList()
-        self.qpole2_update_layers = nn.ModuleList()
+            # embed atom types
+            self.embed_layer = nn.Embedding(max_Z + 1, n_embed)
 
-        # readout layers for predicting multipoles from hidden states
-        self.charge_readout_layers = nn.ModuleList()
-        self.dipole_readout_layers = nn.ModuleList()
-        self.qpole_readout_layers = nn.ModuleList()
+            # zero-th order charge guess, based solely on atom type
+            self.guess_layer = nn.Embedding(max_Z + 1, 1)
+
+            # update layers for hidden states
+            self.charge_update_layers = nn.ModuleList()
+            self.dipole_update_layers = nn.ModuleList()
+            self.qpole1_update_layers = nn.ModuleList()
+            self.qpole2_update_layers = nn.ModuleList()
+
+            # readout layers for predicting multipoles from hidden states
+            self.charge_readout_layers = nn.ModuleList()
+            self.dipole_readout_layers = nn.ModuleList()
+            self.qpole_readout_layers = nn.ModuleList()
 
         # damping layers for NN screening (only used if use_nn_screening=True)
         if use_nn_screening:
@@ -123,28 +176,31 @@ class InducedDipoleMPNN(torch.nn.Module):
             None,
         ]  # None represents a linear activation
 
-        for i in range(n_message):
-            self.charge_update_layers.append(
-                self._make_layers(layer_nodes_hidden, layer_activations)
-            )
-            self.dipole_update_layers.append(
-                self._make_layers(layer_nodes_hidden, layer_activations)
-            )
-            self.qpole1_update_layers.append(
-                self._make_layers(layer_nodes_hidden, layer_activations)
-            )
-            self.qpole2_update_layers.append(
-                self._make_layers(layer_nodes_hidden, layer_activations)
-            )
+        # Only initialize layers if we don't have a pretrained model
+        if self.atom_mpnn_model is None:
+            for i in range(n_message):
+                self.charge_update_layers.append(
+                    self._make_layers(layer_nodes_hidden, layer_activations)
+                )
+                self.dipole_update_layers.append(
+                    self._make_layers(layer_nodes_hidden, layer_activations)
+                )
+                self.qpole1_update_layers.append(
+                    self._make_layers(layer_nodes_hidden, layer_activations)
+                )
+                self.qpole2_update_layers.append(
+                    self._make_layers(layer_nodes_hidden, layer_activations)
+                )
 
-            self.charge_readout_layers.append(
-                self._make_layers(layer_nodes_readout, layer_activations)
-            )
-            self.dipole_readout_layers.append(nn.Linear(n_embed, 1))
-            self.qpole_readout_layers.append(nn.Linear(n_embed, 1))
+                self.charge_readout_layers.append(
+                    self._make_layers(layer_nodes_readout, layer_activations)
+                )
+                self.dipole_readout_layers.append(nn.Linear(n_embed, 1))
+                self.qpole_readout_layers.append(nn.Linear(n_embed, 1))
 
-            # Add damping layers for NN screening
-            if use_nn_screening:
+        # Add damping layers for NN screening (always created, not from pretrained model)
+        if use_nn_screening:
+            for i in range(n_message):
                 self.damping_update_layers.append(
                     self._make_layers(layer_nodes_hidden, layer_activations)
                 )
@@ -159,6 +215,28 @@ class InducedDipoleMPNN(torch.nn.Module):
             if activations[i] is not None:
                 layers.append(activations[i])
         return nn.Sequential(*layers)
+
+    def get_messages_without_hfvr(self, h0, h, rbf, e_source, e_target):
+        """
+        Get messages without hfvr/vw parameters.
+        Used when loading pretrained AtomMPNN layers that expect input without these features.
+        """
+        nedge = e_source.size(0)
+
+        h0_source = h0.index_select(0, e_source)
+        h0_target = h0.index_select(0, e_target)
+        h_source = h.index_select(0, e_source)
+        h_target = h.index_select(0, e_target)
+
+        # [edges x 4 * n_embed]
+        h_all = torch.cat([h0_source, h0_target, h_source, h_target], dim=-1)
+
+        # [edges, 4 * n_embed, n_rbf]
+        h_all_dot = torch.einsum("ez,er->ezr", h_all, rbf)
+        # [edges, 4 * n_embed * n_rbf]
+        h_all_dot = h_all_dot.view(nedge, -1)
+        m_ij = torch.cat([h_all, h_all_dot, rbf], dim=-1)
+        return m_ij
 
     def get_messages(self, h0, h, rbf, hfvr, vw, e_source, e_target):
         nedge = e_source.size(0)
@@ -897,9 +975,15 @@ class InducedDipoleMPNN(torch.nn.Module):
             #####################
 
             # [edges x message_embedding_dim]
-            m_ij = self.get_messages(
-                h_list[0], h_list[-1], rbf, hfvr, vw, e_source, e_target
-            )
+            # Use get_messages_without_hfvr when using pretrained AtomMPNN layers
+            if self.atom_mpnn_model is not None:
+                m_ij = self.get_messages_without_hfvr(
+                    h_list[0], h_list[-1], rbf, e_source, e_target
+                )
+            else:
+                m_ij = self.get_messages(
+                    h_list[0], h_list[-1], rbf, hfvr, vw, e_source, e_target
+                )
 
             # [atoms x message_embedding_dim]
             m_i = scatter_sum_compile(m_ij, e_source, int(natom_filtered), reduce="sum")  # type: ignore
@@ -1040,6 +1124,8 @@ class InducedDipoleModel:
         pre_trained_model_path=None,
         atomtype_hfvr_model=None,
         atomtype_hfvr_pre_trained_path=None,
+        atom_mpnn_model=None,
+        atom_mpnn_pre_trained_path=None,
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -1066,6 +1152,13 @@ class InducedDipoleModel:
 
         Parameters
         ----------
+        atom_mpnn_model : torch.nn.Module, optional
+            Pretrained AtomMPNN model for predicting charges, dipoles, and quadrupoles.
+            If provided, all layers except dipole_update_layers and dipole_readout_layers
+            will be frozen.
+        atom_mpnn_pre_trained_path : str, optional
+            Path to a pretrained AtomMPNN model checkpoint. If provided, loads the model
+            from this path.
         precompute_hfvr : bool
             If True, expects dataset to have pre-computed volume_ratios and valence_widths.
             The forward pass will read these from batch instead of computing on-the-fly.
@@ -1075,16 +1168,16 @@ class InducedDipoleModel:
             If True, uses atomic_module_dataset_lmdb for LMDB-based storage (more efficient I/O).
             Can be combined with precompute_hfvr=True to pre-compute hfvr/vw during processing.
         """
-        if (
-            not precompute_hfvr
-            and atomtype_hfvr_model is None
-            and atomtype_hfvr_pre_trained_path is None
-        ):
-            raise ValueError(
-                "Either atomtypeparam_hfvr_model or atomtypeparam_hfvr_pre_trained_path must be provided.\n"
-                "Without a model predicting hirshfeld volumes, induced dipoles cannot be computed correctly.\n"
-                "Alternatively, set precompute_hfvr=True and use atomic_induced_dipole_precomputed_dataset."
-            )
+        # if (
+        #     not precompute_hfvr
+        #     and atomtype_hfvr_model is None
+        #     and atomtype_hfvr_pre_trained_path is None
+        # ):
+        #     raise ValueError(
+        #         "Either atomtypeparam_hfvr_model or atomtypeparam_hfvr_pre_trained_path must be provided.\n"
+        #         "Without a model predicting hirshfeld volumes, induced dipoles cannot be computed correctly.\n"
+        #         "Alternatively, set precompute_hfvr=True and use atomic_induced_dipole_precomputed_dataset."
+        #     )
         if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
@@ -1115,7 +1208,15 @@ class InducedDipoleModel:
             }
             self.atomtype_hfvr_model.load_state_dict(model_state_dict)
 
+        # Load pretrained AtomMPNN model if provided
+        # Note: If pre_trained_model_path is provided, it takes priority and
+        # atom_mpnn_pre_trained_path will be ignored (model is loaded from saved state)
         if pre_trained_model_path:
+            # When loading a pretrained InducedDipoleModel, the AtomMPNN weights
+            # are already stored in the model state_dict, so we don't load separately
+            print(
+                f"Loading pre-trained InducedDipoleModel from {pre_trained_model_path}"
+            )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             # Prioritize user-provided precompute_hfvr over checkpoint value
             # This allows users to switch modes when loading old checkpoints
@@ -1125,10 +1226,52 @@ class InducedDipoleModel:
             # )
             use_precompute = precompute_hfvr
 
+            # Check if checkpoint has atomtype_hfvr_model config
+            # If so, restore it from checkpoint (override any passed model/path)
+            atomtype_config = checkpoint["config"].get("atomtype_hfvr_config", None)
+            if atomtype_config is not None and not use_precompute:
+                # Restore atomtype_hfvr_model from checkpoint
+                self.atomtype_hfvr_model = AtomTypeParamMPNN(
+                    n_message=atomtype_config["n_message"],
+                    n_neuron=atomtype_config["n_neuron"],
+                    n_embed=atomtype_config["n_embed"],
+                    param_start_mean=atomtype_config["param_start_mean"],
+                    param_start_std=atomtype_config["param_start_std"],
+                    n_params=atomtype_config.get("n_params", 1),
+                    r_cut=atomtype_config["r_cut"],
+                )
+                print(
+                    "Note: Checkpoint contains atomtype_hfvr_model, restoring from checkpoint"
+                )
+
+            # Check if checkpoint was saved with a pretrained AtomMPNN
+            has_pretrained_atom_mpnn = checkpoint["config"].get(
+                "has_pretrained_atom_mpnn", False
+            )
+
+            # If checkpoint had a pretrained AtomMPNN, create a dummy one to ensure correct architecture
+            # The actual weights will be loaded from the state_dict
+            if has_pretrained_atom_mpnn:
+                from .ap2_atom_model import AtomMPNN
+
+                self.atom_mpnn_model = AtomMPNN(
+                    n_message=checkpoint["config"]["n_message"],
+                    n_rbf=checkpoint["config"]["n_rbf"],
+                    n_neuron=checkpoint["config"]["n_neuron"],
+                    n_embed=checkpoint["config"]["n_embed"],
+                    r_cut=checkpoint["config"]["r_cut"],
+                )
+                print(
+                    "Note: Checkpoint contains pretrained AtomMPNN, restoring architecture"
+                )
+            else:
+                self.atom_mpnn_model = None
+
             self.model = InducedDipoleMPNN(
                 atomtype_hfvr_model=self.atomtype_hfvr_model
                 if not use_precompute
                 else None,
+                atom_mpnn_model=self.atom_mpnn_model,
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -1165,11 +1308,44 @@ class InducedDipoleModel:
             self.model.load_state_dict(model_state_dict, strict=False)
             # Store the precompute flag used for model creation
             self.precompute_hfvr = use_precompute
+            print("Precompute HFVR:", self.precompute_hfvr)
+            print(
+                "Using pretrained AtomMPNN model from checkpoint"
+                if self.model.atom_mpnn_model is not None
+                else "Training InducedDipoleMPNN from scratch"
+            )
         else:
+            # No pre_trained_model_path, so check if we should load atom_mpnn separately
+            if atom_mpnn_model is not None:
+                self.atom_mpnn_model = atom_mpnn_model
+            elif atom_mpnn_pre_trained_path is not None:
+                print(
+                    f"Loading pre-trained AtomMPNN model from {atom_mpnn_pre_trained_path}"
+                )
+                # Import AtomMPNN from ap2_atom_model
+                from .ap2_atom_model import AtomMPNN
+
+                checkpoint = torch.load(atom_mpnn_pre_trained_path, weights_only=False)
+                self.atom_mpnn_model = AtomMPNN(
+                    n_message=checkpoint["config"]["n_message"],
+                    n_rbf=checkpoint["config"]["n_rbf"],
+                    n_neuron=checkpoint["config"]["n_neuron"],
+                    n_embed=checkpoint["config"]["n_embed"],
+                    r_cut=checkpoint["config"]["r_cut"],
+                )
+                model_state_dict = {
+                    k.replace("_orig_mod.", ""): v
+                    for k, v in checkpoint["model_state_dict"].items()
+                }
+                self.atom_mpnn_model.load_state_dict(model_state_dict)
+            else:
+                self.atom_mpnn_model = None
+
             self.model = InducedDipoleMPNN(
                 atomtype_hfvr_model=self.atomtype_hfvr_model
                 if not precompute_hfvr
                 else None,
+                atom_mpnn_model=self.atom_mpnn_model,
                 n_message=n_message,
                 n_rbf=n_rbf,
                 n_neuron=n_neuron,
@@ -1180,6 +1356,12 @@ class InducedDipoleModel:
             )
             # Store the precompute flag used for model creation
             self.precompute_hfvr = precompute_hfvr
+            print("Precompute HFVR:", self.precompute_hfvr)
+            print(
+                "Using pretrained AtomMPNN model for charge, dipole, and quadrupole predictions"
+                if self.atom_mpnn_model is not None
+                else "Training InducedDipoleMPNN from scratch"
+            )
         self.device = device
         self.dataset = dataset
         self.ds_spec_type = ds_spec_type
@@ -1813,6 +1995,19 @@ units angstrom
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
                         cpu_model = unwrap_model(self.model).to("cpu")
+
+                        # Save atomtype_hfvr_model config if it exists
+                        atomtype_config = None
+                        if cpu_model.atomtype_hfvr_model is not None:
+                            atomtype_config = {
+                                "n_message": cpu_model.atomtype_hfvr_model.n_message,
+                                "n_neuron": cpu_model.atomtype_hfvr_model.n_neuron,
+                                "n_embed": cpu_model.atomtype_hfvr_model.n_embed,
+                                "param_start_mean": cpu_model.atomtype_hfvr_model.param_start_mean,
+                                "param_start_std": cpu_model.atomtype_hfvr_model.param_start_std,
+                                "n_params": cpu_model.atomtype_hfvr_model.n_params,
+                                "r_cut": cpu_model.atomtype_hfvr_model.r_cut,
+                            }
                         torch.save(
                             {
                                 "model_state_dict": cpu_model.state_dict(),
@@ -1824,6 +2019,9 @@ units angstrom
                                     "r_cut": cpu_model.r_cut,
                                     "use_nn_screening": cpu_model.use_nn_screening,
                                     "precompute_hfvr": cpu_model.precompute_hfvr,
+                                    "has_pretrained_atom_mpnn": cpu_model.atom_mpnn_model
+                                    is not None,
+                                    "atomtype_hfvr_config": atomtype_config,
                                 },
                             },
                             self.model_save_path,
@@ -1917,6 +2115,19 @@ units angstrom
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
                         cpu_model = unwrap_model(self.model).to("cpu")
+
+                        # Save atomtype_hfvr_model config if it exists
+                        atomtype_config = None
+                        if cpu_model.atomtype_hfvr_model is not None:
+                            atomtype_config = {
+                                "n_message": cpu_model.atomtype_hfvr_model.n_message,
+                                "n_neuron": cpu_model.atomtype_hfvr_model.n_neuron,
+                                "n_embed": cpu_model.atomtype_hfvr_model.n_embed,
+                                "param_start_mean": cpu_model.atomtype_hfvr_model.param_start_mean,
+                                "param_start_std": cpu_model.atomtype_hfvr_model.param_start_std,
+                                "n_params": cpu_model.atomtype_hfvr_model.n_params,
+                                "r_cut": cpu_model.atomtype_hfvr_model.r_cut,
+                            }
                         torch.save(
                             {
                                 "model_state_dict": cpu_model.state_dict(),
@@ -1928,6 +2139,9 @@ units angstrom
                                     "r_cut": cpu_model.r_cut,
                                     "use_nn_screening": cpu_model.use_nn_screening,
                                     "precompute_hfvr": cpu_model.precompute_hfvr,
+                                    "has_pretrained_atom_mpnn": cpu_model.atom_mpnn_model
+                                    is not None,
+                                    "atomtype_hfvr_config": atomtype_config,
                                 },
                             },
                             self.model_save_path,

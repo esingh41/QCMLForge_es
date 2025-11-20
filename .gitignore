@@ -224,3 +224,4 @@ scratch
 examples
 mpi_train.sh
 logs
+*.md

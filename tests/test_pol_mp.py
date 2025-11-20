@@ -138,7 +138,9 @@ def test_inference_ap3_atom_model():
     # torch.save(v, f"{current_file_path}/../debug_ap3_atom_model_inference.pt")
     ref = torch.load(f"{current_file_path}/../debug_ap3_atom_model_inference.pt")
     for i in range(len(v[0])):
-        assert torch.allclose(v[0][i], ref[0][i], atol=1e-6), f"{i}, {v[0][i]}, {ref[0][i]}"
+        assert torch.allclose(v[0][i], ref[0][i], atol=1e-6), (
+            f"{i}, {v[0][i]}, {ref[0][i]}"
+        )
     return
 
 
@@ -329,6 +331,7 @@ def debug_ap3_atom_model():
     am.model(torch.load(f"{current_file_path}/../debug_batch.pt", weights_only=False))
     return
 
+
 def test_mtp_elst_dimers():
     atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
         use_GPU=False,
@@ -360,6 +363,247 @@ def test_mtp_elst_dimers():
     return
 
 
+def test_train_frozen_dipole_with_pretrained_atom_mpnn():
+    """
+    Test training InducedDipoleModel with a pretrained AtomMPNN model.
+    Only dipole_update_layers and dipole_readout_layers should be trainable.
+    """
+    # Load dataset
+    ds = atomic_datasets.atomic_module_dataset(
+        root=data_path,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=6,  # Use spec_type 6 which is valid for atomic_module_dataset
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=16,
+    )
+    print(f"Loaded dataset with {len(ds)} samples")
+
+    # Load pretrained atomtype model for HFVR
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=atp_path,
+    )
+    print("Loaded pretrained AtomTypeParamMPNN model for HFVR")
+
+    # Set up environment
+    os.environ["OMP_NUM_THREADS"] = "4"
+
+    # Create InducedDipoleModel with a pretrained AtomMPNN model
+    # For testing, we'll use the am_path which contains a pretrained AtomMPNN
+    am = AtomModels.ap3_atom_model_frozen.InducedDipoleModel(
+        atomtype_hfvr_model=atpm.model,
+        atom_mpnn_pre_trained_path=am_path,  # Load pretrained AtomMPNN
+        use_GPU=False,
+        ignore_database_null=False,
+        dataset=ds,
+    )
+    print("Created InducedDipoleModel with pretrained AtomMPNN")
+
+    # Verify that only dipole layers are trainable
+    trainable_params = []
+    frozen_params = []
+    for name, param in am.model.named_parameters():
+        if param.requires_grad:
+            trainable_params.append(name)
+        else:
+            frozen_params.append(name)
+
+    print(f"\nTrainable parameters ({len(trainable_params)}):")
+    for name in trainable_params:
+        print(f"  {name}")
+
+    print(f"\nFrozen parameters ({len(frozen_params)}):")
+    for name in frozen_params[:10]:  # Print first 10
+        print(f"  {name}")
+    if len(frozen_params) > 10:
+        print(f"  ... and {len(frozen_params) - 10} more")
+
+    # Verify that dipole layers are trainable and others are frozen
+    assert any("dipole_update_layers" in name for name in trainable_params), (
+        "dipole_update_layers should be trainable"
+    )
+    assert any("dipole_readout_layers" in name for name in trainable_params), (
+        "dipole_readout_layers should be trainable"
+    )
+    assert any("charge_update_layers" in name for name in frozen_params), (
+        "charge_update_layers should be frozen"
+    )
+    assert any("charge_readout_layers" in name for name in frozen_params), (
+        "charge_readout_layers should be frozen"
+    )
+    assert any("qpole1_update_layers" in name for name in frozen_params), (
+        "qpole1_update_layers should be frozen"
+    )
+    assert any("qpole2_update_layers" in name for name in frozen_params), (
+        "qpole2_update_layers should be frozen"
+    )
+    assert any("qpole_readout_layers" in name for name in frozen_params), (
+        "qpole_readout_layers should be frozen"
+    )
+
+    print("\n✓ Layer freezing verification passed!")
+
+    # Train for a few epochs
+    print("\nStarting training...")
+    am.train(
+        n_epochs=2,
+        batch_size=8,
+        lr=5e-4,
+        split_percent=0.5,
+        model_path=None,
+        shuffle=True,
+        skip_compile=True,
+        dataloader_num_workers=0,
+        world_size=1,
+        omp_num_threads_per_process=4,
+        random_seed=42,
+    )
+
+    print("\n✓ Training completed successfully!")
+    print(
+        "\nTest passed: Frozen AtomMPNN layers with trainable dipole layers working correctly"
+    )
+    return
+
+
+def test_save_load_induced_dipole_model_with_atom_mpnn():
+    """
+    Test that InducedDipoleModel correctly saves and loads AtomMPNN weights.
+
+    This test verifies:
+    1. Create InducedDipoleModel with pretrained AtomMPNN
+    2. Train for 1 epoch and save
+    3. Load saved model WITHOUT specifying atom_mpnn_pre_trained_path
+    4. Verify loaded model has AtomMPNN with correct weights
+    """
+    import tempfile
+    import os
+
+    # Get test data
+    ds = atomic_datasets.atomic_module_dataset(
+        "./tests/test_data_path", spec_type=6, testing=False, in_memory=True
+    )
+
+    # Paths to pretrained models
+    atp_path = "./tests/test_models/ap3_ensemble_0/atp_mpnn_1.pt"
+    am_path = "./tests/test_models/ap3_ensemble_0/am_3.pt"
+
+    # Load pretrained atomtype model for HFVR
+    atpm = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel(
+        use_GPU=False,
+        ignore_database_null=True,
+        pre_trained_model_path=atp_path,
+    )
+
+    # Create temporary file for saving
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pt") as tmp_file:
+        temp_model_path = tmp_file.name
+
+    try:
+        print(
+            "\n=== Step 1: Create and train InducedDipoleModel with pretrained AtomMPNN ==="
+        )
+        am1 = AtomModels.ap3_atom_model_frozen.InducedDipoleModel(
+            atomtype_hfvr_model=atpm.model,
+            atom_mpnn_pre_trained_path=am_path,  # Load pretrained AtomMPNN
+            use_GPU=False,
+            ignore_database_null=False,
+            dataset=ds,
+        )
+
+        # Get a sample of weights from the AtomMPNN before training
+        sample_weight_before = (
+            am1.model.atom_mpnn_model.embed_layer.weight.clone().detach()
+        )
+        print(f"Sample weight before training: {sample_weight_before[0, :5]}")
+
+        # Train for 1 epoch (this will save the model)
+        am1.train(
+            n_epochs=1,
+            batch_size=8,
+            lr=5e-4,
+            split_percent=0.5,
+            model_path=temp_model_path,
+            shuffle=False,
+            skip_compile=True,
+            dataloader_num_workers=0,
+            world_size=1,
+            omp_num_threads_per_process=4,
+            random_seed=42,
+        )
+        print(f"✓ Model saved to {temp_model_path}")
+
+        # Get weight after training (should be same since frozen)
+        sample_weight_after = (
+            am1.model.atom_mpnn_model.embed_layer.weight.clone().detach()
+        )
+        print(f"Sample weight after training: {sample_weight_after[0, :5]}")
+
+        # Verify frozen layers didn't change
+        assert torch.allclose(sample_weight_before, sample_weight_after), (
+            "Frozen layers should not change during training"
+        )
+
+        print(
+            "\n=== Step 2: Load model WITHOUT specifying atom_mpnn_pre_trained_path ==="
+        )
+        # Load the model back WITHOUT specifying atom_mpnn_pre_trained_path
+        am2 = AtomModels.ap3_atom_model_frozen.InducedDipoleModel(
+            # atomtype_hfvr_model=atpm.model,
+            # NOTE: No atom_mpnn_pre_trained_path here!
+            use_GPU=False,
+            ignore_database_null=False,
+            dataset=ds,
+            pre_trained_model_path=temp_model_path,  # Load saved model
+        )
+
+        print("\n=== Step 3: Verify loaded model has AtomMPNN ===")
+        # Verify that atom_mpnn_model exists
+        assert am2.model.atom_mpnn_model is not None, (
+            "Loaded model should have atom_mpnn_model"
+        )
+        print("✓ atom_mpnn_model exists in loaded model")
+
+        # Verify weights match
+        sample_weight_loaded = (
+            am2.model.atom_mpnn_model.embed_layer.weight.clone().detach()
+        )
+        print(f"Sample weight from loaded model: {sample_weight_loaded[0, :5]}")
+
+        assert torch.allclose(sample_weight_before, sample_weight_loaded), (
+            "Loaded model weights should match original"
+        )
+        print("✓ Weights match!")
+
+        # Verify freezing is still correct
+        trainable_count = sum(1 for p in am2.model.parameters() if p.requires_grad)
+        frozen_count = sum(1 for p in am2.model.parameters() if not p.requires_grad)
+        print(
+            f"✓ Loaded model has {trainable_count} trainable and {frozen_count} frozen parameters"
+        )
+
+        assert trainable_count == 30, (
+            f"Expected 30 trainable params, got {trainable_count}"
+        )
+        assert frozen_count == 238, f"Expected 238 frozen params, got {frozen_count}"
+
+        print(
+            "\n✓✓✓ Test passed: InducedDipoleModel correctly saves and loads AtomMPNN!"
+        )
+
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_model_path):
+            os.remove(temp_model_path)
+            print(f"Cleaned up {temp_model_path}")
+
+
 if __name__ == "__main__":
     # test_train_ap3_atomTypeparamMPNN()
     # test_train_ap3_atom_model()
@@ -367,4 +611,6 @@ if __name__ == "__main__":
     # debug_ap3_atom_model()
     # test_inference_ap3_atom_model()
     # test_ddp_train_ap3_atom_model()
-    test_mtp_elst_dimers()
+    # test_mtp_elst_dimers()
+    # test_train_frozen_dipole_with_pretrained_atom_mpnn()
+    test_save_load_induced_dipole_model_with_atom_mpnn()
