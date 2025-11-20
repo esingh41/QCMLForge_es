@@ -1372,6 +1372,67 @@ units angstrom
         return output
 
     @torch.inference_mode()
+    def predict_qcel_mols_dimer(self, mols, batch_size=2):
+        monA = [mol.get_fragment([0]) for mol in mols]
+        monB = [mol.get_fragment([1]) for mol in mols]
+        dimer_output = self.predict_qcel_mols(mols, batch_size=batch_size)
+        monA_output = self.predict_qcel_mols(monA, batch_size=batch_size)
+        monB_output = self.predict_qcel_mols(monB, batch_size=batch_size)
+        return dimer_output, monA_output, monB_output
+
+    def predict_elst_ind_dimer(self, mols, batch_size=2):
+        E_elst, E_elst_dimer, E_induction = [], [], []
+        dimer, monA, monB = self.predict_qcel_mols_dimer(
+            mols,
+            batch_size=batch_size,
+        )
+        for i, m in enumerate(mols):
+            qA, muA, thetaA = (
+                monA[i][0].detach().numpy(),
+                monA[i][1].numpy(),
+                monA[i][2].numpy(),
+            )
+            qB, muB, thetaB = (
+                monB[i][0].detach().numpy(),
+                monB[i][1].numpy(),
+                monB[i][2].numpy(),
+            )
+            elst = multipole.eval_qcel_dimer(
+                m,
+                qA,
+                muA,
+                thetaA,
+                qB,
+                muB,
+                thetaB,
+            )
+            qD, muD, thetaD = dimer[i][0], dimer[i][1], dimer[i][2]
+            qA, muA, thetaA = (
+                qD[m.fragments[0]].detach().numpy(),
+                muD[m.fragments[0], :].numpy(),
+                thetaD[m.fragments[0], :, :].numpy(),
+            )
+            qB, muB, thetaB = (
+                qD[m.fragments[1]].detach().numpy(),
+                muD[m.fragments[1], :].numpy(),
+                thetaD[m.fragments[1], :, :].numpy(),
+            )
+            elst_dimer = multipole.eval_qcel_dimer(
+                m,
+                qA,
+                muA,
+                thetaA,
+                qB,
+                muB,
+                thetaB,
+            )
+            indu = elst_dimer - elst
+            E_elst.append(elst)
+            E_elst_dimer.append(elst_dimer)
+            E_induction.append(indu)
+        return E_elst, E_elst_dimer, E_induction
+
+    @torch.inference_mode()
     def model_predict(self, data):
         charge, dipole, qpole, hlist = self.model(
             data.x,
