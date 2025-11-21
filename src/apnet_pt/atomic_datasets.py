@@ -534,7 +534,7 @@ class atomic_module_dataset(Dataset):
     ):
         """ """
         try:
-            assert spec_type in [1, 2, 3, 4, 6, 9, 10]
+            assert spec_type in [1, 2, 3, 4, 6, 9, 10, 11]
         except Exception:
             print(
                 "Currently spec_type must be 1, 2, or 3 for HF/jun-cc-pV(D+d)Z (CMPNN), PBE0/aug-cc-pV(T+D)Z (CMPNN), or HF/jun-cc-pV(D+D)Z (APNET2) respectively. Only 1 and 2 are available for download at the moment."
@@ -619,6 +619,10 @@ class atomic_module_dataset(Dataset):
             elif self.spec_type == 10:
                 return [
                     f"monomers_ap3_spec_{self.spec_type}_HF.pkl",
+                ]
+            elif self.spec_type == 11:
+                return [
+                    f"SPICE_monomer_spec_{self.spec_type}.pkl",
                 ]
         raise ValueError("spec_type must be 1, 2, or 3!")
         return []
@@ -1021,7 +1025,7 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
         """
         # Validate spec_type supports Hirshfeld properties
         try:
-            assert spec_type in [5, 9, 10]
+            assert spec_type in [5, 9, 10, 11]
         except Exception:
             print(
                 "spec_type must be 5, 9, or 10 for datasets with Hirshfeld properties."
@@ -1415,7 +1419,9 @@ class atomic_module_dataset_lmdb(Dataset):
             return ["monomers_ap3_spec_5_pbe0.pkl"]
         elif self.spec_type in [10]:
             return [f"monomers_ap3_spec_{self.spec_type}_HF.pkl"]
-        raise ValueError("spec_type must be 5, 9, or 10!")
+        elif self.spec_type in [11]:
+            return [f"SPICE_monomer_spec_{self.spec_type}.pkl"]
+        raise ValueError("spec_type must be 5, 9, 10, or 11!")
 
     @property
     def processed_file_names(self):
