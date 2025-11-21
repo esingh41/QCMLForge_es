@@ -8,18 +8,20 @@ export iter=1
 # for seed in 0 # 1 2 3 4
 # do
 #     export iter=$seed
-    python3 -u ./train_models.py \
-        --train_am "AtomModel" \
-        --am_model_path ./models/ap3_ensemble/1/am_3.pt \
-        --spec_type_am 9 \
-        --random_seed $iter \
-        --n_epochs 500 \
-        --lr 5e-4 \
-        --data_dir ./data_dir \
-        --world_size 1 \
-        --omp_num_threads 16 \
-        # --am_model_path ./models/ap3_ensemble/1/am_$iter.pt \
+    # export iter=0
+    # python3 -u ./train_models.py \
+    #     --train_am "AtomModel" \
+    #     --spec_type_am 10 \
+    #     --random_seed $iter \
+    #     --n_epochs 500 \
+    #     --lr 5e-4 \
+    #     --data_dir ./data_dir \
+    #     --world_size 1 \
+    #     --omp_num_threads 16 \
+    #     --am_model_path ./models/ap3_ensemble/0/am_$iter.pt \
+        # --am_model_path ./models/ap3_ensemble/1/am_3.pt \
 # done
+export iter=1
 #
 # AP3-fused FSAPT training
 # python3 -u ./train_models.py \
@@ -40,17 +42,17 @@ export iter=1
 #
 # export iter=1
 # Induced Dipole on frozen AtomModel
-# python train_models.py \
-#     --data_dir ./data_dimer_$iter \
-#     --train_am InducedDipoleModel \
-#     --am_model_path ./models/ap3_ensemble/1/idm_atp_am_$iter.pt \
-#     --n_epochs_atom 20 \
-#     --use_nn_screening \
-#     --spec_type_am 9 \
-#     --precompute_hfvr \
-#     --lr 5e-5 \
-#     --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1.pt \
-#     --atom_mpnn_pretrained_path ./models/ap3_ensemble/1/am_3.pt \
+python train_models.py \
+    --data_dir ./data_dimer_$iter \
+    --train_am InducedDipoleModel \
+    --am_model_path ./models/ap3_ensemble/1/idm_atp_am_$iter.pt \
+    --n_epochs_atom 20 \
+    --use_nn_screening \
+    --spec_type_am 9 \
+    --precompute_hfvr \
+    --lr 5e-5 \
+    --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1.pt \
+    --atom_mpnn_pretrained_path ./models/ap3_ensemble/1/am_3.pt \
 
 # Induced Dipole AtomType
 # rm ./tests/test_models/ap3_ensemble_0/atomInducedDipole_atp_screeningNN_lr_$iter.pt
