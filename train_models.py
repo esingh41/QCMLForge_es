@@ -29,6 +29,7 @@ def train_atom_model(
     r_cut=5.0,
     use_nn_screening=False,
     precompute_hfvr=False,
+    ds_use_lmdb=False,
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
@@ -96,6 +97,7 @@ def train_atom_model(
             r_cut=r_cut,
             use_nn_screening=use_nn_screening,
             precompute_hfvr=precompute_hfvr,
+            ds_use_lmdb=ds_use_lmdb,
             ds_root=data_dir,
             ds_spec_type=spec_type,
             ds_max_size=ds_max_size,
@@ -569,6 +571,12 @@ def main():
         help="pre-compute Hirshfeld volume ratios and valence widths during dataset processing for faster training (default: False)",
     )
     args.add_argument(
+        "--ds_use_lmdb",
+        action="store_true",
+        default=False,
+        help="use LMDB-based dataset storage for InducedDipoleModel training (default: False)",
+    )
+    args.add_argument(
         "--param_start_mean",
         type=str,
         default="2.0",
@@ -643,6 +651,7 @@ def main():
             r_cut=args.r_cut_atom,
             use_nn_screening=args.use_nn_screening,
             precompute_hfvr=args.precompute_hfvr,
+            ds_use_lmdb=args.ds_use_lmdb,
         )
     if args.train_apnet != "":
         train_pairwise_model(
