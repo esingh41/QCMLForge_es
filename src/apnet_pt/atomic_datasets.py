@@ -825,7 +825,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
         batch_size=1,
     ):
         try:
-            assert spec_type in [1, 5, 10]
+            assert spec_type in [1, 5, 10, 11]
         except Exception:
             print(
                 "Currently spec_type must be 1 for pbe0/aug-cc-pVDZ (APNET2) respectively. spec_type 5 is for testing. No downloads are available at the moment."
