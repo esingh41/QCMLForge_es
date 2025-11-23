@@ -1086,7 +1086,11 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
             return ["monomers_ap3_spec_5_pbe0.pkl"]
         elif self.spec_type in [10]:
             return [f"monomers_ap3_spec_{self.spec_type}_HF.pkl"]
-        raise ValueError("spec_type must be 5, 9, or 10!")
+        elif self.spec_type == 11:
+            return [
+                f"SPICE_monomer_spec_{self.spec_type}.pkl",
+            ]
+        raise ValueError("spec_type must be 5, 9, 10, 11!")
 
     @property
     def processed_file_names(self):

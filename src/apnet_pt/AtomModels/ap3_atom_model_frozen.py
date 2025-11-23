@@ -2092,7 +2092,7 @@ units angstrom
         criterion = torch.nn.MSELoss()
 
         lowest_test_loss = torch.tensor(float("inf"))
-        test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
+        # test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
 
         for epoch in range(n_epochs):
             t1 = time.time()
