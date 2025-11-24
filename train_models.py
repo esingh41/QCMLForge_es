@@ -574,7 +574,7 @@ def main():
         "--ds_use_lmdb",
         action="store_true",
         default=False,
-        help="use LMDB-based dataset storage for InducedDipoleModel training (default: False)",
+        help="use LMDB-based dataset storage for InducedDipoleModel training (default: False). Requires spec_type_am to be 5, 9, 10, or 11",
     )
     args.add_argument(
         "--param_start_mean",
