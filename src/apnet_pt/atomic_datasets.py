@@ -620,7 +620,7 @@ class atomic_module_dataset(Dataset):
                 return [
                     f"monomers_ap3_spec_{self.spec_type}_HF.pkl",
                 ]
-            elif self.spec_type [11, 12]:
+            elif self.spec_type in [11, 12]:
                 return [
                     f"SPICE_monomer_spec_{self.spec_type}.pkl",
                 ]

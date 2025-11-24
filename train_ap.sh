@@ -9,16 +9,16 @@ export iter=1
 # do
 #     export iter=$seed
     # export iter=0
-    # python3 -u ./train_models.py \
-    #     --train_am "AtomModel" \
-    #     --spec_type_am 10 \
-    #     --random_seed $iter \
-    #     --n_epochs 500 \
-    #     --lr 5e-4 \
-    #     --data_dir ./data_dir \
-    #     --world_size 1 \
-    #     --omp_num_threads 16 \
-    #     --am_model_path ./models/ap3_ensemble/0/am_$iter.pt \
+    python3 -u ./train_models.py \
+        --train_am "AtomModel" \
+        --spec_type_am 12 \
+        --random_seed $iter \
+        --n_epochs 50 \
+        --lr 5e-4 \
+        --data_dir ./data_spice \
+        --world_size 1 \
+        --omp_num_threads 16 \
+        --am_model_path ./models/spice/am_3.pt \
         # --am_model_path ./models/ap3_ensemble/1/am_3.pt \
 # done
 export iter=1
@@ -45,14 +45,18 @@ export iter=1
 python train_models.py \
     --data_dir ./data_dimer_$iter \
     --train_am InducedDipoleModel \
-    --am_model_path ./models/ap3_ensemble/1/idm_atp_am_$iter.pt \
     --n_epochs_atom 20 \
     --use_nn_screening \
-    --spec_type_am 9 \
+    --spec_type_am 12 \
     --precompute_hfvr \
     --lr 5e-5 \
+    --am_model_path ./models/spice/idm_atp_am_$iter.pt \
     --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1.pt \
-    --atom_mpnn_pretrained_path ./models/ap3_ensemble/1/am_3.pt \
+    --atom_mpnn_pretrained_path ./models/spice/am_3.pt \
+
+    # --am_model_path ./models/ap3_ensemble/1/idm_atp_am_$iter.pt \
+    # --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1.pt \
+    # --atom_mpnn_pretrained_path ./models/ap3_ensemble/1/am_3.pt \
 
 # Induced Dipole AtomType
 # rm ./tests/test_models/ap3_ensemble_0/atomInducedDipole_atp_screeningNN_lr_$iter.pt
