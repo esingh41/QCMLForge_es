@@ -89,6 +89,8 @@ free_atom_polarizabilities = {
     for el, v in zip(libmbd_vwd_params["Z"], libmbd_vwd_params["alpha_0(BG)"])
 }
 
+# from pprint import pprint as pp
+# pp(free_atom_polarizabilities)
 
 # Create lookup table as a tensor
 max_z = max(free_atom_polarizabilities.keys())

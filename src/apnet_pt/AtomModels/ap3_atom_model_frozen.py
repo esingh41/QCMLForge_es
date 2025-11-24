@@ -369,9 +369,20 @@ class InducedDipoleMPNN(torch.nn.Module):
             - energy (optional): intramolecular induction energy in kcal/mol
         """
 
+        # torch.set_printoptions(profile="full")
         # Calculate atomic polarizabilities
         alpha_0 = torch.index_select(self.polarizability_table, 0, Z.long())
-        alpha = alpha_0 * hirshfeld_volume_ratio ** (4 / 3.0)
+        alpha = alpha_0 * torch.abs(hirshfeld_volume_ratio) ** (4 / 3.0)
+        # torch.set_printoptions(precision=6)
+        # Torch print full ternor
+        # print(f"{alpha = }")
+        # print(f"{Z = }")
+        # print(f"{alpha_0 = }")
+        # get index of nan values of alpha_0 
+        # nan_indices = torch.isnan(alpha)
+        # print(f"{nan_indices = }")
+        # print(f"{Z[nan_indices] = }")
+        # print(f"{hirshfeld_volume_ratio = }")
 
         # Define helper function to calculate distance tensors with Thole damping
         def distance_tensors(
@@ -1113,6 +1124,8 @@ class InducedDipoleMPNN(torch.nn.Module):
                 edge_index[1],
                 hirshfeld_volume_ratio=hfvr.squeeze(1),
             )
+        # print(f"{dipole = }")
+        # print(f"{induced_dipoles = }")
         dipole += induced_dipoles
         return charge, dipole, qpole, h_list_stacked
 
@@ -1705,8 +1718,10 @@ units angstrom
             batch = batch.to(rank_device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             # print('saving batch for debug')
-            # torch.save(batch, "debug_batch.pt")
             charge, dipole, qpole, _ = self.model(batch)
+            if torch.isnan(dipole).any():
+                torch.save(batch, "debug_batch.pt")
+                raise ValueError("NaN detected in dipole predictions")
 
             q_error = charge - batch.charges
             d_error = dipole - batch.dipoles
@@ -2092,7 +2107,7 @@ units angstrom
         criterion = torch.nn.MSELoss()
 
         lowest_test_loss = torch.tensor(float("inf"))
-        test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
+        # test_loss = self.pretrain_statistics(train_loader, test_loader, criterion)
 
         for epoch in range(n_epochs):
             t1 = time.time()

@@ -322,13 +322,15 @@ def debug_ap3_atom_model():
     print(atpm)
     # DDP
     os.environ["OMP_NUM_THREADS"] = "4"
-    am = AtomModels.ap3_atom_model.AtomInducedDipoleModel(
+    idm = AtomModels.ap3_atom_model_frozen.InducedDipoleModel(
         atomtype_hfvr_model=atpm.model,
+        atom_mpnn_pre_trained_path='./models/spice/am_3.pt',
         use_GPU=False,
         ignore_database_null=True,
         dataset=None,
     )
-    am.model(torch.load(f"{current_file_path}/../debug_batch.pt", weights_only=False))
+    v = idm.model(torch.load(f"{current_file_path}/../debug_batch.pt", weights_only=False))
+    print(f"{v = }")
     return
 
 
@@ -608,9 +610,9 @@ if __name__ == "__main__":
     # test_train_ap3_atomTypeparamMPNN()
     # test_train_ap3_atom_model()
     # train_ap3_atom_model()
-    # debug_ap3_atom_model()
+    debug_ap3_atom_model()
     # test_inference_ap3_atom_model()
     # test_ddp_train_ap3_atom_model()
     # test_mtp_elst_dimers()
     # test_train_frozen_dipole_with_pretrained_atom_mpnn()
-    test_save_load_induced_dipole_model_with_atom_mpnn()
+    # test_save_load_induced_dipole_model_with_atom_mpnn()
