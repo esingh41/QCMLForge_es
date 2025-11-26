@@ -378,7 +378,7 @@ class InducedDipoleMPNN(torch.nn.Module):
         # print(f"{alpha = }")
         # print(f"{Z = }")
         # print(f"{alpha_0 = }")
-        # get index of nan values of alpha_0 
+        # # get index of nan values of alpha_0
         # nan_indices = torch.isnan(alpha)
         # print(f"{nan_indices = }")
         # print(f"{Z[nan_indices] = }")
@@ -684,7 +684,17 @@ class InducedDipoleMPNN(torch.nn.Module):
 
         # Calculate atomic polarizabilities
         alpha_0 = torch.index_select(self.polarizability_table, 0, Z.long())
-        alpha = alpha_0 * hfvr.squeeze(1) ** (4 / 3.0)
+        alpha = alpha_0 * torch.abs(hfvr.squeeze(1)) ** (4 / 3.0)
+        # torch.set_printoptions(precision=6)
+        # Torch print full ternor
+        # print(f"{alpha = }")
+        # print(f"{Z = }")
+        # print(f"{alpha_0 = }")
+        # # get index of nan values of alpha_0
+        # nan_indices = torch.isnan(alpha)
+        # print(f"{nan_indices = }")
+        # print(f"{Z[nan_indices] = }")
+        # print(f"{hfvr = }")
 
         # Compute NN-based screening factors using damping layers on SHORT-RANGE edges
         # Initialize screening factors tensor (size: n_short_edges)
