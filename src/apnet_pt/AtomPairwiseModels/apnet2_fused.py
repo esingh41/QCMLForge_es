@@ -407,8 +407,12 @@ class APNet2_AM_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter_sum_compile(mA_ij, e_AA_source, dim_size=natomA, reduce="sum")
-            mB_i = scatter_sum_compile(mB_ij, e_BB_source, dim_size=natomB, reduce="sum")
+            mA_i = scatter_sum_compile(
+                mA_ij, e_AA_source, dim_size=natomA, reduce="sum"
+            )
+            mB_i = scatter_sum_compile(
+                mB_ij, e_BB_source, dim_size=natomB, reduce="sum"
+            )
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
@@ -828,7 +832,6 @@ class APNet2_AM_Model:
         self.model = torch.compile(self.model, dynamic=True)
         return
 
-
     def set_all_weights_to_value(self, value: float):
         """
         Sets the weights of the model to a constant value for debugging.
@@ -838,7 +841,6 @@ class APNet2_AM_Model:
         self.model(batch)
         set_weights_to_value(self.model, value)
         return
-
 
     def set_pretrained_model(
         self, ap2_model_path=None, am_model_path=None, model_id=None
@@ -1454,7 +1456,7 @@ units angstrom
             dt = time.time() - t1
             if rank == 0:
                 print(
-                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{ total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} { exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{ indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
                     flush=True,
                 )
         for epoch in range(n_epochs):
@@ -1501,12 +1503,11 @@ units angstrom
                 dt = time.time() - t1
                 test_loss = 0.0
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{
-                        total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {
-                        exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{
-                        indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {
-                        test_lowered
-                    }",
+                    f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
+                        total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} {
+                        elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{
+                        exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
+                        disp_MAE_t: > 7.3f}/{disp_MAE_v: < 7.3f} {test_lowered}",
                     flush=True,
                 )
 
@@ -1601,8 +1602,8 @@ units angstrom
                 v_out
             )
             print(
-                f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {
-                    total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} "
+                f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
+                    total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} "
                 f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
                 f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
                 flush=True,
@@ -1611,8 +1612,8 @@ units angstrom
             train_loss, total_MAE_t = t_out
             test_loss, total_MAE_v = v_out
             print(
-                f"  (Pre-training) ({time.time() - t0:<7.2f}s)  MAE: {
-                    total_MAE_t:>7.3f}/{total_MAE_v:<7.3f}",
+                f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
+                    total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f}",
                 flush=True,
             )
 
@@ -1805,4 +1806,24 @@ units angstrom
                 skip_compile=skip_compile,
                 transfer_learning=transfer_learning,
             )
+        return
+
+    def freeze_parameters_except_readouts(self):
+        """
+        Freeze all model parameters except those in the readout layers for AP2 model
+        """
+        for name, param in self.model.named_parameters():
+            term = name.split('.')[0]
+            if "readout" in name and term[-4:] in ['elst', 'exch', 'indu', 'disp']:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+        return
+
+    def unfreeze_all_parameters(self):
+        """
+        Unfreeze all model parameters for AP2 model
+        """
+        for name, param in self.model.named_parameters():
+            param.requires_grad = True
         return

@@ -1235,6 +1235,155 @@ class APNet2Model:
             return predictions, pairwise_energies
         return predictions
 
+    @torch.inference_mode()
+    def predict_qcel_mols_indexing(
+        self,
+        mols,
+        batch_size=1,
+        r_cut=None,
+        r_cut_im=None,
+        verbose=False,
+        return_pairs=False,
+        return_elst=False,
+    ):
+        assert not (return_elst and return_pairs), "return_elst and return_pairs are not compatible"
+        if r_cut is None:
+            r_cut = self.model.r_cut
+        if r_cut_im is None:
+            r_cut_im = self.model.r_cut_im
+
+        mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
+        predictions = np.zeros((len(mol_data), 4))
+        if return_pairs or return_elst:
+            pairwise_energies = []
+        if self.model.return_hidden_states:
+            # need to capture output
+            h_ABs, h_BAs, cutoffs, dimer_inds, ndimers, e_ABsr_source, e_ABsr_target = [], [], [], [], [], [], []
+        # self.model.to(self.device)
+        self.atom_model.to(self.device)
+        for i in range(0, len(mol_data), batch_size):
+            batch_mol_data = mol_data[i: i + batch_size]
+            data_A = [d[0] for d in batch_mol_data]
+            data_B = [d[1] for d in batch_mol_data]
+            batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
+            batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
+            with torch.no_grad():
+                batch_A.to(self.device)
+                am_out_A = self.atom_model(batch_A)
+                batch_B.to(self.device)
+                am_out_B = self.atom_model(batch_B)
+                qAs, muAs, quadAs, hlistAs = isolate_atomic_property_predictions(
+                    batch_A, am_out_A
+                )
+                qBs, muBs, quadBs, hlistBs = isolate_atomic_property_predictions(
+                    batch_B, am_out_B
+                )
+                if len(batch_A.total_charge.size()) == 0:
+                    batch_A.total_charge = batch_A.total_charge.unsqueeze(0)
+                if len(batch_B.total_charge.size()) == 0:
+                    batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
+                dimer_ls = []
+                for j in range(len(batch_mol_data)):
+                    qA, muA, quadA, hlistA = qAs[j], muAs[j], quadAs[j], hlistAs[j]
+                    qB, muB, quadB, hlistB = qBs[j], muBs[j], quadBs[j], hlistBs[j]
+                    if len(qA.size()) == 0:
+                        qA = qA.unsqueeze(0).unsqueeze(0)
+                    elif len(qA.size()) == 1:
+                        qA = qA.unsqueeze(-1)
+                    if len(qB.size()) == 0:
+                        qB = qB.unsqueeze(0).unsqueeze(0)
+                    elif len(qB.size()) == 1:
+                        qB = qB.unsqueeze(-1)
+                        e_AA_source, e_AA_target = pairwise_edges(
+                            data_A[j].R, r_cut)
+                        e_BB_source, e_BB_target = pairwise_edges(
+                            data_B[j].R, r_cut)
+                        e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
+                            pairwise_edges_im(
+                                data_A[j].R, data_B[j].R, r_cut_im)
+                        )
+                        dimer_ind = torch.ones((1), dtype=torch.long) * 0
+                        data = Data(
+                            ZA=data_A[j].x,
+                            RA=data_A[j].R,
+                            ZB=data_B[j].x,
+                            RB=data_B[j].R,
+                            # short range, intermolecular edges
+                            e_ABsr_source=e_ABsr_source,
+                            e_ABsr_target=e_ABsr_target,
+                            dimer_ind=dimer_ind,
+                            # long range, intermolecular edges
+                            e_ABlr_source=e_ABlr_source,
+                            e_ABlr_target=e_ABlr_target,
+                            dimer_ind_lr=dimer_ind,
+                            # intramonomer edges (monomer A)
+                            e_AA_source=e_AA_source,
+                            e_AA_target=e_AA_target,
+                            # intramonomer edges (monomer B)
+                            e_BB_source=e_BB_source,
+                            e_BB_target=e_BB_target,
+                            # monomer charges
+                            total_charge_A=data_A[j].total_charge,
+                            total_charge_B=data_B[j].total_charge,
+                            # monomer A properties
+                            qA=qA,
+                            muA=muA,
+                            quadA=quadA,
+                            hlistA=hlistA,
+                            # monomer B properties
+                            qB=qB,
+                            muB=muB,
+                            quadB=quadB,
+                            hlistB=hlistB,
+                        )
+                        dimer_ls.append(data)
+                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target_monomer_indices(
+                    dimer_ls
+                )
+                dimer_batch.to(device=self.device)
+                preds = self.eval_fn(dimer_batch)
+                if self.model.return_hidden_states:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA, cutoff = preds
+                    h_ABs.append(hAB)
+                    h_BAs.append(hBA)
+                    cutoffs.append(cutoff)
+                    dimer_inds.append(dimer_batch.dimer_ind)
+                    ndimers.append(torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long))
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                elif return_pairs:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                    pairwise_energies.extend(
+                        self._assemble_pairs(
+                            dimer_batch.cpu(),
+                            E_sr_dimer.cpu(),
+                            E_sr.cpu(),
+                            E_elst_sr.cpu(),
+                            E_elst_lr.cpu(),
+                        )
+                    )
+                elif return_elst:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                    pairwise_energies.extend(
+                        self._assemble_mtp_pairs(
+                            dimer_batch,
+                            E_elst_sr,
+                            E_elst_lr,
+                        )
+                    )
+                else:
+                    predictions[i: i + batch_size] = preds[0].cpu().numpy()
+            if verbose:
+                print(
+                    f"Predictions for {i} to {i + batch_size} out of {len(mol_data)}"
+                )
+        if self.model.return_hidden_states:
+            return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
+        if return_pairs or return_elst:
+            return predictions, pairwise_energies
+        return predictions
+
     def example_input(self, mol=None,
         r_cut=5.0,
         r_cut_im=8.0,

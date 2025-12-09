@@ -2273,3 +2273,23 @@ units angstrom
                 transfer_learning=transfer_learning,
             )
         return
+
+    def freeze_parameters_except_readouts(self):
+        """
+        Freeze all model parameters except those in the readout layers for AP2 model
+        """
+        for name, param in self.model.named_parameters():
+            term = name.split('.')[0]
+            if "readout" in name and term[-4:] in ['elst', 'exch', 'indu', 'disp']:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+        return
+
+    def unfreeze_all_parameters(self):
+        """
+        Unfreeze all model parameters for AP3 model
+        """
+        for name, param in self.model.named_parameters():
+            param.requires_grad = True
+        return
