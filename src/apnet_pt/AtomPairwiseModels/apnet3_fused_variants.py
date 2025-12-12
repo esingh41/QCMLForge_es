@@ -173,7 +173,6 @@ class APNet3_AtomType_MPNN(nn.Module):
             # input_layer_size,
             n_neuron * 2,
             n_neuron,
-            n_neuron,
             n_neuron // 2,
             n_embed,
         ]
@@ -181,12 +180,10 @@ class APNet3_AtomType_MPNN(nn.Module):
             # n_embed,
             n_neuron * 2,
             n_neuron,
-            n_neuron,
             n_neuron // 2,
             1,
         ]
         layer_activations = [
-            nn.SiLU(),
             nn.SiLU(),
             nn.SiLU(),
             nn.SiLU(),
@@ -309,7 +306,6 @@ class APNet3_AtomType_MPNN(nn.Module):
         dR_xyz = RB_target - RA_source
 
         # Compute distances with safe operation for square root
-        # dR = torch.sqrt(nn.functional.relu(torch.sum(dR_xyz**2, dim=-1)))
         dR = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
         return dR, dR_xyz
 
@@ -485,13 +481,17 @@ class APNet3_AtomType_MPNN(nn.Module):
 
         E_sr = EAB_sr + EBA_sr
 
-        cutoff_3 = (1.0 / (dR_sr**3)).unsqueeze(-1)
-        cutoff_6 = (1.0 / (dR_sr**6)).unsqueeze(-1)
-        cutoff_12 = (1.0 / (dR_sr**12)).unsqueeze(-1)
-        E_sr[0] *= cutoff_3
-        E_sr[1] *= cutoff_12
-        E_sr[3] *= cutoff_3
-        E_sr[4] *= cutoff_6
+        # cutoff_1 = (1.0 / (dR_sr))
+        # cutoff_2 = (1.0 / (dR_sr**2))
+        # cutoff_3 = (1.0 / (dR_sr**3))
+        # cutoff_4 = (1.0 / (dR_sr**4))
+        cutoff_5 = (1.0 / (dR_sr**5))
+        # cutoff_6 = (1.0 / (dR_sr**6))
+        # cutoff_12 = (1.0 / (dR_sr**12))
+        E_sr[:, 0] *= cutoff_5
+        E_sr[:, 1] *= cutoff_5
+        E_sr[:, 2] *= cutoff_5
+        E_sr[:, 3] *= cutoff_5
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
         if self.use_precomputed_classical:
             E_output = E_sr_dimer
@@ -531,7 +531,7 @@ class APNet3_AtomType_MPNN(nn.Module):
                 E_ind,
                 hAB,
                 hBA,
-                cutoff_3,
+                cutoff_5,
             )
         return E_output, E_sr, E_elst, E_ind, hAB, hBA
 
