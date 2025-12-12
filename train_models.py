@@ -175,6 +175,13 @@ def train_pairwise_model(
         ds_atomic_batch_size = 16
         ds_datapoint_storage_n_objects = 16
         ds_batch_size = 16
+    elif apnet_model_type == "APNet3-fused-variant":
+        APNet = AtomPairwiseModels.apnet3_fused_variants.APNet3_AtomType_Model
+        # Note: presently ap3_fused_ds requires atomic batch size to be <=
+        # n_objects. NEDS FIXED
+        ds_atomic_batch_size = 16
+        ds_datapoint_storage_n_objects = 16
+        ds_batch_size = 16
     elif apnet_model_type == "AM-DimerParam":
         APNet = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model
     elif apnet_model_type == "dAPNet2":
@@ -274,7 +281,7 @@ def train_pairwise_model(
             n_params=n_params,
             model_type=DimerProp_model_type,
         )
-    elif apnet_model_type in ["APNet3-fused"]:
+    elif apnet_model_type in ["APNet3-fused", "APNet3-fused-variant"]:
         print("Setting AtomTypeParams...")
         atom_type_hf_vw_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
             ds_root=None,
@@ -450,7 +457,7 @@ def main():
         "--train_apnet",
         type=str,
         default="",
-        help="Train APNet Model: (APNet2, APNet3-fused, dAPNet2, APNet2-fused, AM-DimerParam)",
+        help="Train APNet Model: (APNet2, APNet3-fused, APNet3-fused-variant, dAPNet2, APNet2-fused, AM-DimerParam)",
     )
     args.add_argument(
         "--dimer_eval_type",
