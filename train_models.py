@@ -11,6 +11,8 @@ from pprint import pprint
 def train_atom_model(
     atom_model_type="AtomModel",
     model_path="./models/am_amw_1.pt",
+    atom_type_param_model_path=None,
+    atom_mpnn_pretrained_path=None,
     data_dir="data_atomic",
     spec_type=3,
     testing=False,
@@ -19,33 +21,92 @@ def train_atom_model(
     ds_max_size=None,
     world_size=1,
     omp_num_threads=1,
+    lr=5e-4,
+    n_message=3,
+    n_rbf=8,
+    n_neuron=128,
+    n_embed=8,
+    r_cut=5.0,
+    use_nn_screening=False,
+    precompute_hfvr=False,
+    ds_use_lmdb=False,
 ):
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
         batch_size = 16
     elif atom_model_type == "AtomHirshfeldModel":
-        AM = AtomModels.ap3_atom_model.AtomHirshfeldModel
+        AM = AtomModels.ap2_hirshfeld_atom_model.AtomHirshfeldModel
         batch_size = 1
+    elif atom_model_type == "AtomTypeParamModel":
+        AM = AtomModels.ap3_atomtype_mpnn.AtomTypeParamModel
+        batch_size = 16
+    elif atom_model_type == "AtomInducedDipoleModel":
+        AM = AtomModels.ap3_atom_model.AtomInducedDipoleModel
+        batch_size = 16
+    elif atom_model_type == "InducedDipoleModel":
+        AM = AtomModels.ap3_atom_model_frozen.InducedDipoleModel
+        batch_size = 16
     else:
         raise ValueError("Invalid Atom Model Type")
     pretrained_model = None
     if os.path.exists(model_path):
         pretrained_model = model_path
     print("Training {}...".format(atom_model_type))
-    atom_model = AM(
-        n_message=3,
-        n_rbf=8,
-        n_neuron=128,
-        n_embed=8,
-        r_cut=5.0,
-        ds_root=data_dir,
-        ds_spec_type=spec_type,
-        ds_max_size=ds_max_size,
-        ignore_database_null=False,
-        ds_in_memory=True,
-        use_GPU=True,
-        pre_trained_model_path=pretrained_model,
-    )
+    # TODO complete
+    if atom_model_type in ["AtomModel", "AtomHirshfeldModel", "AtomTypeParamModel"]:
+        atom_model = AM(
+            n_message=n_message,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            ds_root=data_dir,
+            ds_spec_type=spec_type,
+            ds_max_size=ds_max_size,
+            ignore_database_null=False,
+            ds_in_memory=True,
+            use_GPU=True,
+            pre_trained_model_path=pretrained_model,
+        )
+        skip_compile = False
+    elif atom_model_type in ["AtomInducedDipoleModel"]:
+        atom_model = AM(
+            atomtype_hfvr_pre_trained_path=atom_type_param_model_path,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            use_nn_screening=use_nn_screening,
+            precompute_hfvr=precompute_hfvr,
+            ds_root=data_dir,
+            ds_spec_type=spec_type,
+            ds_max_size=ds_max_size,
+            ignore_database_null=False,
+            ds_in_memory=True,
+            use_GPU=True,
+            pre_trained_model_path=pretrained_model,
+        )
+        skip_compile = False
+    elif atom_model_type in ["InducedDipoleModel"]:
+        atom_model = AM(
+            atomtype_hfvr_pre_trained_path=atom_type_param_model_path,
+            atom_mpnn_pre_trained_path=atom_mpnn_pretrained_path,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            use_nn_screening=use_nn_screening,
+            precompute_hfvr=precompute_hfvr,
+            ds_use_lmdb=ds_use_lmdb,
+            ds_root=data_dir,
+            ds_spec_type=spec_type,
+            ds_max_size=ds_max_size,
+            ignore_database_null=False,
+            ds_in_memory=True,
+            use_GPU=True,
+            pre_trained_model_path=pretrained_model,
+        )
+        skip_compile = False
     dataloader_num_workers = 0
     if torch.cuda.is_available() and omp_num_threads > 2:
         dataloader_num_workers = omp_num_threads - 2
@@ -53,7 +114,7 @@ def train_atom_model(
     atom_model.train(
         n_epochs=n_epochs,
         batch_size=batch_size,
-        lr=5e-4,
+        lr=lr,
         split_percent=0.9,
         model_path=model_path,
         shuffle=True,
@@ -61,6 +122,7 @@ def train_atom_model(
         world_size=world_size,
         omp_num_threads_per_process=omp_num_threads,
         random_seed=random_seed,
+        skip_compile=skip_compile,
     )
     return
 
@@ -90,7 +152,10 @@ def train_pairwise_model(
     param_start_std=0.1,
     dimer_eval_type="elst_damping",
     ds_in_memory=False,
-    DimerProp_model_type="AtomTypeParamNN"
+    ds_class_type="pt",
+    DimerProp_model_type="AtomTypeParamNN",
+    ap2_pretrained_model_only=None,
+    ds_type="total_component_energies",
 ):
     # Ensure param_start_mean and param_start_std are lists
     if not isinstance(param_start_mean, (list, tuple)):
@@ -105,6 +170,18 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.apnet2_fused.APNet2_AM_Model
     elif apnet_model_type == "APNet3-fused":
         APNet = AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model
+        # Note: presently ap3_fused_ds requires atomic batch size to be <=
+        # n_objects. NEDS FIXED
+        ds_atomic_batch_size = 16
+        ds_datapoint_storage_n_objects = 16
+        ds_batch_size = 16
+    elif apnet_model_type == "APNet3-fused-variant":
+        APNet = AtomPairwiseModels.apnet3_fused_variants.APNet3_AtomType_Model
+        # Note: presently ap3_fused_ds requires atomic batch size to be <=
+        # n_objects. NEDS FIXED
+        ds_atomic_batch_size = 16
+        ds_datapoint_storage_n_objects = 16
+        ds_batch_size = 16
     elif apnet_model_type == "AM-DimerParam":
         APNet = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model
     elif apnet_model_type == "dAPNet2":
@@ -131,9 +208,12 @@ def train_pairwise_model(
     print("World Size", world_size)
 
     omp_num_threads_per_process = 8
-    if os.path.exists(model_out):
+    if os.path.exists(model_out) and pre_trained_model_path is None:
         pretrained_model = model_out
         print(f"\nTraining from {model_out}\n")
+    elif pre_trained_model_path is not None:
+        pretrained_model = pre_trained_model_path
+        print(f"\nTraining from {pre_trained_model_path}\n")
     else:
         pretrained_model = None
         print("\nTraining from scratch...\n")
@@ -159,7 +239,10 @@ def train_pairwise_model(
             ds_m2=m2,
         )
     elif apnet_model_type in ["AM-DimerParam"]:
-        if dimer_eval_type in ["elst_damping__induced_dipole", "elst_damping"] and atom_type_param_model_path is not None:
+        if (
+            dimer_eval_type in ["elst_damping__induced_dipole", "elst_damping"]
+            and atom_type_param_model_path is not None
+        ):
             print("Using AtomTypeParamModel for Dimer Prop Model")
             atom_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
                 ds_root=None,
@@ -196,9 +279,9 @@ def train_pairwise_model(
             param_start_std=param_start_std,
             dimer_eval_type=dimer_eval_type,
             n_params=n_params,
-            model_type=DimerProp_model_type
+            model_type=DimerProp_model_type,
         )
-    elif apnet_model_type in ["APNet3-fused"]:
+    elif apnet_model_type in ["APNet3-fused", "APNet3-fused-variant"]:
         print("Setting AtomTypeParams...")
         atom_type_hf_vw_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
             ds_root=None,
@@ -216,6 +299,11 @@ def train_pairwise_model(
             pre_trained_model_path=atom_type_param_model_path2,
         )
         am_model_path = None
+        print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
+        if ds_type == "fsapt_energies":
+            use_precomputed_classical = False
+        else:
+            use_precomputed_classical = True
         apnet = APNet(
             atom_type_model=atom_type_hf_vw_model.model,
             dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -233,7 +321,14 @@ def train_pairwise_model(
             ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
             ds_prebatched=False,
             ds_random_seed=random_seed,
+            ds_class_type=ds_class_type,
+            use_precomputed_classical=use_precomputed_classical,
+            ds_type=ds_type,
+            ds_batch_size=ds_batch_size,
         )
+        if ap2_pretrained_model_only is not None:
+            print(f"Loading AP2 pretrained weights from {ap2_pretrained_model_only}")
+            apnet.load_ap2_pretrained_weights(ap2_pretrained_model_only)
     elif apnet_model_type in ["AtomTypeParamModel"]:
         apnet = APNet(
             atom_model_pre_trained_path=am_model_path,
@@ -320,7 +415,13 @@ def main():
         "--atom_type_param_model_path",
         type=str,
         default=None,
-        help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props (default: None)",
+        help="specify AtomTypeParamModel to use for AtomTypeParam Dimer props or AtomInducedDipoleModel (default: None)",
+    )
+    args.add_argument(
+        "--atom_mpnn_pretrained_path",
+        type=str,
+        default=None,
+        help="specify pretrained AtomMPNN model path for InducedDipoleModel with frozen charge/dipole/quadrupole layers (default: None)",
     )
     args.add_argument(
         "--atom_type_param_model_path2",
@@ -337,8 +438,14 @@ def main():
     args.add_argument(
         "--ap_pretrained_model_path",
         type=str,
-        default="./models/dapnet2/ap2_0.pt",
-        help="specify a special loaded model. Currently only used for dAP-Net2 training (default: ./models/dapnet2/ap2_0.pt)",
+        default=None,
+        help="specify a special loaded model. Currently only used for dAP-Net2 and AP-Net3-fused training. If set to None for AP3, ap_model_path will be treated as both model_out and pretrained_model (default: None)",
+    )
+    args.add_argument(
+        "--ap2_pretrained_model_only",
+        type=str,
+        default=None,
+        help="Load AP2 pretrained weights for AP3 model initialization (path to AP2 model)",
     )
     args.add_argument(
         "--train_am",
@@ -350,7 +457,7 @@ def main():
         "--train_apnet",
         type=str,
         default="",
-        help="Train APNet Model: (APNet2, APNet3-fused, dAPNet2, APNet2-fused, AM-DimerParam)",
+        help="Train APNet Model: (APNet2, APNet3-fused, APNet3-fused-variant, dAPNet2, APNet2-fused, AM-DimerParam)",
     )
     args.add_argument(
         "--dimer_eval_type",
@@ -372,12 +479,6 @@ def main():
         type=int,
         default=2,
         help="dataset spec_type recommended: (2 for AP2)",
-    )
-    args.add_argument(
-        "--data_dir_atom",
-        type=str,
-        default="./data_dir",
-        help="specify data_dir for datasets (default: ./data_dir)",
     )
     args.add_argument(
         "--data_dir",
@@ -438,6 +539,51 @@ def main():
         "--n_params", type=int, default=2, help="specify AP n_params (default: 2)"
     )
     args.add_argument(
+        "--n_message_atom",
+        type=int,
+        default=3,
+        help="specify AtomModel n_message (default: 3)",
+    )
+    args.add_argument(
+        "--n_rbf_atom", type=int, default=8, help="specify AtomModel n_rbf (default: 8)"
+    )
+    args.add_argument(
+        "--n_neuron_atom",
+        type=int,
+        default=128,
+        help="specify AtomModel n_neuron (default: 128)",
+    )
+    args.add_argument(
+        "--n_embed_atom",
+        type=int,
+        default=8,
+        help="specify AtomModel n_embed (default: 8)",
+    )
+    args.add_argument(
+        "--r_cut_atom",
+        type=float,
+        default=5.0,
+        help="specify AtomModel r_cut (default: 5.0)",
+    )
+    args.add_argument(
+        "--use_nn_screening",
+        action="store_true",
+        default=False,
+        help="use NN-based screening for induced dipole calculation in AtomInducedDipoleModel (default: False)",
+    )
+    args.add_argument(
+        "--precompute_hfvr",
+        action="store_true",
+        default=False,
+        help="pre-compute Hirshfeld volume ratios and valence widths during dataset processing for faster training (default: False)",
+    )
+    args.add_argument(
+        "--ds_use_lmdb",
+        action="store_true",
+        default=False,
+        help="use LMDB-based dataset storage for InducedDipoleModel training (default: False). Requires spec_type_am to be 5, 9, 10, or 11",
+    )
+    args.add_argument(
         "--param_start_mean",
         type=str,
         default="2.0",
@@ -468,7 +614,22 @@ def main():
         help="Load dataset in memory (default: False).",
     )
     args.add_argument(
-        "--DimerProp_model_type", type=str, default="AtomTypeParamNN", help="Dimer Prop Model Type (default: AtomTypeParamNN, other options: AtomTypeParamMPNN)"
+        "--ds_class_type",
+        type=str,
+        default="pt",
+        help="Dataset class type: (pt or lmdb) (default: pt)",
+    )
+    args.add_argument(
+        "--DimerProp_model_type",
+        type=str,
+        default="AtomTypeParamNN",
+        help="Dimer Prop Model Type (default: AtomTypeParamNN, other options: AtomTypeParamMPNN)",
+    )
+    args.add_argument(
+        "--ds_type",
+        type=str,
+        default="total_component_energies",
+        help="Dataset type for APNet3-fused only (default: total_component_energies, other options: fsapt_energies)",
     )
     args = args.parse_args()
     # Parse param_start_mean and param_start_std
@@ -479,14 +640,25 @@ def main():
     if args.train_am != "":
         train_atom_model(
             atom_model_type=args.train_am,
+            atom_type_param_model_path=args.atom_type_param_model_path,
+            atom_mpnn_pretrained_path=args.atom_mpnn_pretrained_path,
             model_path=args.am_model_path,
-            data_dir=args.data_dir_atom,
+            data_dir=args.data_dir,
             spec_type=args.spec_type_am,
             n_epochs=args.n_epochs_atom,
             random_seed=args.random_seed,
             ds_max_size=args.ds_max_size,
             world_size=args.world_size_ddp,
             omp_num_threads=args.omp_num_threads,
+            lr=args.lr,
+            n_message=args.n_message_atom,
+            n_rbf=args.n_rbf_atom,
+            n_neuron=args.n_neuron_atom,
+            n_embed=args.n_embed_atom,
+            r_cut=args.r_cut_atom,
+            use_nn_screening=args.use_nn_screening,
+            precompute_hfvr=args.precompute_hfvr,
+            ds_use_lmdb=args.ds_use_lmdb,
         )
     if args.train_apnet != "":
         train_pairwise_model(
@@ -514,7 +686,10 @@ def main():
             param_start_std=args.param_start_std,
             dimer_eval_type=args.dimer_eval_type,
             ds_in_memory=args.ds_in_memory,
+            ds_class_type=args.ds_class_type,
             DimerProp_model_type=args.DimerProp_model_type,
+            ap2_pretrained_model_only=args.ap2_pretrained_model_only,
+            ds_type=args.ds_type,
         )
     return
 

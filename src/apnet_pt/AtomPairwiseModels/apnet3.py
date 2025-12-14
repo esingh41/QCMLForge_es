@@ -5,7 +5,7 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap3_atom_model import (
+from ..AtomModels.ap2_hirshfeld_atom_model import (
     AtomHirshfeldMPNN,
     isolate_atomic_property_predictions,
 )
@@ -925,7 +925,7 @@ class APNet3Model:
         return
 
     def set_pretrained_model(self, ap3_model_path, am_model_path):
-        checkpoint = torch.load(ap3_model_path)
+        checkpoint = torch.load(ap3_model_path, weights_only=False)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -934,7 +934,7 @@ class APNet3Model:
             self.model.load_state_dict(model_state_dict)
         else:
             self.model.load_state_dict(checkpoint["model_state_dict"])
-        checkpoint = torch.load(am_model_path)
+        checkpoint = torch.load(am_model_path, weights_only=False)
         if "_orig_mod" not in list(self.atom_model.state_dict().keys())[0]:
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v

@@ -22,8 +22,20 @@ from qm_tools_aw import tools
 import re
 from . import multipole
 from glob import glob
+import lmdb
+import json
 
 # from torch_geometric.data import download_url
+
+
+def qcel_monomer_to_atomic_data(monomer, r_cut=5.0, **kwargs):
+    return create_atomic_data(
+        monomer.atomic_numbers,
+        monomer.geometry * constants.au2ang,
+        monomer.molecular_charge,
+        r_cut=r_cut,
+        **kwargs,
+    )
 
 
 def natural_key(text):
@@ -31,26 +43,22 @@ def natural_key(text):
 
 
 def distance_matrix(r):
-    v = np.sqrt(
-        np.sum(np.square(r[:, np.newaxis, :] - r[np.newaxis, :, :]), axis=-1))
+    v = np.sqrt(np.sum(np.square(r[:, np.newaxis, :] - r[np.newaxis, :, :]), axis=-1))
     return v
 
 
 def distance_matrix_torch(r):
-    v = torch.sqrt(torch.sum(torch.square(
-        r[:, None, :] - r[None, :, :]), axis=-1))
+    v = torch.sqrt(torch.sum(torch.square(r[:, None, :] - r[None, :, :]), axis=-1))
     return v
 
 
 def generate_monomer_multipole_dataset(file):
-    monomers, cartesian_multipoles, _, _ = util.load_monomer_dataset(
-        "mon200.pkl")
+    monomers, cartesian_multipoles, _, _ = util.load_monomer_dataset("mon200.pkl")
     return
 
 
 def vec_func(R_ij, R_c=5.0, n_bessel=8):
-    edge_feature_vector = np.zeros(
-        (len(R_ij), len(R_ij), n_bessel), dtype=np.float32)
+    edge_feature_vector = np.zeros((len(R_ij), len(R_ij), n_bessel), dtype=np.float32)
     edge_index = []
     for i in range(R_ij.shape[0]):
         for j in range(R_ij.shape[1]):
@@ -58,8 +66,7 @@ def vec_func(R_ij, R_c=5.0, n_bessel=8):
                 r_ij = R_ij[i, j]
                 for n in range(n_bessel):
                     edge_feature_vector[i, j, n] = (
-                        np.sqrt(2 / R_c) * np.sin(n *
-                                                  np.pi * r_ij / R_c) / r_ij
+                        np.sqrt(2 / R_c) * np.sin(n * np.pi * r_ij / R_c) / r_ij
                     )
                 edge_index.append([i, j])
                 # disagree with original apnet tf code here because we have bidirectional edges
@@ -111,13 +118,17 @@ def atomic_collate_update(batch):
     """
     current_count = 0
     edge_indices = []
+    edge_indices_full = []
+    has_full_edges = hasattr(batch[0], "edge_index_full")
+
     # print('\nCollating')
     for i, data in enumerate(batch):
         # print(data.edge_index.shape)
         edge_indices.append(data.edge_index + current_count)
+        if has_full_edges:
+            edge_indices_full.append(data.edge_index_full + current_count)
         data.molecule_ind = (
-            torch.ones(data.molecule_ind.size(
-                0), dtype=data.molecule_ind.dtype) * i
+            torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
         )
         # data.molecule_ind.fill_(i)
         current_count += data.x.size(0)
@@ -138,6 +149,55 @@ def atomic_collate_update(batch):
         ),
         natom_per_mol=natom_per_mol,
     )
+
+    if has_full_edges:
+        batched_data.edge_index_full = torch.cat(edge_indices_full, dim=1)
+
+    return batched_data
+
+
+def atomic_hfvr_vw_collate_update(batch):
+    """
+    Need to update the edge_index values so that each molecule has a unique
+    set of indices. Then, the data.molecule_ind can be used to group
+    atoms into molecules during a forward pass.
+    """
+    current_count = 0
+    edge_indices = []
+    edge_indices_full = []
+    has_full_edges = hasattr(batch[0], "edge_index_full")
+
+    # print('\nCollating')
+    for i, data in enumerate(batch):
+        # print(data.edge_index.shape)
+        edge_indices.append(data.edge_index + current_count)
+        if has_full_edges:
+            edge_indices_full.append(data.edge_index_full + current_count)
+        data.molecule_ind = (
+            torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
+        )
+        # data.molecule_ind.fill_(i)
+        current_count += data.x.size(0)
+
+    molecule_ind = torch.cat([data.molecule_ind for data in batch], dim=0)
+    natom_per_mol = torch.bincount(molecule_ind)
+
+    batched_data = Data(
+        x=torch.cat([data.x for data in batch], dim=0),
+        edge_index=torch.cat(edge_indices, dim=1),
+        R=torch.cat([data.R for data in batch], dim=0),
+        molecule_ind=molecule_ind,
+        total_charge=torch.tensor(
+            [data.total_charge for data in batch], dtype=batch[0].total_charge.dtype
+        ),
+        natom_per_mol=natom_per_mol,
+        volume_ratios=torch.cat([data.volume_ratios for data in batch], dim=0),
+        valence_widths=torch.cat([data.valence_widths for data in batch], dim=0),
+    )
+
+    if has_full_edges:
+        batched_data.edge_index_full = torch.cat(edge_indices_full, dim=1)
+
     return batched_data
 
 
@@ -149,13 +209,17 @@ def atomic_hirshfeld_collate_update(batch):
     """
     current_count = 0
     edge_indices = []
+    edge_indices_full = []
+    has_full_edges = hasattr(batch[0], "edge_index_full")
+
     # print('\nCollating')
     for i, data in enumerate(batch):
         # print(data.edge_index.shape)
         edge_indices.append(data.edge_index + current_count)
+        if has_full_edges:
+            edge_indices_full.append(data.edge_index_full + current_count)
         data.molecule_ind = (
-            torch.ones(data.molecule_ind.size(
-                0), dtype=data.molecule_ind.dtype) * i
+            torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
         )
         # data.molecule_ind.fill_(i)
         current_count += data.x.size(0)
@@ -176,21 +240,28 @@ def atomic_hirshfeld_collate_update(batch):
         ),
         natom_per_mol=natom_per_mol,
         volume_ratios=torch.cat([data.volume_ratios for data in batch], dim=0),
-        valence_widths=torch.cat(
-            [data.valence_widths for data in batch], dim=0),
+        valence_widths=torch.cat([data.valence_widths for data in batch], dim=0),
     )
+
+    if has_full_edges:
+        batched_data.edge_index_full = torch.cat(edge_indices_full, dim=1)
+
     return batched_data
 
 
 def atomic_collate_update_no_target(batch):
     current_count = 0
     edge_indices = []
+    edge_indices_full = []
+    has_full_edges = hasattr(batch[0], "edge_index_full")
+
     # print('\nCollating')
     for i, data in enumerate(batch):
         edge_indices.append(data.edge_index + current_count)
+        if has_full_edges:
+            edge_indices_full.append(data.edge_index_full + current_count)
         data.molecule_ind = (
-            torch.ones(data.molecule_ind.size(
-                0), dtype=data.molecule_ind.dtype) * i
+            torch.ones(data.molecule_ind.size(0), dtype=data.molecule_ind.dtype) * i
         )
         # data.molecule_ind.fill_(i)
         current_count += data.x.size(0)
@@ -208,6 +279,10 @@ def atomic_collate_update_no_target(batch):
         ),
         natom_per_mol=natom_per_mol,
     )
+
+    if has_full_edges:
+        batched_data.edge_index_full = torch.cat(edge_indices_full, dim=1)
+
     return batched_data
 
 
@@ -307,39 +382,74 @@ class AtomicDataLoader(torch.utils.data.DataLoader):
         )
 
 
-def edges(R, r_cut):
+def edges(R, r_cut, full_indices=False):
+    """
+    Compute edge indices for atoms within r_cut distance.
+
+    Parameters
+    ----------
+    R : array-like
+        Atomic positions (N x 3)
+    r_cut : float
+        Cutoff distance for short-range edges
+    full_indices : bool
+        If True, also return full edge indices (all pairs)
+
+    Returns
+    -------
+    edges : np.ndarray
+        Edge indices for short-range interactions [2, n_edges]
+    full_edges : np.ndarray (optional)
+        Edge indices for all atom pairs [2, n_edges_full]
+        Only returned if full_indices=True
+    """
     natom = np.shape(R)[0]
     RA = np.expand_dims(R, 0)
     RB = np.expand_dims(R, 1)
     RA = np.tile(RA, [natom, 1, 1])
     RB = np.tile(RB, [1, natom, 1])
     dist = np.linalg.norm(RA - RB, axis=2)
-    mask = np.logical_and(dist < r_cut, dist > 0.0)
-    edges = np.array(np.where(mask))  # dimensions [n_edge x 2]
-    return edges
+    mask_sr = np.logical_and(dist < r_cut, dist > 0.0)
+    edges_sr = np.array(np.where(mask_sr))  # dimensions [2, n_edge]
+
+    if full_indices:
+        mask_full = dist > 0.0  # All pairs except self
+        edges_full = np.array(np.where(mask_full))
+        return edges_sr, edges_full
+    return edges_sr
 
 
-def qcel_mon_to_pyg_data(mon, r_cut=5.0, custom=False):
+def qcel_mon_to_pyg_data(mon, r_cut=5.0, custom=False, full_indices=False):
     Z = mon.atomic_numbers
     node_features = torch.tensor(np.array(Z), dtype=torch.int64)
-    R = torch.tensor(np.array(mon.geometry) *
-                     constants.au2ang, dtype=torch.float32)
-    total_charge = torch.tensor(
-        np.array(mon.molecular_charge), dtype=torch.int64)
+    R = torch.tensor(np.array(mon.geometry) * constants.au2ang, dtype=torch.float32)
+    total_charge = torch.tensor(np.array(mon.molecular_charge), dtype=torch.int64)
+
+    edge_index_full = None
     if custom:
         edge_index = edge_function_system_index_only(R, r_c=r_cut)
         edge_index = torch.tensor(np.array(edge_index)).t().long()
     else:
-        edge_index = torch.tensor(edges(R, r_cut)).long()
-    data = Data(
-        x=node_features.long(),
-        edge_index=edge_index.long(),
-        R=R.float(),
-        molecule_ind=torch.tensor(np.full(len(R), 0), dtype=torch.int64),
-        total_charge=total_charge.long(),
-        natom_per_mol=torch.tensor([len(R)], dtype=torch.int64),
-    )
-    return data
+        if full_indices:
+            edge_index_sr, edge_index_full = edges(R, r_cut, full_indices=True)
+            edge_index = torch.tensor(edge_index_sr).long()
+            edge_index_full = torch.tensor(edge_index_full).long()
+        else:
+            edge_index = torch.tensor(edges(R, r_cut)).long()
+
+    data_dict = {
+        "x": node_features.long(),
+        "edge_index": edge_index.long(),
+        "R": R.float(),
+        "molecule_ind": torch.tensor(np.full(len(R), 0), dtype=torch.int64),
+        "total_charge": total_charge.long(),
+        "natom_per_mol": torch.tensor([len(R)], dtype=torch.int64),
+    }
+
+    if edge_index_full is not None:
+        data_dict["edge_index_full"] = edge_index_full
+
+    return Data(**data_dict)
 
 
 def create_atomic_data(
@@ -351,12 +461,27 @@ def create_atomic_data(
     idx=None,
     edge_index_only=True,
     custom=False,
+    full_indices=False,
 ):
+    """
+    Create a PyG Data object from atomic numbers, positions, and total charge.
+    Parameters
+    ----------
+    Z : List[int]
+        Atomic numbers of the atoms.
+    R : np.ndarray
+        Atomic positions in Angstroms (N x 3 array)
+    full_indices : bool
+        If True, compute and store both short-range and full edge indices
+    ...
+    """
     node_features = np.array(Z, dtype=np.int64)
     node_features = torch.tensor(node_features)
     if isinstance(R, np.ndarray):
         R = torch.tensor(R, dtype=torch.float32)
     torch_total_charge = torch.tensor(total_charge, dtype=torch.int32)
+
+    edge_index_full = None
     if custom:
         if edge_index_only:
             edge_index = edge_function_system_index_only(R, r_cut)
@@ -365,25 +490,31 @@ def create_atomic_data(
             edge_feature_vector = torch.tensor(edge_feature_vector).view(-1, 8)
         edge_index = torch.tensor(edge_index).t()
     else:
-        edge_index = torch.tensor(edges(R, r_cut)).long()
+        if full_indices:
+            edge_index_sr, edge_index_full = edges(R, r_cut, full_indices=True)
+            edge_index = torch.tensor(edge_index_sr).long()
+            edge_index_full = torch.tensor(edge_index_full).long()
+        else:
+            edge_index = torch.tensor(edges(R, r_cut)).long()
+
     if idx is None:
         idx = 0
+
+    data_dict = {
+        "x": node_features,
+        "edge_index": edge_index.long(),
+        "R": R.float(),
+        "molecule_ind": torch.tensor(np.full(len(R), idx)),
+        "total_charge": torch_total_charge,
+    }
+
+    if edge_index_full is not None:
+        data_dict["edge_index_full"] = edge_index_full
+
     if cartesian_multipoles is not None:
-        return Data(
-            x=node_features,
-            edge_index=edge_index.long(),
-            y=torch.tensor(cartesian_multipoles, dtype=torch.float32),
-            R=R.float(),
-            molecule_ind=torch.tensor(np.full(len(R), idx)),
-            total_charge=torch_total_charge,
-        )
-    return Data(
-        x=node_features,
-        edge_index=edge_index.long(),
-        R=R.float(),
-        molecule_ind=torch.tensor(np.full(len(R), idx)),
-        total_charge=torch_total_charge,
-    )
+        data_dict["y"] = torch.tensor(cartesian_multipoles, dtype=torch.float32)
+
+    return Data(**data_dict)
 
 
 class atomic_module_dataset(Dataset):
@@ -403,7 +534,7 @@ class atomic_module_dataset(Dataset):
     ):
         """ """
         try:
-            assert spec_type in [1, 2, 3, 4, 6, 7, 9]
+            assert spec_type in [1, 2, 3, 4, 6, 9, 10, 11, 12]
         except Exception:
             print(
                 "Currently spec_type must be 1, 2, or 3 for HF/jun-cc-pV(D+d)Z (CMPNN), PBE0/aug-cc-pV(T+D)Z (CMPNN), or HF/jun-cc-pV(D+D)Z (APNET2) respectively. Only 1 and 2 are available for download at the moment."
@@ -432,8 +563,7 @@ class atomic_module_dataset(Dataset):
                     for i in spec_files:
                         os.remove(f"{root}/processed/{i}")
 
-        super(atomic_module_dataset, self).__init__(
-            root, transform, pre_transform)
+        super(atomic_module_dataset, self).__init__(root, transform, pre_transform)
         print(
             f"{self.root = }, {self.spec_type = }, {self.testing = }, {self.in_memory = }"
         )
@@ -443,8 +573,7 @@ class atomic_module_dataset(Dataset):
             self.data = []
             for i in self.processed_file_names:
                 self.data.append(
-                    torch.load(osp.join(self.processed_dir, i),
-                               weights_only=False)
+                    torch.load(osp.join(self.processed_dir, i), weights_only=False)
                 )
             total_time_seconds = int(time() - t)
             print(f"Loaded in {total_time_seconds:4d} seconds")
@@ -481,9 +610,19 @@ class atomic_module_dataset(Dataset):
                     "monomers_apnet2_spec_3_62.pkl",
                 ]
             elif self.spec_type == 9:
-                print('Using spec_type 9 for AP3 PBE0/aug-cc-pVDZ (with Hirshfeld volumes and widths')
+                print(
+                    "Using spec_type 9 for AP3 PBE0/aug-cc-pVDZ (with Hirshfeld volumes and widths"
+                )
                 return [
                     "monomers_ap3_spec_5_pbe0.pkl",
+                ]
+            elif self.spec_type == 10:
+                return [
+                    f"monomers_ap3_spec_{self.spec_type}_HF.pkl",
+                ]
+            elif self.spec_type in [11, 12]:
+                return [
+                    f"SPICE_monomer_spec_{self.spec_type}.pkl",
                 ]
         raise ValueError("spec_type must be 1, 2, or 3!")
         return []
@@ -496,7 +635,9 @@ class atomic_module_dataset(Dataset):
             return [f"data_{i}.pt" for i in range(self.MAX_SIZE - 1)]
         else:
             if self.split == "train":
-                file_cmd = f"{self.root}/processed/data_train_spec_{self.spec_type}_*.pt"
+                file_cmd = (
+                    f"{self.root}/processed/data_train_spec_{self.spec_type}_*.pt"
+                )
             elif self.split == "test":
                 file_cmd = f"{self.root}/processed/data_test_spec_{self.spec_type}_*.pt"
             else:
@@ -532,8 +673,7 @@ class atomic_module_dataset(Dataset):
             }
             print("Downloading data from QCArchive")
             for entry_name, spec_name, record in tqdm(
-                ds.iterate_records(status="complete",
-                                   specification_names="spec_1")
+                ds.iterate_records(status="complete", specification_names="spec_1")
             ):
                 record_dict = record.dict()
                 qcvars = record_dict["properties"]
@@ -550,8 +690,7 @@ class atomic_module_dataset(Dataset):
 
                 quad = [q[np.triu_indices(3)] for q in quad]
                 quadrupoles = np.array(quad)
-                multipoles = np.concatenate(
-                    [charges, dipoles, quadrupoles], axis=1)
+                multipoles = np.concatenate([charges, dipoles, quadrupoles], axis=1)
 
                 data["id"].append(cnt)
                 data["Z"].append(record.molecule.atomic_numbers)
@@ -583,7 +722,7 @@ class atomic_module_dataset(Dataset):
         for raw_path in self.raw_paths:
             split_name = ""
             if self.spec_type in [7]:
-                split_name = f"_{self.split}" if self.split != 'all' else ""
+                split_name = f"_{self.split}" if self.split != "all" else ""
                 print(f"{split_name=}")
             print(f"raw_path: {raw_path}")
             # converting to qcel monomer to crudely validate structure
@@ -596,14 +735,12 @@ class atomic_module_dataset(Dataset):
                     print(f"{i}/{len(monomers)}, took {time() - t} seconds")
                     t = time()
                 mol = monomers[i]
-                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut, full_indices=True)
                 cart_mult = np.array(
                     [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
                 )
-                data.charges = torch.tensor(
-                    cart_mult[:, 0], dtype=torch.float32)
-                data.dipoles = torch.tensor(
-                    cart_mult[:, 1:4], dtype=torch.float32)
+                data.charges = torch.tensor(cart_mult[:, 0], dtype=torch.float32)
+                data.dipoles = torch.tensor(cart_mult[:, 1:4], dtype=torch.float32)
                 data.quadrupoles = torch.tensor(
                     multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
                 )
@@ -614,13 +751,13 @@ class atomic_module_dataset(Dataset):
                     data = self.pre_transform(data)
 
                 if self.testing:
-                    torch.save(data, osp.join(
-                        self.processed_dir, f"data_{idx}.pt"))
+                    torch.save(data, osp.join(self.processed_dir, f"data_{idx}.pt"))
                 else:
                     torch.save(
                         data,
                         osp.join(
-                            self.processed_dir, f"data{split_name}_spec_{self.spec_type}_{idx}.pt"
+                            self.processed_dir,
+                            f"data{split_name}_spec_{self.spec_type}_{idx}.pt",
                         ),
                     )
                 if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
@@ -639,10 +776,12 @@ class atomic_module_dataset(Dataset):
         else:
             split_name = ""
             if self.spec_type in [7]:
-                split_name = f"_{self.split}" if self.split != 'all' else ""
+                split_name = f"_{self.split}" if self.split != "all" else ""
             return torch.load(
-                osp.join(self.processed_dir,
-                         f"data{split_name}_spec_{self.spec_type}_{idx}.pt"),
+                osp.join(
+                    self.processed_dir,
+                    f"data{split_name}_spec_{self.spec_type}_{idx}.pt",
+                ),
                 weights_only=False,
             )
         return
@@ -686,7 +825,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
         batch_size=1,
     ):
         try:
-            assert spec_type in [1, 5, 10]
+            assert spec_type in [1, 5, 10, 11, 12]
         except Exception:
             print(
                 "Currently spec_type must be 1 for pbe0/aug-cc-pVDZ (APNET2) respectively. spec_type 5 is for testing. No downloads are available at the moment."
@@ -716,8 +855,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
             self.data = []
             for i in self.processed_file_names:
                 self.data.append(
-                    torch.load(osp.join(self.processed_dir, i),
-                               weights_only=False)
+                    torch.load(osp.join(self.processed_dir, i), weights_only=False)
                 )
             total_time_seconds = int(time() - t)
             print(f"Loaded in {total_time_seconds:4d} seconds")
@@ -765,12 +903,6 @@ class atomic_hirshfeld_module_dataset(Dataset):
 
     def process(self, r_cut=5.0, edge_index_only=True):
         idx = 0
-        print(dir(self))
-        batch_size = self.batch_size
-        if self.spec_type in [1, 5]:
-            print(
-                f"ENSURE THAT {batch_size=} is the same as the batch size used in the AtomHirshfeldModel training! This mode avoids collating completely."
-            )
         for raw_path in self.raw_paths:
             print(f"raw_path: {raw_path}")
             # converting to qcel monomer to crudely validate structure
@@ -782,31 +914,27 @@ class atomic_hirshfeld_module_dataset(Dataset):
                 valence_widths,
             ) = util.load_monomer_dataset(raw_path, self.MAX_SIZE, hirshfeld_props=True)
             t = time()
-            for i in range(0, len(monomers), batch_size):
-                batched_data = []
-                upper_bound = min(i + batch_size, len(monomers))
-                for j in range(i, upper_bound):
-                    mol = monomers[i]
-                    data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
-                    cart_mult = np.array(
-                        [j for j in cartesian_multipoles[i]
-                            if not np.all(j == 0)]
-                    )
-                    data.charges = torch.tensor(
-                        cart_mult[:, 0], dtype=torch.float32)
-                    data.dipoles = torch.tensor(
-                        cart_mult[:, 1:4], dtype=torch.float32)
-                    data.quadrupoles = torch.tensor(
-                        multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
-                    )
-                    data.volume_ratios = torch.tensor(
-                        volume_ratios[i], dtype=torch.float32
-                    )
-                    data.valence_widths = torch.tensor(
-                        valence_widths[i], dtype=torch.float32
-                    )
-                    batched_data.append(data)
-                batch = atomic_hirshfeld_collate_update(batched_data)
+            for i in range(len(monomers)):
+                if i % 1000 == 0:
+                    print(f"{i}/{len(monomers)}, took {time() - t} seconds")
+                    t = time()
+                mol = monomers[i]
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
+                cart_mult = np.array(
+                    [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
+                )
+                data.charges = torch.tensor(cart_mult[:, 0], dtype=torch.float32)
+                data.dipoles = torch.tensor(cart_mult[:, 1:4], dtype=torch.float32)
+                data.quadrupoles = torch.tensor(
+                    multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
+                )
+                if np.isnan(volume_ratios[i]).any():
+                    print(f"NaN in volume ratios for index {i}, skipping")
+                    continue
+                data.volume_ratios = torch.tensor(volume_ratios[i], dtype=torch.float32)
+                data.valence_widths = torch.tensor(
+                    valence_widths[i], dtype=torch.float32
+                )
                 if self.pre_filter is not None and not self.pre_filter(data):
                     continue
 
@@ -814,12 +942,12 @@ class atomic_hirshfeld_module_dataset(Dataset):
                     data = self.pre_transform(data)
 
                 torch.save(
-                    batch,
+                    data,
                     osp.join(
                         self.processed_dir,
                         f"monomer_ap3_{self.spec_type}_{idx}.pt",
                     ),
-                    )
+                )
                 if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
                     break
                 idx += 1
@@ -830,13 +958,1102 @@ class atomic_hirshfeld_module_dataset(Dataset):
 
     def get(self, idx):
         return torch.load(
-            osp.join(self.processed_dir,
-                     f"monomer_ap3_{self.spec_type}_{idx}.pt"),
+            osp.join(self.processed_dir, f"monomer_ap3_{self.spec_type}_{idx}.pt"),
             weights_only=False,
         )
 
     def get_in_memory(self, idx):
         return self.data[idx]
+
+    def train_test_loaders(self):
+        indices = np.random.permutation(len(self))
+        split = int(0.9 * len(self))
+        train_indices = indices[:split]
+        test_indices = indices[split:]
+        return (
+            AtomicDataLoader(
+                self[train_indices],
+                batch_size=self.batch_size,
+                shuffle=True,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+            AtomicDataLoader(
+                self[test_indices],
+                batch_size=self.batch_size,
+                shuffle=False,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+        )
+
+
+class atomic_induced_dipole_precomputed_dataset(Dataset):
+    """
+    Dataset that pre-computes hirshfeld volume ratios and valence widths
+    using an AtomTypeParamMPNN model during processing, storing them
+    alongside multipole moments for efficient induced dipole training.
+
+    This avoids the need to run atomtype_hfvr_model forward pass during training,
+    significantly speeding up training by computing these values once during
+    dataset processing.
+    """
+
+    def __init__(
+        self,
+        root,
+        atomtype_hfvr_model,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=9,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+    ):
+        """
+        Initialize dataset with pre-computation of hfvr and vw.
+
+        Parameters
+        ----------
+        root : str
+            Root directory for dataset
+        atomtype_hfvr_model : nn.Module
+            Pre-trained AtomTypeParamMPNN model to compute hfvr and vw
+        spec_type : int
+            Specification type (default 9 for PBE0/aug-cc-pVDZ with Hirshfeld)
+        """
+        # Validate spec_type supports Hirshfeld properties
+        try:
+            assert spec_type in [5, 9, 10, 11, 12]
+        except Exception:
+            print(
+                "spec_type must be 5, 9, or 10 for datasets with Hirshfeld properties."
+            )
+            raise ValueError
+
+        # Store model for processing
+        self.atomtype_hfvr_model = atomtype_hfvr_model
+        self.atomtype_hfvr_model.eval()  # Set to eval mode
+        self.atomtype_hfvr_model.requires_grad_(False)  # Disable gradients
+
+        self.batch_size = batch_size
+        self.testing = testing
+        if self.testing and max_size is None:
+            self.MAX_SIZE = 200
+        else:
+            self.MAX_SIZE = max_size
+        self.spec_type = spec_type
+        self.force_reprocess = force_reprocess
+        self.root = root
+        self.in_memory = in_memory
+        self.r_cut = r_cut
+
+        if os.path.exists(root) is False:
+            os.makedirs(root)
+
+        print(
+            f"atomic_induced_dipole_precomputed_dataset: {self.root = }, {self.spec_type = }, {self.testing = }, {self.in_memory = }"
+        )
+
+        super(atomic_induced_dipole_precomputed_dataset, self).__init__(
+            root, transform, pre_transform
+        )
+
+        # After processing, reset force_reprocess so we can properly list files
+        if self.force_reprocess:
+            self.force_reprocess = False
+
+        if self.in_memory:
+            print("Loading pre-computed data into memory")
+            t = time()
+            self.data = []
+            for i in self.processed_file_names:
+                self.data.append(
+                    torch.load(osp.join(self.processed_dir, i), weights_only=False)
+                )
+            total_time_seconds = int(time() - t)
+            print(f"Loaded in {total_time_seconds:4d} seconds")
+            self.get = self.get_in_memory
+
+    @property
+    def raw_file_names(self):
+        """Use same raw files as atomic_hirshfeld_module_dataset"""
+        if self.spec_type in [5]:
+            return [f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl"]
+        elif self.spec_type in [9]:
+            # spec_type 9 uses spec_5 data
+            return ["monomers_ap3_spec_5_pbe0.pkl"]
+        elif self.spec_type in [10]:
+            return [f"monomers_ap3_spec_{self.spec_type}_HF.pkl"]
+        elif self.spec_type in [11, 12]:
+            return [
+                f"SPICE_monomer_spec_{self.spec_type}.pkl",
+            ]
+        raise ValueError("spec_type must be 5, 9, 10, 11!")
+
+    @property
+    def processed_file_names(self):
+        if self.force_reprocess:
+            return ["file"]
+        else:
+            file_cmd = f"{self.root}/processed/monomer_induced_dipole_precomputed_{self.spec_type}_*.pt"
+            spec_files = glob(file_cmd)
+            spec_files = [i.split("/")[-1] for i in spec_files]
+            if len(spec_files) > 0:
+                spec_files.sort(key=natural_key)
+                if self.MAX_SIZE is not None and len(spec_files) > self.MAX_SIZE:
+                    spec_files = spec_files[: self.MAX_SIZE]
+                return spec_files
+            else:
+                return [f"data_missing_{i}.pt" for i in range(1)]
+
+    def download(self):
+        print(self.raw_file_names)
+        raise ValueError("Downloads are not available!")
+
+    def process(self, r_cut=5.0, edge_index_only=True):
+        """
+        Process raw data and compute hfvr/vw using atomtype_hfvr_model.
+
+        This is the key method that pre-computes volume_ratios and valence_widths
+        using the provided model, avoiding the need to run the model during training.
+        """
+        idx = 0
+        for raw_path in self.raw_paths:
+            print(f"Processing raw_path: {raw_path}")
+            print(f"Pre-computing hfvr and vw using atomtype_hfvr_model...")
+
+            # Load data with Hirshfeld properties (for validation/comparison)
+            (
+                monomers,
+                cartesian_multipoles,
+                total_charge,
+                volume_ratios_raw,
+                valence_widths_raw,
+            ) = util.load_monomer_dataset(raw_path, self.MAX_SIZE, hirshfeld_props=True)
+
+            t = time()
+            for i in range(len(monomers)):
+                if i % 100 == 0:
+                    print(f"{i}/{len(monomers)}, took {time() - t:.2f} seconds")
+                    t = time()
+
+                mol = monomers[i]
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut, full_indices=True)
+
+                # Store multipoles (targets for training)
+                cart_mult = np.array(
+                    [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
+                )
+                data.charges = torch.tensor(cart_mult[:, 0], dtype=torch.float32)
+                data.dipoles = torch.tensor(cart_mult[:, 1:4], dtype=torch.float32)
+                data.quadrupoles = torch.tensor(
+                    multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
+                )
+
+                # PRE-COMPUTE hfvr and vw using the model
+                with torch.no_grad():
+                    Ks = self.atomtype_hfvr_model(data)  # [n_atoms, 2]
+                    data.volume_ratios = Ks[:, 0].clone()  # hfvr
+                    data.valence_widths = Ks[:, 1].clone()  # vw
+
+                # Optional: Validate against raw values if available
+                if not np.isnan(volume_ratios_raw[i]).any():
+                    raw_vr = torch.tensor(volume_ratios_raw[i], dtype=torch.float32)
+                    computed_vr = data.volume_ratios
+                    if len(raw_vr) == len(computed_vr):
+                        max_diff = torch.abs(raw_vr - computed_vr).max().item()
+                        if max_diff > 0.1 and i % 100 == 0:
+                            print(
+                                f"  Note: Max difference between raw and computed hfvr: {max_diff:.4f}"
+                            )
+
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+
+                torch.save(
+                    data,
+                    osp.join(
+                        self.processed_dir,
+                        f"monomer_induced_dipole_precomputed_{self.spec_type}_{idx}.pt",
+                    ),
+                )
+
+                if self.MAX_SIZE is not None and idx >= self.MAX_SIZE:
+                    break
+                idx += 1
+
+        print(f"Finished processing {idx} molecules with pre-computed hfvr/vw")
+        return
+
+    def len(self):
+        return len(self.processed_file_names)
+
+    def get(self, idx):
+        return torch.load(
+            osp.join(
+                self.processed_dir,
+                f"monomer_induced_dipole_precomputed_{self.spec_type}_{idx}.pt",
+            ),
+            weights_only=False,
+        )
+
+    def get_in_memory(self, idx):
+        return self.data[idx]
+
+    def train_test_loaders(self):
+        indices = np.random.permutation(len(self))
+        split = int(0.9 * len(self))
+        train_indices = indices[:split]
+        test_indices = indices[split:]
+        return (
+            AtomicDataLoader(
+                self[train_indices],
+                batch_size=self.batch_size,
+                shuffle=True,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+            AtomicDataLoader(
+                self[test_indices],
+                batch_size=self.batch_size,
+                shuffle=False,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+        )
+
+
+class atomic_module_dataset_lmdb(Dataset):
+    """
+    LMDB-based dataset for atomic induced dipole training with efficient storage.
+
+    This dataset uses LMDB (Lightning Memory-Mapped Database) for efficient
+    storage and retrieval of processed atomic data, with worker-safe initialization
+    and LRU caching for performance.
+    """
+
+    def __init__(
+        self,
+        root,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=9,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=False,
+        batch_size=1,
+        lmdb_map_size=1099511627776,
+        lmdb_readonly=False,
+        cache_size=1000,
+        atomtype_hfvr_model=None,
+    ):
+        """
+        Initialize LMDB-based atomic dataset.
+
+        Parameters
+        ----------
+        root : str
+            Root directory for dataset
+        r_cut : float
+            Cutoff radius for edge construction
+        spec_type : int
+            Specification type (9 for PBE0/aug-cc-pVDZ with Hirshfeld)
+        max_size : int, optional
+            Maximum number of molecules to process
+        lmdb_map_size : int
+            Maximum size of LMDB database in bytes (default 1TB)
+        lmdb_readonly : bool
+            Open LMDB in read-only mode
+        cache_size : int
+            Number of recently accessed items to keep in memory
+        atomtype_hfvr_model : nn.Module, optional
+            Pre-trained model to compute hfvr and vw during processing
+        """
+        try:
+            assert spec_type in [5, 9, 10, 11, 12]
+        except Exception:
+            print(
+                "spec_type must be 5, 9, or 10 for datasets with Hirshfeld properties."
+            )
+            raise ValueError
+
+        self.batch_size = batch_size
+        self.testing = testing
+        if self.testing and max_size is None:
+            self.MAX_SIZE = 200
+        else:
+            self.MAX_SIZE = max_size
+        self.spec_type = spec_type
+        self.force_reprocess = force_reprocess
+        self.root = root
+        self.in_memory = in_memory
+        self.r_cut = r_cut
+
+        # LMDB settings
+        self.lmdb_map_size = lmdb_map_size
+        self.lmdb_readonly = lmdb_readonly
+        self.cache_size = cache_size
+        self._cache = {}
+        self._cache_keys = []
+
+        # LMDB state
+        self.lmdb_env = None
+        self.lmdb_path = None
+        self._length = None
+        self._worker_id = None
+
+        # Optional model for pre-computation
+        self.atomtype_hfvr_model = atomtype_hfvr_model
+        if self.atomtype_hfvr_model is not None:
+            self.atomtype_hfvr_model.eval()
+            self.atomtype_hfvr_model.requires_grad_(False)
+
+        if os.path.exists(root) is False:
+            os.makedirs(root, exist_ok=True)
+
+        self._init_lmdb_path(root)
+        self._init_lmdb()
+
+        print(
+            f"atomic_module_dataset_lmdb: {self.root = }, {self.spec_type = }, "
+            f"{self.testing = }, {self.in_memory = }, {self.lmdb_path = }"
+        )
+
+        super(atomic_module_dataset_lmdb, self).__init__(root, transform, pre_transform)
+
+        # Handle force_reprocess: close LMDB, re-init parent, reopen LMDB
+        if self.force_reprocess:
+            self.force_reprocess = False
+            self._close_lmdb()
+            super(atomic_module_dataset_lmdb, self).__init__(
+                root, transform, pre_transform
+            )
+            self._init_lmdb()
+
+        if self.in_memory:
+            print("Loading LMDB data into memory...")
+            t = time()
+            self.data = []
+            for i in range(len(self)):
+                self.data.append(self.get(i))
+            total_time_seconds = int(time() - t)
+            print(f"Loaded {len(self.data)} items in {total_time_seconds:4d} seconds")
+            self.get = self.get_in_memory
+
+    def _init_lmdb_path(self, root):
+        """Initialize LMDB path before parent class init"""
+        self.lmdb_path = osp.join(
+            root, "processed", f"lmdb_atomic_induced_dipole_spec_{self.spec_type}"
+        )
+
+    def _init_lmdb(self):
+        """Initialize LMDB environment"""
+        if not osp.exists(self.lmdb_path):
+            os.makedirs(self.lmdb_path, exist_ok=True)
+
+        try:
+            self.lmdb_env = lmdb.open(
+                self.lmdb_path,
+                map_size=self.lmdb_map_size,
+                readonly=self.lmdb_readonly,
+                max_dbs=0,
+                lock=not self.lmdb_readonly,
+                max_readers=256,
+            )
+
+            # Read metadata
+            with self.lmdb_env.begin() as txn:
+                metadata_bytes = txn.get(b"__metadata__")
+                if metadata_bytes:
+                    metadata = json.loads(metadata_bytes.decode("utf-8"))
+                    self._length = metadata.get("length", 0)
+                else:
+                    self._length = 0
+        except Exception as e:
+            print(f"Error initializing LMDB: {e}")
+            self.lmdb_env = None
+            self._length = 0
+
+    def _close_lmdb(self):
+        """Close LMDB environment"""
+        if self.lmdb_env is not None:
+            self.lmdb_env.close()
+            self.lmdb_env = None
+
+    def __del__(self):
+        """Cleanup LMDB on deletion"""
+        try:
+            self._close_lmdb()
+        except:
+            pass
+
+    def __getstate__(self):
+        """Prepare object for pickling by closing LMDB"""
+        state = self.__dict__.copy()
+        # Close LMDB environment before pickling
+        if "lmdb_env" in state and state["lmdb_env"] is not None:
+            try:
+                state["lmdb_env"].close()
+            except:
+                pass
+        # Remove unpicklable objects
+        state["lmdb_env"] = None
+        state["_cache"] = {}
+        state["_cache_keys"] = []
+        state["_worker_id"] = None
+        return state
+
+    def __setstate__(self, state):
+        """Restore object after unpickling by reopening LMDB"""
+        self.__dict__.update(state)
+        # Reinitialize LMDB in the new process
+        self._init_lmdb()
+
+    @property
+    def raw_file_names(self):
+        """Use same raw files as atomic_induced_dipole_precomputed_dataset"""
+        if self.spec_type in [5]:
+            return [f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl"]
+        elif self.spec_type in [9]:
+            return ["monomers_ap3_spec_5_pbe0.pkl"]
+        elif self.spec_type in [10]:
+            return [f"monomers_ap3_spec_{self.spec_type}_HF.pkl"]
+        elif self.spec_type in [11, 12]:
+            return [f"SPICE_monomer_spec_{self.spec_type}.pkl"]
+        raise ValueError("spec_type must be 5, 9, 10, or 11!")
+
+    @property
+    def processed_file_names(self):
+        """Check if LMDB database exists and has data"""
+        if self.force_reprocess:
+            return ["file"]
+
+        if not hasattr(self, "lmdb_path") or self.lmdb_path is None:
+            return ["lmdb_missing"]
+
+        if osp.exists(self.lmdb_path):
+            env = None
+            try:
+                env = lmdb.open(
+                    self.lmdb_path,
+                    readonly=True,
+                    lock=False,
+                    max_dbs=0,
+                    create=False,
+                    max_readers=256,
+                )
+                with env.begin() as txn:
+                    metadata_bytes = txn.get(b"__metadata__")
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        length = metadata.get("length", 0)
+
+                        if length > 0:
+                            return [f"lmdb_atomic_induced_dipole_spec_{self.spec_type}"]
+            except Exception as e:
+                print(f"Error checking LMDB: {e}")
+            finally:
+                if env is not None:
+                    try:
+                        env.close()
+                    except:
+                        pass
+
+        return ["lmdb_missing"]
+
+    def download(self):
+        """Download not available for this dataset"""
+        print(self.raw_file_names)
+        raise ValueError("Downloads are not available!")
+
+    def _store_to_lmdb(self, data_objects, start_idx):
+        """Store data objects to LMDB"""
+        import pickle
+
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+
+        with self.lmdb_env.begin(write=True) as txn:
+            for i, data_obj in enumerate(data_objects):
+                idx = start_idx + i
+                key = str(idx).encode("utf-8")
+                value = pickle.dumps(data_obj)
+                txn.put(key, value)
+
+            # Update metadata
+            metadata = {
+                "length": start_idx + len(data_objects),
+                "r_cut": self.r_cut,
+                "spec_type": self.spec_type,
+            }
+            txn.put(b"__metadata__", json.dumps(metadata).encode("utf-8"))
+
+        self._length = start_idx + len(data_objects)
+
+    def process(self, r_cut=5.0, edge_index_only=True):
+        """
+        Process raw data and store in LMDB.
+
+        If atomtype_hfvr_model is provided, pre-computes volume_ratios and
+        valence_widths. Otherwise, loads them from raw data.
+        """
+        idx = 0
+        data_objects = []
+        batch_size_lmdb = 100  # Store in batches for efficiency
+
+        for raw_path in self.raw_paths:
+            print(f"Processing raw_path: {raw_path}")
+
+            # Load data with Hirshfeld properties
+            (
+                monomers,
+                cartesian_multipoles,
+                total_charge,
+                volume_ratios_raw,
+                valence_widths_raw,
+            ) = util.load_monomer_dataset(raw_path, self.MAX_SIZE, hirshfeld_props=True)
+
+            t = time()
+            for i in range(len(monomers)):
+                if i % 100 == 0:
+                    print(f"{i}/{len(monomers)}, took {time() - t:.2f} seconds")
+                    t = time()
+
+                mol = monomers[i]
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut, full_indices=True)
+
+                # Store multipoles
+                cart_mult = np.array(
+                    [j for j in cartesian_multipoles[i] if not np.all(j == 0)]
+                )
+                data.charges = torch.tensor(cart_mult[:, 0], dtype=torch.float32)
+                data.dipoles = torch.tensor(cart_mult[:, 1:4], dtype=torch.float32)
+                data.quadrupoles = torch.tensor(
+                    multipole.make_quad_np(cart_mult[:, 4:]), dtype=torch.float32
+                )
+
+                # Compute or load volume_ratios and valence_widths
+                if self.atomtype_hfvr_model is not None:
+                    # Pre-compute using model
+                    with torch.no_grad():
+                        Ks = self.atomtype_hfvr_model(data)
+                        data.volume_ratios = Ks[:, 0].clone()
+                        data.valence_widths = Ks[:, 1].clone()
+                else:
+                    # Load from raw data
+                    if np.isnan(volume_ratios_raw[i]).any():
+                        print(f"NaN in volume ratios for index {i}, skipping")
+                        continue
+                    data.volume_ratios = torch.tensor(
+                        volume_ratios_raw[i], dtype=torch.float32
+                    )
+                    data.valence_widths = torch.tensor(
+                        valence_widths_raw[i], dtype=torch.float32
+                    )
+
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+
+                data_objects.append(data.cpu())
+
+                # Store in batches
+                if len(data_objects) >= batch_size_lmdb:
+                    start_idx = idx - len(data_objects) + 1
+                    self._store_to_lmdb(data_objects, start_idx)
+                    data_objects = []
+
+                if self.MAX_SIZE is not None and idx >= self.MAX_SIZE:
+                    break
+                idx += 1
+
+        # Store remaining objects
+        if len(data_objects) > 0:
+            start_idx = idx - len(data_objects)
+            self._store_to_lmdb(data_objects, start_idx)
+
+        print(f"Finished processing {idx} molecules to LMDB")
+        return
+
+    def len(self):
+        """Return dataset length from LMDB metadata"""
+        if self._length is not None:
+            return self._length
+
+        if self.lmdb_env is None:
+            return 0
+
+        with self.lmdb_env.begin() as txn:
+            metadata_bytes = txn.get(b"__metadata__")
+            if metadata_bytes:
+                metadata = json.loads(metadata_bytes.decode("utf-8"))
+                self._length = metadata.get("length", 0)
+            else:
+                self._length = 0
+
+        return self._length
+
+    def _check_worker_init(self):
+        """Ensure LMDB env is initialized for current worker process"""
+        import torch.utils.data
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+        else:
+            worker_id = None
+
+        # Reinitialize LMDB if worker changed
+        if worker_id != self._worker_id:
+            if self.lmdb_env is not None:
+                self._close_lmdb()
+
+            self._worker_id = worker_id
+            self._init_lmdb()
+            self._cache = {}
+            self._cache_keys = []
+
+    def get(self, idx):
+        """Retrieve item from LMDB with LRU caching"""
+        import pickle
+
+        self._check_worker_init()
+
+        # Check cache first
+        if idx in self._cache:
+            self._cache_keys.remove(idx)
+            self._cache_keys.append(idx)
+            return self._cache[idx]
+
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+
+        # Load from LMDB
+        with self.lmdb_env.begin() as txn:
+            key = str(idx).encode("utf-8")
+            value_bytes = txn.get(key)
+
+            if value_bytes is None:
+                raise IndexError(f"Index {idx} not found in LMDB database")
+
+            data = pickle.loads(value_bytes)
+
+        # Update cache
+        self._cache[idx] = data
+        self._cache_keys.append(idx)
+
+        # Evict oldest if cache full
+        if len(self._cache) > self.cache_size:
+            oldest_key = self._cache_keys.pop(0)
+            del self._cache[oldest_key]
+
+        return data
+
+    def get_in_memory(self, idx):
+        """Get item from in-memory storage"""
+        return self.data[idx]
+
+    def train_test_loaders(self):
+        """Create train/test data loaders"""
+        indices = np.random.permutation(len(self))
+        split = int(0.9 * len(self))
+        train_indices = indices[:split]
+        test_indices = indices[split:]
+        return (
+            AtomicDataLoader(
+                self[train_indices],
+                batch_size=self.batch_size,
+                shuffle=True,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+            AtomicDataLoader(
+                self[test_indices],
+                batch_size=self.batch_size,
+                shuffle=False,
+                collate_fn=atomic_hirshfeld_collate_update,
+            ),
+        )
+
+
+class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
+    def __init__(
+        self,
+        root,
+        transform=None,
+        pre_transform=None,
+        r_cut=5.0,
+        testing=False,
+        spec_type=1,
+        max_size=None,
+        force_reprocess=False,
+        in_memory=True,
+        batch_size=1,
+        lmdb_map_size=1099511627776,
+        lmdb_readonly=False,
+        cache_size=1000,
+    ):
+        """
+        LMDB-based dataset for atomic Hirshfeld valence width training.
+
+        Args:
+            lmdb_map_size: Maximum size of LMDB database in bytes (default 1TB)
+            lmdb_readonly: Open LMDB in read-only mode
+            cache_size: Number of recently accessed items to keep in memory
+        """
+
+        try:
+            assert spec_type in [1, 5, 10]
+        except Exception:
+            print(
+                "Currently spec_type must be 1 for pbe0/aug-cc-pVDZ (APNET2) respectively. spec_type 5 is for testing. No downloads are available at the moment."
+            )
+            raise ValueError
+        self.batch_size = batch_size
+        self.testing = testing
+        if self.testing and max_size is None:
+            self.MAX_SIZE = 200
+        else:
+            self.MAX_SIZE = max_size
+        self.spec_type = spec_type
+        self.force_reprocess = force_reprocess
+        self.root = root
+        self.in_memory = in_memory
+        self.r_cut = r_cut
+
+        self.lmdb_map_size = lmdb_map_size
+        self.lmdb_readonly = lmdb_readonly
+        self.cache_size = cache_size
+        self._cache = {}
+        self._cache_keys = []
+
+        self.lmdb_env = None
+        self.lmdb_path = None
+        self._length = None
+        self._worker_id = None
+
+        if os.path.exists(root) is False:
+            os.makedirs(root)
+
+        print(
+            f"{self.root = }, {self.spec_type = }, {self.testing = }, {self.in_memory = }"
+        )
+
+        self._init_lmdb_path(root)
+        self._init_lmdb()
+
+        super(atomic_hirshfeld_valencewdith_only_module_dataset, self).__init__(
+            root, transform, pre_transform
+        )
+
+        if self.force_reprocess:
+            self.force_reprocess = False
+            self._close_lmdb()
+            super(atomic_hirshfeld_valencewdith_only_module_dataset, self).__init__(
+                root, transform, pre_transform
+            )
+            self._init_lmdb()
+
+        if self.in_memory:
+            print("Loading data into memory")
+            t = time()
+            self.data = []
+            for i in range(len(self)):
+                self.data.append(self.get(i))
+            total_time_seconds = int(time() - t)
+            print(f"Loaded in {total_time_seconds:4d} seconds")
+            self.get = self.get_in_memory
+
+    def _init_lmdb_path(self, root):
+        """Initialize LMDB path before parent class init"""
+        self.lmdb_path = osp.join(
+            root, "processed", f"lmdb_monomer_ap3_spec_{self.spec_type}"
+        )
+
+    def _init_lmdb(self):
+        """Initialize LMDB environment"""
+        if not osp.exists(self.lmdb_path):
+            os.makedirs(self.lmdb_path, exist_ok=True)
+
+        try:
+            self.lmdb_env = lmdb.open(
+                self.lmdb_path,
+                map_size=self.lmdb_map_size,
+                readonly=self.lmdb_readonly,
+                max_dbs=0,
+                lock=not self.lmdb_readonly,
+                max_readers=256,
+            )
+
+            with self.lmdb_env.begin() as txn:
+                metadata_bytes = txn.get(b"__metadata__")
+                if metadata_bytes:
+                    metadata = json.loads(metadata_bytes.decode("utf-8"))
+                    self._length = metadata.get("length", 0)
+                else:
+                    self._length = 0
+        except Exception as e:
+            print(f"Error initializing LMDB: {e}")
+            self.lmdb_env = None
+            self._length = 0
+
+    def _close_lmdb(self):
+        """Close LMDB environment"""
+        if self.lmdb_env is not None:
+            self.lmdb_env.close()
+            self.lmdb_env = None
+
+    def __del__(self):
+        """Cleanup LMDB on deletion"""
+        try:
+            self._close_lmdb()
+        except:
+            pass
+
+    @property
+    def raw_file_names(self):
+        # spec_3 = "spec_3" # 'hf/jun-cc-pv_dpd_z' APNET2
+        if self.spec_type in [1, 5]:
+            print(
+                f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
+                # "monomers_ap3_spec_1_pbe0_62.pkl",
+            )
+            return [
+                f"monomers_ap3_spec_{self.spec_type}_pbe0.pkl",
+                # "monomers_ap3_spec_1_pbe0_62.pkl",
+            ]
+        elif self.spec_type in [10]:
+            return [
+                f"monomers_ap3_spec_{self.spec_type}_HF.pkl",
+            ]
+        raise ValueError("spec_type must in [1, 5, 10]!")
+        return []
+
+    @property
+    def processed_file_names(self):
+        """Check if LMDB database exists and has data"""
+        if self.force_reprocess:
+            return ["file"]
+
+        if not hasattr(self, "lmdb_path") or self.lmdb_path is None:
+            return ["lmdb_missing"]
+
+        if osp.exists(self.lmdb_path):
+            env = None
+            try:
+                env = lmdb.open(
+                    self.lmdb_path,
+                    readonly=True,
+                    lock=False,
+                    max_dbs=0,
+                    create=False,
+                    max_readers=256,
+                )
+                with env.begin() as txn:
+                    metadata_bytes = txn.get(b"__metadata__")
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        length = metadata.get("length", 0)
+                        if length > 0:
+                            return [f"lmdb_monomer_ap3_spec_{self.spec_type}"]
+            except Exception as e:
+                print(f"Error checking LMDB: {e}")
+            finally:
+                if env is not None:
+                    try:
+                        env.close()
+                    except:
+                        pass
+
+        return ["lmdb_missing"]
+
+    def download(self):
+        print(self.raw_file_names)
+        raise ValueError("Downloads are not available!")
+
+    def _store_to_lmdb(self, data_objects, start_idx):
+        """Store data objects to LMDB"""
+        import pickle
+
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+
+        with self.lmdb_env.begin(write=True) as txn:
+            for i, data_obj in enumerate(data_objects):
+                idx = start_idx + i
+                key = str(idx).encode("utf-8")
+                value = pickle.dumps(data_obj)
+                txn.put(key, value)
+
+            metadata = {
+                "length": start_idx + len(data_objects),
+                "r_cut": self.r_cut,
+                "spec_type": self.spec_type,
+            }
+            txn.put(b"__metadata__", json.dumps(metadata).encode("utf-8"))
+
+        self._length = start_idx + len(data_objects)
+
+    def process(self, r_cut=5.0, edge_index_only=True):
+        """Process dataset and store in LMDB"""
+        idx = 0
+        data_objects = []
+        batch_size = 256  # Store in batches for efficiency
+
+        for raw_path in self.raw_paths:
+            print(f"raw_path: {raw_path}")
+            # converting to qcel monomer to crudely validate structure
+            (
+                monomers,
+                cartesian_multipoles,
+                total_charge,
+                volume_ratios,
+                valence_widths,
+            ) = util.load_monomer_dataset(raw_path, self.MAX_SIZE, hirshfeld_props=True)
+            t = time()
+            for i in range(len(monomers)):
+                if i % 1000 == 0:
+                    print(f"{i}/{len(monomers)}, took {time() - t} seconds")
+                    t = time()
+                mol = monomers[i]
+                data = qcel_mon_to_pyg_data(mol, r_cut=r_cut)
+                if np.isnan(volume_ratios[i]).any():
+                    print(f"NaN in volume ratios for index {i}, skipping")
+                    continue
+                data.volume_ratios = torch.tensor(volume_ratios[i], dtype=torch.float32)
+                data.valence_widths = torch.tensor(
+                    valence_widths[i], dtype=torch.float32
+                )
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+
+                data_objects.append(data)
+
+                # Store in batches
+                if len(data_objects) >= batch_size:
+                    start_idx = idx - len(data_objects) + 1
+                    self._store_to_lmdb(data_objects, start_idx)
+                    data_objects = []
+
+                if self.MAX_SIZE is not None and idx >= self.MAX_SIZE:
+                    break
+                idx += 1
+
+            if self.MAX_SIZE is not None and idx >= self.MAX_SIZE:
+                break
+
+        # Store remaining data
+        if len(data_objects) > 0:
+            start_idx = idx - len(data_objects)
+            self._store_to_lmdb(data_objects, start_idx)
+            print(
+                f"Final: Stored {len(data_objects)} objects to LMDB at index {start_idx}"
+            )
+
+        print(f"Processing complete. Total time: {time() - t:.2f}s")
+        return
+
+    def len(self):
+        """Return dataset length from LMDB metadata"""
+        if self._length is not None:
+            return self._length
+
+        if self.lmdb_env is None:
+            return 0
+
+        with self.lmdb_env.begin() as txn:
+            metadata_bytes = txn.get(b"__metadata__")
+            if metadata_bytes:
+                metadata = json.loads(metadata_bytes.decode("utf-8"))
+                self._length = metadata.get("length", 0)
+            else:
+                self._length = 0
+
+        return self._length
+
+    def _check_worker_init(self):
+        """Ensure LMDB env is initialized for current worker process"""
+        import torch.utils.data
+
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+        else:
+            worker_id = None
+
+        if worker_id != self._worker_id:
+            if self.lmdb_env is not None:
+                self._close_lmdb()
+
+            self._worker_id = worker_id
+            self._init_lmdb()
+            self._cache = {}
+            self._cache_keys = []
+
+    def get(self, idx):
+        """Retrieve item from LMDB with caching"""
+        import pickle
+
+        self._check_worker_init()
+
+        if idx in self._cache:
+            self._cache_keys.remove(idx)
+            self._cache_keys.append(idx)
+            return self._cache[idx]
+
+        if self.lmdb_env is None:
+            raise RuntimeError("LMDB environment not initialized")
+
+        with self.lmdb_env.begin() as txn:
+            key = str(idx).encode("utf-8")
+            value_bytes = txn.get(key)
+
+            if value_bytes is None:
+                raise IndexError(f"Index {idx} not found in LMDB database")
+
+            data = pickle.loads(value_bytes)
+
+        self._cache[idx] = data
+        self._cache_keys.append(idx)
+
+        if len(self._cache) > self.cache_size:
+            oldest_key = self._cache_keys.pop(0)
+            del self._cache[oldest_key]
+
+        return data
+
+    def get_in_memory(self, idx):
+        return self.data[idx]
+
+    def prefetch(self, indices):
+        """Prefetch multiple items into cache"""
+        import pickle
+
+        if self.lmdb_env is None:
+            return
+
+        with self.lmdb_env.begin() as txn:
+            for idx in indices:
+                if idx not in self._cache:
+                    key = str(idx).encode("utf-8")
+                    value_bytes = txn.get(key)
+                    if value_bytes:
+                        data = pickle.loads(value_bytes)
+                        self._cache[idx] = data
+                        self._cache_keys.append(idx)
+
+        while len(self._cache) > self.cache_size:
+            oldest_key = self._cache_keys.pop(0)
+            del self._cache[oldest_key]
 
     def train_test_loaders(self):
         indices = np.random.permutation(len(self))
