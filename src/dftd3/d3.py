@@ -1,31 +1,14 @@
-
-#Tad-dftd3 imports 
-
-#rational damping I think now has no dependence on mctc, it just has the typing stuff
-from tad_dftd3.damping import rational_damping
-from tad_dftd3.reference import Reference
-from tad_dftd3 import data, defaults, model
-from tad_dftd3.typing import (
-    DD,
-    CountingFunction,
-    DampingFunction,
-    Tensor,
-    WeightingFunction,
-)
-
-
-#tad_mctc imports that I copied over
-from cn import radii
-from cn.count import exp_count 
-
-from rational import rational_damping
 import qcelemental 
 import apnet_pt
 import torch
-import numpy as np
+import os
 h2kcalmol = qcelemental.constants.hartree2kcalmol
 bohr2angstrom = qcelemental.constants.bohr2angstroms
 
+from data import radii, r4r2
+from rational import rational_damping
+from weights import weight_references 
+import defaults
 
 param = {
     "a1": torch.tensor(0.095),
@@ -74,42 +57,24 @@ def get_distances(RA, RB, e_source, e_target):
         return dR, dR_xyz
 
 
+def exp_count(
+    distances: torch.tensor, 
+    cov_r: torch.tensor, 
+) -> torch.tensor:
+    
+    k2 = 4.0 / 3.0 #ad hoc factor so the cn is reasonable for molecules
+    k1 = 16 #large so distant atoms are not counted so CN does not depend on size of system
+    
+    return 1.0 / (1.0 + torch.exp(-k1 * (torch.divide(k2 * cov_r, distances) - 1.0)))
+
 def cn_d3_intermolecular(
     batch,
-    *,
-    rcov: Tensor | None = None,
-    cutoff: Tensor | None = None,
-) -> Tensor:
-    """
-    Compute the D3 fractional coordination (exponential counting function).
-
-    Parameters
-    ----------
-    batch : AP2 Fused DS
-    cutoff : Tensor | None, optional
-        Real-space cutoff. Defaults to ``None``.
-    kwargs : dict[str, Any]
-        Pass-through arguments for counting function. For example, ``kcn``,
-        the steepness of the counting function, which defaults to
-        :data:`tad_mctc.ncoord.defaults.KCN_D3`.
+) -> torch.tensor:
     
-    Returns
-    -------
-    Tensor
-         
-
-    Raises
-    ------
-    ValueError NEED TO IMPLEMENT
-        If shape mismatch between ``numbers``, ``positions`` and
-        ``rcov`` is detected.
-    """
     RA = batch.RA
+    dd = {"device": RA.device, "dtype": RA.dtype}
 
-    dd: DD = {"device": RA.device, "dtype": RA.dtype}
-
-    if cutoff is None:
-        cutoff = torch.tensor(defaults.D3_CN_CUTOFF, **dd)
+    cutoff = torch.tensor(defaults.D3_CN_CUTOFF, **dd)
 
 
     e_source_full = torch.concatenate([batch.e_ABsr_source, batch.e_ABlr_source,])
@@ -125,7 +90,6 @@ def cn_d3_intermolecular(
     RA = RA.index_select(0, e_source_full)
     RB = RB.index_select(0, e_target_full)
 
-    #Not really just the sum of the covalent radii has a scale factor of 4/3 applied
     rcov = radii.COV_D3(**dd)[ZA] + radii.COV_D3(**dd)[ZB] 
     print(f"{rcov = }")
     
@@ -147,22 +111,17 @@ def cn_d3_intermolecular(
 
 def apnet_dispersion_batch(
     batch,
-    param: dict[str, Tensor],
-    *,
-    ref: Reference | None = None,
-    r4r2: Tensor | None = None,
-    cutoff: Tensor | None = None,
-    weighting_function: WeightingFunction = model.gaussian_weight,
+    param: dict[str, torch.tensor],
     **kwargs,
 
 ):
     RA = batch.RA
-    dd: DD = {"device": RA.device, "dtype": RA.dtype}
+    dd = {"device": RA.device, "dtype": RA.dtype}
 
-    if cutoff is None:
-        cutoff = torch.tensor(defaults.D3_DISP_CUTOFF, **dd)
-    if ref is None:
-        ref = Reference(**dd)
+    path = os.path.join(os.path.dirname(__file__), "data/reference-c6.pt")
+    kwargs = {"weights_only" : True, "map_location" : dd['device']}
+    print(torch.load(path, **kwargs))
+    ref_c6 = torch.load(path, **kwargs).type(dtype=dd['dtype'])
 
     cn_A, cn_B = cn_d3_intermolecular(
         batch,
@@ -182,35 +141,35 @@ def apnet_dispersion_batch(
     ZA = ZA.index_select(0, e_source_full)
     ZB = ZB.index_select(0, e_target_full)
 
-    weights_A = model.weight_references(ZA, cn_A, ref, weighting_function)
-    weights_B = model.weight_references(ZB, cn_B, ref, weighting_function)
     
-    rc6 = ref.c6[ZA, ZB]
+    weights_A = weight_references(ZA, cn_A,)
+    weights_B = weight_references(ZB, cn_B,)
+
+    rc6 = ref_c6[ZA, ZB]
     c6 = torch.einsum("ijk,ij,ik->i", rc6, weights_A, weights_B)
     distances, _ = get_distances(RA=RA, RB=RB, e_source=e_source_full, e_target=e_target_full)
 
     #C8 is computed recursively from c6
 
     #Q_A = sqrt(Z) * r^4/r^2
-    r4r2 = data.R4R2_alt(**dd)
+    r4_over_r2 = r4r2.R4R2(**dd)
     #ad hoc nuclear charge dependent factor
     sqrtz = torch.sqrt(
-        torch.arange(len(r4r2), **dd)
+        torch.arange(len(r4_over_r2), **dd)
     )
-    Q = r4r2 * sqrtz
+    Q = r4_over_r2 * sqrtz
     #C_8 = 3 * C_6 * sqrt(Q_A * Q_B)
 
     #quotient of C8 and C6, used later by damping function
     qAqB = 3 * torch.sqrt((Q[ZA] * Q[ZB]))
     c8 = c6 * qAqB
 
-    #c8 are not pair specific or environment aware, that's why you see duplicates
+    #c8 are not environment aware
     print(f"{c8 = }")
-    #c8 = tensor([340.0482, 116.2165, 116.2165, 116.2165,  44.5324,  44.5324, 116.2165, 44.5324,  44.5324])
 
    
-    t6 = rational_damping(6, distances, qAqB, param, **kwargs)
-    t8 = rational_damping(8, distances, qAqB, param, **kwargs)
+    t6 = rational_damping(6, distances, qAqB, param,)
+    t8 = rational_damping(8, distances, qAqB, param,)
     
     s6 = param.get("s6", torch.tensor(defaults.S6, **dd))
     s8 = param.get("s8", torch.tensor(defaults.S8, **dd))
