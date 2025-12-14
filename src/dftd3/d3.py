@@ -1,5 +1,4 @@
 import qcelemental 
-import apnet_pt
 import torch
 import os
 h2kcalmol = qcelemental.constants.hartree2kcalmol
@@ -9,42 +8,6 @@ from data import radii, r4r2
 from rational import rational_damping
 from weights import weight_references 
 import defaults
-
-param = {
-    "a1": torch.tensor(0.095),
-    "s8": torch.tensor(0.738),
-    "a2": torch.tensor(3.637),
-}
-
-water_water_dimer = qcelemental.models.Molecule.from_data("""
-0 1
---
-0 1
-O                    -1.326958230000    -0.105938530000     0.018788150000
-H                    -1.931665240000     1.600174320000    -0.021710520000
-H                     0.486644280000     0.079598090000     0.009862480000
---
-0 1
-O                     4.287563290000     0.049775580000     0.000960040000
-H                     4.999275000000    -0.778642690000     1.448725300000
-H                     4.991040900000    -0.850136520000    -1.407646550000
-units bohr
-no_com
-no_reorient
-""")
-
-mols = [
-    water_water_dimer
-]
-
-batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
-    [
-        apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
-            mol, r_cut=5.0, dimer_ind=n, r_cut_im=torch.inf
-        )
-        for n, mol in enumerate(mols)
-    ]
-)
 
 def get_distances(RA, RB, e_source, e_target):
         RA_source = RA.index_select(0, e_source)
@@ -109,7 +72,7 @@ def cn_d3_intermolecular(
     return cn_A, cn_B
 
 
-def apnet_dispersion_batch(
+def d3(
     batch,
     param: dict[str, torch.tensor],
     **kwargs,
@@ -163,10 +126,6 @@ def apnet_dispersion_batch(
     #quotient of C8 and C6, used later by damping function
     qAqB = 3 * torch.sqrt((Q[ZA] * Q[ZB]))
     c8 = c6 * qAqB
-
-    #c8 are not environment aware
-    print(f"{c8 = }")
-
    
     t6 = rational_damping(6, distances, qAqB, param,)
     t8 = rational_damping(8, distances, qAqB, param,)
@@ -176,21 +135,5 @@ def apnet_dispersion_batch(
     e6 = -1 * (c6 * t6) * s6
     e8 = -1 * (c8 * t8) * s8
     pairwise_energies = e6 + e8
-    print(pairwise_energies * h2kcalmol)
-    #The pairwise energies look like this
-    #tensor([-0.3419, -0.0909, -0.0910, -0.1002, -0.0301, -0.0301, -1.3880, -0.4003, -0.4006])
-    #The -1.3880 is the dispersion for your closest contact atoms
-
-    #These are the pairwise energies from simple dftd3
-    #pairwise_simple_Es= tensor([-0.2734, -0.0599, -0.8294, -0.0539, -0.0127, -0.1683, -0.0539, -0.0127, -0.1684], dtype=torch.float64)
-    #The doesn't correlate at all with the pairwise energies from the intermolecular approach here
-    #Well, okay the third one that is pretty similar in magnitude, -0.8924 to the -1.3880 one
-    print(torch.sum(pairwise_energies) * h2kcalmol)
-    
-    return
-
-torch.set_printoptions(sci_mode=False)
-cn_A, cn_B = cn_d3_intermolecular(batch)
-apnet_dispersion_batch(batch, param)
-print(f"{cn_A = }")
-print(f"{cn_B = }")
+    pairwise_energies *= h2kcalmol
+    return pairwise_energies
