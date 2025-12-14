@@ -1530,6 +1530,7 @@ units angstrom
         lr_decay=None,
         skip_compile=False,
         transfer_learning=False,
+        pretrain_test_loss=True,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -1618,7 +1619,11 @@ units angstrom
             )
 
         # (6) Main training loop
-        lowest_test_loss = test_loss
+        if pretrain_test_loss:
+            lowest_test_loss = test_loss
+        else:
+            lowest_test_loss = torch.tensor(float("inf"))
+        # print(f"{lowest_test_loss=:.6f}")
         for epoch in range(n_epochs):
             t1 = time.time()
             t_out = __train_batch(
@@ -1648,6 +1653,7 @@ units angstrom
 
             # Track best model
             star_marker = " "
+            # print(f"{test_loss=:.6f}")
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
@@ -1705,6 +1711,7 @@ units angstrom
         random_seed=42,
         skip_compile=False,
         transfer_learning=False,
+        pretrain_test_loss=True,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -1719,7 +1726,7 @@ units angstrom
             raise ValueError("No dataset provided")
         np.random.seed(random_seed)
         self.model_save_path = model_path
-        print(f"Saving training results to...\n{model_path}")
+        print(f"Saving training results to...\n{self.model_save_path}")
         if isinstance(self.dataset, list):
             train_dataset = self.dataset[0]
             if shuffle:
@@ -1805,6 +1812,7 @@ units angstrom
                 lr_decay=lr_decay,
                 skip_compile=skip_compile,
                 transfer_learning=transfer_learning,
+                pretrain_test_loss=pretrain_test_loss,
             )
         return
 
