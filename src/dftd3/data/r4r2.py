@@ -21,11 +21,8 @@ rare gases recalculated by J. Mewes with PBE0/aug-cc-pVQZ in Dirac (2018).
 Also new super heavies Cn, Nh, Fl, Lv, Og and Am-Rg calculated at
 4c-PBE/Dyall-AE4Z (Dirac 2022).
 """
-from __future__ import annotations
 
 import torch
-
-__all__ = ["R4R2", "R4R2_alt"]
 
 
 def R4R2(

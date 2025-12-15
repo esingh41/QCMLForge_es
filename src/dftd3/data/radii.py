@@ -20,75 +20,9 @@ Data: Radii
 
 Covalent radii.
 """
-
-from pathlib import Path
-
 import torch
 import qcelemental
 ang2au = qcelemental.constants.conversion_factor("angstrom", "bohr")
-
-from tad_dftd3.typing import (
-    Tensor,
-)
-
-__all__ = ["ATOMIC", "COV_D3",]
-
-
-def ATOMIC(
-    device: torch.device | None = None, dtype: torch.dtype = torch.double
-) -> Tensor:
-    """
-    Atomic radii.
-
-    Parameters
-    ----------
-    dtype : torch.dtype, optional
-        Floating point precision for tensor. Defaults to `torch.double`.
-    device : Optional[torch.device], optional
-        Device of tensor. Defaults to None.
-
-    Returns
-    -------
-    Tensor
-        Atomic radii.
-    """
-
-    # fmt: off
-    _ATOMIC = [
-        0.00,  # dummy
-        0.32,0.37,  # H,He
-        1.30,0.99,0.84,0.75,0.71,0.64,0.60,0.62,  # Li-Ne
-        1.60,1.40,1.24,1.14,1.09,1.04,1.00,1.01,  # Na-Ar
-        2.00,1.74,  # K,Ca
-        1.59,1.48,1.44,1.30,1.29,  # Sc-
-        1.24,1.18,1.17,1.22,1.20,  # -Zn
-        1.23,1.20,1.20,1.18,1.17,1.16,  # Ga-Kr
-        2.15,1.90,  # Rb,Sr
-        1.76,1.64,1.56,1.46,1.38,  # Y-
-        1.36,1.34,1.30,1.36,1.40,  # -Cd
-        1.42,1.40,1.40,1.37,1.36,1.36,  # In-Xe
-        2.38,2.06,  # Cs,Ba
-        1.94,1.84,1.90,1.88,1.86,1.85,1.83,  # La-Eu
-        1.82,1.81,1.80,1.79,1.77,1.77,1.78,  # Gd-Yb
-        1.74,1.64,1.58,1.50,1.41,  # Lu-
-        1.36,1.32,1.30,1.30,1.32,  # -Hg
-        1.44,1.45,1.50,1.42,1.48,1.46,  # Tl-Rn
-        2.42,2.11,  # Fr,Ra
-        2.01,1.90,1.84,1.83,1.80,1.80,1.73,  # Ac-Am
-        1.68,1.68,1.68,1.65,1.67,1.73,1.76,  # Cm-No
-        1.61,1.57,1.49,1.43,1.41,  # Lr-
-        1.34,1.29,1.28,1.21,1.22,   # -Cn
-        1.36,1.43,1.62,1.75,1.65,1.57,  # Nh-Og
-    ]
-    # fmt: on
-
-    return ang2au * torch.tensor(
-        _ATOMIC, dtype=dtype, device=device, requires_grad=False
-    )
-
-
-##############################################################################
-
 
 def COV_D3(
     device: torch.device | None = None, dtype: torch.dtype = torch.double
