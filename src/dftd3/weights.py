@@ -43,7 +43,7 @@ tensor([[10.4130471,  5.4368822,  5.4368822],
 
 import torch
 
-from data.reference_cn import reference_cn
+from .data.reference_cn import reference_cn
 
 
 def gaussian_weight(dcn: torch.tensor, factor: float = 4.0) -> torch.tensor:

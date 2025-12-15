@@ -371,14 +371,6 @@ class APNet3_AtomType_MPNN(nn.Module):
         ##########################################################
         ### predict monomer properties w/ pretrained AtomModel ###
         ##########################################################
-<<<<<<< HEAD
-        E_classical, mA, mB = self.dimer_prop_model(batch)
-        E_elst = E_classical[:, 0]
-        E_ind = E_classical[:, 1]
-        E_disp = E_classical[:, 1]
-        #should embed dispersion into E_classical, do back to dimer prop model and do this
-        
-=======
 
         if self.use_precomputed_classical:
             mA, mB = self.dimer_prop_model(batch)
@@ -386,7 +378,7 @@ class APNet3_AtomType_MPNN(nn.Module):
             E_classical, mA, mB = self.dimer_prop_model(batch)
             E_elst = E_classical[:, 0]
             E_ind = E_classical[:, 1]
->>>>>>> upstream/pol_mp_full
+            E_disp = E_classical[:, 2]
         qA = mA[0]
         qB = mB[0]
         qA = qA.view(-1, 1)
@@ -497,7 +489,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
         if self.use_precomputed_classical:
             E_output = E_sr_dimer
-            return E_output, E_sr, 0, 0, hAB, hBA
+            return E_output, E_sr, 0, 0, 0, hAB, hBA
         else:
             E_elst_full_dimer = scatter_sum_compile(
                 E_elst, batch.dimer_ind_full, ndimer
@@ -512,43 +504,6 @@ class APNet3_AtomType_MPNN(nn.Module):
             padded[:, :cols] = E_elst_dimer
             E_elst_dimer = padded
 
-<<<<<<< HEAD
-        E_ind_full_dimer = scatter_sum_compile(
-            E_ind, batch.dimer_ind_full, ndimer
-        )
-        E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
-        N_full, num_cols = E_ind_full_dimer.shape
-        full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
-        full_expanded[:N_full] = E_ind_full_dimer
-        E_ind_dimer = full_expanded        
-
-        rows, cols = E_ind_dimer.shape
-        padded = E_ind_dimer.new_zeros((rows, cols + 3))
-        padded[:, 2:3] = E_ind_dimer
-        E_ind_dimer = padded
-
-        #Do we need a short range correction for dispersion? Ask mentor.
-        E_disp_full_dimer = scatter_sum_compile(
-            E_disp, batch.dimer_ind_full, ndimer
-        )
-        E_disp_full_dimer = E_disp_full_dimer.unsqueeze(-1)
-        N_full, num_cols = E_disp_full_dimer.shape
-        full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
-        full_expanded[:N_full] = E_disp_full_dimer
-        E_disp_dimer = full_expanded        
-
-        rows, cols = E_disp_dimer.shape
-        padded = E_disp_dimer.new_zeros((rows, cols + 3))
-        padded[:, 3] = E_disp_dimer
-        E_disp_dimer = padded
-
-        #Probably need to modify this code to add the padded dispersion energies as well
-        E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer + E_disp_dimer
-        print(f"{E_output = }")
-        # print(f"{E_sr_dimer=}")
-        # print(f"{E_elst_dimer=}")
-        # print(f"{E_ind_dimer=}")
-=======
             E_ind_full_dimer = scatter_sum_compile(E_ind, batch.dimer_ind_full, ndimer)
             E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
             N_full, num_cols = E_ind_full_dimer.shape
@@ -561,8 +516,22 @@ class APNet3_AtomType_MPNN(nn.Module):
             padded[:, 2:3] = E_ind_dimer
             E_ind_dimer = padded
 
-            E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer
->>>>>>> upstream/pol_mp_full
+            #Do we need a short range correction for dispersion? Ask mentor.
+            E_disp_full_dimer = scatter_sum_compile(
+                E_disp, batch.dimer_ind_full, ndimer
+            )
+            E_disp_full_dimer = E_disp_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_disp_full_dimer.shape
+            full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_disp_full_dimer
+            E_disp_dimer = full_expanded        
+
+            rows, cols = E_disp_dimer.shape
+            padded = E_disp_dimer.new_zeros((rows, cols + 3))
+            padded[:, 3] = E_disp_dimer
+            E_disp_dimer = padded
+
+            E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer + E_disp_dimer
         if self.return_hidden_states:
             return (
                 E_output,
@@ -739,17 +708,10 @@ class APNet3_AtomType_Model:
             print(f"Changing r_cut from {self.model.r_cut} to {r_cut}")
             self.model.r_cut = r_cut
 
-<<<<<<< HEAD
         self.device = device
-        #Probably need to change this
-        self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
-        self.dimer_prop_model.to(device)
-        self.dimer_prop_model.polarizability_table = (
-            self.dimer_prop_model.polarizability_table.to(self.device)
-        )
-=======
         if hasattr(self.dimer_prop_model, "set_forward"):
-            self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+            #self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+            self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
             self.dimer_prop_model.to(device)
             self.dimer_prop_model.polarizability_table = (
                 self.dimer_prop_model.polarizability_table.to(self.device)
@@ -767,7 +729,6 @@ class APNet3_AtomType_Model:
                 self.dimer_prop_model.dimer_model.polarizability_table.to(self.device)
             )
 
->>>>>>> upstream/pol_mp_full
         self.model.to(device)
 
         split_dbs = [2, 5, 6, 7]
@@ -1268,38 +1229,7 @@ class APNet3_AtomType_Model:
                     predictions[i + valid_idx] = E_sr_dimer[idx].cpu().numpy()
                 # predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
             elif return_pairs:
-<<<<<<< HEAD
                 E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-                pairwise_energies.extend(self._assemble_pairs(
-                        dimer_batch.cpu(),
-                        E_sr_dimer.cpu(),
-                        E_sr.cpu(),
-                        E_elst.cpu(),
-                        E_ind.cpu(),
-                        E_disp.cpu(),
-                    )
-            )
-            elif return_classical_pairs:
-                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-                v = self._assemble_mtp_pairs(
-                        dimer_batch,
-                        E_elst,
-                        E_ind,
-                        E_disp,
-                    )
-                pairwise_elst_energies.extend(
-                    v[0]
-                )
-                pairwise_ind_energies.extend(
-                    v[1]
-                )
-                pairwise_disp_energies.extend(
-                    v[2]
-                )
-=======
-                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = preds
                 # predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
                 v = self._assemble_pairs(
                     dimer_batch.cpu(),
@@ -1307,6 +1237,7 @@ class APNet3_AtomType_Model:
                     E_sr.cpu(),
                     E_elst.cpu(),
                     E_ind.cpu(),
+                    E_disp.cpu(),
                 )
                 for idx, valid_idx in enumerate(valid_indices):
                     predictions[i + valid_idx] = E_sr_dimer[idx].cpu().numpy()
@@ -1322,11 +1253,12 @@ class APNet3_AtomType_Model:
                         )
                         pairwise_energies.append([])
             elif return_classical_pairs:
-                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = preds
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
                 v = self._assemble_mtp_pairs(
                     dimer_batch,
                     E_elst,
                     E_ind,
+                    E_disp,
                 )
                 cnt = 0
                 for idx in all_indices:
@@ -1334,6 +1266,7 @@ class APNet3_AtomType_Model:
                         predictions[i + idx] = E_sr_dimer[cnt].cpu().numpy()
                         pairwise_elst_energies.append(v[0][cnt])
                         pairwise_ind_energies.append(v[1][cnt])
+                        pairwise_disp_energies.append(v[2][cnt])
                         cnt += 1
                     else:
                         predictions[i + idx] = np.array(
@@ -1341,7 +1274,7 @@ class APNet3_AtomType_Model:
                         )
                         pairwise_elst_energies.append([])
                         pairwise_ind_energies.append([])
->>>>>>> upstream/pol_mp_full
+                        pairwise_disp_energies.append([])
             else:
                 for cnt, idx in enumerate(all_indices):
                     if idx in valid_indices:

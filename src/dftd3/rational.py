@@ -30,7 +30,7 @@ from __future__ import annotations
 import torch
 
 
-import defaults
+from . import defaults
 
 __all__ = ["rational_damping"]
 

@@ -30,6 +30,9 @@ from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_collate_update_no_target,
     qcel_dimer_to_fused_data,
 )
+
+from dftd3.d3 import d3
+
 from .. import constants
 import os
 import torch.distributed as dist
@@ -43,10 +46,6 @@ from ..multipole import thole_damping_mutual_torch, thole_damping_direct_torch
 
 
 
-#Imports necessary for tad-dftd3 to work:
-
-import tad_mctc as mctc
-import tad_dftd3 as d3
 max_Z = 118
 
 
@@ -498,33 +497,8 @@ class DimerProp(nn.Module):
             print(f"{v_B[-1] =}")
             raise ValueError("Electrostatic energy is NaN")
         
-        Disp = classical_dispersion(
-            ZA=batch.ZA,
-            RA=batch.RA,
-            ZB=batch.ZB,
-            RB=batch.RB,
-            molecule_ind_A=batch.molecule_ind_A,
-            molecule_ind_B=batch.molecule_ind_B,
-        )
-
-        #Packing Disp into the E_classical
-        return torch.vstack((Elst, Indu, Disp)).T, v_A, v_B
-    
-    def _disp_foward(
-        self,
-        batch
-    ):
-        Disp = classical_dispersion(
-            ZA=batch.ZA,
-            RA=batch.RA,
-            ZB=batch.ZB,
-            RB=batch.RB,
-            molecule_ind_A=batch.molecule_ind_A,
-            molecule_ind_B=batch.molecule_ind_B,
-        )
-        return Disp
-    
-    
+        Disp = d3(batch)
+        return torch.vstack((Elst, Indu, Disp)).T, v_A, v_B    
 
 
 class AtomTypeParamNN(nn.Module):
