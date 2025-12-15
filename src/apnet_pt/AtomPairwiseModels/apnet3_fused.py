@@ -1449,7 +1449,11 @@ units angstrom
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
             preds = E_sr_dimer.reshape(-1, 4)
             preds = torch.sum(preds, dim=1)
-            comp_errors = preds - batch.y.squeeze(-1)
+            labels = batch.y.squeeze(-1)
+            if self.use_precomputed_classical:
+                labels -= batch.E_classical_elst
+                labels -= batch.E_classical_ind
+            comp_errors = preds - labels
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
@@ -1477,7 +1481,11 @@ units angstrom
                 E_sr_dimer, _, _, _, _, _ = self.model(batch)
                 preds = E_sr_dimer.reshape(-1, 4)
                 preds = torch.sum(preds, dim=1)
-                comp_errors = preds - batch.y.squeeze(-1)
+                labels = batch.y.squeeze(-1)
+                if self.use_precomputed_classical:
+                    labels -= batch.E_classical_elst
+                    labels -= batch.E_classical_ind
+                comp_errors = preds - labels
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
