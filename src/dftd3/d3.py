@@ -4,10 +4,17 @@ import os
 h2kcalmol = qcelemental.constants.hartree2kcalmol
 bohr2angstrom = qcelemental.constants.bohr2angstroms
 
-from data import radii, r4r2
-from rational import rational_damping
-from weights import weight_references 
-import defaults
+from .data import radii, r4r2
+from .rational import rational_damping
+from .weights import weight_references 
+from . import defaults
+
+
+param = {
+    "a1": torch.tensor(0.095),
+    "s8": torch.tensor(0.738),
+    "a2": torch.tensor(3.637),
+}
 
 def get_distances(RA, RB, e_source, e_target):
         RA_source = RA.index_select(0, e_source)
@@ -54,7 +61,6 @@ def cn_d3_intermolecular(
     RB = RB.index_select(0, e_target_full)
 
     rcov = radii.COV_D3(**dd)[ZA] + radii.COV_D3(**dd)[ZB] 
-    print(f"{rcov = }")
     
     distances, _ = get_distances(RA, RB, e_source_full, e_target_full)
     cn = torch.where(
@@ -74,16 +80,12 @@ def cn_d3_intermolecular(
 
 def d3(
     batch,
-    param: dict[str, torch.tensor],
-    **kwargs,
-
 ):
     RA = batch.RA
     dd = {"device": RA.device, "dtype": RA.dtype}
 
     path = os.path.join(os.path.dirname(__file__), "data/reference-c6.pt")
     kwargs = {"weights_only" : True, "map_location" : dd['device']}
-    print(torch.load(path, **kwargs))
     ref_c6 = torch.load(path, **kwargs).type(dtype=dd['dtype'])
 
     cn_A, cn_B = cn_d3_intermolecular(
