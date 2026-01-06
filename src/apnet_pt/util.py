@@ -115,11 +115,16 @@ def dimerdata_to_qcel(RA, RB, ZA, ZB, aQA, aQB):
     ZA = [int(z) for z in ZA]
     ZB = [int(z) for z in ZB]
 
-    tQA = int(round(aQA * nA))
-    tQB = int(round(aQB * nB))
+    # if type of aQA is int, then tQA is just aQA
+    if isinstance(aQA, int) or isinstance(aQA, np.integer):
+        tQA = aQA
+        tQB = aQB
+    else:
+        tQA = int(round(aQA * nA))
+        tQB = int(round(aQB * nB))
 
-    assert abs(tQA - aQA * nA) < 1e-6
-    assert abs(tQB - aQB * nB) < 1e-6
+        assert abs(tQA - aQA * nA) < 1e-6
+        assert abs(tQB - aQB * nB) < 1e-6
 
     blockA = f"{tQA} {1}\n"
     for ia in range(nA):
