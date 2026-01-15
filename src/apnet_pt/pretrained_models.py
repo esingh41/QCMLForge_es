@@ -260,9 +260,13 @@ monA-monB full IE: {pred_IEs[i]}
             """
             print(header)
         monA = mol.get_fragment([0])
+        monB = mol.get_fragment([1])
         nA = len(monA.atomic_numbers)
+        nB = len(monB.atomic_numbers)
         for kA, vA in fAs[i].items():
             for kB, vB in fBs[i].items():
+                print(f"{kA}, {vA}, {kB}, {vB}")
+                print(monA, nA, monB, nB)
                 assert min(vB) > nA, ("fB atom indices must be for fragment B. min(vB) <= nA, meaning atom index in fragment A. Please check your input.")
                 elst_sum = 0.0
                 exch_sum = 0.0
