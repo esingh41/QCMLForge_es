@@ -33,7 +33,7 @@ python3 -u ./train_models.py \
     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
     --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
     --n_epochs 100 \
-    --data_dir ./data_dimer_$iter \
+    --data_dir ./data_dimer_0 \
     --spec_type_ap 5 \
     --ds_type fsapt_energies \
     --ds_class_type lmdb \
