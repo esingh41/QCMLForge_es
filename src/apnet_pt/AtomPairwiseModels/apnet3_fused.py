@@ -711,7 +711,7 @@ class APNet3_AtomType_Model:
 
         self.model.to(device)
 
-        split_dbs = [2, 5, 6, 7]
+        split_dbs = [2, 5, 6, 7, 8]
         ds_qcel_split_db = (
             ds_qcel_molecules is not None
             and len(ds_qcel_molecules) == 2

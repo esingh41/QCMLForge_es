@@ -32,8 +32,8 @@ python3 -u ./train_models.py \
     --random_seed $iter \
     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
     --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
-    --n_epochs 100 \
-    --data_dir ./data_dimer_0 \
+    --n_epochs 50 \
+    --data_dir ./data_dimer_1 \
     --spec_type_ap 8 \
     --ds_type fsapt_energies \
     --ds_class_type lmdb \

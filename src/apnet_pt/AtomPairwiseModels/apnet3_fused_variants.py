@@ -483,15 +483,15 @@ class APNet3_AtomType_MPNN(nn.Module):
 
         # cutoff_1 = (1.0 / (dR_sr))
         # cutoff_2 = (1.0 / (dR_sr**2))
-        # cutoff_3 = (1.0 / (dR_sr**3))
+        cutoff_3 = (1.0 / (dR_sr**3))
         # cutoff_4 = (1.0 / (dR_sr**4))
-        cutoff_5 = (1.0 / (dR_sr**5))
+        # cutoff_5 = (1.0 / (dR_sr**5))
         # cutoff_6 = (1.0 / (dR_sr**6))
         # cutoff_12 = (1.0 / (dR_sr**12))
-        E_sr[:, 0] *= cutoff_5
-        E_sr[:, 1] *= cutoff_5
-        E_sr[:, 2] *= cutoff_5
-        E_sr[:, 3] *= cutoff_5
+        E_sr[:, 0] *= cutoff_3
+        E_sr[:, 1] *= cutoff_3 ** 2
+        E_sr[:, 2] *= cutoff_3
+        E_sr[:, 3] *= cutoff_3
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
         if self.use_precomputed_classical:
             E_output = E_sr_dimer
@@ -531,7 +531,7 @@ class APNet3_AtomType_MPNN(nn.Module):
                 E_ind,
                 hAB,
                 hBA,
-                cutoff_5,
+                cutoff_3,
             )
         return E_output, E_sr, E_elst, E_ind, hAB, hBA
 
