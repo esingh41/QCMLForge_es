@@ -721,7 +721,7 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         self.json = json
         self.print_level = print_level
         try:
-            assert spec_type in [5, 6, 7, None]
+            assert spec_type in [5, 6, 7, 8, None]
         except Exception:
             print("Currently spec_type must be 5 or None")
             raise ValueError
@@ -905,6 +905,11 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
             return [
                 "fsapt_train_simple_2.pkl",
                 "fsapt_test_simple_2.pkl",
+            ]
+        elif self.spec_type == 8:
+            return [
+                "27K_fsaptpbe0-d4_fsapt_train.pkl",
+                "27K_fsaptpbe0-d4_fsapt_test.pkl",
             ]
 
     @property
