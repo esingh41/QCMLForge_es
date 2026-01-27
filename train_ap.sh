@@ -40,6 +40,8 @@ python3 -u ./train_models.py \
     --lr 5e-4 \
     --ds_in_memory False \
 
+# /projects/cos-lab-cs207/ds/awallace43/projects/pdb13k_test_set/fsapt_data/main.py
+
 # export iter=1
 # Induced Dipole on frozen AtomModel
 # python train_models.py \
