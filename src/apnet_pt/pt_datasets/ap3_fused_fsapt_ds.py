@@ -964,6 +964,8 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         """Download data - same as original or from fileserver"""
         if self.energy_labels and self.qcel_molecules:
             return
+        print(self.processed_paths)
+        print(self.raw_file_names)
         raise NotImplementedError(
             "Download method not implemented. Provide qcel_molecules and energy_labels or named spec type with corresponding data files."
         )
