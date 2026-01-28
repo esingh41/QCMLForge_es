@@ -317,13 +317,15 @@ def load_dimer_dataset(
         frag2_indices = df["Frag2_indices"].tolist()
         for i in range(N):
             # Convert frag1 from 1-indexed dimer to 0-indexed monA
-            frag1_indices[i] = [idx - 1 for idx in frag1_indices[i]]
+            frag1_indices[i] = [int(idx - 1) for idx in frag1_indices[i]]
             # Get number of atoms in monomer A (NOT the fragment length!)
             nA = len(ZA[i])
             # Convert frag2 from 1-indexed dimer to 0-indexed monB
             # Subtract nA to shift from dimer indexing to monB indexing,
             # then subtract 1 to convert from 1-indexed to 0-indexed
-            frag2_indices[i] = [idx - nA - 1 for idx in frag2_indices[i]]
+            frag2_indices[i] = [int(idx - nA - 1) for idx in frag2_indices[i]]
+            print(f"{frag1_indices[i] = }")
+            print(f"{frag2_indices[i] = }")
 
             assert np.all(np.array(frag1_indices[i]) >= 0), (
                 "Fragment 1 indices are negative after conversion. "
