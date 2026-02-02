@@ -79,6 +79,8 @@ class DimerProp(nn.Module):
     def set_forward(self, dimer_eval):
         if dimer_eval == "elst_damping":
             self.forward = self._elst_damping_forward
+        elif dimer_eval == "elst_damping_AMOEBA":
+            self.forward = self._elst_damping_AMOEBA_forward
         elif dimer_eval == "elst":
             self.forward = self._elst_forward
         elif dimer_eval == "induced_dipole":
@@ -99,6 +101,36 @@ class DimerProp(nn.Module):
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
 
     def _elst_damping_forward(
+        self,
+        batch,
+    ):
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
+        Ka = torch.abs(v_A[-1])
+        Kb = torch.abs(v_B[-1])
+        # print(f"{Ka =}")
+        # print(f"{v_A[0] =}")
+
+        Elst = mtp_elst_damping(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA_0=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=Ka,
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB_0=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=Kb,
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+        )
+        return Elst, v_A, v_B
+
+
+    def _elst_damping_forward_AMOEBA(
         self,
         batch,
     ):
@@ -883,6 +915,166 @@ def elst_damping_Z_mtp_torch(
     return lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i
 
 
+def elst_damping_AMOEBA_mtp_mtp_torch(
+    alpha_i: torch.tensor,
+    alpha_j: torch.tensor,
+    r: torch.tensor,
+    e_source: torch.tensor,
+    e_target: torch.tensor,
+):
+    """
+    # MTP-MTP interaction
+    Fortran code where dmp1(1), dmp1(3), dmp1(5) are lam1, lam3, lam5:
+c     compute tolerance and exponential damping factors
+c
+      eps = 0.001d0
+      diff = abs(alphai-alphak)
+      dampi = alphai * r
+      dampk = alphak * r
+      expi = exp(-dampi)
+      expk = exp(-dampk)
+c
+c     valence-valence charge penetration damping for Gordon f1
+c
+      if (pentyp .eq. 'GORDON1') then
+         dampi2 = dampi * dampi
+         dampi3 = dampi * dampi2
+         if (diff .lt. eps) then
+            dampi4 = dampi2 * dampi2
+            dampi5 = dampi2 * dampi3
+            dmpik(3) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
+     &                    + 7.0d0*dampi3/48.0d0
+     &                    + dampi4/48.0d0)*expi
+            dmpik(5) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
+     &                    + dampi3/6.0d0 + dampi4/24.0d0
+     &                    + dampi5/144.0d0)*expi
+         else
+            dampk2 = dampk * dampk
+            dampk3 = dampk * dampk2
+            alphai2 = alphai * alphai
+            alphak2 = alphak * alphak
+            termi = alphak2 / (alphak2-alphai2)
+            termk = alphai2 / (alphai2-alphak2)
+            termi2 = termi * termi
+            termk2 = termk * termk
+            dmpik(3) = 1.0d0 - termi2*(1.0d0+dampi+0.5d0*dampi2)*expi
+     &                    - termk2*(1.0d0+dampk+0.5d0*dampk2)*expk
+     &                    - 2.0d0*termi2*termk*(1.0d0+dampi)*expi
+     &                    - 2.0d0*termk2*termi*(1.0d0+dampk)*expk
+            dmpik(5) = 1.0d0 - termi2*(1.0d0+dampi+0.5d0*dampi2
+     &                            +dampi3/6.0d0)*expi
+     &                    - termk2*(1.0d0+dampk+0.5d0*dampk2
+     &                         +dampk3/6.00)*expk
+     &                    - 2.0d0*termi2*termk
+     &                         *(1.0+dampi+dampi2/3.0d0)*expi
+     &                    - 2.0d0*termk2*termi
+     &                         *(1.0+dampk+dampk2/3.0d0)*expk
+         end if
+    """
+    # need to have alpha_i repeated for each atom in j and vice versa
+    alpha_i = alpha_i.index_select(0, e_source)
+    alpha_j = alpha_j.index_select(0, e_target)
+    r2 = r**2
+    r3 = r2 * r
+    a1_2 = alpha_i * alpha_i
+    a2_2 = alpha_j * alpha_j
+    a1_3 = a1_2 * alpha_i
+    lam1 = torch.ones_like(r)
+    lam3 = torch.ones_like(r)
+    lam5 = torch.ones_like(r)
+    e1r = torch.exp(-1.0 * alpha_i * r)
+    e2r = torch.exp(-1.0 * alpha_j * r)
+    diff = torch.abs(alpha_i - alpha_j) > 1e-6
+    A = torch.where(diff, a2_2 / (a2_2 - a1_2), torch.zeros_like(r))
+    B = torch.where(diff, a1_2 / (a1_2 - a2_2), torch.zeros_like(r))
+    lam1 = torch.where(diff, 1 - A * e1r - B * e2r, 1 - (1.0 + 0.5 * alpha_i * r) * e1r)
+    lam3 = torch.where(
+        diff,
+        1 - (1.0 + alpha_i * r) * A * e1r - (1.0 + alpha_j * r) * B * e2r,
+        1 - (1.0 + alpha_i * r + 0.5 * a1_2 * r2) * e1r,
+    )
+    lam5 = torch.where(
+        diff,
+        1
+        - (1.0 + alpha_i * r + (1.0 / 3.0) * a1_2 * r2) * A * e1r
+        - (1.0 + alpha_j * r + (1.0 / 3.0) * a2_2 * r2) * B * e2r,
+        1 - (1.0 + alpha_i * r + 0.5 * a1_2 * r2 + (1.0 / 6.0) * a1_3 * r3) * e1r,
+    )
+    return lam1, lam3, lam5
+
+
+# @torch.compile
+def elst_damping_AMOEBA_Z_mtp_torch(
+    alpha_i: torch.tensor,
+    alpha_j: torch.tensor,
+    r: torch.tensor,
+    e_source: torch.tensor,
+    e_target: torch.tensor,
+):
+    """
+    # Z-MTP interaction
+    Fortran code where dmp1(1), dmp1(3), dmp1(5) are lam1, lam3, lam5:
+c     compute tolerance and exponential damping factors
+c
+c     compute tolerance and exponential damping factors
+c
+      eps = 0.001d0
+      diff = abs(alphai-alphak)
+      dampi = alphai * r
+      dampk = alphak * r
+      expi = exp(-dampi)
+      expk = exp(-dampk)
+c
+c     core-valence charge penetration damping for Gordon f1
+c
+      if (pentyp .eq. 'GORDON1') then
+         dampi2 = dampi * dampi
+         dampi3 = dampi * dampi2
+         dampi4 = dampi2 * dampi2
+         dmpi(3) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2)*expi
+         dmpi(5) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2 
+     &                + dampi3/6.0d0)*expi
+         dmpi(7) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
+     &                + dampi3/6.0d0 + dampi4/30.0d0)*expi
+         if (diff .lt. eps) then
+            dmpk(3) = dmpi(3)
+            dmpk(5) = dmpi(5)
+            dmpk(7) = dmpi(7)
+         else
+            dampk2 = dampk * dampk
+            dampk3 = dampk * dampk2
+            dampk4 = dampk2 * dampk2
+            dmpk(3) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2)*expk
+            dmpk(5) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2
+     &                   + dampk3/6.0d0)*expk
+            dmpk(7) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2
+     &                   + dampk3/6.0d0 + dampk4/30.0d0)*expk
+         end if
+    """
+    # need to have alpha_i repeated for each atom in j and vice versa
+    alpha_i = alpha_i.index_select(0, e_source)
+    alpha_j = alpha_j.index_select(0, e_target)
+    lam1_j = 1.0 - torch.exp(-1.0 * torch.multiply(alpha_j, r))
+    lam3_j = 1.0 - (1.0 + torch.multiply(alpha_j, r)) * torch.exp(
+        -1.0 * torch.multiply(alpha_j, r)
+    )
+    lam5_j = 1.0 - (
+        1.0
+        + torch.multiply(alpha_j, r)
+        + (1.0 / 3.0) * torch.multiply(torch.square(alpha_j), r**2)
+    ) * torch.exp(-1.0 * torch.multiply(alpha_j, r))
+    lam1_i = 1.0 - torch.exp(-1.0 * torch.multiply(alpha_i, r))
+    lam3_i = 1.0 - (1.0 + torch.multiply(alpha_i, r)) * torch.exp(
+        -1.0 * torch.multiply(alpha_i, r)
+    )
+    lam5_i = 1.0 - (
+        1.0
+        + torch.multiply(alpha_i, r)
+        + (1.0 / 3.0) * torch.multiply(torch.square(alpha_i), r**2)
+    ) * torch.exp(-1.0 * torch.multiply(alpha_i, r))
+    return lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i
+
+
 # @torch.compile
 def mtp_elst(
     ZA,
@@ -991,6 +1183,120 @@ def mtp_elst_damping(
     lam1, lam3, lam5 = elst_damping_mtp_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
     lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = (
         elst_damping_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
+    )
+    # print(f"{Ka = }\n{Kb = }")
+    # print(f"{lam1 = }\n{lam3 = }\n{lam5 = }")
+    # print(f"{lam1_ZA_MB = }\n{lam3_ZA_MB = }\n{lam5_ZA_MB = }")
+    # print(f"{lam1_ZB_MA = }\n{lam3_ZB_MA = }\n{lam5_ZB_MA = }")
+
+    # Nuclear Charge Subtraction - pre-compute all index selections
+    ZA_q = ZA.index_select(0, e_AB_source)
+    ZB_q = ZB.index_select(0, e_AB_target)
+
+    qA = qA_0 - ZA
+    qB = qB_0 - ZB
+    # Extracting tensor elements - pre-compute all selections
+    qA_source = (
+        qA.squeeze(-1).index_select(0, e_AB_source)
+        if qA.dim() > 1
+        else qA.index_select(0, e_AB_source)
+    )
+    qB_source = (
+        qB.squeeze(-1).index_select(0, e_AB_target)
+        if qB.dim() > 1
+        else qB.index_select(0, e_AB_target)
+    )
+    muA_source = muA.index_select(0, e_AB_source)
+    muB_source = muB.index_select(0, e_AB_target)
+    quadA_source = quadA.index_select(0, e_AB_source)
+    quadB_source = quadB.index_select(0, e_AB_target)
+
+    E_qq = torch.einsum("x,x,x,x->x", qA_source, qB_source, oodR, lam1)
+
+    T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
+    qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
+        "x,xy->xy", qB_source, muA_source
+    )
+    E_qu = torch.einsum("xy,xy,x->x", T1, qu, lam3)
+
+    # Pre-compute common T2 components to avoid redundant calculations
+    # dR_xyz[:, :, None] * dR_xyz[:, None, :]
+    dR_outer = torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz)
+    dR_squared_delta = torch.einsum("x,x,yz->xyz", dR, dR, delta)
+
+    # Main T2 for E_uu and E_qQ
+    T2_main = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5) - torch.einsum(
+        "xyz,x->xyz", dR_squared_delta, lam3
+    )
+    T2_main = torch.einsum("x,xyz->xyz", oodR**5, T2_main)
+
+    E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2_main)
+
+    qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
+    qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
+    E_qQ = (
+        torch.einsum("xyz,xyz->x", T2_main, qA_quadB_source + qB_quadA_source) / Q_const
+    )
+
+    # ZA-ZB
+    E_ZA_ZB = torch.einsum("x,x,x->x", ZA_q, ZB_q, oodR)
+
+    # ZA-MB - reuse T1, compute specialized T2
+    E_ZA_MB = torch.einsum("x,x,x,x->x", ZA_q, qB_source, oodR, lam1_ZA_MB)
+    E_ZA_MB += torch.einsum("xy,x,x,xy->x", T1, lam3_ZA_MB, ZA_q, muB_source)
+    T2_ZA_MB = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5_ZA_MB) - torch.einsum(
+        "xyz,x->xyz", dR_squared_delta, lam3_ZA_MB
+    )
+    T2_ZA_MB = torch.einsum("x,xyz->xyz", oodR**5, T2_ZA_MB)
+    E_ZA_MB += torch.einsum("xyz,x,xyz->x", T2_ZA_MB, ZA_q, quadB_source) / Q_const
+
+    # ZB-MA - reuse T1, compute specialized T2
+    T2_ZB_MA = 3 * torch.einsum("xyz,x->xyz", dR_outer, lam5_ZB_MA) - torch.einsum(
+        "xyz,x->xyz", dR_squared_delta, lam3_ZB_MA
+    )
+    T2_ZB_MA = torch.einsum("x,xyz->xyz", oodR**5, T2_ZB_MA)
+    E_ZB_MA = torch.einsum("x,x,x,x->x", ZB_q, qA_source, oodR, lam1_ZB_MA)
+    E_ZB_MA += torch.einsum("xy,x,x,xy->x", -T1, lam3_ZB_MA, ZB_q, muA_source)
+    E_ZB_MA += torch.einsum("xyz,x,xyz->x", T2_ZB_MA, ZB_q, quadA_source) / Q_const
+    E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu + E_ZA_ZB + E_ZA_MB + E_ZB_MA)
+    return E_elst
+
+
+def mtp_elst_damping_AMOEBA(
+    ZA,
+    RA,
+    qA_0,
+    muA,
+    quadA,
+    Ka,
+    ZB,
+    RB,
+    qB_0,
+    muB,
+    quadB,
+    Kb,
+    e_AB_source,
+    e_AB_target,
+    Q_const=3.0,  # set to 1.0 to agree with CLIFF
+):
+    """
+    The difference between this and mtp_elst_damping is the way damping
+    function is computed. AMOEBA follows "Electrostatic Energy in the Effective
+    Fragment Potential Method: Theory and Application to Benzene Dimer" by
+    LYUDMILA V. SLIPCHENKO, MARK S. GORDON. Called "GORDON1" in tinker.
+    f_1^{damp} = 1 - exp(-alpha*r)( 1 + alpha * R / 2).
+    CLIFF follows the "GORDON2" equation
+    f_2^{damp} = 1 - exp(-alpha*r).
+    """
+    dR_ang, dR_xyz_ang = get_distances(RA, RB, e_AB_source, e_AB_target)
+    dR = dR_ang / constants.au2ang
+    dR_xyz = dR_xyz_ang / constants.au2ang
+    oodR = 1.0 / dR
+    delta = torch.eye(3, device=qA_0.device)
+
+    lam1, lam3, lam5 = elst_damping_AMOEBA_mtp_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
+    lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = (
+        elst_damping_AMOEBA_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
     )
     # print(f"{Ka = }\n{Kb = }")
     # print(f"{lam1 = }\n{lam3 = }\n{lam5 = }")

@@ -729,7 +729,7 @@ def test_elst_ameoba():
     return
 
 
-def test_elst_damping():
+def test_elst_damping_CLIFF():
     df = pd.read_pickle(
         current_file_path
         + os.sep
@@ -1304,7 +1304,109 @@ def test_induced_dipole_torch_df():
         print(f"CLIFF induction  = {cliff_ind:.6f}")
 
 
-def test_elst_damping_dipole_torch_df():
+def test_elst_damping_dipole_torch_df_CLIFF():
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=data_path,
+        use_GPU=False,
+        n_neuron=64,
+        n_params=1,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+    )
+
+    df = pd.read_pickle(
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    Ks = [
+        [1.14769962, 0.685558974, 0.685558974],
+        [1.14769962, 0.685558974, 0.685558974],
+    ]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    for n, r in df.iterrows():
+        sapt0_elst = r["SAPT0 ELST ENERGY adz"]
+        sapt0_ind = r["SAPT0 IND ENERGY adz"] * h2kcalmol
+        mol = r["qcel_molecule"]
+        monA = mol.get_fragment(0).copy()
+        monB = mol.get_fragment(1).copy()
+        dist = np.sqrt(
+            np.sum((monA.geometry[:, None] - monB.geometry) ** 2, axis=2)
+        ).min()
+        bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
+        qA = r["q_A pbe0/atz"]
+        muA = r["mu_A pbe0/atz"]
+        # muA = np.zeros_like(muA)
+        thetaA = r["theta_A pbe0/atz"]
+        thetaA = np.zeros_like(thetaA)
+        qB = r["q_B pbe0/atz"]
+        muB = r["mu_B pbe0/atz"]
+        # muB = np.zeros_like(muB)
+        thetaB = r["theta_B pbe0/atz"]
+        thetaB = np.zeros_like(thetaB)
+        thetaA = np.zeros_like(thetaA)
+        thetaB = np.zeros_like(thetaB)
+
+        (
+            ref_elst_q,
+            E_qqs_q,
+            E_qus_q,
+            E_uus_q,
+            E_qQs_q,
+            E_uQs_q,
+            E_QQs_q,
+            E_ZA_ZBs_q,
+            E_ZA_MBs_q,
+            E_ZB_MAs_q,
+        ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=mol,
+            qA=qA,
+            qB=qB,
+            muA=muA,
+            muB=muB,
+            # muA=np.zeros_like(muA),
+            # muB=np.zeros_like(muB),
+            thetaA=thetaA,
+            thetaB=thetaB,
+            # thetaA=np.zeros_like(thetaA),
+            # thetaB=np.zeros_like(thetaB),
+            alphaA=alphaA,
+            alphaB=alphaB,
+            traceless=False,
+            amoeba_eq=True,
+            match_cliff=False,
+        )
+        elst = ref_elst_q
+        pred, pair_elst, pair_ind = ap3.predict_qcel_mols(
+            [mol], batch_size=1, return_classical_pairs=True
+        )
+        ap3_elst = np.sum(pair_elst[0])
+        ap3_ind = np.sum(pair_ind[0])
+        print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
+        print(f"SAPT ELST   = {sapt0_elst:.6f} kcal/mol")
+        print(f"ELST Pred   = {elst:.6f} kcal/mol")
+        print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
+
+
+
+def test_elst_damping_dipole_torch_df_AMOEBA():
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
