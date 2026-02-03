@@ -866,8 +866,13 @@ def elst_damping_mtp_mtp_torch(
     e1r = torch.exp(-1.0 * alpha_i * r)
     e2r = torch.exp(-1.0 * alpha_j * r)
     diff = torch.abs(alpha_i - alpha_j) > 1e-6
-    A = torch.where(diff, a2_2 / (a2_2 - a1_2), torch.zeros_like(r))
-    B = torch.where(diff, a1_2 / (a1_2 - a2_2), torch.zeros_like(r))
+    # Add small epsilon to denominator to prevent NaN during backprop
+    # (torch.where evaluates both branches, so division happens even when diff=False)
+    eps = 1e-10
+    denom = a2_2 - a1_2
+    safe_denom = torch.where(torch.abs(denom) > eps, denom, torch.full_like(denom, eps))
+    A = torch.where(diff, a2_2 / safe_denom, torch.zeros_like(r))
+    B = torch.where(diff, a1_2 / (-safe_denom), torch.zeros_like(r))
     lam1 = torch.where(diff, 1 - A * e1r - B * e2r, 1 - (1.0 + 0.5 * alpha_i * r) * e1r)
     lam3 = torch.where(
         diff,
@@ -973,8 +978,13 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
 
     # termi = alphak2 / (alphak2 - alphai2)
     # termk = alphai2 / (alphai2 - alphak2)
-    termi = torch.where(diff, a2_2 / (a2_2 - a1_2), torch.zeros_like(r))
-    termk = torch.where(diff, a1_2 / (a1_2 - a2_2), torch.zeros_like(r))
+    # Add small epsilon to denominator to prevent NaN during backprop
+    # (torch.where evaluates both branches, so division happens even when diff=False)
+    eps = 1e-10
+    denom = a2_2 - a1_2
+    safe_denom = torch.where(torch.abs(denom) > eps, denom, torch.full_like(denom, eps))
+    termi = torch.where(diff, a2_2 / safe_denom, torch.zeros_like(r))
+    termk = torch.where(diff, a1_2 / (-safe_denom), torch.zeros_like(r))
     termi2 = termi * termi
     termk2 = termk * termk
 
@@ -1308,8 +1318,8 @@ def mtp_elst_damping_AMOEBA(
     lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = (
         elst_damping_AMOEBA_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
     )
-    print(f"{Ka = }\n{Kb = }")
-    print(f"{lam1 = }\n")
+    # print(f"{Ka = }\n{Kb = }")
+    # print(f"{lam1 = }\n")
     # print(f"{lam1 = }\n{lam3 = }\n{lam5 = }")
     # print(f"{lam1_ZA_MB = }\n{lam3_ZA_MB = }\n{lam5_ZA_MB = }")
     # print(f"{lam1_ZB_MA = }\n{lam3_ZB_MA = }\n{lam5_ZB_MA = }")

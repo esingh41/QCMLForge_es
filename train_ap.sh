@@ -122,7 +122,7 @@ python3 -u ./train_models.py \
     --n_params 1 \
     --data_dir ./data_dimer_$iter \
     --spec_type_ap 7 \
-    --lr 5e-4 \
+    --lr 5e-5 \
     --dimer_eval_type elst_damping \
     --param_start_mean "3.8" \
     --param_start_std "0.25" \
