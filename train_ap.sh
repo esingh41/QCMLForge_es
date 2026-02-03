@@ -24,21 +24,21 @@ export iter=1
 export iter=1
 #
 # AP3-fused FSAPT training
-python3 -u ./train_models.py \
-    --train_apnet APNet3-fused \
-    --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
-    --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
-    --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
-    --random_seed $iter \
-    --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
-    --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
-    --n_epochs 50 \
-    --data_dir ./data_dimer_1 \
-    --spec_type_ap 8 \
-    --ds_type fsapt_energies \
-    --ds_class_type lmdb \
-    --lr 5e-4 \
-    --ds_in_memory False \
+# python3 -u ./train_models.py \
+#     --train_apnet APNet3-fused \
+#     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+#     --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
+#     --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
+#     --random_seed $iter \
+#     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
+#     --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
+#     --n_epochs 50 \
+#     --data_dir ./data_dimer_1 \
+#     --spec_type_ap 8 \
+#     --ds_type fsapt_energies \
+#     --ds_class_type lmdb \
+#     --lr 5e-4 \
+#     --ds_in_memory False \
 
 # /projects/cos-lab-cs207/ds/awallace43/projects/pdb13k_test_set/fsapt_data/main.py
 
@@ -111,22 +111,24 @@ python3 -u ./train_models.py \
 #     --spec_type_ap 10 \
 
 # Elst Damping AtomType
-# python3 -u ./train_models.py \
-#     --train_apnet AM-DimerParam \
-#     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
-#     --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
-#     --random_seed $iter \
-#     --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
-#     --n_epochs 55 \
-#     --n_neuron 64 \
-#     --n_params 1 \
-#     --data_dir ./data_dimer_$iter \
-#     --spec_type_ap 7 \
-#     --lr 5e-5 \
-#     --dimer_eval_type elst_damping \
-#     --param_start_mean "1.6" \
-#     --param_start_std "0.25" \
-#     --ds_in_memory True
+python3 -u ./train_models.py \
+    --train_apnet AM-DimerParam \
+    --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+    --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_3.pt \
+    --random_seed $iter \
+    --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_AMOEBA_$iter.pt \
+    --n_epochs 55 \
+    --n_neuron 64 \
+    --n_params 1 \
+    --data_dir ./data_dimer_$iter \
+    --spec_type_ap 7 \
+    --lr 5e-4 \
+    --dimer_eval_type elst_damping \
+    --param_start_mean "3.8" \
+    --param_start_std "0.25" \
+    --ds_in_memory True \
+    --elst_damping_type AMOEBA
+    # --elst_damping_type CLIFF
 
 # Elst Damping AtomTypeMPNN
 # python3 -u ./train_models.py \

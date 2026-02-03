@@ -10,9 +10,7 @@ from ..AtomModels.ap2_atom_model import (
     unwrap_model,
     # DistanceLayer,
 )
-from ..AtomModels.ap2_hirshfeld_atom_model import (
-    isolate_atomic_property_predictions
-)
+from ..AtomModels.ap2_hirshfeld_atom_model import isolate_atomic_property_predictions
 from ..atomic_datasets import (
     AtomicDataLoader,
     atomic_collate_update,
@@ -69,10 +67,11 @@ class NoisyConstantEmbedding(nn.Embedding):
 
 
 class DimerProp(nn.Module):
-    def __init__(self, ATParam, dimer_eval="elst_damping"):
+    def __init__(self, ATParam, dimer_eval="elst_damping", elst_damping_type="CLIFF"):
         super().__init__()
         self.AtomTypeParam = ATParam
         self.AtomTypeParam.atom_model.requires_grad_(False)
+        self.elst_damping_type = elst_damping_type
         self.set_forward(dimer_eval)
         return
 
@@ -111,7 +110,13 @@ class DimerProp(nn.Module):
         # print(f"{Ka =}")
         # print(f"{v_A[0] =}")
 
-        Elst = mtp_elst_damping(
+        # Select damping function based on elst_damping_type
+        if self.elst_damping_type == "AMOEBA":
+            damping_fn = mtp_elst_damping_AMOEBA
+        else:  # Default to CLIFF
+            damping_fn = mtp_elst_damping
+
+        Elst = damping_fn(
             ZA=batch.ZA,
             RA=batch.RA,
             qA_0=v_A[0],
@@ -129,7 +134,6 @@ class DimerProp(nn.Module):
         )
         return Elst, v_A, v_B
 
-
     def _elst_damping_forward_AMOEBA(
         self,
         batch,
@@ -141,7 +145,7 @@ class DimerProp(nn.Module):
         # print(f"{Ka =}")
         # print(f"{v_A[0] =}")
 
-        Elst = mtp_elst_damping(
+        Elst = mtp_elst_damping_AMOEBA(
             ZA=batch.ZA,
             RA=batch.RA,
             qA_0=v_A[0],
@@ -923,83 +927,92 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
     e_target: torch.tensor,
 ):
     """
-    # MTP-MTP interaction
-    Fortran code where dmp1(1), dmp1(3), dmp1(5) are lam1, lam3, lam5:
-c     compute tolerance and exponential damping factors
-c
-      eps = 0.001d0
-      diff = abs(alphai-alphak)
-      dampi = alphai * r
-      dampk = alphak * r
-      expi = exp(-dampi)
-      expk = exp(-dampk)
-c
-c     valence-valence charge penetration damping for Gordon f1
-c
-      if (pentyp .eq. 'GORDON1') then
-         dampi2 = dampi * dampi
-         dampi3 = dampi * dampi2
-         if (diff .lt. eps) then
-            dampi4 = dampi2 * dampi2
-            dampi5 = dampi2 * dampi3
-            dmpik(3) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
-     &                    + 7.0d0*dampi3/48.0d0
-     &                    + dampi4/48.0d0)*expi
-            dmpik(5) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
-     &                    + dampi3/6.0d0 + dampi4/24.0d0
-     &                    + dampi5/144.0d0)*expi
-         else
-            dampk2 = dampk * dampk
-            dampk3 = dampk * dampk2
-            alphai2 = alphai * alphai
-            alphak2 = alphak * alphak
-            termi = alphak2 / (alphak2-alphai2)
-            termk = alphai2 / (alphai2-alphak2)
-            termi2 = termi * termi
-            termk2 = termk * termk
-            dmpik(3) = 1.0d0 - termi2*(1.0d0+dampi+0.5d0*dampi2)*expi
-     &                    - termk2*(1.0d0+dampk+0.5d0*dampk2)*expk
-     &                    - 2.0d0*termi2*termk*(1.0d0+dampi)*expi
-     &                    - 2.0d0*termk2*termi*(1.0d0+dampk)*expk
-            dmpik(5) = 1.0d0 - termi2*(1.0d0+dampi+0.5d0*dampi2
-     &                            +dampi3/6.0d0)*expi
-     &                    - termk2*(1.0d0+dampk+0.5d0*dampk2
-     &                         +dampk3/6.00)*expk
-     &                    - 2.0d0*termi2*termk
-     &                         *(1.0+dampi+dampi2/3.0d0)*expi
-     &                    - 2.0d0*termk2*termi
-     &                         *(1.0+dampk+dampk2/3.0d0)*expk
-         end if
+    # MTP-MTP interaction using GORDON1 damping
+    Fortran code where dmpik(3), dmpik(5) are lam3, lam5:
+
+    valence-valence charge penetration damping for Gordon f1
+
+    if (diff .lt. eps) then  # same alpha case
+        dmpik(3) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
+                      + 7.0d0*dampi3/48.0d0
+                      + dampi4/48.0d0)*expi
+        dmpik(5) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
+                      + dampi3/6.0d0 + dampi4/24.0d0
+                      + dampi5/144.0d0)*expi
+    else  # different alpha case
+        dmpik(3) = 1.0d0 - termi2*(1.0d0+dampi+0.5d0*dampi2)*expi
+                      - termk2*(1.0d0+dampk+0.5d0*dampk2)*expk
+                      - 2.0d0*termi2*termk*(1.0d0+dampi)*expi
+                      - 2.0d0*termk2*termi*(1.0d0+dampk)*expk
+        dmpik(5) = 1.0d0 - termi2*(1.0d0+dampi+0.5d0*dampi2+dampi3/6.0d0)*expi
+                      - termk2*(1.0d0+dampk+0.5d0*dampk2+dampk3/6.0d0)*expk
+                      - 2.0d0*termi2*termk*(1.0+dampi+dampi2/3.0d0)*expi
+                      - 2.0d0*termk2*termi*(1.0+dampk+dampk2/3.0d0)*expk
     """
     # need to have alpha_i repeated for each atom in j and vice versa
     alpha_i = alpha_i.index_select(0, e_source)
     alpha_j = alpha_j.index_select(0, e_target)
-    r2 = r**2
-    r3 = r2 * r
+
+    # dampi = alpha_i * r, dampk = alpha_j * r
+    dampi = alpha_i * r
+    dampk = alpha_j * r
+    dampi2 = dampi * dampi
+    dampi3 = dampi2 * dampi
+    dampi4 = dampi2 * dampi2
+    dampi5 = dampi2 * dampi3
+    dampk2 = dampk * dampk
+    dampk3 = dampk2 * dampk
+
+    expi = torch.exp(-dampi)
+    expk = torch.exp(-dampk)
+
     a1_2 = alpha_i * alpha_i
     a2_2 = alpha_j * alpha_j
-    a1_3 = a1_2 * alpha_i
-    lam1 = torch.ones_like(r)
-    lam3 = torch.ones_like(r)
-    lam5 = torch.ones_like(r)
-    e1r = torch.exp(-1.0 * alpha_i * r)
-    e2r = torch.exp(-1.0 * alpha_j * r)
-    diff = torch.abs(alpha_i - alpha_j) > 1e-6
-    A = torch.where(diff, a2_2 / (a2_2 - a1_2), torch.zeros_like(r))
-    B = torch.where(diff, a1_2 / (a1_2 - a2_2), torch.zeros_like(r))
-    lam1 = torch.where(diff, 1 - A * e1r - B * e2r, 1 - (1.0 + 0.5 * alpha_i * r) * e1r)
-    lam3 = torch.where(
-        diff,
-        1 - (1.0 + alpha_i * r) * A * e1r - (1.0 + alpha_j * r) * B * e2r,
-        1 - (1.0 + alpha_i * r + 0.5 * a1_2 * r2) * e1r,
+
+    diff = torch.abs(alpha_i - alpha_j) > 1e-3  # eps = 0.001 in Fortran
+
+    # termi = alphak2 / (alphak2 - alphai2)
+    # termk = alphai2 / (alphai2 - alphak2)
+    termi = torch.where(diff, a2_2 / (a2_2 - a1_2), torch.zeros_like(r))
+    termk = torch.where(diff, a1_2 / (a1_2 - a2_2), torch.zeros_like(r))
+    termi2 = termi * termi
+    termk2 = termk * termk
+
+    # GORDON1 lam3 (dmpik(3))
+    # Same alpha case:
+    lam3_same = (
+        1.0 - (1.0 + dampi + 0.5 * dampi2 + 7.0 * dampi3 / 48.0 + dampi4 / 48.0) * expi
     )
-    lam5 = torch.where(
-        diff,
-        1
-        - (1.0 + alpha_i * r + (1.0 / 3.0) * a1_2 * r2) * A * e1r
-        - (1.0 + alpha_j * r + (1.0 / 3.0) * a2_2 * r2) * B * e2r,
-        1 - (1.0 + alpha_i * r + 0.5 * a1_2 * r2 + (1.0 / 6.0) * a1_3 * r3) * e1r,
+    # Different alpha case:
+    lam3_diff = (
+        1.0
+        - termi2 * (1.0 + dampi + 0.5 * dampi2) * expi
+        - termk2 * (1.0 + dampk + 0.5 * dampk2) * expk
+        - 2.0 * termi2 * termk * (1.0 + dampi) * expi
+        - 2.0 * termk2 * termi * (1.0 + dampk) * expk
     )
+    lam3 = torch.where(diff, lam3_diff, lam3_same)
+
+    # GORDON1 lam5 (dmpik(5))
+    # Same alpha case:
+    lam5_same = (
+        1.0
+        - (1.0 + dampi + 0.5 * dampi2 + dampi3 / 6.0 + dampi4 / 24.0 + dampi5 / 144.0)
+        * expi
+    )
+    # Different alpha case:
+    lam5_diff = (
+        1.0
+        - termi2 * (1.0 + dampi + 0.5 * dampi2 + dampi3 / 6.0) * expi
+        - termk2 * (1.0 + dampk + 0.5 * dampk2 + dampk3 / 6.0) * expk
+        - 2.0 * termi2 * termk * (1.0 + dampi + dampi2 / 3.0) * expi
+        - 2.0 * termk2 * termi * (1.0 + dampk + dampk2 / 3.0) * expk
+    )
+    lam5 = torch.where(diff, lam5_diff, lam5_same)
+
+    # lam1 is not defined in GORDON1 for MTP-MTP, use same as lam3 for consistency
+    lam1 = lam3
+
     return lam1, lam3, lam5
 
 
@@ -1012,66 +1025,61 @@ def elst_damping_AMOEBA_Z_mtp_torch(
     e_target: torch.tensor,
 ):
     """
-    # Z-MTP interaction
-    Fortran code where dmp1(1), dmp1(3), dmp1(5) are lam1, lam3, lam5:
-c     compute tolerance and exponential damping factors
-c
-c     compute tolerance and exponential damping factors
-c
-      eps = 0.001d0
-      diff = abs(alphai-alphak)
-      dampi = alphai * r
-      dampk = alphak * r
-      expi = exp(-dampi)
-      expk = exp(-dampk)
-c
-c     core-valence charge penetration damping for Gordon f1
-c
-      if (pentyp .eq. 'GORDON1') then
-         dampi2 = dampi * dampi
-         dampi3 = dampi * dampi2
-         dampi4 = dampi2 * dampi2
-         dmpi(3) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2)*expi
-         dmpi(5) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2 
-     &                + dampi3/6.0d0)*expi
-         dmpi(7) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
-     &                + dampi3/6.0d0 + dampi4/30.0d0)*expi
-         if (diff .lt. eps) then
-            dmpk(3) = dmpi(3)
-            dmpk(5) = dmpi(5)
-            dmpk(7) = dmpi(7)
-         else
-            dampk2 = dampk * dampk
-            dampk3 = dampk * dampk2
-            dampk4 = dampk2 * dampk2
-            dmpk(3) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2)*expk
-            dmpk(5) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2
-     &                   + dampk3/6.0d0)*expk
-            dmpk(7) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2
-     &                   + dampk3/6.0d0 + dampk4/30.0d0)*expk
-         end if
+    # Z-MTP (core-valence) interaction using GORDON1 damping
+    Fortran code where dmpi(3), dmpi(5) are lam3_i, lam5_i and
+    dmpk(3), dmpk(5) are lam3_j, lam5_j:
+
+    core-valence charge penetration damping for Gordon f1
+
+    dmpi(3) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2)*expi
+    dmpi(5) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2 + dampi3/6.0d0)*expi
+    dmpi(7) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
+                  + dampi3/6.0d0 + dampi4/30.0d0)*expi
+    if (diff .lt. eps) then
+        dmpk = dmpi  # same values
+    else
+        dmpk(3) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2)*expk
+        dmpk(5) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2 + dampk3/6.0d0)*expk
+        dmpk(7) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2
+                     + dampk3/6.0d0 + dampk4/30.0d0)*expk
     """
     # need to have alpha_i repeated for each atom in j and vice versa
     alpha_i = alpha_i.index_select(0, e_source)
     alpha_j = alpha_j.index_select(0, e_target)
-    lam1_j = 1.0 - torch.exp(-1.0 * torch.multiply(alpha_j, r))
-    lam3_j = 1.0 - (1.0 + torch.multiply(alpha_j, r)) * torch.exp(
-        -1.0 * torch.multiply(alpha_j, r)
-    )
-    lam5_j = 1.0 - (
-        1.0
-        + torch.multiply(alpha_j, r)
-        + (1.0 / 3.0) * torch.multiply(torch.square(alpha_j), r**2)
-    ) * torch.exp(-1.0 * torch.multiply(alpha_j, r))
-    lam1_i = 1.0 - torch.exp(-1.0 * torch.multiply(alpha_i, r))
-    lam3_i = 1.0 - (1.0 + torch.multiply(alpha_i, r)) * torch.exp(
-        -1.0 * torch.multiply(alpha_i, r)
-    )
-    lam5_i = 1.0 - (
-        1.0
-        + torch.multiply(alpha_i, r)
-        + (1.0 / 3.0) * torch.multiply(torch.square(alpha_i), r**2)
-    ) * torch.exp(-1.0 * torch.multiply(alpha_i, r))
+
+    # dampi = alpha_i * r, dampk = alpha_j * r
+    dampi = alpha_i * r
+    dampk = alpha_j * r
+    dampi2 = dampi * dampi
+    dampi3 = dampi2 * dampi
+    dampi4 = dampi2 * dampi2
+    dampk2 = dampk * dampk
+    dampk3 = dampk2 * dampk
+    dampk4 = dampk2 * dampk2
+
+    expi = torch.exp(-dampi)
+    expk = torch.exp(-dampk)
+
+    diff = torch.abs(alpha_i - alpha_j) > 1e-3  # eps = 0.001 in Fortran
+
+    # GORDON1 damping for alpha_i (dmpi)
+    # lam1_i not explicitly defined in GORDON1, use lam3_i
+    lam3_i = 1.0 - (1.0 + dampi + 0.5 * dampi2) * expi
+    lam5_i = 1.0 - (1.0 + dampi + 0.5 * dampi2 + dampi3 / 6.0) * expi
+    lam1_i = lam3_i  # lam1 not defined in GORDON1, use lam3
+
+    # GORDON1 damping for alpha_j (dmpk)
+    # Same alpha case: dmpk = dmpi
+    lam3_j_same = lam3_i
+    lam5_j_same = lam5_i
+    # Different alpha case: compute separately
+    lam3_j_diff = 1.0 - (1.0 + dampk + 0.5 * dampk2) * expk
+    lam5_j_diff = 1.0 - (1.0 + dampk + 0.5 * dampk2 + dampk3 / 6.0) * expk
+
+    lam3_j = torch.where(diff, lam3_j_diff, lam3_j_same)
+    lam5_j = torch.where(diff, lam5_j_diff, lam5_j_same)
+    lam1_j = lam3_j  # lam1 not defined in GORDON1, use lam3
+
     return lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i
 
 
@@ -1294,11 +1302,14 @@ def mtp_elst_damping_AMOEBA(
     oodR = 1.0 / dR
     delta = torch.eye(3, device=qA_0.device)
 
-    lam1, lam3, lam5 = elst_damping_AMOEBA_mtp_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
+    lam1, lam3, lam5 = elst_damping_AMOEBA_mtp_mtp_torch(
+        Ka, Kb, dR, e_AB_source, e_AB_target
+    )
     lam1_ZA_MB, lam3_ZA_MB, lam5_ZA_MB, lam1_ZB_MA, lam3_ZB_MA, lam5_ZB_MA = (
         elst_damping_AMOEBA_Z_mtp_torch(Ka, Kb, dR, e_AB_source, e_AB_target)
     )
-    # print(f"{Ka = }\n{Kb = }")
+    print(f"{Ka = }\n{Kb = }")
+    print(f"{lam1 = }\n")
     # print(f"{lam1 = }\n{lam3 = }\n{lam5 = }")
     # print(f"{lam1_ZA_MB = }\n{lam3_ZA_MB = }\n{lam5_ZA_MB = }")
     # print(f"{lam1_ZB_MA = }\n{lam3_ZB_MA = }\n{lam5_ZB_MA = }")
@@ -1679,8 +1690,14 @@ def monomer_induced_dipole_torch(
 
     # Define helper function to calculate distance tensors with Thole damping
     def distance_tensors(
-        Ri, Rj, e_source, e_target, alpha_i, alpha_j, thole_param,
-        thole_type='direct',
+        Ri,
+        Rj,
+        e_source,
+        e_target,
+        alpha_i,
+        alpha_j,
+        thole_param,
+        thole_type="direct",
     ):
         """Calculate interaction tensors between atoms with optional screening"""
         dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
@@ -1691,7 +1708,7 @@ def monomer_induced_dipole_torch(
         alpha_target = alpha_j.index_select(0, e_target)
 
         # Apply Thole damping and screening
-        if thole_type == 'mutual':
+        if thole_type == "mutual":
             au3, lam_3, lam_5 = thole_damping_mutual_torch(
                 dR, alpha_source, alpha_target, thole_param
             )
@@ -1732,7 +1749,7 @@ def monomer_induced_dipole_torch(
         alpha,
         thole_damping_param_direct,
         apply_screening=True,
-        thole_type='direct',
+        thole_type="direct",
     )
 
     # Calculate mutual tensors (induced ↔ induced) without screening
@@ -1745,7 +1762,7 @@ def monomer_induced_dipole_torch(
         alpha,
         thole_damping_param_mutual,
         apply_screening=False,
-        thole_type='mutual',
+        thole_type="mutual",
     )
 
     # Initialize induced dipoles
@@ -2250,7 +2267,7 @@ def induced_dipole(
     # Final energy calculation
     muA_induced_source = mu_induced_A.index_select(0, e_AA_source)
     muB_induced_target = mu_induced_A.index_select(0, e_AA_target)
-    return 
+    return
 
 
 def isolate_atom_parameter_predictions(batch, output):
@@ -2340,6 +2357,7 @@ class AM_DimerParam_Model:
         ds_qcel_molecules=None,
         ds_energy_labels=None,
         dimer_eval_type="elst_damping",
+        elst_damping_type="CLIFF",
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -2421,8 +2439,14 @@ class AM_DimerParam_Model:
 """
             )
         if pre_trained_model_path:
-            print(f"Loading pre-trained MTP-MTP {model_type} from {pre_trained_model_path}")
+            print(
+                f"Loading pre-trained MTP-MTP {model_type} from {pre_trained_model_path}"
+            )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
+            # Load elst_damping_type from checkpoint if available, otherwise use default
+            elst_damping_type = checkpoint["config"].get(
+                "elst_damping_type", elst_damping_type
+            )
             if model_type == "AtomTypeParamNN":
                 self.model = AtomTypeParamNN(
                     atom_model=self.atom_model,
@@ -2479,9 +2503,14 @@ class AM_DimerParam_Model:
                 raise ValueError(f"Unknown model_type: {model_type}")
         self.n_params = n_params
         self.dimer_eval_type = dimer_eval_type
-        self.dimer_model = DimerProp(self.model, dimer_eval=dimer_eval_type)
+        self.elst_damping_type = elst_damping_type
+        self.dimer_model = DimerProp(
+            self.model, dimer_eval=dimer_eval_type, elst_damping_type=elst_damping_type
+        )
         if self.dimer_eval_type in ["elst", "elst_damping"]:
-            self.dimer_model_elst = DimerProp(self.model, dimer_eval="elst")
+            self.dimer_model_elst = DimerProp(
+                self.model, dimer_eval="elst", elst_damping_type=elst_damping_type
+            )
         else:
             self.dimer_model_elst = None
 
@@ -3238,23 +3267,28 @@ units angstrom
                 cpu_model = self.model.to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "model_type": type(cpu_model).__name__,
-                                    "n_message": cpu_model.n_message,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "param_start_mean": cpu_model.param_start_mean,
-                                    "param_start_std": cpu_model.param_start_std,
-                                    "n_params": cpu_model.n_params,
-                                    "n_rbf": cpu_model.n_rbf if hasattr(cpu_model, "n_rbf") else None,
-                                    "r_cut": cpu_model.r_cut if hasattr(cpu_model, "r_cut") else None,
-                                },
+                    torch.save(
+                        {
+                            "model_state_dict": cpu_model.state_dict(),
+                            "config": {
+                                "model_type": type(cpu_model).__name__,
+                                "n_message": cpu_model.n_message,
+                                "n_neuron": cpu_model.n_neuron,
+                                "n_embed": cpu_model.n_embed,
+                                "param_start_mean": cpu_model.param_start_mean,
+                                "param_start_std": cpu_model.param_start_std,
+                                "n_params": cpu_model.n_params,
+                                "n_rbf": cpu_model.n_rbf
+                                if hasattr(cpu_model, "n_rbf")
+                                else None,
+                                "r_cut": cpu_model.r_cut
+                                if hasattr(cpu_model, "r_cut")
+                                else None,
+                                "elst_damping_type": self.elst_damping_type,
                             },
-                            self.model_save_path,
-                        )
+                        },
+                        self.model_save_path,
+                    )
                 self.model.to(rank_device)
 
             if isinstance(y_ind, torch.Tensor):
@@ -3286,6 +3320,7 @@ units angstrom
                             "n_params": cpu_model.n_params,
                             "param_start_mean": cpu_model.param_start_mean,
                             "param_start_std": cpu_model.param_start_std,
+                            "elst_damping_type": self.elst_damping_type,
                         },
                     },
                     "nan_crash_model.pt",

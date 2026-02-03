@@ -1405,7 +1405,6 @@ def test_elst_damping_dipole_torch_df_CLIFF():
         print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
 
 
-
 def test_elst_damping_dipole_torch_df_AMOEBA():
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
@@ -1507,8 +1506,146 @@ def test_elst_damping_dipole_torch_df_AMOEBA():
         print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
 
 
-def test_induced_dipole_torch_intramolecular():
+def test_elst_damping_AMOEBA_mtp_mtp_torch():
+    """
+    Test the AMOEBA (GORDON1) electrostatic damping function.
 
+    This test verifies that mtp_elst_damping_AMOEBA runs correctly on a water dimer.
+    The damping parameter Ka/Kb = 4.2 is a placeholder value.
+    TODO: Add reference values from AMOEBA/Tinker for validation.
+    """
+    import torch
+
+    df = pd.read_pickle(
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    r = df.iloc[0]
+    mol = r["qcel_molecule"]
+    qA = r["q_A pbe0/atz"]
+    muA = r["mu_A pbe0/atz"]
+    thetaA = r["theta_A pbe0/atz"]
+    qB = r["q_B pbe0/atz"]
+    muB = r["mu_B pbe0/atz"]
+    thetaB = r["theta_B pbe0/atz"]
+
+    # Placeholder damping parameters for water (to be replaced with real AMOEBA values)
+    Ka = np.array([4.2, 4.2, 4.2])  # O, H, H
+    Kb = np.array([4.2, 4.2, 4.2])  # O, H, H
+
+    np.set_printoptions(precision=6)
+    torch.set_printoptions(precision=6)
+
+    # Create dimer batch
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+
+    # Set up batch data
+    dimer_batch.Ka = torch.tensor(Ka, dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(Kb, dtype=torch.float32)
+    dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
+    dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
+    dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
+
+    # Call the AMOEBA damping function
+    torch_elst_amoeba = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping_AMOEBA(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA_0=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB_0=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+    )
+
+    total_elst = torch.sum(torch_elst_amoeba).item()
+    print(f"\n=== AMOEBA (GORDON1) Electrostatic Damping Test ===")
+    print(f"Damping parameters: Ka = Kb = 4.2 (placeholder)")
+    print(f"Total AMOEBA damped elst = {total_elst:.6f} kcal/mol")
+
+    # Also test the low-level damping function directly
+    from apnet_pt.AtomPairwiseModels.mtp_mtp import (
+        elst_damping_AMOEBA_mtp_mtp_torch,
+        get_distances,
+    )
+    from apnet_pt import constants
+
+    # Get distances for testing
+    dR_ang, dR_xyz_ang = get_distances(
+        dimer_batch.RA,
+        dimer_batch.RB,
+        dimer_batch.e_ABsr_source,
+        dimer_batch.e_ABsr_target,
+    )
+    dR = dR_ang / constants.au2ang
+
+    # Call the damping function directly
+    lam1, lam3, lam5 = elst_damping_AMOEBA_mtp_mtp_torch(
+        dimer_batch.Ka,
+        dimer_batch.Kb,
+        dR,
+        dimer_batch.e_ABsr_source,
+        dimer_batch.e_ABsr_target,
+    )
+
+    print(f"\nLow-level damping factors (first 5 pairs):")
+    print(f"  lam1: {lam1[:5]}")
+    print(f"  lam3: {lam3[:5]}")
+    print(f"  lam5: {lam5[:5]}")
+
+    # Basic sanity checks
+    assert not torch.isnan(torch_elst_amoeba).any(), "NaN values in AMOEBA elst output"
+    assert not torch.isinf(torch_elst_amoeba).any(), "Inf values in AMOEBA elst output"
+    assert (lam1 >= 0).all() and (lam1 <= 1).all(), "lam1 should be in [0, 1]"
+    assert (lam3 >= 0).all() and (lam3 <= 1).all(), "lam3 should be in [0, 1]"
+    assert (lam5 >= 0).all() and (lam5 <= 1).all(), "lam5 should be in [0, 1]"
+
+    # Compare with CLIFF damping for reference
+    torch_elst_cliff = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA_0=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB_0=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+    )
+    total_elst_cliff = torch.sum(torch_elst_cliff).item()
+    print(f"\nComparison with CLIFF (GORDON2) damping:")
+    print(f"  AMOEBA (GORDON1) elst = {total_elst:.6f} kcal/mol")
+    print(f"  CLIFF  (GORDON2) elst = {total_elst_cliff:.6f} kcal/mol")
+    print(f"  Difference = {abs(total_elst - total_elst_cliff):.6f} kcal/mol")
+
+    # Note: We don't assert exact values since we don't have AMOEBA reference data yet
+    # Just verify the function runs and produces reasonable output
+    print("\nTest passed: AMOEBA damping function executes correctly.")
+    return
+
+
+def test_induced_dipole_torch_intramolecular():
     # Load the monomer data
     df = pd.read_pickle(
         current_file_path + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")

@@ -151,6 +151,7 @@ def train_pairwise_model(
     param_start_mean=1.5,
     param_start_std=0.1,
     dimer_eval_type="elst_damping",
+    elst_damping_type="CLIFF",
     ds_in_memory=False,
     ds_class_type="pt",
     DimerProp_model_type="AtomTypeParamNN",
@@ -278,6 +279,7 @@ def train_pairwise_model(
             param_start_mean=param_start_mean,
             param_start_std=param_start_std,
             dimer_eval_type=dimer_eval_type,
+            elst_damping_type=elst_damping_type,
             n_params=n_params,
             model_type=DimerProp_model_type,
         )
@@ -297,6 +299,7 @@ def train_pairwise_model(
             atom_model=atom_type_hf_vw_model.model,
             atom_model_type="AtomTypeParamNN",
             pre_trained_model_path=atom_type_param_model_path2,
+            elst_damping_type=elst_damping_type,
         )
         am_model_path = None
         print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
@@ -464,6 +467,13 @@ def main():
         type=str,
         default="elst_damping",
         help="Specify dimer eval type for AM-DimerParam (default: 'elst_damping', other options: 'induced_dipole)",
+    )
+    args.add_argument(
+        "--elst_damping_type",
+        type=str,
+        default="CLIFF",
+        choices=["CLIFF", "AMOEBA"],
+        help="Electrostatic damping type: 'CLIFF' (CLIFF/GORDON2) or 'AMOEBA' (GORDON1) (default: 'CLIFF')",
     )
     args.add_argument(
         "--random_seed", type=int, default=0, help="Random seed for initialization"
@@ -685,6 +695,7 @@ def main():
             param_start_mean=args.param_start_mean,
             param_start_std=args.param_start_std,
             dimer_eval_type=args.dimer_eval_type,
+            elst_damping_type=args.elst_damping_type,
             ds_in_memory=args.ds_in_memory,
             ds_class_type=args.ds_class_type,
             DimerProp_model_type=args.DimerProp_model_type,
