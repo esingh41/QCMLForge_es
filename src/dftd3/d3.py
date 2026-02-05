@@ -62,7 +62,8 @@ def cn_d3_intermolecular(
 
     rcov = radii.COV_D3(**dd)[ZA] + radii.COV_D3(**dd)[ZB] 
     
-    distances, _ = get_distances(RA, RB, e_source_full, e_target_full)
+    dR_xyz = RB - RA
+    distances = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
     cn = torch.where(
         (distances <= cutoff),
         exp_count(distances, rcov),
