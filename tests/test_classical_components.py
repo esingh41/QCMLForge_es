@@ -1428,6 +1428,7 @@ def test_elst_damping_dipole_torch_df_AMOEBA():
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
     )
+    print(atom_type_elst_model)
 
     df = pd.read_pickle(
         current_file_path
@@ -1522,7 +1523,6 @@ def test_elst_damping_AMOEBA_mtp_mtp_torch():
     We validate against the numpy reference (eval_qcel_dimer_individual_components
     with match_cliff=False) which also gives ~-5.74 kcal/mol.
     """
-    import torch
 
     # Load reference data with AMOEBA values
     ref_data = pd.read_pickle(
@@ -1530,7 +1530,6 @@ def test_elst_damping_AMOEBA_mtp_mtp_torch():
         + os.sep
         + os.path.join("dataset_data", "amoeba_water_dimer_ref.pkl")
     )
-    print(ref_data)
     mol = ref_data["qcel_molecule"]
     print(mol.to_string('xyz'))
     qA = ref_data["q_A pbe0/atz"]
@@ -1652,11 +1651,63 @@ def test_elst_damping_AMOEBA_mtp_mtp_torch():
     total_elst_cliff = torch.sum(torch_elst_cliff).item()
     print(f"\nComparison with CLIFF (GORDON2) damping:")
     print(f"  AMOEBA (GORDON1) elst = {total_elst:.6f} kcal/mol")
+    print(f"  Difference = {abs(total_elst - ref_sapt0_elst):.6f} kcal/mol")
     print(f"  CLIFF  (GORDON2) elst = {total_elst_cliff:.6f} kcal/mol")
-    print(f"  Difference = {abs(total_elst - total_elst_cliff):.6f} kcal/mol")
+    print(f"  Difference = {abs(total_elst_cliff - ref_sapt0_elst):.6f} kcal/mol")
 
-    # Validate torch implementation against numpy reference
-    print("\nTest passed: AMOEBA torch implementation matches numpy reference.")
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=data_path,
+        use_GPU=False,
+        n_neuron=64,
+        n_params=1,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+    )
+    print(atom_type_elst_model)
+    print(ref_data)
+    energies = ap3.predict_qcel_mols([mol], batch_size=1)
+    print(energies)
+    energies = atom_type_elst_model.predict_qcel_mols_dimer([mol], batch_size=1)
+    print(energies)
+    monA, monB = atom_type_elst_model.predict_qcel_mols_monomer_props([mol], batch_size=1)
+    print(monA)
+    print(monA[-1])
+    # Compare with CLIFF damping for reference
+    torch_elst_cliff = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA_0=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=monA[0][-1],
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB_0=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=monB[0][-1],
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+    )
+    total_elst_cliff = torch.sum(torch_elst_cliff).item()
+    print(f"\nComparison with CLIFF (GORDON1) damping with AP3-DimerParams:")
+    print(f"  CLIFF  (GORDON2) elst = {total_elst_cliff:.6f} kcal/mol")
+    print(f"  Difference = {abs(total_elst_cliff - ref_sapt0_elst):.6f} kcal/mol")
+
     return
 
 

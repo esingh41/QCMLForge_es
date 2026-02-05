@@ -2884,7 +2884,9 @@ class AM_DimerParam_Model:
             r_cut = self.atom_model.atom_model.r_cut
 
         N = len(mols)
-        predictions = np.zeros((N, self.n_params))
+        # Determine number of output columns from model (e.g., 2 for Elst + Indu)
+        # Will be determined after first forward pass
+        predictions = None
         if return_pairs or return_elst:
             pairwise_energies = []
         self.atom_model.to(self.device)
@@ -2900,16 +2902,20 @@ class AM_DimerParam_Model:
             )
             dimer_batch.to(device=self.device)
             preds = self.dimer_model(dimer_batch)[0]
+            # Use dimer_ind_full for scatter_sum to include both sr and lr edges
             preds = scatter_sum_compile(
                 preds,
-                dimer_batch.dimer_ind,
+                dimer_batch.dimer_ind_full,
                 dim_size=torch.tensor(
                     dimer_batch.total_charge_A.size(0), dtype=torch.long
                 ),
             )
-            predictions[i : i + batch_size] = (
-                preds.cpu().numpy().reshape(-1, self.n_params)
-            )
+            preds_np = preds.cpu().numpy()
+            # Initialize predictions array on first batch
+            if predictions is None:
+                n_outputs = preds_np.shape[1] if preds_np.ndim > 1 else 1
+                predictions = np.zeros((N, n_outputs))
+            predictions[i:upper_bound] = preds_np.reshape(upper_bound - i, -1)
         if verbose:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if return_pairs or return_elst:
