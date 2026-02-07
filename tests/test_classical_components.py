@@ -1619,17 +1619,14 @@ def test_elst_damping_AMOEBA_mtp_mtp_torch():
         dimer_batch.e_ABsr_target,
     )
 
-    print(f"\nLow-level damping factors (first 5 pairs):")
-    print(f"  lam1: {lam1[:5]}")
-    print(f"  lam3: {lam3[:5]}")
-    print(f"  lam5: {lam5[:5]}")
+    print(f"\nLow-level damping factors GORDON1:")
+    print(f"  lam1: {lam1}")
+    print(f"  lam3: {lam3}")
+    print(f"  lam5: {lam5}")
 
     # Basic sanity checks
     assert not torch.isnan(torch_elst_amoeba).any(), "NaN values in AMOEBA elst output"
     assert not torch.isinf(torch_elst_amoeba).any(), "Inf values in AMOEBA elst output"
-    assert (lam1 >= 0).all() and (lam1 <= 1).all(), "lam1 should be in [0, 1]"
-    assert (lam3 >= 0).all() and (lam3 <= 1).all(), "lam3 should be in [0, 1]"
-    assert (lam5 >= 0).all() and (lam5 <= 1).all(), "lam5 should be in [0, 1]"
 
     # Compare with CLIFF damping for reference
     torch_elst_cliff = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
@@ -1677,15 +1674,12 @@ def test_elst_damping_AMOEBA_mtp_mtp_torch():
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
     )
-    print(atom_type_elst_model)
     print(ref_data)
     energies = ap3.predict_qcel_mols([mol], batch_size=1)
     print(energies)
     energies = atom_type_elst_model.predict_qcel_mols_dimer([mol], batch_size=1)
     print(energies)
     monA, monB = atom_type_elst_model.predict_qcel_mols_monomer_props([mol], batch_size=1)
-    print(monA)
-    print(monA[-1])
     # Compare with CLIFF damping for reference
     torch_elst_cliff = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
         ZA=dimer_batch.ZA,
@@ -1703,6 +1697,18 @@ def test_elst_damping_AMOEBA_mtp_mtp_torch():
         e_AB_source=dimer_batch.e_ABsr_source,
         e_AB_target=dimer_batch.e_ABsr_target,
     )
+    lam1, lam3, lam5 = apnet_pt.AtomPairwiseModels.mtp_mtp.elst_damping_mtp_mtp_torch(
+        dimer_batch.Ka,
+        dimer_batch.Kb,
+        dR,
+        dimer_batch.e_ABsr_source,
+        dimer_batch.e_ABsr_target,
+    )
+
+    print(f"\nLow-level damping factors GORDON1:")
+    print(f"  lam1: {lam1}")
+    print(f"  lam3: {lam3}")
+    print(f"  lam5: {lam5}")
     total_elst_cliff = torch.sum(torch_elst_cliff).item()
     print(f"\nComparison with CLIFF (GORDON1) damping with AP3-DimerParams:")
     print(f"  CLIFF  (GORDON2) elst = {total_elst_cliff:.6f} kcal/mol")

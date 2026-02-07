@@ -903,24 +903,25 @@ def elst_damping_Z_mtp_torch(
     # need to have alpha_i repeated for each atom in j and vice versa
     alpha_i = alpha_i.index_select(0, e_source)
     alpha_j = alpha_j.index_select(0, e_target)
-    lam1_j = 1.0 - torch.exp(-1.0 * torch.multiply(alpha_j, r))
-    lam3_j = 1.0 - (1.0 + torch.multiply(alpha_j, r)) * torch.exp(
-        -1.0 * torch.multiply(alpha_j, r)
-    )
-    lam5_j = 1.0 - (
+    exp_i = torch.exp(-1.0 * torch.multiply(alpha_i, r))
+    exp_j = torch.exp(-1.0 * torch.multiply(alpha_j, r))
+    damp_i = torch.multiply(alpha_j, r)
+    damp_j = torch.multiply(alpha_j, r)
+    lam1_j = 1.0 - exp_j
+    lam3_j = 1.0 - (1.0 + damp_j) * exp_j
+    lam5_j = (
         1.0
-        + torch.multiply(alpha_j, r)
-        + (1.0 / 3.0) * torch.multiply(torch.square(alpha_j), r**2)
-    ) * torch.exp(-1.0 * torch.multiply(alpha_j, r))
-    lam1_i = 1.0 - torch.exp(-1.0 * torch.multiply(alpha_i, r))
-    lam3_i = 1.0 - (1.0 + torch.multiply(alpha_i, r)) * torch.exp(
-        -1.0 * torch.multiply(alpha_i, r)
+        - (1.0 + damp_j + (1.0 / 3.0) * torch.multiply(torch.square(alpha_j), r**2))
+        * exp_j
     )
-    lam5_i = 1.0 - (
+
+    lam1_i = 1.0 - exp_i
+    lam3_i = 1.0 - (1.0 + torch.multiply(alpha_i, r)) * exp_i
+    lam5_i = (
         1.0
-        + torch.multiply(alpha_i, r)
-        + (1.0 / 3.0) * torch.multiply(torch.square(alpha_i), r**2)
-    ) * torch.exp(-1.0 * torch.multiply(alpha_i, r))
+        - (1.0 + damp_i + (1.0 / 3.0) * torch.multiply(torch.square(alpha_i), r**2))
+        * exp_i
+    )
     return lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i
 
 
@@ -959,17 +960,17 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
     alpha_j = alpha_j.index_select(0, e_target)
 
     # dampi = alpha_i * r, dampk = alpha_j * r
-    dampi = alpha_i * r
-    dampk = alpha_j * r
-    dampi2 = dampi * dampi
-    dampi3 = dampi2 * dampi
-    dampi4 = dampi2 * dampi2
-    dampi5 = dampi2 * dampi3
-    dampk2 = dampk * dampk
-    dampk3 = dampk2 * dampk
+    damp_i = alpha_i * r
+    damp_k = alpha_j * r
+    damp_i2 = damp_i * damp_i
+    damp_i3 = damp_i2 * damp_i
+    damp_i4 = damp_i2 * damp_i2
+    damp_i5 = damp_i2 * damp_i3
+    damp_k2 = damp_k * damp_k
+    damp_k3 = damp_k2 * damp_k
 
-    expi = torch.exp(-dampi)
-    expk = torch.exp(-dampk)
+    exp_i = torch.exp(-damp_i)
+    exp_k = torch.exp(-damp_k)
 
     a1_2 = alpha_i * alpha_i
     a2_2 = alpha_j * alpha_j
@@ -983,23 +984,33 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
     eps = 1e-10
     denom = a2_2 - a1_2
     safe_denom = torch.where(torch.abs(denom) > eps, denom, torch.full_like(denom, eps))
-    termi = torch.where(diff, a2_2 / safe_denom, torch.zeros_like(r))
-    termk = torch.where(diff, a1_2 / (-safe_denom), torch.zeros_like(r))
-    termi2 = termi * termi
-    termk2 = termk * termk
+    term_i = torch.where(diff, a2_2 / safe_denom, torch.zeros_like(r))
+    term_k = torch.where(diff, a1_2 / (-safe_denom), torch.zeros_like(r))
+    term_i2 = term_i * term_i
+    term_k2 = term_k * term_k
 
-    # GORDON1 lam3 (dmpik(3))
-    # Same alpha case:
+    lam1_same = (
+        1.0 - exp_i * (1 + 11/16 * damp_i + 3/16 * damp_i2 + damp_i3 / 48)
+    )
+    lam1_diff = (
+        1.0
+        - exp_i * alpha_j ** 4 / (alpha_i ** 2 - alpha_j ** 2) ** 2 * (1.0 - 2.0 * alpha_i ** 2 / (alpha_j ** 2 - alpha_i **2) +  0.5 * damp_i)
+        - exp_k * alpha_i ** 4 / (alpha_j ** 2 - alpha_i ** 2) ** 2 * (1.0 - 2.0 * alpha_j ** 2 / (alpha_i ** 2 - alpha_j **2) +  0.5 * damp_k)
+        # - exp_i * term_i2 * (1.0 - 2.0 * term_k2 +  0.5 * damp_i)
+        # - exp_k * term_k2 * (1.0 - 2.0 * term_i2 +  0.5 * damp_k)
+    )
+    lam1 = torch.where(diff, lam1_diff, lam1_same)
+
     lam3_same = (
-        1.0 - (1.0 + dampi + 0.5 * dampi2 + 7.0 * dampi3 / 48.0 + dampi4 / 48.0) * expi
+        1.0 - (1.0 + damp_i + 0.5 * damp_i2 + 7.0 * damp_i3 / 48.0 + damp_i4 / 48.0) * exp_i
     )
     # Different alpha case:
     lam3_diff = (
         1.0
-        - termi2 * (1.0 + dampi + 0.5 * dampi2) * expi
-        - termk2 * (1.0 + dampk + 0.5 * dampk2) * expk
-        - 2.0 * termi2 * termk * (1.0 + dampi) * expi
-        - 2.0 * termk2 * termi * (1.0 + dampk) * expk
+        - term_i2 * (1.0 + damp_i + 0.5 * damp_i2) * exp_i
+        - term_k2 * (1.0 + damp_k + 0.5 * damp_k2) * exp_k
+        - 2.0 * term_i2 * term_k * (1.0 + damp_i) * exp_i
+        - 2.0 * term_k2 * term_i * (1.0 + damp_k) * exp_k
     )
     lam3 = torch.where(diff, lam3_diff, lam3_same)
 
@@ -1007,21 +1018,18 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
     # Same alpha case:
     lam5_same = (
         1.0
-        - (1.0 + dampi + 0.5 * dampi2 + dampi3 / 6.0 + dampi4 / 24.0 + dampi5 / 144.0)
-        * expi
+        - (1.0 + damp_i + 0.5 * damp_i2 + damp_i3 / 6.0 + damp_i4 / 24.0 + damp_i5 / 144.0)
+        * exp_i
     )
     # Different alpha case:
     lam5_diff = (
         1.0
-        - termi2 * (1.0 + dampi + 0.5 * dampi2 + dampi3 / 6.0) * expi
-        - termk2 * (1.0 + dampk + 0.5 * dampk2 + dampk3 / 6.0) * expk
-        - 2.0 * termi2 * termk * (1.0 + dampi + dampi2 / 3.0) * expi
-        - 2.0 * termk2 * termi * (1.0 + dampk + dampk2 / 3.0) * expk
+        - term_i2 * (1.0 + damp_i + 0.5 * damp_i2 + damp_i3 / 6.0) * exp_i
+        - term_k2 * (1.0 + damp_k + 0.5 * damp_k2 + damp_k3 / 6.0) * exp_k
+        - 2.0 * term_i2 * term_k * (1.0 + damp_i + damp_i2 / 3.0) * exp_i
+        - 2.0 * term_k2 * term_i * (1.0 + damp_k + damp_k2 / 3.0) * exp_k
     )
     lam5 = torch.where(diff, lam5_diff, lam5_same)
-
-    # lam1 is not defined in GORDON1 for MTP-MTP, use same as lam3 for consistency
-    lam1 = lam3
 
     return lam1, lam3, lam5
 
@@ -1058,37 +1066,36 @@ def elst_damping_AMOEBA_Z_mtp_torch(
     alpha_j = alpha_j.index_select(0, e_target)
 
     # dampi = alpha_i * r, dampk = alpha_j * r
-    dampi = alpha_i * r
-    dampk = alpha_j * r
-    dampi2 = dampi * dampi
-    dampi3 = dampi2 * dampi
-    dampi4 = dampi2 * dampi2
-    dampk2 = dampk * dampk
-    dampk3 = dampk2 * dampk
-    dampk4 = dampk2 * dampk2
+    damp_i = alpha_i * r
+    damp_k = alpha_j * r
+    damp_i2 = damp_i * damp_i
+    damp_i3 = damp_i2 * damp_i
+    damp_k2 = damp_k * damp_k
+    damp_k3 = damp_k2 * damp_k
 
-    expi = torch.exp(-dampi)
-    expk = torch.exp(-dampk)
+    exp_i = torch.exp(-damp_i)
+    exp_k = torch.exp(-damp_k)
 
     diff = torch.abs(alpha_i - alpha_j) > 1e-3  # eps = 0.001 in Fortran
 
     # GORDON1 damping for alpha_i (dmpi)
-    # lam1_i not explicitly defined in GORDON1, use lam3_i
-    lam3_i = 1.0 - (1.0 + dampi + 0.5 * dampi2) * expi
-    lam5_i = 1.0 - (1.0 + dampi + 0.5 * dampi2 + dampi3 / 6.0) * expi
-    lam1_i = lam3_i  # lam1 not defined in GORDON1, use lam3
+    lam1_i = 1.0 - (1.0 + 0.5 * damp_i) * exp_i
+    lam3_i = 1.0 - (1.0 + damp_i + 0.5 * damp_i2) * exp_i
+    lam5_i = 1.0 - (1.0 + damp_i + 0.5 * damp_i2 + damp_i3 / 6.0) * exp_i
 
     # GORDON1 damping for alpha_j (dmpk)
     # Same alpha case: dmpk = dmpi
+    lam1_j_same = lam1_i
     lam3_j_same = lam3_i
     lam5_j_same = lam5_i
     # Different alpha case: compute separately
-    lam3_j_diff = 1.0 - (1.0 + dampk + 0.5 * dampk2) * expk
-    lam5_j_diff = 1.0 - (1.0 + dampk + 0.5 * dampk2 + dampk3 / 6.0) * expk
+    lam1_j_diff = 1.0 - (1.0 + 0.5 * damp_k) * exp_k
+    lam3_j_diff = 1.0 - (1.0 + damp_k + 0.5 * damp_k2) * exp_k
+    lam5_j_diff = 1.0 - (1.0 + damp_k + 0.5 * damp_k2 + damp_k3 / 6.0) * exp_k
 
+    lam1_j = torch.where(diff, lam1_j_diff, lam1_j_same)
     lam3_j = torch.where(diff, lam3_j_diff, lam3_j_same)
     lam5_j = torch.where(diff, lam5_j_diff, lam5_j_same)
-    lam1_j = lam3_j  # lam1 not defined in GORDON1, use lam3
 
     return lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i
 
@@ -1192,6 +1199,9 @@ def mtp_elst_damping(
     e_AB_target,
     Q_const=3.0,  # set to 1.0 to agree with CLIFF
 ):
+    """
+    GORDON2 damping from CLIFF
+    """
     dR_ang, dR_xyz_ang = get_distances(RA, RB, e_AB_source, e_AB_target)
     dR = dR_ang / constants.au2ang
     dR_xyz = dR_xyz_ang / constants.au2ang
