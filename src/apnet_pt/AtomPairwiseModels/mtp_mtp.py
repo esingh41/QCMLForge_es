@@ -1407,7 +1407,7 @@ def mtp_elst_damping_AMOEBA(
     return E_elst
 
 
-@torch.compile
+# @torch.compile
 def distance_tensors(
     Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None, thole_damping_param=0.39
 ):
@@ -1430,7 +1430,7 @@ def distance_tensors(
     return dR, dR_xyz, oodR, T1, T2
 
 
-@torch.compile
+# @torch.compile
 def induced_dipole_induction(
     ZA,
     RA,
@@ -2021,7 +2021,7 @@ def induced_dipole_induction_optimized(
     return E_ind
 
 
-@torch.compile
+# @torch.compile
 def induced_dipole_induction_optimized_no_correction(
     ZA,
     RA,

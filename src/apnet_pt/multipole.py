@@ -95,6 +95,8 @@ def ensure_traceless_qpole(qpole):
 def qpole_expand_and_traceless(qpole):
     qpole = torch.tensor(qpole_redundant(qpole))
     qpole = ensure_traceless_qpole(qpole)
+    if qpole.shape != (3, 3):
+        qpole = qpole.reshape(3, 3)
     return qpole
 
 
