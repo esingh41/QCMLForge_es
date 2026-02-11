@@ -943,7 +943,7 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
                         length = metadata.get("length", 0)
 
                         if length > 0:
-                            split_name = f"_{self.split}" if self.split != "all" else ""fsapt_ds
+                            split_name = f"_{self.split}" if self.split != "all" else ""
                             files_to_return = [
                                 f"lmdb_ap3_fused_fsapt{split_name}_spec_{self.spec_type}/data.mdb",
                                 f"lmdb_ap3_fused_fsapt{split_name}_spec_{self.spec_type}/lock.mdb",
