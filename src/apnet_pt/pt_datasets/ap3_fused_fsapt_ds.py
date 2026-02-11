@@ -908,8 +908,8 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
             ]
         elif self.spec_type == 8:
             return [
-                "27K_fsaptpbe0-d4_fsapt_train.pkl",
-                "27K_fsaptpbe0-d4_fsapt_test.pkl",
+                "90K_fsaptpbe0-d4_fsapt_train.pkl",
+                "90K_fsaptpbe0-d4_fsapt_test.pkl",
             ]
 
     @property
@@ -943,7 +943,7 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
                         length = metadata.get("length", 0)
 
                         if length > 0:
-                            split_name = f"_{self.split}" if self.split != "all" else ""
+                            split_name = f"_{self.split}" if self.split != "all" else ""fsapt_ds
                             files_to_return = [
                                 f"lmdb_ap3_fused_fsapt{split_name}_spec_{self.spec_type}/data.mdb",
                                 f"lmdb_ap3_fused_fsapt{split_name}_spec_{self.spec_type}/lock.mdb",
@@ -1096,7 +1096,7 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         else:
             for raw_path in self.raw_paths:
                 split_name = ""
-                if self.spec_type in [2, 5, 6, 7, 9]:
+                if self.spec_type in [2, 5, 6, 7, 8, 9]:
                     split_name = f"_{self.split}" if self.split != "all" else ""
                     if self.split not in Path(raw_path).stem:
                         print(f"{self.split} is skipping {raw_path}")
