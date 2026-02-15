@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch_scatter import scatter
+from apnet_pt.util import scatter_sum_compile
 from torch_geometric.nn import MessagePassing
 import numpy as np
 from .. import multipole
@@ -153,6 +153,26 @@ class AtomHirshfeldMPNN(MessagePassing):
         batch,
     ):
         # Extract variables from batch
+        """
+        Compute per-atom multipole predictions and updated atom embeddings for a batch of molecular graphs.
+        
+        Parameters:
+            batch: A batch object containing graph and atom data with attributes:
+                - x: tensor of atomic numbers (Z) shaped [n_atoms, ...]
+                - edge_index: tensor of edge indices shaped [2, n_edges]
+                - R: tensor of atomic positions shaped [n_atoms, 3]
+                - molecule_ind: tensor mapping each atom to its molecule index shaped [n_atoms]
+                - total_charge: tensor of total molecular charges shaped [n_molecules] or [n_molecules, 1]
+                - natom_per_mol: tensor of atom counts per molecule shaped [n_molecules]
+        
+        Returns:
+            charge (torch.Tensor): Per-atom partial charges shaped [n_atoms]. Values adjusted to conserve total molecular charge.
+            dipole (torch.Tensor): Per-atom dipole vectors shaped [n_atoms, 3].
+            qpole (torch.Tensor): Per-atom quadrupole tensors shaped [n_atoms, 3, 3]; enforced to be traceless.
+            volume_ratio (torch.Tensor): Per-atom Hirshfeld volume ratios shaped [n_atoms].
+            valence_width (torch.Tensor): Per-atom valence width scalars shaped [n_atoms].
+            h_list (torch.Tensor): Stacked hidden states for each atom across message steps shaped [n_atoms, n_message+1, hidden_dim].
+        """
         x = batch.x
         edge_index = batch.edge_index
         R = batch.R
@@ -190,16 +210,12 @@ class AtomHirshfeldMPNN(MessagePassing):
                 h_list,
             )
 
-        # 1) Filter out atoms that don't have edges
-        # Create keep_mask directly from edge_index without using torch.isin
-        # This is more compile-friendly than torch.isin with unbacked symbolic shapes
         natom = len(molecule_ind)
         keep_mask = torch.zeros(natom, dtype=torch.bool, device=molecule_ind.device)
         if edge_index.size(1) > 0:
             # Mark all atoms that appear in edge_index as True
             keep_mask.scatter_(0, edge_index[0], True)
             keep_mask.scatter_(0, edge_index[1], True)
-
         filtered_charge = charge[keep_mask]
         filtered_volume_ratio = volume_ratio[keep_mask]
         filtered_valence_width = valence_width[keep_mask]
@@ -222,6 +238,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         e_target = idx_map[e_target]
 
         R = R[keep_mask, :]
+        natom_filtered = keep_mask.sum()
 
         #  [edges]
         dR, dR_xyz = get_distances(R, R, e_source, e_target)
@@ -241,7 +258,7 @@ class AtomHirshfeldMPNN(MessagePassing):
             # [atoms x message_embedding_dim]
             # m_i = unsorted_segment_sum_2d(m_ij, e_source, natom)
             # write unsorted_segment_sum_2d using scatter
-            m_i = scatter(m_ij, e_source, dim=0, reduce="sum")
+            m_i = scatter_sum_compile(m_ij, e_source, natom_filtered, reduce="sum")
 
             # [atomx x hidden_dim]
             h_next = self.charge_update_layers[i](m_i)
@@ -322,7 +339,8 @@ class AtomHirshfeldMPNN(MessagePassing):
         charge[keep_mask] = filtered_charge
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
-        total_charge_pred = scatter(charge, molecule_ind, dim=0, reduce="sum")
+        num_mols = (molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+        total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
         # return charge, dipole, qpole, h_list
 
         total_charge_pred = total_charge_pred.squeeze()

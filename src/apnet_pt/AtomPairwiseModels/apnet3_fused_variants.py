@@ -21,7 +21,7 @@ from ..pt_datasets.ap3_fused_fsapt_ds import (
     ap3_fused_fsapt_module_dataset_lmdb,
 )
 from .. import constants
-from ..util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp

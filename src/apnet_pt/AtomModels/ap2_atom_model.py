@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ..util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings

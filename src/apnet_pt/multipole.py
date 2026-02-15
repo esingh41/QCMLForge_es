@@ -9,7 +9,7 @@ from . import constants
 import torch
 from typing import Tuple
 import qcelemental as qcel
-from .util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 # from .AtomPairwiseModels.mtp_mtp import get_distances
 
 

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from ..util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 import numpy as np
 import time
 from ..AtomModels.ap2_atom_model import (
@@ -4696,6 +4696,20 @@ class AtomTypeParamModel:
 
     @torch.inference_mode()
     def model_predict(self, data):
+        """
+        Run the atom-level model on a batch and return predicted per-atom multipole parameters and related atom properties.
+        
+        Parameters:
+            data: A batched graph or input compatible with the wrapped atom model containing node features and batch indices.
+        
+        Returns:
+            charge: Per-atom monopole (charge) tensor.
+            dipole: Per-atom dipole tensor.
+            qpole: Per-atom quadrupole (or higher multipole) tensor.
+            hirshfeld_volume_ratios: Per-atom Hirshfeld volume ratio tensor used for scaling polarizabilities.
+            valence_widths: Per-atom valence-width tensor used in overlap/width corrections.
+            hlist: Internal per-atom feature list (message-passing hidden states) used by downstream readouts.
+        """
         charge, dipole, qpole, hirshfeld_volume_ratios, valence_widths, hlist = (
             self.model(data)
         )

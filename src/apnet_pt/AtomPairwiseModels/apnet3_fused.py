@@ -21,7 +21,7 @@ from ..pt_datasets.ap3_fused_fsapt_ds import (
     ap3_fused_fsapt_module_dataset_lmdb,
 )
 from .. import constants
-from ..util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -499,8 +499,8 @@ class APNet3_AtomType_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter_sum_compile(mA_ij, e_AA_source, int(natomA))
-            mB_i = scatter_sum_compile(mB_ij, e_BB_source, int(natomB))
+            mA_i = scatter_sum_compile(mA_ij, e_AA_source, dim_size=natomA)
+            mB_i = scatter_sum_compile(mB_ij, e_BB_source, dim_size=natomB)
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
