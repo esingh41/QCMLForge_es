@@ -1624,9 +1624,9 @@ units angstrom
                 batch_loss = charge_loss + dipole_loss + qpole_loss
                 total_loss += batch_loss.detach()
 
-            charge_errors_t.append(q_error.detach().cpu())
-            dipole_errors_t.extend(d_error.detach().cpu())
-            qpole_errors_t.extend(qp_error.detach().cpu())
+                charge_errors_t.append(q_error.detach().cpu())
+                dipole_errors_t.extend(d_error.detach().cpu())
+                qpole_errors_t.extend(qp_error.detach().cpu())
         charge_errors_t = torch.cat(charge_errors_t)
         dipole_errors_t = torch.cat(dipole_errors_t)
         qpole_errors_t = torch.cat(qpole_errors_t)

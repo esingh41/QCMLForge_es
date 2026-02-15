@@ -224,5 +224,5 @@ scratch
 examples
 mpi_train.sh
 logs
-*.md
+/*.md
 data_spice
