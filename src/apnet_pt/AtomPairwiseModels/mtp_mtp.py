@@ -29,7 +29,6 @@ from ..pt_datasets.ap2_fused_ds import (
     qcel_dimer_to_fused_data,
 )
 from .. import constants
->>>>>>> origin/main
 import os
 import time
 from copy import deepcopy
