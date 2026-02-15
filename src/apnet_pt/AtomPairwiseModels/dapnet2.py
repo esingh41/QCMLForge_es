@@ -121,6 +121,32 @@ class APNet2_dAPNet2_MPNN(nn.Module):
         quadB,
         hlistB,
     ):
+        """
+        Compute per-dimer energy outputs by running the inner APNet2 model and applying the frozen readout to short-range interaction embeddings.
+        
+        Parameters:
+            ZA (Tensor): Atomic numbers for monomer A, batched for all dimers.
+            RA (Tensor): Positions for atoms in monomer A.
+            ZB (Tensor): Atomic numbers for monomer B.
+            RB (Tensor): Positions for atoms in monomer B.
+            e_ABsr_source, e_ABsr_target (Tensor): Short-range intermolecular edge index tensors (source and target).
+            dimer_ind (Tensor): Mapping from short-range edge/global entries to dimer indices used for aggregation.
+            e_ABlr_source, e_ABlr_target (Tensor): Long-range intermolecular edge index tensors (source and target).
+            dimer_ind_lr (Tensor): Mapping for long-range entries to dimer indices.
+            e_AA_source, e_AA_target (Tensor): Intramonomer edge indices for monomer A.
+            e_BB_source, e_BB_target (Tensor): Intramonomer edge indices for monomer B.
+            total_charge_A, total_charge_B (Tensor): Total charges for monomer A and B for each dimer.
+            qA, muA, quadA, hlistA (Tensor): Predicted atomic multipole and descriptor arrays for monomer A.
+            qB, muB, quadB, hlistB (Tensor): Predicted atomic multipole and descriptor arrays for monomer B.
+        
+        Returns:
+            E_output (Tensor): Per-dimer aggregated energy tensor expanded to match the original number of dimers; shape (ndimer, C) where C is readout output channels.
+            E_sr (Tensor): Short-range energy contributions from the inner APNet2 model prior to readout aggregation.
+            E_elst_sr (Tensor): Short-range electrostatic energy components from the inner APNet2 model.
+            E_elst_lr (Tensor): Long-range electrostatic energy components from the inner APNet2 model.
+            hAB (Tensor): Short-range embedding/features for interactions A->B produced by the inner APNet2 model.
+            hBA (Tensor): Short-range embedding/features for interactions B->A produced by the inner APNet2 model.
+        """
         E_pairmodel, E_sr, E_elst_sr, E_elst_lr, hAB, hBA, cutoff = self.apnet2_model(
             ZA,
             RA,
@@ -214,6 +240,19 @@ class dAPNet2_MPNN(nn.Module):
         dimer_ind,
         ndimer,
     ):
+        """
+        Compute aggregated per-dimer energy predictions from pairwise readout embeddings.
+        
+        Parameters:
+            h_AB (Tensor): Readout embeddings for AB-directed pairs.
+            h_BA (Tensor): Readout embeddings for BA-directed pairs.
+            cutoff (Tensor or float): Per-pair multiplicative cutoff weights applied to predicted pair energies.
+            dimer_ind (LongTensor): 1D index tensor mapping each pair row to a dimer index for aggregation.
+            ndimer (int): Total number of dimers in the original batch; determines the first dimension of the output.
+        
+        Returns:
+            Tensor: Aggregated energy tensor of shape (ndimer, C) where C is the number of output channels from the readout; each row is the sum of scaled pair contributions for that dimer.
+        """
         EAB_sr = self.readout_layer_energy(h_AB)
         EBA_sr = self.readout_layer_energy(h_BA)
 

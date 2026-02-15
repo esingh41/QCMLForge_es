@@ -95,6 +95,16 @@ def test_water_drude(
     molecule,  # name of molecule
     ref_uind,  # kJ/mol
 ):
+    """
+    Validate computed Drude oscillator induced energy for a molecule against a stored reference.
+    
+    Parameters:
+    	molecule (str): Molecule name; used to load reference data from data_dir/<molecule>.pt.
+    	ref_uind (float): Reference induced energy in kJ/mol to compare against.
+    
+    Raises:
+    	AssertionError: If the absolute difference between the computed U_ind and ref_uind is greater than or equal to 1e-4.
+    """
     ref_data = torch.load(
         data_dir + molecule + ".pt",
         weights_only=False,

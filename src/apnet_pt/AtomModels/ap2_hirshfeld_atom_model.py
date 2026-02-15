@@ -153,6 +153,26 @@ class AtomHirshfeldMPNN(MessagePassing):
         batch,
     ):
         # Extract variables from batch
+        """
+        Compute per-atom multipole predictions and updated atom embeddings for a batch of molecular graphs.
+        
+        Parameters:
+            batch: A batch object containing graph and atom data with attributes:
+                - x: tensor of atomic numbers (Z) shaped [n_atoms, ...]
+                - edge_index: tensor of edge indices shaped [2, n_edges]
+                - R: tensor of atomic positions shaped [n_atoms, 3]
+                - molecule_ind: tensor mapping each atom to its molecule index shaped [n_atoms]
+                - total_charge: tensor of total molecular charges shaped [n_molecules] or [n_molecules, 1]
+                - natom_per_mol: tensor of atom counts per molecule shaped [n_molecules]
+        
+        Returns:
+            charge (torch.Tensor): Per-atom partial charges shaped [n_atoms]. Values adjusted to conserve total molecular charge.
+            dipole (torch.Tensor): Per-atom dipole vectors shaped [n_atoms, 3].
+            qpole (torch.Tensor): Per-atom quadrupole tensors shaped [n_atoms, 3, 3]; enforced to be traceless.
+            volume_ratio (torch.Tensor): Per-atom Hirshfeld volume ratios shaped [n_atoms].
+            valence_width (torch.Tensor): Per-atom valence width scalars shaped [n_atoms].
+            h_list (torch.Tensor): Stacked hidden states for each atom across message steps shaped [n_atoms, n_message+1, hidden_dim].
+        """
         x = batch.x
         edge_index = batch.edge_index
         R = batch.R
