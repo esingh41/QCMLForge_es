@@ -609,6 +609,11 @@ def test_classical_cliff():
 
 
 def test_elst_ameoba():
+    """
+    Validate AMOEBA-equivalent electrostatic energy components against CLIFF no-damping references for a water dimer.
+    
+    Loads the first entry from the water_dimer_pes3.pkl dataset and computes electrostatic energies (charge-only, charge+dipole, charge+dipole+quadrupole) using the APNET evaluation configured to match CLIFF and AMOEBA-equivalent settings. For each multipole expansion level the test compares the computed AP energy to the corresponding CLIFF no-damping reference and asserts agreement within 1e-4 kcal/mol.
+    """
     df = pd.read_pickle(
         current_file_path
         + os.sep
@@ -730,6 +735,11 @@ def test_elst_ameoba():
 
 
 def test_elst_damping_CLIFF():
+    """
+    Validate that AP electrostatic energies match CLIFF reference values for two damping configurations.
+    
+    Loads the first entry from the water dimer test dataset, computes electrostatic components with AMOEBA-equivalent damping and CLIFF matching for the charge-only ("q") and charge+dipole ("q_mu") cases, and asserts the AP-computed totals agree with the stored CLIFF reference values within 1e-4.
+    """
     df = pd.read_pickle(
         current_file_path
         + os.sep
@@ -1406,6 +1416,11 @@ def test_elst_damping_dipole_torch_df_CLIFF():
 
 
 def test_elst_damping_dipole_torch_df_AMOEBA():
+    """
+    Compare AMOEBA-damped electrostatic and induction predictions to SAPT references and AP3 model outputs for water dimer entries, printing distances and energy comparisons.
+    
+    Builds AMOEBA atom-type and dimer parameter models, loads water dimer test data, computes reference AMOEBA-damped energies via eval_qcel_dimer_individual_components, obtains AP3 predictions, and prints SAPT, reference ELST, and AP3 ELST for each dimer entry.
+    """
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -1509,19 +1524,9 @@ def test_elst_damping_dipole_torch_df_AMOEBA():
 
 def test_elst_damping_AMOEBA_mtp_mtp_torch():
     """
-    Test the AMOEBA (GORDON1) electrostatic damping function.
-
-    This test verifies that mtp_elst_damping_AMOEBA produces correct results
-    for a water dimer using reference data from AMOEBA/HIPPO calculations.
-    Reference file: amoeba_water_dimer_ref.pkl contains:
-      - amoeba_elst_hippo: -7.2136 kcal/mol (AMOEBA electrostatic energy)
-      - alpha_A/alpha_B: ~4.7 (AMOEBA damping parameters)
-      - Multipoles from pbe0/atz calculations
-
-    Note: Our implementation gives ~-5.74 kcal/mol while HIPPO gives ~-7.21 kcal/mol.
-    The difference is due to different conventions for nuclear-multipole interactions.
-    We validate against the numpy reference (eval_qcel_dimer_individual_components
-    with match_cliff=False) which also gives ~-5.74 kcal/mol.
+    Run the AMOEBA (GORDON1) electrostatic damping test on a water dimer and compare results to reference data.
+    
+    Performs an AMOEBA (GORDON1) damped multipole electrostatics calculation for a water dimer using reference multipoles and damping parameters, evaluates low-level damping factors, and compares the computed AMOEBA-damped energy with CLIFF/AMOEBA and SAPT0 reference values. Also performs basic sanity checks to ensure the computed tensor contains no NaN or infinite values.
     """
 
     # Load reference data with AMOEBA values

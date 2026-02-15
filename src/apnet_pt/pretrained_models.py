@@ -164,10 +164,33 @@ def apnet2_model_predict_pairs(
     ap2_fused: bool = True,
 ):
     """
-    Predicts AP2 pairwise energies that correspond to an FSAPT calculation. fA
-    and fB are LISTS of dictionaries that specify the atom indices for fragment
-    A and B to sum their contributions. The syntax is identical to the Psi4
-    FSAPT updates from https://github.com/psi4/psi4/pull/3222
+    Compute ensemble-averaged APNet2 pairwise interaction energies for specified fragment pairs and return per-molecule energies, per-atom pairwise arrays, and a fragment-pair breakdown DataFrame.
+    
+    Parameters:
+        mols: Iterable of Molecule
+            Molecules to evaluate.
+        fAs: list[dict[str, list[int]]]
+            Per-molecule fragment-A definitions: a list with one dict per molecule mapping fragment names to 1-based atom indices belonging to fragment A.
+        fBs: list[dict[str, list[int]]]
+            Per-molecule fragment-B definitions: a list with one dict per molecule mapping fragment names to 1-based atom indices belonging to fragment B.
+        compile: bool, optional
+            If True, compile models before prediction.
+        batch_size: int, optional
+            Prediction batch size used by the model.
+        ensemble_model_dir: str, optional
+            Directory containing ensemble model files.
+        print_results: bool, optional
+            If True, print a formatted per-fragment summary to stdout.
+        ap2_fused: bool, optional
+            If True, use the fused APNet2 variant; otherwise use the standard APNet2 ensemble.
+    
+    Returns:
+        pred_IEs (numpy.ndarray):
+            Array of shape (N, 5) where N is the number of molecules. Column 0 is the ensemble-averaged total interaction energy; columns 1–4 are the ensemble-averaged energy components in the order: electrostatics, exchange, induction, dispersion.
+        pairwise_energies (list):
+            Per-molecule pairwise energy arrays averaged over the ensemble. For each molecule this contains component arrays indexed by component (elst, exch, indu, disp) and atom indices for fragment A and fragment B (component, nA_atoms, nB_atoms).
+        df (pandas.DataFrame):
+            Fragment-pair breakdown with columns ["fA-fB", "total", "elst", "exch", "indu", "disp"], one row per fragment-A/fragment-B pair.
     """
     assert fAs is not None, (
         "fAs must be provided. Example: [{'Methyl1_A': [1, 2, 7, 8], 'Methyl2_A': [3, 4, 5, 6]}...]"

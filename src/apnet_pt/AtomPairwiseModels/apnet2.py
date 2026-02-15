@@ -1097,6 +1097,37 @@ class APNet2Model:
         return_pairs=False,
         return_elst=False,
     ):
+        """
+        Predict per-dimer SAPT and related energies for a list of QCEngine dimer molecules.
+        
+        Parameters:
+        	mols (Sequence): Iterable of QCEngine dimer objects (each convertible via qcel_dimer_to_pyg_data).
+        	batch_size (int): Number of dimers processed per forward pass.
+        	r_cut (float | None): Intramonomer cutoff distance; defaults to self.model.r_cut when None.
+        	r_cut_im (float | None): Intermolecular cutoff distance; defaults to self.model.r_cut_im when None.
+        	verbose (bool): If True, prints progress messages for each processed batch.
+        	return_pairs (bool): If True, also return assembled per-pair short-range and long-range energy contributions.
+        	return_elst (bool): If True, also return assembled multipole electrostatic pair contributions. Mutually exclusive with return_pairs.
+        
+        Returns:
+        	When self.model.return_hidden_states is True:
+        		tuple: (predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers)
+        			predictions (ndarray): (N, 4) array of per-dimer predicted SAPT component energies.
+        			h_ABs, h_BAs (list): per-batch hidden-state tensors for A->B and B->A.
+        			cutoffs (list): per-batch cutoff masks or values returned by the model.
+        			dimer_inds (list): per-batch dimer index tensors.
+        			ndimers (list): per-batch counts of dimers.
+        	When return_pairs or return_elst is True (and hidden states are not returned):
+        		tuple: (predictions, pairwise_energies)
+        			predictions (ndarray): (N, 4) array of per-dimer predicted SAPT component energies.
+        			pairwise_energies (list): assembled per-pair energy records (format produced by _assemble_pairs or _assemble_mtp_pairs).
+        	Otherwise:
+        		ndarray: (N, 4) array of per-dimer predicted SAPT component energies.
+        
+        Notes:
+        	- return_elst and return_pairs are mutually exclusive; an assertion is raised if both are True.
+        	- Inputs are processed in batches; atomic properties are produced by self.atom_model and assembled into dimer Data objects before evaluation.
+        """
         assert not (return_elst and return_pairs), "return_elst and return_pairs are not compatible"
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -1246,6 +1277,39 @@ class APNet2Model:
         return_pairs=False,
         return_elst=False,
     ):
+        """
+        Generate predictions for a list of QCEL dimer molecules using an indexing-based batching workflow.
+        
+        Parameters:
+            mols (Sequence): Iterable of QCEL dimer molecule objects (each convertible by qcel_dimer_to_pyg_data).
+            batch_size (int): Number of dimers processed per atom-model batching step.
+            r_cut (float | None): Short-range cutoff distance; defaults to self.model.r_cut when None.
+            r_cut_im (float | None): Inter-monomer cutoff distance; defaults to self.model.r_cut_im when None.
+            verbose (bool): If True, print progress messages for each processed batch.
+            return_pairs (bool): If True, also return assembled pairwise SAPT component energies for each dimer.
+            return_elst (bool): If True, also return assembled multipole electrostatic pair energies for each dimer.
+                Note: return_pairs and return_elst are mutually exclusive (an assertion enforces this).
+        
+        Returns:
+            If self.model.return_hidden_states is True:
+                (predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components (N = number of input dimers).
+                - h_ABs, h_BAs (list): Lists of hidden-state tensors for A->B and B->A outputs per batch.
+                - cutoffs (list): Cutoff values returned per batch.
+                - dimer_inds (list): Batched dimer index tensors.
+                - ndimers (list): Number of dimers per batch as tensors.
+            Else if return_pairs is True:
+                (predictions, pairwise_energies)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+                - pairwise_energies (list): Assembled per-pair SAPT component entries produced by _assemble_pairs.
+            Else if return_elst is True:
+                (predictions, pairwise_energies)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+                - pairwise_energies (list): Assembled multipole electrostatic pair entries produced by _assemble_mtp_pairs.
+            Else:
+                predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+        
+        """
         assert not (return_elst and return_pairs), "return_elst and return_pairs are not compatible"
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -1388,6 +1452,17 @@ class APNet2Model:
         r_cut=5.0,
         r_cut_im=8.0,
 ):
+        """
+        Create a single-batch example input for the model from a QCEngine/QCElemental molecule.
+        
+        Parameters:
+            mol (qcel.models.Molecule | None): Molecule to build the example from. If None, a small default water-like dimer is used.
+            r_cut (float): Short-range cutoff distance (angstrom) used when assembling pairwise inputs.
+            r_cut_im (float): Intramonomer cutoff distance (angstrom) used for internal-distance encodings.
+        
+        Returns:
+            A collated batch object formatted for the APNet2 model's evaluation/prediction methods, containing atom features, coordinates, and pairwise assembly for the specified cutoffs.
+        """
         if mol is None:
             mol = qcel.models.Molecule.from_data("""
 0 1

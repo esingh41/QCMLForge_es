@@ -68,6 +68,14 @@ class NoisyConstantEmbedding(nn.Embedding):
 
 class DimerProp(nn.Module):
     def __init__(self, ATParam, dimer_eval="elst_damping", elst_damping_type="CLIFF"):
+        """
+        Create a DimerProp configured with an AtomTypeParam and selected evaluation and damping modes.
+        
+        Parameters:
+            ATParam: An AtomTypeParam instance providing per-atom parameter tensors and an `atom_model` used for multipole predictions. The `atom_model` will be frozen (requires_grad set to False).
+            dimer_eval (str): Name of the dimer evaluation forward mode to use (e.g., "elst_damping", "induced_dipole", "elst").
+            elst_damping_type (str): Electrostatic damping scheme to apply for damped elst evaluations; supported values include "CLIFF" and "AMOEBA".
+        """
         super().__init__()
         self.AtomTypeParam = ATParam
         self.AtomTypeParam.atom_model.requires_grad_(False)
@@ -76,6 +84,25 @@ class DimerProp(nn.Module):
         return
 
     def set_forward(self, dimer_eval):
+        """
+        Configure which forward method the instance will use and set related resources.
+        
+        Parameters:
+            dimer_eval (str): Mode selector for the dimer evaluation. Accepted values:
+                - "elst_damping": use damped electrostatics (_elst_damping_forward)
+                - "elst_damping_AMOEBA": use AMOEBA-style damped electrostatics (_elst_damping_AMOEBA_forward)
+                - "elst": use undamped electrostatics (_elst_forward)
+                - "induced_dipole": compute induction via induced dipoles (_indu_induced_dipole_forward)
+                - "induced_dipole_param": induction using parameterized polarizabilities (_indu_induced_dipole_param_forward)
+                - "elst_damping__induced_dipole": combined damped electrostatics and induction (_elst_damping_indu_induced_dipole_forward)
+                - "ap3_elst_damping__induced_dipole": AP3-specific damped electrostatics plus induction (_ap3_elst_damping_indu_induced_dipole_forward)
+                - "ap3_atomMPNN": return AP3 atom multipole parameters only (_ap3_atomMPNN)
+        
+        Notes:
+            - This method sets self.forward to the corresponding internal forward implementation.
+            - For modes that compute induction ("induced_dipole", "induced_dipole_param", and the combined induction modes), this method also clones the global polarizability table into self.polarizability_table.
+            - Raises ValueError if dimer_eval is not one of the accepted mode strings.
+        """
         if dimer_eval == "elst_damping":
             self.forward = self._elst_damping_forward
         elif dimer_eval == "elst_damping_AMOEBA":
@@ -103,6 +130,22 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
+        """
+        Compute the damped electrostatic energy for a batched dimer and return per-atom parameter outputs.
+        
+        Parameters:
+            batch: Batched dimer data containing at least the following attributes used for the evaluation:
+                - ZA, ZB: nuclear charges for fragments A and B
+                - RA, RB: Cartesian coordinates for fragments A and B
+                - batch_atomic_A, batch_atomic_B: atom index mappings for AtomTypeParam lookup
+                - e_ABsr_source, e_ABsr_target: edge source/target indices for short-range A–B interactions
+                The function also uses the AtomTypeParam module attached to self and self.elst_damping_type to select the damping variant.
+        
+        Returns:
+            Elst: Tensor of electrostatic energy values for the batch (damped MTP–MTP A–B interactions).
+            v_A: Tuple/list of per-atom parameter tensors produced for fragment A (e.g., monopole, dipole, quadrupole, ...).
+            v_B: Tuple/list of per-atom parameter tensors produced for fragment B (e.g., monopole, dipole, quadrupole, ...).
+        """
         v_A = self.AtomTypeParam(batch.batch_atomic_A)
         v_B = self.AtomTypeParam(batch.batch_atomic_B)
         Ka = torch.abs(v_A[-1])
@@ -138,6 +181,17 @@ class DimerProp(nn.Module):
         self,
         batch,
     ):
+        """
+        Compute the AMOEBA-damped multipole electrostatic energy for a batched dimer and return per-atom parameter tensors.
+        
+        Parameters:
+            batch: Batched dimer data object containing at least ZA, ZB (atomic numbers), RA, RB (coordinates), e_ABsr_source, e_ABsr_target (short-range inter-molecular edge index arrays), and batch_atomic_A / batch_atomic_B indices used by the AtomTypeParam module.
+        
+        Returns:
+            Elst (torch.Tensor): Batched AMOEBA-damped electrostatic energy for each dimer in the input batch.
+            v_A (tuple): Per-atom multipole parameter tensors produced for molecule A (q, mu, quad, ..., last element used to derive Ka).
+            v_B (tuple): Per-atom multipole parameter tensors produced for molecule B (q, mu, quad, ..., last element used to derive Kb).
+        """
         v_A = self.AtomTypeParam(batch.batch_atomic_A)
         v_B = self.AtomTypeParam(batch.batch_atomic_B)
         Ka = torch.abs(v_A[-1])
@@ -850,7 +904,17 @@ def elst_damping_mtp_mtp_torch(
     e_target: torch.tensor,
 ):
     """
-    # MTP-MTP interaction
+    Compute Gordon1-style damping factors for multipole–multipole interactions per edge.
+    
+    Parameters:
+        alpha_i (torch.Tensor): Per-atom alpha values for the source ensemble (shape [N_atoms]).
+        alpha_j (torch.Tensor): Per-atom alpha values for the target ensemble (shape [M_atoms]).
+        r (torch.Tensor): Interatomic distances for each edge (shape [n_edges]).
+        e_source (torch.Tensor): Source atom indices for each edge (shape [n_edges]).
+        e_target (torch.Tensor): Target atom indices for each edge (shape [n_edges]).
+    
+    Returns:
+        tuple: (lam1, lam3, lam5) — three torch.Tensors of damping factors for each edge (each shape [n_edges]).
     """
     # need to have alpha_i repeated for each atom in j and vice versa
     alpha_i = alpha_i.index_select(0, e_source)
@@ -898,7 +962,22 @@ def elst_damping_Z_mtp_torch(
     e_target: torch.tensor,
 ):
     """
-    # Z-MTP interaction
+    Compute Gordon1-style damping factors for Z (nuclear charge) to multipole (MTP) interactions for each pair defined by edge indices.
+    
+    Parameters:
+        alpha_i (torch.Tensor): Per-atom polarizabilities for atoms in set A (shape [n_atoms_A]).
+        alpha_j (torch.Tensor): Per-atom polarizabilities for atoms in set B (shape [n_atoms_B]).
+        r (torch.Tensor): Pairwise scalar distances for edges (shape [n_edges]).
+        e_source (torch.Tensor): Source atom indices for each edge (maps entries in `r` to indices in `alpha_i`).
+        e_target (torch.Tensor): Target atom indices for each edge (maps entries in `r` to indices in `alpha_j`).
+    
+    Returns:
+        lam1_j (torch.Tensor): First-order damping factor for the j-side (shape [n_edges]).
+        lam3_j (torch.Tensor): Third-order damping factor for the j-side (shape [n_edges]).
+        lam5_j (torch.Tensor): Fifth-order damping factor for the j-side (shape [n_edges]).
+        lam1_i (torch.Tensor): First-order damping factor for the i-side (shape [n_edges]).
+        lam3_i (torch.Tensor): Third-order damping factor for the i-side (shape [n_edges]).
+        lam5_i (torch.Tensor): Fifth-order damping factor for the i-side (shape [n_edges]).
     """
     # need to have alpha_i repeated for each atom in j and vice versa
     alpha_i = alpha_i.index_select(0, e_source)
@@ -933,27 +1012,19 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
     e_target: torch.tensor,
 ):
     """
-    # MTP-MTP interaction using GORDON1 damping
-    Fortran code where dmpik(3), dmpik(5) are lam3, lam5:
-
-    valence-valence charge penetration damping for Gordon f1
-
-    if (diff .lt. eps) then  # same alpha case
-        dmpik(3) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
-                      + 7.0d0*dampi3/48.0d0
-                      + dampi4/48.0d0)*expi
-        dmpik(5) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
-                      + dampi3/6.0d0 + dampi4/24.0d0
-                      + dampi5/144.0d0)*expi
-    else  # different alpha case
-        dmpik(3) = 1.0d0 - termi2*(1.0d0+dampi+0.5d0*dampi2)*expi
-                      - termk2*(1.0d0+dampk+0.5d0*dampk2)*expk
-                      - 2.0d0*termi2*termk*(1.0d0+dampi)*expi
-                      - 2.0d0*termk2*termi*(1.0d0+dampk)*expk
-        dmpik(5) = 1.0d0 - termi2*(1.0d0+dampi+0.5d0*dampi2+dampi3/6.0d0)*expi
-                      - termk2*(1.0d0+dampk+0.5d0*dampk2+dampk3/6.0d0)*expk
-                      - 2.0d0*termi2*termk*(1.0+dampi+dampi2/3.0d0)*expi
-                      - 2.0d0*termk2*termi*(1.0+dampk+dampk2/3.0d0)*expk
+    Compute AMOEBA-style Gordon1 damping factors for multipole–multipole interactions.
+    
+    Computes per-edge damping scaling factors lam1, lam3, and lam5 for pairs of atomic sites using their effective damping parameters (alpha_i, alpha_j), inter-site distances r, and edge index mappings (e_source selects sites from alpha_i, e_target selects sites from alpha_j). Handles both same-alpha and different-alpha cases with numerical safeguards.
+    
+    Parameters:
+        alpha_i (torch.Tensor): Per-atom damping parameter tensor for the "i" set.
+        alpha_j (torch.Tensor): Per-atom damping parameter tensor for the "j" set.
+        r (torch.Tensor): Interatomic distances for each edge (matches length of e_source/e_target).
+        e_source (torch.Tensor): Index tensor selecting source atoms from alpha_i for each edge.
+        e_target (torch.Tensor): Index tensor selecting target atoms from alpha_j for each edge.
+    
+    Returns:
+        tuple: (lam1, lam3, lam5) tensors of the same shape as r containing the computed damping factors.
     """
     # need to have alpha_i repeated for each atom in j and vice versa
     alpha_i = alpha_i.index_select(0, e_source)
@@ -1043,23 +1114,20 @@ def elst_damping_AMOEBA_Z_mtp_torch(
     e_target: torch.tensor,
 ):
     """
-    # Z-MTP (core-valence) interaction using GORDON1 damping
-    Fortran code where dmpi(3), dmpi(5) are lam3_i, lam5_i and
-    dmpk(3), dmpk(5) are lam3_j, lam5_j:
-
-    core-valence charge penetration damping for Gordon f1
-
-    dmpi(3) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2)*expi
-    dmpi(5) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2 + dampi3/6.0d0)*expi
-    dmpi(7) = 1.0d0 - (1.0d0 + dampi + 0.5d0*dampi2
-                  + dampi3/6.0d0 + dampi4/30.0d0)*expi
-    if (diff .lt. eps) then
-        dmpk = dmpi  # same values
-    else
-        dmpk(3) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2)*expk
-        dmpk(5) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2 + dampk3/6.0d0)*expk
-        dmpk(7) = 1.0d0 - (1.0d0 + dampk + 0.5d0*dampk2
-                     + dampk3/6.0d0 + dampk4/30.0d0)*expk
+    Compute AMOEBA-style Gordon1 damping factors for Z–MTP (core–valence) interactions per edge.
+    
+    Parameters:
+        alpha_i (torch.Tensor): Per-atom alpha values for the "i" set (will be indexed by e_source).
+        alpha_j (torch.Tensor): Per-atom alpha values for the "j" set (will be indexed by e_target).
+        r (torch.Tensor): Distance scalar per edge (aligned with e_source/e_target).
+        e_source (torch.Tensor): Edge source indices selecting entries from alpha_i.
+        e_target (torch.Tensor): Edge target indices selecting entries from alpha_j.
+    
+    Returns:
+        lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i (torch.Tensor):
+            Damping factors of orders 1, 3, and 5 for the j-side followed by the i-side,
+            each tensor aligned to the input edge list. If alpha_i and alpha_j differ by
+            less than 1e-3 the j-side uses the same damping values as the i-side.
     """
     # need to have alpha_i repeated for each atom in j and vice versa
     alpha_i = alpha_i.index_select(0, e_source)
@@ -1200,7 +1268,27 @@ def mtp_elst_damping(
     Q_const=3.0,  # set to 1.0 to agree with CLIFF
 ):
     """
-    GORDON2 damping from CLIFF
+    Compute damped multipole electrostatic interactions for paired atoms using the Gordon2 (CLIFF) damping scheme.
+    
+    Parameters:
+        ZA (Tensor): Nuclear charges for atoms in A.
+        RA (Tensor): Cartesian coordinates for atoms in A (au or consistent internal units).
+        qA_0 (Tensor): Monopole (formal) charges for atoms in A.
+        muA (Tensor): Dipole vectors for atoms in A.
+        quadA (Tensor): Quadrupole tensors for atoms in A.
+        Ka (Tensor): Per-atom damping/size parameters for atoms in A used by the Gordon2 scheme.
+        ZB (Tensor): Nuclear charges for atoms in B.
+        RB (Tensor): Cartesian coordinates for atoms in B (same units as RA).
+        qB_0 (Tensor): Monopole (formal) charges for atoms in B.
+        muB (Tensor): Dipole vectors for atoms in B.
+        quadB (Tensor): Quadrupole tensors for atoms in B.
+        Kb (Tensor): Per-atom damping/size parameters for atoms in B used by the Gordon2 scheme.
+        e_AB_source (LongTensor): Source atom indices into A for each A–B interacting pair.
+        e_AB_target (LongTensor): Target atom indices into B for each A–B interacting pair.
+        Q_const (float, optional): Scaling constant applied to quadrupole contributions (default 3.0).
+    
+    Returns:
+        Tensor: Per-pair electrostatic interaction energies (one value per entry in the edge index arrays), scaled by the factor 627.509.
     """
     dR_ang, dR_xyz_ang = get_distances(RA, RB, e_AB_source, e_AB_target)
     dR = dR_ang / constants.au2ang
@@ -1308,13 +1396,27 @@ def mtp_elst_damping_AMOEBA(
     Q_const=3.0,  # set to 1.0 to agree with CLIFF
 ):
     """
-    The difference between this and mtp_elst_damping is the way damping
-    function is computed. AMOEBA follows "Electrostatic Energy in the Effective
-    Fragment Potential Method: Theory and Application to Benzene Dimer" by
-    LYUDMILA V. SLIPCHENKO, MARK S. GORDON. Called "GORDON1" in tinker.
-    f_1^{damp} = 1 - exp(-alpha*r)( 1 + alpha * R / 2).
-    CLIFF follows the "GORDON2" equation
-    f_2^{damp} = 1 - exp(-alpha*r).
+    Compute the AMOEBA-style damped electrostatic interaction energy between multipole-expanded atoms for each A-B edge.
+    
+    Parameters:
+        ZA (Tensor): Nuclear charges for atoms in A, shape (nA, 1) or (nA,).
+        RA (Tensor): Coordinates for atoms in A, shape (nA, 3) (atomic units).
+        qA_0 (Tensor): Total monopoles for atoms in A (including nuclear), shape (nA, 1) or (nA,).
+        muA (Tensor): Dipole vectors for atoms in A, shape (nA, 3).
+        quadA (Tensor): Quadrupole tensors for atoms in A, shape (nA, 3, 3).
+        Ka (Tensor): Per-atom damping/alpha-like parameters for atoms in A, shape (nA, ...) as required by damping helpers.
+        ZB (Tensor): Nuclear charges for atoms in B, shape (nB, 1) or (nB,).
+        RB (Tensor): Coordinates for atoms in B, shape (nB, 3) (atomic units).
+        qB_0 (Tensor): Total monopoles for atoms in B (including nuclear), shape (nB, 1) or (nB,).
+        muB (Tensor): Dipole vectors for atoms in B, shape (nB, 3).
+        quadB (Tensor): Quadrupole tensors for atoms in B, shape (nB, 3, 3).
+        Kb (Tensor): Per-atom damping/alpha-like parameters for atoms in B, shape (nB, ...) as required by damping helpers.
+        e_AB_source (LongTensor): Source atom indices from A for each A-B interaction edge, shape (n_edges,).
+        e_AB_target (LongTensor): Target atom indices from B for each A-B interaction edge, shape (n_edges,).
+        Q_const (float, optional): Quadrupole scaling constant; default 3.0 (set to 1.0 to match CLIFF/Gordon2 convention).
+    
+    Returns:
+        Tensor: Per-edge electrostatic interaction energies in kcal/mol, shape (n_edges,).
     """
     dR_ang, dR_xyz_ang = get_distances(RA, RB, e_AB_source, e_AB_target)
     dR = dR_ang / constants.au2ang
@@ -1411,6 +1513,25 @@ def mtp_elst_damping_AMOEBA(
 def distance_tensors(
     Ri, Rj, e_source, e_target, alpha_A=None, alpha_B=None, thole_damping_param=0.39
 ):
+    """
+    Compute Thole-damped distance and interaction tensors for pairs of atoms.
+    
+    Parameters:
+        Ri (Tensor): Coordinates of atom set A with shape (N_A, 3).
+        Rj (Tensor): Coordinates of atom set B with shape (N_B, 3).
+        e_source (LongTensor): Source indices into Ri for each interacting pair.
+        e_target (LongTensor): Target indices into Rj for each interacting pair.
+        alpha_A (Tensor): Per-atom polarizabilities for Ri (shape (N_A,) or (N_A,1)).
+        alpha_B (Tensor): Per-atom polarizabilities for Rj (shape (N_B,) or (N_B,1)).
+        thole_damping_param (float): Thole damping parameter controlling short-range screening (default 0.39).
+    
+    Returns:
+        dR (Tensor): Pairwise scalar distances for each edge (in atomic units).
+        dR_xyz (Tensor): Pairwise displacement vectors for each edge (in atomic units), shape (E,3).
+        oodR (Tensor): Elementwise inverse of dR (1 / dR).
+        T1 (Tensor): Thole-damped rank-2 interaction tensor components used for dipole interactions (shape (E,3,3) or broadcastable).
+        T2 (Tensor): Thole-damped rank-3 interaction tensor components used for higher-order interactions (shape (E,3,3) or broadcastable).
+    """
     dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
     dR_xyz = dR_xyz_ang / constants.au2ang
     dR = dR_ang / constants.au2ang
@@ -1462,10 +1583,31 @@ def induced_dipole_induction(
     polarizability_table=constants.polarizability_table,
 ) -> float:
     """
-    Calculate the induced dipole interaction energy between two molecules using
-    their multipole moments and Hirshfeld volume ratios. Follow classical
-    induction model from this paper:
-    https://pubs.aip.org/aip/jcp/article/154/18/184110/200216/CLIFF-A-component-based-machine-learned
+    Compute per-edge induced-dipole induction energies for a dimer using Hirshfeld-scaled atomic polarizabilities and Thole damping.
+    
+    Per-edge energies include mutual induction between atoms in molecule A and B, computed via a self-consistent field (SCF) on induced dipoles with optional Thole damping and an exponential overlap correction. The function returns one energy value per A–B interaction edge (indexed by e_AB_source / e_AB_target) in kilocalories per mole.
+    
+    Parameters:
+        ZA (Tensor): Atomic numbers for molecule A.
+        RA (Tensor): Coordinates for molecule A (N_A x 3).
+        qA (Tensor): Monopoles for A (N_A).
+        muA (Tensor): Permanent dipoles for A (N_A x 3).
+        quadA (Tensor): Quadrupoles for A (unused by induction here but kept for API parity).
+        ZB, RB, qB, muB, quadB: Same as above for molecule B.
+        e_AB_source, e_AB_target (LongTensor): Per-edge source/target atom indices mapping A->B for intermolecular edges.
+        e_AA_source, e_AA_target, e_BB_source, e_BB_target (LongTensor): Index tensors for intra-molecular interaction edges used in SCF.
+        hirshfeld_volume_ratio_A, hirshfeld_volume_ratio_B (Tensor): Per-atom Hirshfeld volume ratios used to scale free-atom polarizabilities.
+        valence_widths_A, valence_widths_B (Tensor): Per-atom valence-width parameters used for the exponential overlap correction.
+        Ka, Kb (Tensor): Per-atom prefactors used in the overlap correction term for A and B.
+        max_iterations (int): Maximum SCF iterations to converge induced dipoles.
+        convergence_threshold (float): L2-norm threshold for SCF convergence.
+        omega (float): SCF mixing parameter in (0,1] applied to induced-dipole updates.
+        thole_damping_param (float): Thole damping parameter controlling short-range screening.
+        Q_const (float): Multiplicative constant for electrostatic prefactors (keeps internal scaling; default chosen for unit conventions).
+        polarizability_table (Tensor): Lookup table of free-atom isotropic polarizabilities indexed by atomic number.
+    
+    Returns:
+        Tensor: Per-interaction induced induction energies (kcal/mol) for each A–B edge (shape equals number of entries in e_AB_source).
     """
     delta = torch.eye(3, device=qA.device)
     h2kcalmol = constants.h2kcalmol  # Hartree to kcal/mol conversion factor
@@ -1719,7 +1861,31 @@ def monomer_induced_dipole_torch(
         thole_param,
         thole_type="direct",
     ):
-        """Calculate interaction tensors between atoms with optional screening"""
+        """
+        Compute Thole-damped interaction tensors and distance measures between two sets of atoms for a list of pair indices.
+        
+        Parameters:
+            Ri (Tensor): Coordinates of source atoms (units: atomic units).
+            Rj (Tensor): Coordinates of target atoms (units: atomic units).
+            e_source (LongTensor): 1D indices selecting source atoms for each pair.
+            e_target (LongTensor): 1D indices selecting target atoms for each pair.
+            alpha_i (Tensor): Per-atom polarizabilities for source atoms.
+            alpha_j (Tensor): Per-atom polarizabilities for target atoms.
+            thole_param (float or Tensor): Thole damping parameter (scalar or per-pair).
+            thole_type (str): Either "direct" or "mutual", selects the Thole damping variant.
+        
+        Returns:
+            dR (Tensor): Pairwise scalar distances (Angstrom).
+            dR_xyz (Tensor): Pairwise displacement vectors (Angstrom) from source to target.
+            oodR (Tensor): 1.0 / dR (inverse distances).
+            T1 (Tensor): Rank-1 interaction tensor (field) for each pair, Thole-damped.
+            T2 (Tensor): Rank-2 interaction tensor (field gradient) for each pair, Thole-damped.
+        
+        Notes:
+            - Distances and displacement vectors are converted from atomic units to Angstrom.
+            - Short-range pairs below the configured screening distance are replaced with safe values and their damping factors set to zero to avoid singularities.
+            - `thole_type="mutual"` applies mutual Thole damping; otherwise direct Thole damping is used.
+        """
         dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
         dR_xyz = dR_xyz_ang / constants.au2ang
         dR = dR_ang / constants.au2ang
@@ -1864,7 +2030,40 @@ def induced_dipole_induction_optimized(
     polarizability_table=constants.polarizability_table,
 ) -> float:
     """
-    Optimized version of induced_dipole_induction with reduced index_select and scatter operations.
+    Compute per-pair induced-dipole induction energies for a dimer using an optimized SCF procedure.
+    
+    Parameters:
+        ZA (Tensor): atomic numbers for molecule A (shape [n_A]).
+        RA (Tensor): Cartesian coordinates for molecule A (shape [n_A, 3]).
+        qA (Tensor): monopoles for A (shape [n_A] or [n_A,1]).
+        muA (Tensor): permanent dipoles for A (shape [n_A, 3]).
+        quadA (Tensor): quadrupoles for A (shape [n_A, ...]) — used by the interaction tensors.
+        ZB (Tensor): atomic numbers for molecule B (shape [n_B]).
+        RB (Tensor): Cartesian coordinates for molecule B (shape [n_B, 3]).
+        qB (Tensor): monopoles for B (shape [n_B] or [n_B,1]).
+        muB (Tensor): permanent dipoles for B (shape [n_B, 3]).
+        quadB (Tensor): quadrupoles for B (shape [n_B, ...]) — used by the interaction tensors.
+        e_AB_source (LongTensor): source indices into A for A↔B pair list (shape [n_pairs]).
+        e_AB_target (LongTensor): target indices into B for A↔B pair list (shape [n_pairs]).
+        e_AA_source (LongTensor): source indices into A for intramolecular A–A interactions.
+        e_BB_source (LongTensor): source indices into B for intramolecular B–B interactions.
+        e_AA_target (LongTensor): target indices into A for intramolecular A–A interactions.
+        e_BB_target (LongTensor): target indices into B for intramolecular B–B interactions.
+        hirshfeld_volume_ratio_A (Tensor): Hirshfeld volume ratios for A (shape [n_A]).
+        hirshfeld_volume_ratio_B (Tensor): Hirshfeld volume ratios for B (shape [n_B]).
+        valence_widths_A (Tensor): valence width parameters for A (shape [n_A]).
+        valence_widths_B (Tensor): valence width parameters for B (shape [n_B]).
+        Ka (Tensor): per-atom short-range correction amplitudes for A (shape [n_A]).
+        Kb (Tensor): per-atom short-range correction amplitudes for B (shape [n_B]).
+        max_iterations (int): maximum SCF iterations (default 200).
+        convergence_threshold (float): SCF convergence threshold on induced-dipole change (default 1e-8).
+        omega (float): DIIS-like mixing factor applied each iteration (default 0.7).
+        thole_damping_param (float): Thole damping parameter for interaction tensors (default 0.39).
+        Q_const (float): scaling constant applied in tensor construction (default 3.0).
+        polarizability_table (Tensor): lookup table of free-atom polarizabilities indexed by atomic number.
+    
+    Returns:
+        Tensor: per-pair induced induction energy (kcal/mol) for each A–B pair in the order given by e_AB_source/e_AB_target.
     """
 
     delta = torch.eye(3, device=qA.device)
@@ -2049,7 +2248,32 @@ def induced_dipole_induction_optimized_no_correction(
     polarizability_table=constants.polarizability_table,
 ) -> float:
     """
-    Since only using induced dipoles, don't need overlap correction (valence widths, Ka, Kb)
+    Compute induction energy from self-consistent induced dipoles for a dimer without overlap/valence-width correction.
+    
+    Performs a Thole-damped SCF to converge induced dipoles on each monomer due to permanent multipoles and mutual induced dipoles, then returns the induction energy per A–B interaction edge.
+    
+    Parameters:
+        ZA (Tensor): Atomic numbers for molecule A (N_A,).
+        RA (Tensor): Cartesian coordinates for molecule A (N_A, 3).
+        qA (Tensor): Nuclear+electronic monopoles for A (N_A,) or (N_A,1).
+        muA (Tensor): Permanent dipoles for A (N_A, 3).
+        quadA (Tensor): Permanent quadrupoles for A (per-atom multipole representation).
+        ZB, RB, qB, muB, quadB: Same as above for molecule B.
+        e_AB_source (LongTensor): Source atom indices in A for A–B interaction edges (n_edges,).
+        e_AB_target (LongTensor): Target atom indices in B for A–B interaction edges (n_edges,).
+        e_AA_source, e_AA_target (LongTensor): Intra-A interaction edge index pairs for AA interactions.
+        e_BB_source, e_BB_target (LongTensor): Intra-B interaction edge index pairs for BB interactions.
+        hirshfeld_volume_ratio_A (Tensor): Per-atom Hirshfeld volume ratios for A (N_A,).
+        hirshfeld_volume_ratio_B (Tensor): Per-atom Hirshfeld volume ratios for B (N_B,).
+        max_iterations (int): Maximum SCF iterations.
+        convergence_threshold (float): Convergence threshold on induced-dipole change.
+        omega (float): DIIS-like mixing factor for SCF updates (0..1).
+        thole_damping_param (float): Thole damping parameter for short-range screening.
+        Q_const (float): Scaling constant applied in electrostatic/tensor prefactors (kept for compatibility).
+        polarizability_table (Tensor): Lookup table mapping atomic number to base polarizability.
+    
+    Returns:
+        Tensor: Induction energy per A–B interaction edge (n_edges,) in kcal/mol.
     """
 
     delta = torch.eye(3, device=qA.device)
@@ -2213,7 +2437,30 @@ def induced_dipole(
     polarizability_table=constants.polarizability_table,
 ) -> float:
     """
-    Since only using induced dipoles, don't need overlap correction (valence widths, Ka, Kb)
+    Compute self-consistent induced dipoles for a single molecule A from its permanent multipoles and Hirshfeld volume ratios.
+    
+    Performs a Thole-damped SCF to converge induced dipoles on each atom of molecule A using its charges (qA), permanent dipoles (muA), quadrupoles (quadA), and atomic coordinates (RA). Iteration continues until the change in induced dipoles falls below convergence_threshold or max_iterations is reached.
+    
+    Parameters:
+        ZA (Tensor): Atomic number indices for atoms in molecule A.
+        RA (Tensor): Atomic coordinates for molecule A with shape (n_atoms, 3).
+        qA (Tensor): Atomic charges for A with shape (n_atoms,).
+        muA (Tensor): Permanent atomic dipoles for A with shape (n_atoms, 3).
+        quadA (Tensor): Atomic quadrupoles for A (unused by this function but required for consistency).
+        e_AA_source (Tensor): Source indices for pairwise A->A interactions (edge source).
+        e_AA_target (Tensor): Target indices for pairwise A->A interactions (edge target).
+        hirshfeld_volume_ratio_A (Tensor): Per-atom Hirshfeld volume ratios used to scale free-atom polarizabilities.
+        max_iterations (int, optional): Maximum SCF iterations. Default 200.
+        convergence_threshold (float, optional): Convergence norm threshold for induced dipole changes. Default 1e-8.
+        omega (float, optional): Damping/mixing parameter for SCF updates. Default 0.7.
+        thole_damping_param (float, optional): Thole damping parameter. Default 0.39.
+        Q_const (float, optional): Multiplicative constant for electrostatic scaling (kept for consistency). Default 3.0.
+        polarizability_table (Tensor or array-like, optional): Table of free-atom polarizabilities indexed by ZA.
+    
+    Notes:
+        - Polarizabilities are scaled as alpha = alpha_free * (hirshfeld_volume_ratio)^(4/3).
+        - Thole damping is applied via distance_tensors.
+        - This function performs the SCF and computes induced dipoles but does not return a value (implicit None).
     """
 
     delta = torch.eye(3, device=qA.device)
@@ -2291,6 +2538,22 @@ def induced_dipole(
 
 
 def isolate_atom_parameter_predictions(batch, output):
+    """
+    Split batched per-atom prediction tensors into per-molecule lists.
+    
+    Parameters:
+        batch: object with attribute `natom_per_mol`, a 1D tensor-like giving the number of atoms for each molecule in the batch.
+        output: sequence where
+            - output[0] is per-atom charges (tensor of length total_atoms),
+            - output[1] is per-atom dipoles,
+            - output[2] is per-atom quadrupoles,
+            - output[3] is per-atom `hlist`,
+            - output[-1] is per-atom parameter tensor `K`.
+    
+    Returns:
+        mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_K:
+            Five lists of length `batch.natom_per_mol.size(0)`. Each element is a tensor containing the corresponding property restricted to the atoms of that molecule.
+    """
     batch_size = batch.natom_per_mol.size(0)
     q = output[0]
     mu = output[1]
@@ -2380,10 +2643,52 @@ class AM_DimerParam_Model:
         elst_damping_type="CLIFF",
     ):
         """
-        If pre_trained_model_path is provided, the model will be loaded from
-        the path and all other parameters will be ignored except for dataset.
-
-        use_GPU will check for a GPU and use it if available unless set to false.
+        Construct an AtomTypeParamModel wrapper that builds or loads an atom-level model, a parameter-predicting model, and optional dimer evaluators and dataset.
+        
+        This initializer will:
+        - Prefer loading a full pretrained model if `pre_trained_model_path` is given (all other model-building parameters are ignored except `dataset`).
+        - Optionally load a pretrained atom model via `atom_model_pre_trained_path`.
+        - Instantiate or use the provided `atom_model` and `model` (controlled by `atom_model_type` and `model_type`), then create dimer evaluators (DimerProp) configured by `dimer_eval_type` and `elst_damping_type`.
+        - Select device automatically (GPU if available unless `use_GPU` is False), move models to that device, and optionally construct an on-disk/in-memory dataset unless `ignore_database_null` is True.
+        
+        Parameters:
+            dataset (optional): Preconstructed dataset object to use instead of building one.
+            atom_model (optional): Preconstructed atom-level model instance to use.
+            atom_model_type (str): Type name for constructing a default atom model when `atom_model` is not provided (e.g., "AtomMPNN", "AtomHirshfeldMPNN", "AtomTypeParamNN").
+            model_type (str): Type name for the parameter-predicting model to construct when no pretrained model is loaded (e.g., "AtomTypeParamNN").
+            pre_trained_model_path (str, optional): Path to a checkpoint for the full AtomTypeParam model; when provided this checkpoint is loaded and model-building kwargs are ignored.
+            atom_model_pre_trained_path (str, optional): Path to a checkpoint for an atom-level model; when provided the atom model is re-instantiated to match checkpoint config and its weights are loaded.
+            n_message (int): Number of message-passing steps for the atom/parameter models.
+            n_rbf (int): Number of radial basis functions (used by some atom model types).
+            n_neuron (int): Hidden neuron count used in MLP readouts.
+            n_embed (int): Embedding dimensionality for per-atom embeddings.
+            r_cut (float): Cutoff distance used when constructing datasets.
+            param_start_mean (float or list): Initial mean(s) for parameter embeddings.
+            param_start_std (float or list): Initial stddev(s) for parameter embeddings.
+            n_params (int): Number of per-atom parameters to predict.
+            use_GPU (bool or None): If False, force CPU; if None, use GPU if available.
+            ignore_database_null (bool): If False and no `dataset` is provided, build the dataset(s) from `ds_root` and related dataset args.
+            ds_spec_type (int): Dataset specification / split type forwarded to dataset constructor.
+            ds_root (str): Root directory for datasets.
+            ds_max_size (int, optional): Max dataset size (truncates when set).
+            ds_atomic_batch_size (int): Atomic batch size used by dataset construction.
+            ds_force_reprocess (bool): Force dataset reprocessing.
+            ds_skip_process (bool): Skip dataset processing.
+            ds_skip_compile (bool): Skip any compilation steps when building dataset.
+            ds_num_devices (int): Number of devices used when building dataset metadata.
+            ds_datapoint_storage_n_objects (int): Dataset storage chunking parameter.
+            ds_prebatched (bool): Whether dataset inputs are already prebatched.
+            ds_random_seed (int): RNG seed for dataset construction.
+            ds_in_memory (bool): Whether dataset should be loaded in memory.
+            print_lvl (int): Verbosity level for dataset construction.
+            ds_qcel_molecules (optional): Optional qcel molecules passed into dataset builder.
+            ds_energy_labels (optional): Energy label specifications for dataset builder.
+            dimer_eval_type (str): Dimer evaluation mode used by created DimerProp (e.g., "elst_damping", "elst").
+            elst_damping_type (str): Electrostatic damping variant to use ("CLIFF" or "AMOEBA"); can be overridden by loaded checkpoint config.
+        
+        Notes:
+            - When loading checkpoints, model constructor parameters (n_message, n_neuron, n_embed, param_start_*) are read from the checkpoint config to reinstantiate compatible model instances.
+            - The constructed instance exposes `self.model`, `self.atom_model`, `self.dimer_model`, `self.dimer_model_elst` (when applicable), `self.dataset`, and `self.device`.
         """
         if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
@@ -2885,6 +3190,25 @@ class AM_DimerParam_Model:
         return_pairs=False,
         return_elst=False,
     ):
+        """
+        Predict per-dimer energies for a list of qcel dimer molecules using the configured dimer model.
+        
+        Parameters:
+            mols (Sequence): Iterable of qcel dimer objects convertible by qcel_dimer_to_fused_data.
+            batch_size (int): Number of dimers to process per forward pass.
+            r_cut (float or None): Cutoff radius for assembling graph edges; when None, uses the atom model's default if available.
+            verbose (bool): If true, prints a brief progress message after processing batches.
+            return_pairs (bool): If true, also return per-pair (atom-pair) energy components alongside per-dimer totals.
+            return_elst (bool): If true, also return pairwise electrostatic components. Mutually exclusive with `return_pairs`.
+        
+        Returns:
+            numpy.ndarray or (numpy.ndarray, list): If neither `return_pairs` nor `return_elst` is set, returns a NumPy array of shape (N, M) with per-dimer predictions (N = number of dimers, M = model-determined number of outputs). If `return_pairs` or `return_elst` is set, returns a tuple (predictions, pairwise_energies) where `pairwise_energies` is a list of per-dimer pairwise energy entries produced during prediction.
+        
+        Notes:
+            - Moves the atom_model to the wrapper's configured device.
+            - The number of output columns M is determined from the first batch forward pass.
+            - `return_pairs` and `return_elst` cannot both be true (the function asserts against this).
+        """
         assert not (return_elst and return_pairs), (
             "return_elst and return_pairs are not compatible"
         )
@@ -3162,6 +3486,29 @@ units angstrom
         skip_compile=False,
     ):
         # (1) Compile Model
+        """
+        Train the model in a single process using provided datasets and hyperparameters.
+        
+        Performs optional model compilation, constructs data loaders, runs epoch-wise training and evaluation, tracks and saves the best model (by test loss) to self.model_save_path, and stops early if NaNs are detected. The saved checkpoint includes model state and a config that captures architecture and the active elst_damping_type.
+        
+        Parameters:
+            train_dataset: Dataset
+                Training dataset compatible with APNet2_fused_DataLoader.
+            test_dataset: Dataset
+                Validation/test dataset compatible with APNet2_fused_DataLoader.
+            n_epochs (int):
+                Number of training epochs to run.
+            batch_size (int):
+                Batch size for both training and test loaders.
+            lr (float):
+                Initial learning rate for the Adam optimizer.
+            pin_memory (bool):
+                Passed to DataLoader; whether to pin memory.
+            num_workers (int):
+                Number of worker processes for data loading.
+            skip_compile (bool):
+                If True, skip torch compilation step before training.
+        """
         rank_device = self.device
         # self.model.to(rank_device)
         batch = self.example_input()
