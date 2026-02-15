@@ -11,9 +11,9 @@ from . import defaults
 
 
 param = {
-    "a1": torch.tensor(0.095),
-    "s8": torch.tensor(0.738),
-    "a2": torch.tensor(3.637),
+    "a1": 0.095,
+    "s8": 0.738,
+    "a2": 3.637,
 }
 
 def get_distances(RA, RB, e_source, e_target):
@@ -71,10 +71,10 @@ def cn_d3_intermolecular(
     )
 
     size = e_source_full.max().item() + 1
-    cn_A = torch.zeros(size, dtype=cn.dtype)
+    cn_A = torch.zeros(size, **dd)
     cn_A.scatter_reduce_(0, e_source_full, cn, reduce="sum", include_self=False)
     
-    cn_B = torch.zeros(size, dtype=cn.dtype)
+    cn_B = torch.zeros(size, **dd)
     cn_B.scatter_reduce_(0, e_target_full, cn, reduce="sum", include_self=False)
     return cn_A, cn_B
 
