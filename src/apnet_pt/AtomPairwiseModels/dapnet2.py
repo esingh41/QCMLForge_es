@@ -185,7 +185,7 @@ class APNet2_dAPNet2_MPNN(nn.Module):
 
         delta_E = EAB_sr + EBA_sr
         delta_E *= cutoff
-        E = scatter_sum_compile(delta_E, dimer_ind, dim=0, reduce="sum")
+        E = scatter_sum_compile(delta_E, dimer_ind, dim_size=int(dimer_ind.max()) + 1, reduce="sum")
 
         # Need to ensure that the output is the same size as input dimers
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
@@ -258,7 +258,7 @@ class dAPNet2_MPNN(nn.Module):
 
         delta_E = EAB_sr + EBA_sr
         delta_E *= cutoff
-        E = scatter_sum_compile(delta_E, dimer_ind, dim=0, reduce="sum")
+        E = scatter_sum_compile(delta_E, dimer_ind, dim_size=int(dimer_ind.max()) + 1, reduce="sum")
         # Need to ensure that the output is the same size as input dimers
         N_sr, num_cols = E.shape
         E_expanded = E.new_zeros((ndimer, num_cols))

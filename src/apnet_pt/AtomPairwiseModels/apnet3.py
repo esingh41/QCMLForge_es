@@ -524,8 +524,8 @@ class APNet3_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter_sum_compile(mA_ij, e_AA_source, dim=0, reduce="sum", dim_size=natomA)
-            mB_i = scatter_sum_compile(mB_ij, e_BB_source, dim=0, reduce="sum", dim_size=natomB)
+            mA_i = scatter_sum_compile(mA_ij, e_AA_source, reduce="sum", dim_size=natomA)
+            mB_i = scatter_sum_compile(mB_ij, e_BB_source, reduce="sum", dim_size=natomB)
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)

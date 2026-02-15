@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from ..util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 import numpy as np
 import warnings
 from .. import multipole

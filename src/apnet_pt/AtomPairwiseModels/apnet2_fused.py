@@ -5,7 +5,7 @@ import numpy as np
 import warnings
 import time
 from ..AtomModels.ap2_atom_model import AtomMPNN
-from ..util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,

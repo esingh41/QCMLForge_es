@@ -258,7 +258,7 @@ class AtomHirshfeldMPNN(MessagePassing):
             # [atoms x message_embedding_dim]
             # m_i = unsorted_segment_sum_2d(m_ij, e_source, natom)
             # write unsorted_segment_sum_2d using scatter
-            m_i = scatter_sum_compile(m_ij, e_source, int(natom_filtered), reduce="sum")
+            m_i = scatter_sum_compile(m_ij, e_source, natom_filtered, reduce="sum")
 
             # [atomx x hidden_dim]
             h_next = self.charge_update_layers[i](m_i)
@@ -339,7 +339,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         charge[keep_mask] = filtered_charge
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
-        num_mols = int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+        num_mols = (molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
         total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
         # return charge, dipole, qpole, h_list
 

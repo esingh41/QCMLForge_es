@@ -1133,7 +1133,7 @@ def test_apnet2_model_train_small_r_cut_im():
         omp_num_threads_per_process=8,
         lr=2e-3,
         lr_decay=0.10,
-        skip_compile=True,
+        skip_compile=False,
         # lr_decay=None,
     )
     return
