@@ -62,4 +62,6 @@ def rational_damping(
 
     a1 = param.get("a1", torch.tensor(defaults.A1, **dd))
     a2 = param.get("a2", torch.tensor(defaults.A2, **dd))
-    return 1.0 / (distances.pow(order) + (a1 * torch.sqrt(qq) + a2).pow(order))
+    R_n = distances.pow(order)
+    R0_n = (a1 * torch.sqrt(qq) + a2).pow(order)
+    return 1 / (R_n + R0_n) 
