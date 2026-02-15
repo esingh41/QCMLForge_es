@@ -6,6 +6,7 @@ from torch_geometric.nn import MessagePassing
 import numpy as np
 import warnings
 from .. import multipole
+from .. import model_io
 import time
 from ..atomic_datasets import (
     atomic_module_dataset,
@@ -238,6 +239,24 @@ class AtomMPNN(MessagePassing):
             )
             self.dipole_readout_layers.append(nn.Linear(n_embed, 1))
             self.qpole_readout_layers.append(nn.Linear(n_embed, 1))
+
+    def get_config(self) -> dict:
+        """
+        Return the configuration dictionary for this model.
+
+        Returns
+        -------
+        dict
+            Dictionary containing all hyperparameters needed to reconstruct
+            this model architecture.
+        """
+        return {
+            "n_message": self.n_message,
+            "n_rbf": self.n_rbf,
+            "n_neuron": self.n_neuron,
+            "n_embed": self.n_embed,
+            "r_cut": self.r_cut,
+        }
 
     def _make_layers(self, layer_nodes, activations):
         layers = []
@@ -610,25 +629,81 @@ class AtomModel:
         return
 
     def set_pretrained_model(self, model_path=None, model_id=None):
+        """
+        Load a pretrained model from a checkpoint file.
+
+        Supports both v1 (legacy) and v2 checkpoint formats.
+
+        Parameters
+        ----------
+        model_path : str, optional
+            Path to a checkpoint file
+        model_id : int, optional
+            ID of a bundled pretrained model (0-9)
+
+        Returns
+        -------
+        self
+            Returns self for method chaining
+        """
         if model_id is not None:
-            # model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
             model_path = resources.files("apnet_pt").joinpath(
                 "models", "am_ensemble", f"am_{model_id}.pt"
             )
         elif model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
-        checkpoint = torch.load(model_path, weights_only=False)
-        # pp(checkpoint)
+        checkpoint = model_io.load_checkpoint(model_path)
+        version = model_io.get_checkpoint_version(checkpoint)
+
+        # For v2, optionally validate checkpoint type
+        if version >= 2:
+            model_io.validate_checkpoint(checkpoint, expected_type="AtomMPNN")
+
+        # Load the state dict
+        state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
+
+        # Handle compiled model prefix mismatch
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
-            self.model.load_state_dict(model_state_dict)
-        else:
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+            state_dict = model_io.strip_prefix_from_state_dict(state_dict)
+
+        self.model.load_state_dict(state_dict)
         return self
+
+    def _create_checkpoint(self, metadata: dict | None = None) -> dict:
+        """
+        Create a v2 checkpoint dictionary for this model.
+
+        Parameters
+        ----------
+        metadata : dict, optional
+            Additional metadata to include in the checkpoint
+
+        Returns
+        -------
+        dict
+            Checkpoint dictionary in v2 format
+        """
+        return model_io.create_checkpoint(
+            model=self.model,
+            config=model_io.unwrap_model(self.model).get_config(),
+            model_type="AtomMPNN",
+            metadata=metadata,
+        )
+
+    def save_model(self, path: str, metadata: dict | None = None) -> None:
+        """
+        Save the model to a checkpoint file in v2 format.
+
+        Parameters
+        ----------
+        path : str
+            Path to save the checkpoint
+        metadata : dict, optional
+            Additional metadata to include
+        """
+        checkpoint = self._create_checkpoint(metadata=metadata)
+        model_io.save_checkpoint(checkpoint, path)
 
     def compile_model(self):
         torch._dynamo.config.dynamic_shapes = True
@@ -1056,20 +1131,13 @@ units angstrom
                     test_lowered = "*"
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
-                                },
-                            },
-                            self.model_save_path,
+                        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                        checkpoint = model_io.create_checkpoint(
+                            model=cpu_model,
+                            config=cpu_model.get_config(),
+                            model_type="AtomMPNN",
                         )
+                        model_io.save_checkpoint(checkpoint, self.model_save_path)
                         self.model.to(self.device)
                 else:
                     test_lowered = " "
@@ -1152,20 +1220,13 @@ units angstrom
                     test_lowered = "*"
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
-                                },
-                            },
-                            self.model_save_path,
+                        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                        checkpoint = model_io.create_checkpoint(
+                            model=cpu_model,
+                            config=cpu_model.get_config(),
+                            model_type="AtomMPNN",
                         )
+                        model_io.save_checkpoint(checkpoint, self.model_save_path)
                         self.model.to(self.device)
                 else:
                     test_lowered = " "
@@ -1350,11 +1411,11 @@ units angstrom
     def predict_qcel_mols(self, mols, batch_size=2):
         """
         Predict per-atom multipole properties for a list of QCEL-formatted molecules by batching them through the model.
-        
+
         Parameters:
             mols (Iterable): Iterable of molecules in QCEL/monomer format accepted by qcel_mon_to_pyg_data.
             batch_size (int): Number of molecules to process per model forward pass.
-        
+
         Returns:
             List[Tuple]: A list, one entry per input molecule, of tuples (charges, dipoles, qpoles, hlists) where:
                 - charges: Tensor of shape (n_atoms,) containing predicted atomic charges.
@@ -1389,11 +1450,11 @@ units angstrom
     def predict_qcel_mols_dimer(self, mols, batch_size=2):
         """
         Predict multipole outputs for each dimer and its two monomer fragments.
-        
+
         Parameters:
             mols (Sequence): Sequence of QCEngine/QCEL molecule objects representing dimers; each molecule must support `get_fragment`.
             batch_size (int): Number of molecules to process per inference batch.
-        
+
         Returns:
             tuple: (dimer_output, monA_output, monB_output) where each element is the list of per-molecule prediction tuples produced by `predict_qcel_mols` (e.g., (charges, dipoles, qpoles, hlists) per molecule).
         """
@@ -1407,11 +1468,11 @@ units angstrom
     def predict_elst_ind_dimer(self, mols, batch_size=2):
         """
         Compute per-dimer electrostatic energies, dimer electrostatic energies after model prediction, and their difference (induction) for a list of QCELEM dimer molecules.
-        
+
         Parameters:
             mols (Sequence): Iterable of QCEL dimer molecules; each molecule must contain fragment indexing in `fragments`.
             batch_size (int): Number of molecules to process per prediction batch.
-        
+
         Returns:
             E_elst (list of float): Electrostatic energies computed from monomer reference multipoles for each dimer.
             E_elst_dimer (list of float): Electrostatic energies computed from model-predicted multipoles on the full dimer for each dimer.
@@ -1472,13 +1533,13 @@ units angstrom
     def model_predict(self, data):
         """
         Produce atomic multipole predictions and hidden states for a batched input.
-        
+
         Parameters:
             data: Batched graph-like object containing at least the attributes
                 `x` (atom types), `edge_index` (edge indices), `R` (positions),
                 `molecule_ind` (molecule indices per atom), `total_charge` (per-batch total charge),
                 and `natom_per_mol` (number of atoms per molecule).
-        
+
         Returns:
             charge (Tensor): Per-atom scalar charges with shape (N,).
             dipole (Tensor): Per-atom dipole vectors with shape (N, 3).

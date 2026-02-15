@@ -4,6 +4,7 @@ from apnet_pt.util import scatter_sum_compile
 from torch_geometric.nn import MessagePassing
 import numpy as np
 from .. import multipole
+from .. import model_io
 import time
 from apnet_pt.atomic_datasets import (
     atomic_hirshfeld_module_dataset,
@@ -119,6 +120,24 @@ class AtomHirshfeldMPNN(MessagePassing):
                 self._make_layers(layer_nodes_readout, layer_activations)
             )
 
+    def get_config(self) -> dict:
+        """
+        Return the configuration dictionary for this model.
+
+        Returns
+        -------
+        dict
+            Dictionary containing all hyperparameters needed to reconstruct
+            this model architecture.
+        """
+        return {
+            "n_message": self.n_message,
+            "n_rbf": self.n_rbf,
+            "n_neuron": self.n_neuron,
+            "n_embed": self.n_embed,
+            "r_cut": self.r_cut,
+        }
+
     def _make_layers(self, layer_nodes, activations):
         layers = []
         for i in range(len(layer_nodes) - 1):
@@ -155,7 +174,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         # Extract variables from batch
         """
         Compute per-atom multipole predictions and updated atom embeddings for a batch of molecular graphs.
-        
+
         Parameters:
             batch: A batch object containing graph and atom data with attributes:
                 - x: tensor of atomic numbers (Z) shaped [n_atoms, ...]
@@ -164,7 +183,7 @@ class AtomHirshfeldMPNN(MessagePassing):
                 - molecule_ind: tensor mapping each atom to its molecule index shaped [n_atoms]
                 - total_charge: tensor of total molecular charges shaped [n_molecules] or [n_molecules, 1]
                 - natom_per_mol: tensor of atom counts per molecule shaped [n_molecules]
-        
+
         Returns:
             charge (torch.Tensor): Per-atom partial charges shaped [n_atoms]. Values adjusted to conserve total molecular charge.
             dipole (torch.Tensor): Per-atom dipole vectors shaped [n_atoms, 3].
@@ -340,7 +359,9 @@ class AtomHirshfeldMPNN(MessagePassing):
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
         num_mols = (molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
-        total_charge_pred = scatter_sum_compile(charge, molecule_ind, num_mols, reduce="sum")
+        total_charge_pred = scatter_sum_compile(
+            charge, molecule_ind, num_mols, reduce="sum"
+        )
         # return charge, dipole, qpole, h_list
 
         total_charge_pred = total_charge_pred.squeeze()
@@ -468,16 +489,72 @@ class AtomHirshfeldModel:
         return
 
     def set_pretrained_model(self, model_path):
-        checkpoint = torch.load(model_path, weights_only=False)
+        """
+        Load a pretrained model from a checkpoint file.
+
+        Supports both v1 (legacy) and v2 checkpoint formats.
+
+        Parameters
+        ----------
+        model_path : str
+            Path to a checkpoint file
+
+        Returns
+        -------
+        self
+            Returns self for method chaining
+        """
+        checkpoint = model_io.load_checkpoint(model_path)
+        version = model_io.get_checkpoint_version(checkpoint)
+
+        # For v2, optionally validate checkpoint type
+        if version >= 2:
+            model_io.validate_checkpoint(checkpoint, expected_type="AtomHirshfeldMPNN")
+
+        # Load the state dict
+        state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
+
+        # Handle compiled model prefix mismatch
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
-            self.model.load_state_dict(model_state_dict)
-        else:
-            self.model.load_state_dict(checkpoint["model_state_dict"])
-        return
+            state_dict = model_io.strip_prefix_from_state_dict(state_dict)
+
+        self.model.load_state_dict(state_dict)
+        return self
+
+    def _create_checkpoint(self, metadata: dict | None = None) -> dict:
+        """
+        Create a v2 checkpoint dictionary for this model.
+
+        Parameters
+        ----------
+        metadata : dict, optional
+            Additional metadata to include in the checkpoint
+
+        Returns
+        -------
+        dict
+            Checkpoint dictionary in v2 format
+        """
+        return model_io.create_checkpoint(
+            model=self.model,
+            config=model_io.unwrap_model(self.model).get_config(),
+            model_type="AtomHirshfeldMPNN",
+            metadata=metadata,
+        )
+
+    def save_model(self, path: str, metadata: dict | None = None) -> None:
+        """
+        Save the model to a checkpoint file in v2 format.
+
+        Parameters
+        ----------
+        path : str
+            Path to save the checkpoint
+        metadata : dict, optional
+            Additional metadata to include
+        """
+        checkpoint = self._create_checkpoint(metadata=metadata)
+        model_io.save_checkpoint(checkpoint, path)
 
     def compile_model(self):
         torch._dynamo.config.dynamic_shapes = True
@@ -1014,20 +1091,13 @@ class AtomHirshfeldModel:
                     test_lowered = "*"
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
-                                },
-                            },
-                            self.model_save_path,
+                        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                        checkpoint = model_io.create_checkpoint(
+                            model=cpu_model,
+                            config=cpu_model.get_config(),
+                            model_type="AtomHirshfeldMPNN",
                         )
+                        model_io.save_checkpoint(checkpoint, self.model_save_path)
                         self.model.to(self.device)
                 else:
                     test_lowered = " "
@@ -1127,20 +1197,13 @@ class AtomHirshfeldModel:
                     test_lowered = "*"
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
-                                },
-                            },
-                            self.model_save_path,
+                        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                        checkpoint = model_io.create_checkpoint(
+                            model=cpu_model,
+                            config=cpu_model.get_config(),
+                            model_type="AtomHirshfeldMPNN",
                         )
+                        model_io.save_checkpoint(checkpoint, self.model_save_path)
                         self.model.to(self.device)
                 else:
                     test_lowered = " "
