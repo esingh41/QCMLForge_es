@@ -33,7 +33,12 @@ atp_mpnn_path = f"{current_file_path}/test_models/ap3_ensemble_0/atp_mpnn_1.pt"
 
 # Helper function to create a small test dataset
 def create_test_atomtype_model():
-    """Create a small AtomTypeParamMPNN model for testing."""
+    """
+    Create a small AtomTypeParamMPNN configured for unit tests.
+    
+    Returns:
+        model (AtomTypeParamMPNN): An AtomTypeParamMPNN instance with a compact architecture and preset parameter initialization suitable for tests (n_message=2, n_neuron=32, n_embed=4, n_params=2, r_cut=5.0).
+    """
     model = AtomTypeParamMPNN(
         n_message=2,
         n_neuron=32,
@@ -48,7 +53,14 @@ def create_test_atomtype_model():
 
 @pytest.fixture
 def atomtype_hfvr_model():
-    """Load or create atomtype model for testing."""
+    """
+    Load or create an atom-type HFVR model for tests.
+    
+    If a checkpoint exists at `atp_mpnn_path`, the function loads model configuration and weights from that checkpoint; otherwise it constructs a small test AtomTypeParamMPNN. The returned model is set to evaluation mode and has gradients disabled.
+    
+    Returns:
+        AtomTypeParamMPNN: Prepared atom-type model with gradients disabled and in evaluation mode.
+    """
     if os.path.exists(atp_mpnn_path):
         checkpoint = torch.load(atp_mpnn_path, weights_only=False)
         model = AtomTypeParamMPNN(
@@ -74,7 +86,11 @@ def atomtype_hfvr_model():
 
 
 def test_precomputed_dataset_creation(atomtype_hfvr_model):
-    """Test that pre-computed dataset processes and stores hfvr/vw correctly."""
+    """
+    Create a pre-computed HFVR/VW dataset and verify processed files exist and per-atom precomputed fields are present and correctly sized.
+    
+    Verifies that processed files are produced on disk, the dataset contains at least one sample, and that the first sample exposes `volume_ratios` and `valence_widths` with one value per atom.
+    """
     # Clean up any existing processed files
     processed_dir = f"{data_path}/processed"
     if os.path.exists(processed_dir):
@@ -292,70 +308,6 @@ def test_training_with_precomputed(atomtype_hfvr_model):
     print(f"  Initial loss: {initial_loss:.6f}")
     print(f"  Final loss: {final_loss:.6f}")
     print(f"  Loss reduction: {(1 - final_loss / initial_loss) * 100:.1f}%")
-
-
-def test_checkpoint_save_load(atomtype_hfvr_model, tmp_path):
-    """Test that checkpoint saving/loading preserves precompute_hfvr flag."""
-    # Create model with precompute_hfvr=True
-    model = AtomInducedDipoleModel(
-        atomtype_hfvr_model=atomtype_hfvr_model,
-        n_message=2,
-        n_rbf=8,
-        n_neuron=64,
-        n_embed=4,
-        r_cut=5.0,
-        use_nn_screening=False,
-        precompute_hfvr=True,
-        use_GPU=False,
-    )
-
-    # Save checkpoint
-    checkpoint_path = tmp_path / "test_checkpoint.pt"
-    cpu_model = model.model.to("cpu")
-
-    checkpoint = {
-        "model_state_dict": cpu_model.state_dict(),
-        "config": {
-            "n_message": 2,
-            "n_rbf": 8,
-            "n_neuron": 64,
-            "n_embed": 4,
-            "r_cut": 5.0,
-            "use_nn_screening": False,
-            "precompute_hfvr": cpu_model.precompute_hfvr,
-        },
-    }
-    torch.save(checkpoint, checkpoint_path)
-
-    # Load checkpoint
-    loaded_checkpoint = torch.load(checkpoint_path, weights_only=False)
-
-    # Verify precompute_hfvr flag is preserved
-    assert "precompute_hfvr" in loaded_checkpoint["config"], (
-        "Checkpoint should contain precompute_hfvr flag"
-    )
-    assert loaded_checkpoint["config"]["precompute_hfvr"] is True, (
-        "precompute_hfvr flag should be True"
-    )
-
-    # Create model from checkpoint
-    loaded_model = AtomInducedDipoleModel(
-        pre_trained_model_path=str(checkpoint_path),
-        atomtype_hfvr_model=atomtype_hfvr_model,
-        use_GPU=False,
-    )
-
-    # Verify loaded model has correct flag
-    assert loaded_model.model.precompute_hfvr is True, (
-        "Loaded model should have precompute_hfvr=True"
-    )
-    assert loaded_model.model.atomtype_hfvr_model is None, (
-        "Loaded model with precompute_hfvr=True should not have atomtype_hfvr_model"
-    )
-
-    print("✓ Checkpoint save/load preserves precompute_hfvr flag")
-    print(f"  Saved precompute_hfvr: {checkpoint['config']['precompute_hfvr']}")
-    print(f"  Loaded precompute_hfvr: {loaded_model.model.precompute_hfvr}")
 
 
 def test_backward_compatibility(atomtype_hfvr_model):

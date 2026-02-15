@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch_scatter import scatter
 from torch_geometric.data import Data
 import numpy as np
 import warnings
@@ -26,9 +25,23 @@ import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
+from apnet_pt.util import scatter_sum_compile
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
+    """
+    Compute an inverse-time decayed learning rate.
+    
+    Parameters:
+    	step (int or float): Current training step or epoch.
+    	initial_lr (float): Initial learning rate before decay.
+    	decay_steps (int or float): Normalization factor for the step (controls decay speed).
+    	decay_rate (float): Multiplicative decay factor.
+    	staircase (bool): If True, use discrete (staircase) decay by applying floor to step/decay_steps.
+    
+    Returns:
+    	(float): The learning rate after applying inverse time decay.
+    """
     p = step / decay_steps
     if staircase:
         p = np.floor(p)
@@ -345,6 +358,47 @@ class APNet2_MPNN(nn.Module):
         # natomA = ZA.size(0)
         # natomB = ZB.size(0)
         # ndimer = total_charge_A.size(0)
+        """
+        Compute atom-pair SAPT component predictions and multipole electrostatic energies for a batch of dimers given per-atom features, coordinates, and edge connectivity.
+        
+        Parameters:
+            ZA: Tensor of atomic numbers for monomer A.
+            RA: Tensor of Cartesian coordinates for monomer A.
+            ZB: Tensor of atomic numbers for monomer B.
+            RB: Tensor of Cartesian coordinates for monomer B.
+            e_ABsr_source, e_ABsr_target: Edge index arrays (source, target) for short-range intermolecular atom pairs (A->B).
+            dimer_ind: Mapping from short-range intermolecular edges to dimer indices.
+            e_ABlr_source, e_ABlr_target: Edge index arrays for long-range intermolecular atom pairs.
+            dimer_ind_lr: Mapping from long-range intermolecular edges to dimer indices.
+            e_AA_source, e_AA_target: Edge index arrays for intramonomer A connectivity.
+            e_BB_source, e_BB_target: Edge index arrays for intramonomer B connectivity.
+            total_charge_A, total_charge_B: Per-dimer total charges for monomer A and B.
+            qA, qB: Per-atom monopoles (charges) for monomers A and B.
+            muA, muB: Per-atom dipole vectors for monomers A and B.
+            quadA, quadB: Per-atom quadrupole tensors (or flattened representation) for monomers A and B.
+            hlistA, hlistB: Optional per-atom auxiliary features for monomers A and B (precomputed atom-model outputs).
+        
+        Returns:
+            If self.return_hidden_states is True:
+                (E_output, E_sr_dimer, E_elst_sr_dimer, E_elst_lr_dimer, hAB, hBA, cutoff)
+                - E_output: Per-dimer aggregated energy array combining short-range and multipole electrostatics.
+                - E_sr_dimer: Per-dimer summed short-range SAPT component energies.
+                - E_elst_sr_dimer: Per-dimer summed short-range multipole electrostatic contributions (expanded and padded).
+                - E_elst_lr_dimer: Per-dimer summed long-range multipole electrostatic contributions (expanded and padded).
+                - hAB, hBA: Per-edge atom-pair feature tensors for A->B and B->A used by readouts.
+                - cutoff: Per-edge short-range distance-based cutoff factors applied to short-range energies.
+            Otherwise:
+                (E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA)
+                - E_output: Per-dimer aggregated energy array combining short-range and multipole electrostatics.
+                - E_sr: Per-edge short-range SAPT component values before per-dimer aggregation.
+                - E_elst_sr: Per-edge short-range multipole electrostatic contributions.
+                - E_elst_lr: Per-edge long-range multipole electrostatic contributions.
+                - hAB, hBA: Per-edge atom-pair feature tensors for A->B and B->A.
+        
+        Notes:
+            - The function performs intramonomer message passing to produce invariant and directional hidden states, assembles atom-pair features, predicts per-pair SAPT components via readout networks, applies a distance-based short-range cutoff, aggregates per-pair energies to per-dimer energies, and computes multipole electrostatic contributions using supplied multipole moments.
+            - Shapes of returned tensors depend on the number of dimers, number of intermolecular edges, and model configuration.
+        """
         natomA = torch.tensor(ZA.size(0), dtype=torch.long)
         natomB = torch.tensor(ZB.size(0), dtype=torch.long)
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
@@ -401,9 +455,9 @@ class APNet2_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0,
+            mA_i = scatter_sum_compile(mA_ij, e_AA_source,
                            reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0,
+            mB_i = scatter_sum_compile(mB_ij, e_BB_source,
                            reduce="sum", dim_size=natomB)
 
             # get the next hidden state of the atom
@@ -426,11 +480,11 @@ class APNet2_MPNN(nn.Module):
             # NOTE: this summation must be linear to guarantee equivariance.
             #       because of this constraint, we applied a dense net before
             #       the summation, not after
-            hA_dir = scatter(
-                mA_ij_dir, e_AA_source, dim=0, reduce="sum", dim_size=natomA
+            hA_dir = scatter_sum_compile(
+                mA_ij_dir, e_AA_source, reduce="sum", dim_size=natomA
             )
-            hB_dir = scatter(
-                mB_ij_dir, e_BB_source, dim=0, reduce="sum", dim_size=natomB
+            hB_dir = scatter_sum_compile(
+                mB_ij_dir, e_BB_source, reduce="sum", dim_size=natomB
             )
             hA_dir_list.append(hA_dir)
             hB_dir_list.append(hB_dir)
@@ -498,7 +552,7 @@ class APNet2_MPNN(nn.Module):
         E_sr *= cutoff
         # cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
         # E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0,
+        E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind,
                              reduce="add", dim_size=ndimer)
 
         ####################################################
@@ -518,8 +572,8 @@ class APNet2_MPNN(nn.Module):
             dR_sr_xyz,
         )
 
-        E_elst_sr_dimer = scatter(
-            E_elst_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer
+        E_elst_sr_dimer = scatter_sum_compile(
+            E_elst_sr, dimer_ind, reduce="add", dim_size=ndimer
         )
         E_elst_sr_dimer = E_elst_sr_dimer.unsqueeze(-1)
 
@@ -535,8 +589,8 @@ class APNet2_MPNN(nn.Module):
             dR_lr,
             dR_lr_xyz,
         )
-        E_elst_lr_dimer = scatter(
-            E_elst_lr, dimer_ind_lr, dim=0, reduce="add", dim_size=ndimer
+        E_elst_lr_dimer = scatter_sum_compile(
+            E_elst_lr, dimer_ind_lr, reduce="add", dim_size=ndimer
         )
         E_elst_lr_dimer = E_elst_lr_dimer.unsqueeze(-1)
 
@@ -1097,6 +1151,37 @@ class APNet2Model:
         return_pairs=False,
         return_elst=False,
     ):
+        """
+        Predict per-dimer SAPT and related energies for a list of QCEngine dimer molecules.
+        
+        Parameters:
+        	mols (Sequence): Iterable of QCEngine dimer objects (each convertible via qcel_dimer_to_pyg_data).
+        	batch_size (int): Number of dimers processed per forward pass.
+        	r_cut (float | None): Intramonomer cutoff distance; defaults to self.model.r_cut when None.
+        	r_cut_im (float | None): Intermolecular cutoff distance; defaults to self.model.r_cut_im when None.
+        	verbose (bool): If True, prints progress messages for each processed batch.
+        	return_pairs (bool): If True, also return assembled per-pair short-range and long-range energy contributions.
+        	return_elst (bool): If True, also return assembled multipole electrostatic pair contributions. Mutually exclusive with return_pairs.
+        
+        Returns:
+        	When self.model.return_hidden_states is True:
+        		tuple: (predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers)
+        			predictions (ndarray): (N, 4) array of per-dimer predicted SAPT component energies.
+        			h_ABs, h_BAs (list): per-batch hidden-state tensors for A->B and B->A.
+        			cutoffs (list): per-batch cutoff masks or values returned by the model.
+        			dimer_inds (list): per-batch dimer index tensors.
+        			ndimers (list): per-batch counts of dimers.
+        	When return_pairs or return_elst is True (and hidden states are not returned):
+        		tuple: (predictions, pairwise_energies)
+        			predictions (ndarray): (N, 4) array of per-dimer predicted SAPT component energies.
+        			pairwise_energies (list): assembled per-pair energy records (format produced by _assemble_pairs or _assemble_mtp_pairs).
+        	Otherwise:
+        		ndarray: (N, 4) array of per-dimer predicted SAPT component energies.
+        
+        Notes:
+        	- return_elst and return_pairs are mutually exclusive; an assertion is raised if both are True.
+        	- Inputs are processed in batches; atomic properties are produced by self.atom_model and assembled into dimer Data objects before evaluation.
+        """
         assert not (return_elst and return_pairs), "return_elst and return_pairs are not compatible"
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -1246,6 +1331,39 @@ class APNet2Model:
         return_pairs=False,
         return_elst=False,
     ):
+        """
+        Generate predictions for a list of QCEL dimer molecules using an indexing-based batching workflow.
+        
+        Parameters:
+            mols (Sequence): Iterable of QCEL dimer molecule objects (each convertible by qcel_dimer_to_pyg_data).
+            batch_size (int): Number of dimers processed per atom-model batching step.
+            r_cut (float | None): Short-range cutoff distance; defaults to self.model.r_cut when None.
+            r_cut_im (float | None): Inter-monomer cutoff distance; defaults to self.model.r_cut_im when None.
+            verbose (bool): If True, print progress messages for each processed batch.
+            return_pairs (bool): If True, also return assembled pairwise SAPT component energies for each dimer.
+            return_elst (bool): If True, also return assembled multipole electrostatic pair energies for each dimer.
+                Note: return_pairs and return_elst are mutually exclusive (an assertion enforces this).
+        
+        Returns:
+            If self.model.return_hidden_states is True:
+                (predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components (N = number of input dimers).
+                - h_ABs, h_BAs (list): Lists of hidden-state tensors for A->B and B->A outputs per batch.
+                - cutoffs (list): Cutoff values returned per batch.
+                - dimer_inds (list): Batched dimer index tensors.
+                - ndimers (list): Number of dimers per batch as tensors.
+            Else if return_pairs is True:
+                (predictions, pairwise_energies)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+                - pairwise_energies (list): Assembled per-pair SAPT component entries produced by _assemble_pairs.
+            Else if return_elst is True:
+                (predictions, pairwise_energies)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+                - pairwise_energies (list): Assembled multipole electrostatic pair entries produced by _assemble_mtp_pairs.
+            Else:
+                predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+        
+        """
         assert not (return_elst and return_pairs), "return_elst and return_pairs are not compatible"
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -1388,6 +1506,17 @@ class APNet2Model:
         r_cut=5.0,
         r_cut_im=8.0,
 ):
+        """
+        Create a single-batch example input for the model from a QCEngine/QCElemental molecule.
+        
+        Parameters:
+            mol (qcel.models.Molecule | None): Molecule to build the example from. If None, a small default water-like dimer is used.
+            r_cut (float): Short-range cutoff distance (angstrom) used when assembling pairwise inputs.
+            r_cut_im (float): Intramonomer cutoff distance (angstrom) used for internal-distance encodings.
+        
+        Returns:
+            A collated batch object formatted for the APNet2 model's evaluation/prediction methods, containing atom features, coordinates, and pairwise assembly for the specified cutoffs.
+        """
         if mol is None:
             mol = qcel.models.Molecule.from_data("""
 0 1
@@ -2019,8 +2148,25 @@ units angstrom
         transfer_learning=False,
     ):
         """
-        hyperparameters match the defaults in the original code:
-        https://chemrxiv.org/engage/chemrxiv/article-details/65ccd41866c1381729a2b885
+        Train the APNet2Model on a dataset using single-process or multi-process (DDP) execution.
+        
+        Parameters:
+            dataset (Dataset | list, optional): If provided, overrides the model's dataset. Can be a single dataset or a [train, test] pair.
+            n_epochs (int): Number of training epochs.
+            lr (float): Initial learning rate.
+            split_percent (float): Fraction of `dataset` to use for training when a single dataset is provided (0-1).
+            model_path (str | None): Directory path where training results and checkpoints will be saved.
+            shuffle (bool): Whether to shuffle dataset indices before splitting and batching.
+            dataloader_num_workers (int): Number of worker processes for data loading in DataLoader.
+            world_size (int): Number of processes for distributed training; if >1 runs DDP training via mp.spawn.
+            omp_num_threads_per_process (int): Value to set OMP_NUM_THREADS for each training process.
+            lr_decay (callable | None): Learning rate scheduler or decay configuration passed to training routines (optional).
+            random_seed (int): RNG seed used to initialize numpy permutation for dataset shuffling/splitting.
+            skip_compile (bool): If True, skip optional torch.compile model compilation in single-process training.
+            transfer_learning (bool): If True, run training in transfer-learning mode (alters loss/aggregation behavior).
+        
+        Returns:
+            None
         """
         if dataset is not None:
             self.dataset = dataset

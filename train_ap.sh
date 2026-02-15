@@ -18,28 +18,30 @@ export iter=1
     #     --data_dir ./data_spice \
     #     --world_size 1 \
     #     --omp_num_threads 16 \
-    #     --am_model_path ./models/spice/am_3.pt \
+    #     --am_model_path ./models/spice/am_3_feb26.pt \
         # --am_model_path ./models/ap3_ensemble/1/am_3.pt \
 # done
 export iter=1
 #
 # AP3-fused FSAPT training
-# python3 -u ./train_models.py \
-#     --train_apnet APNet3-fused \
-#     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
-#     --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
-#     --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
-#     --random_seed $iter \
-#     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
-#     --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
-#     --n_epochs 100 \
-#     --data_dir ./data_dimer_$iter \
-#     --spec_type_ap 6 \
-#     --ds_type fsapt_energies \
-#     --ds_class_type lmdb \
-#     --lr 5e-4 \
-#     --ds_in_memory False \
-#
+python3 -u ./train_models.py \
+    --train_apnet APNet3-fused \
+    --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+    --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
+    --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
+    --random_seed $iter \
+    --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
+    --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
+    --n_epochs 50 \
+    --data_dir ./data_dimer_1 \
+    --spec_type_ap 8 \
+    --ds_type fsapt_energies \
+    --ds_class_type lmdb \
+    --lr 5e-4 \
+    --ds_in_memory False \
+
+# /projects/cos-lab-cs207/ds/awallace43/projects/pdb13k_test_set/fsapt_data/main.py
+
 # export iter=1
 # Induced Dipole on frozen AtomModel
 # python train_models.py \
@@ -50,9 +52,9 @@ export iter=1
 #     --spec_type_am 12 \
 #     --precompute_hfvr \
 #     --lr 5e-5 \
-#     --am_model_path ./models/spice/idm_atp_am_$iter.pt \
-#     --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1.pt \
-#     --atom_mpnn_pretrained_path ./models/spice/am_3.pt \
+#     --am_model_path ./models/spice/idm_atp_am_${iter}_feb26.pt \
+#     --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1_feb26.pt \
+#     --atom_mpnn_pretrained_path ./models/spice/am_3_feb26.pt \
     # --data_dir ./data_dimer_$iter \
 
     # --am_model_path ./models/ap3_ensemble/1/idm_atp_am_$iter.pt \
@@ -111,10 +113,10 @@ export iter=1
 # Elst Damping AtomType
 # python3 -u ./train_models.py \
 #     --train_apnet AM-DimerParam \
-#     --am_model_path ./models/ap3_ensemble/$iter/am_$iter.pt \
-#     --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_$iter.pt \
+#     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+#     --atom_type_param_model_path ./models/ap3_ensemble/$iter/am_h+1_3.pt \
 #     --random_seed $iter \
-#     --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_$iter.pt \
+#     --ap_model_path ./models/ap3_ensemble/$iter/am_elst_h+1_AMOEBA_$iter.pt \
 #     --n_epochs 55 \
 #     --n_neuron 64 \
 #     --n_params 1 \
@@ -122,9 +124,11 @@ export iter=1
 #     --spec_type_ap 7 \
 #     --lr 5e-5 \
 #     --dimer_eval_type elst_damping \
-#     --param_start_mean "1.6" \
+#     --param_start_mean "3.8" \
 #     --param_start_std "0.25" \
-#     --ds_in_memory True
+#     --ds_in_memory True \
+#     --elst_damping_type AMOEBA
+    # --elst_damping_type CLIFF
 
 # Elst Damping AtomTypeMPNN
 # python3 -u ./train_models.py \
@@ -156,24 +160,24 @@ export iter=1
 # cp ./data_dimer_1/raw/t_train_100.pkl ./${scratch_dir}/raw/
 # cp ./data_dimer_1/raw/t_test_20.pkl ./${scratch_dir}/raw/
 # find ./data_dimer_$iter/processed/ -name "dimer_ap3_fused_*" -exec rsync {} ./${scratch_dir}/processed/ \;
-rm ./ap3_testing_variant.pt
-python3 -u ./train_models.py \
-    --train_apnet APNet3-fused-variant \
-    --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
-    --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
-    --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
-    --random_seed $iter \
-    --ap_model_path ./ap3_testing_variant.pt \
-    --n_epochs 50 \
-    --data_dir data_dimer_1 \
-    --spec_type_ap 7 \
-    --lr 5e-4 \
-    --ds_in_memory False \
-    --ds_class_type lmdb \
-    --n_neuron 256 \
-    --n_rbf 12 \
-    --n_embed 10 \
-    --r_cut_im 10 \
+# rm ./ap3_testing_variant.pt
+# python3 -u ./train_models.py \
+#     --train_apnet APNet3-fused-variant \
+#     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+#     --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
+#     --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
+#     --random_seed $iter \
+#     --ap_model_path ./ap3_testing_variant.pt \
+#     --n_epochs 50 \
+#     --data_dir data_dimer_1 \
+#     --spec_type_ap 7 \
+#     --lr 5e-4 \
+#     --ds_in_memory False \
+#     --ds_class_type lmdb \
+#     --n_neuron 256 \
+#     --n_rbf 12 \
+#     --n_embed 10 \
+#     --r_cut_im 10 \
 
 # APNet3-Fused with Elst Damping AtomType (AP2 pretrained)
 # python3 -u ./train_models.py \

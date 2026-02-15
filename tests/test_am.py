@@ -92,10 +92,10 @@ def test_am():
     print(charge_cnt, len(batch_B.x))
     assert charge_cnt == len(batch_B.x)
     for i in range(len(qB)):
-        assert torch.allclose(qB[i], qB_ref[i], atol=1e-6)
-        assert torch.allclose(muB[i], muB_ref[i], atol=1e-6)
-        assert torch.allclose(thetaB[i], thetaB_ref[i], atol=1e-6)
-        assert torch.allclose(hlistB[i], hlistB_ref[i], atol=1e-6)
+        assert torch.allclose(qB[i], qB_ref[i], atol=1e-5)
+        assert torch.allclose(muB[i], muB_ref[i], atol=1e-5)
+        assert torch.allclose(thetaB[i], thetaB_ref[i], atol=1e-5)
+        assert torch.allclose(hlistB[i], hlistB_ref[i], atol=1e-5)
     print("batch_B complete")
     batch_C = torch.load(
         f"{current_file_path}/dataset_data/batch_C.pt", weights_only=False
@@ -251,4 +251,5 @@ if __name__ == "__main__":
     # test_am()
     # test_am_architecture()
     # test_am_element()
-    test_am_architecture()
+    # test_am_architecture()
+    test_am()

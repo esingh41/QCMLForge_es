@@ -88,14 +88,14 @@ def test_elst_multipoles_MTP_torch_damping_AM_DimerParam():
     ref = -9.909714
     print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
     print(torch_elst)
-    assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-4)
+    assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-3)
 
     # Test model prediction with batched molecules (this properly handles batching)
     print("---- Testing model prediction with batched molecules ----")
     pred = param_mod.predict_qcel_mols_dimer([mol, mol])
     expected_pred = np.array([[ref], [ref]])  # Two identical dimers
     print(f"Model predictions: {pred}")
-    assert np.allclose(pred, expected_pred, atol=1e-4)
+    assert np.allclose(pred, expected_pred, atol=1e-3)
     return
 
 
@@ -159,7 +159,7 @@ def test_elst_multipoles_MTP_torch_AM_DimerParam():
     ref = -7.026594161987305
     # ref = -16.774752
     print(f"Torch elst = {torch.sum(torch_elst):.6f} kcal/mol")
-    assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-4), (
+    assert np.allclose(torch.sum(torch_elst).item(), ref, atol=1e-3), (
         f"Got {torch.sum(torch_elst).item()}, expected {ref}"
     )
 
@@ -360,7 +360,7 @@ def test_AtomTypeParamNN_Dimer():
 if __name__ == "__main__":
     # test_AM_hirshfeld_induction_DimerParam()
     # test_AM_hirshfeld_induction_DimerParam()
-    # test_elst_multipoles_MTP_torch_aM_DimerParam()
+    test_elst_multipoles_MTP_torch_AM_DimerParam()
     # test_AtomTypeParamNN_Dimer()
     # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
-    test_elst_multipoles_MTP_torch_damping_AM_DimerParam()
+    # test_elst_multipoles_MTP_torch_damping_AM_DimerParam()

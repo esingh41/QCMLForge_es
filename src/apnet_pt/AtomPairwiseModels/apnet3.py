@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch_scatter import scatter
+from apnet_pt.util import scatter_sum_compile
 from torch_geometric.data import Data
 import numpy as np
 import warnings
@@ -454,6 +454,19 @@ class APNet3_MPNN(nn.Module):
         # natomA = ZA.size(0)
         # natomB = ZB.size(0)
         # ndimer = total_charge_A.size(0)
+        """
+        Compute SAPT-like energy components for a batch of dimers from atomic inputs and graph edges.
+        
+        Generates short-range pairwise predictions via intramonomer message passing, applies directional projections and classical corrections (exchange, induction placeholder), computes multipole electrostatics for short- and long-range edges, aggregates per-dimer energies, pads/aligns electrostatic terms, and returns combined and intermediate outputs.
+        
+        Returns:
+            E_output (Tensor): Per-dimer total energy array with shape [ndimer, C_total] combining short-range and electrostatic contributions.
+            E_sr (Tensor): Per-edge short-range SAPT component predictions with shape [n_edges_sr, 4] (elst, exch, indu, disp) after distance scaling and classical exchange correction.
+            E_elst_sr (Tensor): Per-edge short-range multipole electrostatic interactions with shape [n_edges_sr, ...].
+            E_elst_lr (Tensor): Per-edge long-range multipole electrostatic interactions with shape [n_edges_lr, ...].
+            hAB (Tensor): Learned atom-pair feature matrix for A->B edges used by short-range readouts.
+            hBA (Tensor): Learned atom-pair feature matrix for B->A edges used by short-range readouts.
+        """
         natomA = torch.tensor(ZA.size(0), dtype=torch.long)
         natomB = torch.tensor(ZB.size(0), dtype=torch.long)
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
@@ -511,8 +524,8 @@ class APNet3_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter(mA_ij, e_AA_source, dim=0, reduce="sum", dim_size=natomA)
-            mB_i = scatter(mB_ij, e_BB_source, dim=0, reduce="sum", dim_size=natomB)
+            mA_i = scatter_sum_compile(mA_ij, e_AA_source, reduce="sum", dim_size=natomA)
+            mB_i = scatter_sum_compile(mB_ij, e_BB_source, reduce="sum", dim_size=natomB)
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
@@ -534,10 +547,10 @@ class APNet3_MPNN(nn.Module):
             # NOTE: this summation must be linear to guarantee equivariance.
             #       because of this constraint, we applied a dense net before
             #       the summation, not after
-            hA_dir = scatter(
+            hA_dir = scatter_sum_compile(
                 mA_ij_dir, e_AA_source, dim=0, reduce="sum", dim_size=natomA
             )
-            hB_dir = scatter(
+            hB_dir = scatter_sum_compile(
                 mB_ij_dir, e_BB_source, dim=0, reduce="sum", dim_size=natomB
             )
             hA_dir_list.append(hA_dir)
@@ -638,7 +651,7 @@ class APNet3_MPNN(nn.Module):
         )
         print(f"{E_indu = }")
 
-        E_sr_dimer = scatter(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
+        E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer)
 
         # print(f"{E_sr_dimer.size() = }")
         # print(f"{E_sr.size() = }")
@@ -670,7 +683,7 @@ class APNet3_MPNN(nn.Module):
         # print(f"{E_elst_sr.size() = }")
         # print(E_elst_sr)
 
-        E_elst_sr_dimer = scatter(
+        E_elst_sr_dimer = scatter_sum_compile(
             E_elst_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer
         )
         # print()
@@ -690,7 +703,7 @@ class APNet3_MPNN(nn.Module):
             dR_lr,
             dR_lr_xyz,
         )
-        E_elst_lr_dimer = scatter(
+        E_elst_lr_dimer = scatter_sum_compile(
             E_elst_lr, dimer_ind_lr, dim=0, reduce="add", dim_size=ndimer
         )
         E_elst_lr_dimer = E_elst_lr_dimer.unsqueeze(-1)

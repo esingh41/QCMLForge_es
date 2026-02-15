@@ -31,6 +31,34 @@ def train_atom_model(
     precompute_hfvr=False,
     ds_use_lmdb=False,
 ):
+    """
+    Train a single-atom model of the specified type using data in data_dir.
+    
+    Parameters:
+        atom_model_type (str): One of "AtomModel", "AtomHirshfeldModel", "AtomTypeParamModel",
+            "AtomInducedDipoleModel", or "InducedDipoleModel"; selects the model class and default batch size.
+        model_path (str): Path where the trained model will be saved or an existing model loaded as a pretrained checkpoint.
+        atom_type_param_model_path (str or None): Path to a pretrained atom-type/HF/VR parameter model used by induced-dipole variants.
+        atom_mpnn_pretrained_path (str or None): Path to a pretrained atom MPNN model (used by InducedDipoleModel).
+        data_dir (str): Root directory containing the atomic dataset.
+        spec_type (int): Dataset specification/type identifier used by the dataset loader.
+        testing (bool): Reserved flag (no effect on training flow).
+        n_epochs (int): Number of training epochs.
+        random_seed (int): Seed for RNGs to support reproducibility.
+        ds_max_size (int or None): Maximum number of datapoints to load from the dataset; None for no limit.
+        world_size (int): Number of distributed processes (GPUs) participating in training.
+        omp_num_threads (int): Number of OpenMP threads available to each process; used to configure dataloader workers.
+        lr (float): Learning rate for training.
+        n_message (int): Number of message-passing steps (used by relevant atom model types).
+        n_rbf (int): Number of radial basis functions used by the model.
+        n_neuron (int): Width of hidden layers (neurons) in network components.
+        n_embed (int): Size of embedding vectors for atomic features.
+        r_cut (float): Cutoff radius for neighbor interactions.
+        use_nn_screening (bool): If true, enable learned neural-network screening used by induced-dipole models.
+        precompute_hfvr (bool): If true, enable precomputation of HF/VR features where supported.
+        ds_use_lmdb (bool): If true, configure dataset to use LMDB storage (applied to InducedDipoleModel).
+    
+    """
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
         batch_size = 16
@@ -151,6 +179,7 @@ def train_pairwise_model(
     param_start_mean=1.5,
     param_start_std=0.1,
     dimer_eval_type="elst_damping",
+    elst_damping_type="CLIFF",
     ds_in_memory=False,
     ds_class_type="pt",
     DimerProp_model_type="AtomTypeParamNN",
@@ -158,6 +187,43 @@ def train_pairwise_model(
     ds_type="total_component_energies",
 ):
     # Ensure param_start_mean and param_start_std are lists
+    """
+    Create and train an APNet-style pairwise model variant on the specified dataset.
+    
+    This function selects and configures an APNet variant (e.g., APNet2, dAPNet2, APNet3-fused, AM-DimerParam, AtomTypeParamModel), prepares any required submodels or pretrained weights, configures dataset and training hyperparameters, and runs training to save the resulting model to model_out.
+    
+    Parameters:
+        apnet_model_type (str): Which APNet variant to train (e.g., "APNet2", "dAPNet2", "APNet3-fused", "AM-DimerParam", "AtomTypeParamModel").
+        model_out (str): Path where the trained APNet model will be written.
+        am_model_path (str): Path to a pretrained single-atom model used by APNet as needed.
+        atom_type_param_model_path (str): Path to a pretrained AtomTypeParamModel (used by some fused/dimer variants).
+        atom_type_param_model_path2 (str): Optional second AtomTypeParamModel path used by fused variants for the dimer prop model.
+        data_dir (str): Root directory of the pairwise dataset.
+        n_epochs (int): Number of training epochs.
+        lr (float): Initial learning rate.
+        lr_decay (float or None): Learning-rate decay factor (unused by default in this function).
+        random_seed (int): Seed for dataset/model randomness.
+        spec_type (int): Dataset specification/type identifier passed to dataset constructors.
+        r_cut_im (float): Imaginary/long-range cutoff radius used by some models.
+        r_cut (float): Short-range cutoff radius used by the models.
+        n_rbf (int): Number of radial basis functions in the model.
+        n_neuron (int): Width of dense layers in the network.
+        n_embed (int): Size of embedding vectors for atomic features.
+        n_params (int): Number of per-dimer parameters when training parametric dimer models.
+        m1 (str): Optional molecular identifier or filter passed into dataset creation (used by some variants).
+        m2 (str): Optional second molecular identifier or filter passed into dataset creation.
+        pre_trained_model_path (str or None): External APNet pretrained checkpoint to initialize from.
+        param_start_mean (float or list[float]): Initial mean(s) for parametric dimer parameters; broadcast to length n_params if scalar.
+        param_start_std (float or list[float]): Initial stddev(s) for parametric dimer parameters; broadcast to length n_params if scalar.
+        dimer_eval_type (str): Evaluation mode for dimer models (e.g., "elst_damping", "elst_damping__induced_dipole").
+        elst_damping_type (str): Electrostatic damping variant for dimer prop models (e.g., "CLIFF", "AMOEBA").
+        ds_in_memory (bool): Whether datasets should be loaded entirely into memory for applicable model types.
+        ds_class_type (str): Dataset class/storage type identifier (e.g., "pt").
+        DimerProp_model_type (str): Dimer property model type name used when constructing AM-DimerParam models.
+        ap2_pretrained_model_only (str or None): If provided for APNet3-fused variants, load AP2 weights from this path into the APNet.
+        ds_type (str): Dataset energy-type selector (e.g., "total_component_energies", "fsapt_energies").
+    
+    """
     if not isinstance(param_start_mean, (list, tuple)):
         param_start_mean = [param_start_mean] * n_params
     if not isinstance(param_start_std, (list, tuple)):
@@ -278,6 +344,7 @@ def train_pairwise_model(
             param_start_mean=param_start_mean,
             param_start_std=param_start_std,
             dimer_eval_type=dimer_eval_type,
+            elst_damping_type=elst_damping_type,
             n_params=n_params,
             model_type=DimerProp_model_type,
         )
@@ -297,6 +364,7 @@ def train_pairwise_model(
             atom_model=atom_type_hf_vw_model.model,
             atom_model_type="AtomTypeParamNN",
             pre_trained_model_path=atom_type_param_model_path2,
+            elst_damping_type=elst_damping_type,
         )
         am_model_path = None
         print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
@@ -404,6 +472,11 @@ def parse_param_list(param_str):
 
 
 def main():
+    """
+    Parse command-line arguments and run configured model training routines.
+    
+    Parses command-line options that configure atom and pairwise (APNet) training, converts the parameter-start mean/std strings to numeric lists, sets global random seeds, prints the parsed arguments, and invokes train_atom_model and/or train_pairwise_model when the corresponding flags are provided.
+    """
     args = argparse.ArgumentParser()
     args.add_argument(
         "--am_model_path",
@@ -464,6 +537,13 @@ def main():
         type=str,
         default="elst_damping",
         help="Specify dimer eval type for AM-DimerParam (default: 'elst_damping', other options: 'induced_dipole)",
+    )
+    args.add_argument(
+        "--elst_damping_type",
+        type=str,
+        default="CLIFF",
+        choices=["CLIFF", "AMOEBA"],
+        help="Electrostatic damping type: 'CLIFF' (CLIFF/GORDON2) or 'AMOEBA' (GORDON1) (default: 'CLIFF')",
     )
     args.add_argument(
         "--random_seed", type=int, default=0, help="Random seed for initialization"
@@ -685,6 +765,7 @@ def main():
             param_start_mean=args.param_start_mean,
             param_start_std=args.param_start_std,
             dimer_eval_type=args.dimer_eval_type,
+            elst_damping_type=args.elst_damping_type,
             ds_in_memory=args.ds_in_memory,
             ds_class_type=args.ds_class_type,
             DimerProp_model_type=args.DimerProp_model_type,

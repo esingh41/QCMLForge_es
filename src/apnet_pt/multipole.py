@@ -9,7 +9,7 @@ from . import constants
 import torch
 from typing import Tuple
 import qcelemental as qcel
-from .util import scatter_sum_compile
+from apnet_pt.util import scatter_sum_compile
 # from .AtomPairwiseModels.mtp_mtp import get_distances
 
 
@@ -93,8 +93,20 @@ def ensure_traceless_qpole(qpole):
 
 
 def qpole_expand_and_traceless(qpole):
+    """
+    Convert a compact or redundant quadrupole representation into a full traceless 3x3 tensor.
+    
+    Parameters:
+        qpole: Array-like or tensor
+            Quadrupole provided in a compact (6-component) or redundant/full (3x3) form.
+    
+    Returns:
+        torch.Tensor: A (3, 3) traceless quadrupole tensor.
+    """
     qpole = torch.tensor(qpole_redundant(qpole))
     qpole = ensure_traceless_qpole(qpole)
+    if qpole.shape != (3, 3):
+        qpole = qpole.reshape(3, 3)
     return qpole
 
 
@@ -2207,6 +2219,31 @@ def monomer_induced_dipole_torch(
 
 
 def multipoles_elst_ind_dimer(mols, dimer, monA, monB):
+    """
+    Compute electrostatic and induction energies for a set of molecules by comparing isolated-monomer multipoles to dimer multipoles.
+    
+    For each entry in mols this function:
+    - Evaluates the electrostatic energy using monomer multipoles from monA and monB.
+    - Evaluates the electrostatic energy using multipoles extracted from the corresponding dimer entry (dimer),
+      selecting fragment multipoles according to the molecule's fragment indices.
+    - Computes the induction contribution as the difference between the dimer-based and monomer-based electrostatic energies.
+    
+    Parameters:
+        mols (Sequence): Sequence of molecule descriptors (expected to provide a .fragments attribute
+            with two indices identifying the two fragments within the corresponding dimer entry).
+        dimer (Sequence): Sequence parallel to mols where each element is a tuple/list
+            (qD, muD, thetaD) containing combined multipoles for the dimer; fragment multipoles
+            are selected as qD[frag], muD[frag, :], thetaD[frag, :, :].
+        monA (Sequence): Sequence parallel to mols of per-monomer multipoles for fragment A; each
+            element is a tuple (qA, muA, thetaA).
+        monB (Sequence): Sequence parallel to mols of per-monomer multipoles for fragment B; each
+            element is a tuple (qB, muB, thetaB).
+    
+    Returns:
+        tuple: Three lists (E_elst, E_elst_dimer, E_induction) where each list contains one energy
+        value per molecule. Energies are the electrostatic energies computed by eval_qcel_dimer
+        (units consistent with eval_qcel_dimer, typically kcal/mol), and E_induction = E_elst_dimer - E_elst.
+    """
     E_elst, E_elst_dimer, E_induction = [], [], []
     for i, m in enumerate(mols):
         qA, muA, thetaA = (
