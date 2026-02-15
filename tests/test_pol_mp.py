@@ -150,8 +150,8 @@ def test_inference_ap3_atom_model():
     )
     print(f"{v = }")
     # torch save v for reference
-    # torch.save(v, f"{current_file_path}/../debug_ap3_atom_model_inference.pt")
-    ref = torch.load(f"{current_file_path}/../debug_ap3_atom_model_inference.pt")
+    # torch.save(v, f"{current_file_path}/test_data_path/ap3_atom_model_inference.pt")
+    ref = torch.load(f"{current_file_path}/test_data_path/ap3_atom_model_inference.pt")
     for i in range(len(v[0])):
         assert torch.allclose(v[0][i], ref[0][i], atol=1e-6), (
             f"{i}, {v[0][i]}, {ref[0][i]}"

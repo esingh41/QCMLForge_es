@@ -1966,7 +1966,6 @@ units angstrom
                                     "n_embed": cpu_model.n_embed,
                                     "r_cut": cpu_model.r_cut,
                                     "use_nn_screening": cpu_model.use_nn_screening,
-                                    "precompute_hfvr": cpu_model.precompute_hfvr,
                                 },
                             },
                             self.model_save_path,

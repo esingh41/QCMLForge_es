@@ -2844,8 +2844,7 @@ units angstrom
             charge (torch.Tensor): Per-atom predicted partial charges.
             dipole (torch.Tensor): Per-atom predicted dipole vectors.
             qpole (torch.Tensor): Per-atom predicted quadrupole tensors (traceless).
-    `@torch.inference_mode`()
-    def model_predict(self, data):
+        """
         charge, dipole, qpole, hlist = self.model(data)
         return charge, dipole, qpole, hlist
         return charge, dipole, qpole, hlist
