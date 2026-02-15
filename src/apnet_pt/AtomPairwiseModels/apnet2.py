@@ -29,6 +29,19 @@ from apnet_pt.util import scatter_sum_compile
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
+    """
+    Compute an inverse-time decayed learning rate.
+    
+    Parameters:
+    	step (int or float): Current training step or epoch.
+    	initial_lr (float): Initial learning rate before decay.
+    	decay_steps (int or float): Normalization factor for the step (controls decay speed).
+    	decay_rate (float): Multiplicative decay factor.
+    	staircase (bool): If True, use discrete (staircase) decay by applying floor to step/decay_steps.
+    
+    Returns:
+    	(float): The learning rate after applying inverse time decay.
+    """
     p = step / decay_steps
     if staircase:
         p = np.floor(p)
@@ -345,6 +358,47 @@ class APNet2_MPNN(nn.Module):
         # natomA = ZA.size(0)
         # natomB = ZB.size(0)
         # ndimer = total_charge_A.size(0)
+        """
+        Compute atom-pair SAPT component predictions and multipole electrostatic energies for a batch of dimers given per-atom features, coordinates, and edge connectivity.
+        
+        Parameters:
+            ZA: Tensor of atomic numbers for monomer A.
+            RA: Tensor of Cartesian coordinates for monomer A.
+            ZB: Tensor of atomic numbers for monomer B.
+            RB: Tensor of Cartesian coordinates for monomer B.
+            e_ABsr_source, e_ABsr_target: Edge index arrays (source, target) for short-range intermolecular atom pairs (A->B).
+            dimer_ind: Mapping from short-range intermolecular edges to dimer indices.
+            e_ABlr_source, e_ABlr_target: Edge index arrays for long-range intermolecular atom pairs.
+            dimer_ind_lr: Mapping from long-range intermolecular edges to dimer indices.
+            e_AA_source, e_AA_target: Edge index arrays for intramonomer A connectivity.
+            e_BB_source, e_BB_target: Edge index arrays for intramonomer B connectivity.
+            total_charge_A, total_charge_B: Per-dimer total charges for monomer A and B.
+            qA, qB: Per-atom monopoles (charges) for monomers A and B.
+            muA, muB: Per-atom dipole vectors for monomers A and B.
+            quadA, quadB: Per-atom quadrupole tensors (or flattened representation) for monomers A and B.
+            hlistA, hlistB: Optional per-atom auxiliary features for monomers A and B (precomputed atom-model outputs).
+        
+        Returns:
+            If self.return_hidden_states is True:
+                (E_output, E_sr_dimer, E_elst_sr_dimer, E_elst_lr_dimer, hAB, hBA, cutoff)
+                - E_output: Per-dimer aggregated energy array combining short-range and multipole electrostatics.
+                - E_sr_dimer: Per-dimer summed short-range SAPT component energies.
+                - E_elst_sr_dimer: Per-dimer summed short-range multipole electrostatic contributions (expanded and padded).
+                - E_elst_lr_dimer: Per-dimer summed long-range multipole electrostatic contributions (expanded and padded).
+                - hAB, hBA: Per-edge atom-pair feature tensors for A->B and B->A used by readouts.
+                - cutoff: Per-edge short-range distance-based cutoff factors applied to short-range energies.
+            Otherwise:
+                (E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA)
+                - E_output: Per-dimer aggregated energy array combining short-range and multipole electrostatics.
+                - E_sr: Per-edge short-range SAPT component values before per-dimer aggregation.
+                - E_elst_sr: Per-edge short-range multipole electrostatic contributions.
+                - E_elst_lr: Per-edge long-range multipole electrostatic contributions.
+                - hAB, hBA: Per-edge atom-pair feature tensors for A->B and B->A.
+        
+        Notes:
+            - The function performs intramonomer message passing to produce invariant and directional hidden states, assembles atom-pair features, predicts per-pair SAPT components via readout networks, applies a distance-based short-range cutoff, aggregates per-pair energies to per-dimer energies, and computes multipole electrostatic contributions using supplied multipole moments.
+            - Shapes of returned tensors depend on the number of dimers, number of intermolecular edges, and model configuration.
+        """
         natomA = torch.tensor(ZA.size(0), dtype=torch.long)
         natomB = torch.tensor(ZB.size(0), dtype=torch.long)
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
@@ -2094,8 +2148,25 @@ units angstrom
         transfer_learning=False,
     ):
         """
-        hyperparameters match the defaults in the original code:
-        https://chemrxiv.org/engage/chemrxiv/article-details/65ccd41866c1381729a2b885
+        Train the APNet2Model on a dataset using single-process or multi-process (DDP) execution.
+        
+        Parameters:
+            dataset (Dataset | list, optional): If provided, overrides the model's dataset. Can be a single dataset or a [train, test] pair.
+            n_epochs (int): Number of training epochs.
+            lr (float): Initial learning rate.
+            split_percent (float): Fraction of `dataset` to use for training when a single dataset is provided (0-1).
+            model_path (str | None): Directory path where training results and checkpoints will be saved.
+            shuffle (bool): Whether to shuffle dataset indices before splitting and batching.
+            dataloader_num_workers (int): Number of worker processes for data loading in DataLoader.
+            world_size (int): Number of processes for distributed training; if >1 runs DDP training via mp.spawn.
+            omp_num_threads_per_process (int): Value to set OMP_NUM_THREADS for each training process.
+            lr_decay (callable | None): Learning rate scheduler or decay configuration passed to training routines (optional).
+            random_seed (int): RNG seed used to initialize numpy permutation for dataset shuffling/splitting.
+            skip_compile (bool): If True, skip optional torch.compile model compilation in single-process training.
+            transfer_learning (bool): If True, run training in transfer-learning mode (alters loss/aggregation behavior).
+        
+        Returns:
+            None
         """
         if dataset is not None:
             self.dataset = dataset

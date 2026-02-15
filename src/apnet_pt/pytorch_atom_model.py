@@ -13,6 +13,20 @@ max_Z = 118  # largest atomic number
 
 
 def get_distances(RA, RB, e_source, e_target):
+    """
+    Compute pairwise displacement vectors and their Euclidean norms for specified edges.
+    
+    Parameters:
+        RA (torch.Tensor): Source node coordinates with shape (..., 3) or (n_nodes, 3).
+        RB (torch.Tensor): Target node coordinates with shape compatible with RA.
+        e_source (Tensor or LongTensor): Index tensor selecting source positions from RA (shape (n_edges,)).
+        e_target (Tensor or LongTensor): Index tensor selecting target positions from RB (shape (n_edges,)).
+    
+    Returns:
+        tuple:
+            dR (torch.Tensor): 1D tensor of Euclidean distances for each edge (shape (n_edges,)).
+            dR_xyz (torch.Tensor): 2D tensor of displacement vectors RB_target - RA_source for each edge (shape (n_edges, 3)).
+    """
     RA_source = RA[e_source]
     RB_target = RB[e_target]
 

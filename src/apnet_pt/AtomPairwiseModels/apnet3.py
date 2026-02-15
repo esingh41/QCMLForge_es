@@ -454,6 +454,19 @@ class APNet3_MPNN(nn.Module):
         # natomA = ZA.size(0)
         # natomB = ZB.size(0)
         # ndimer = total_charge_A.size(0)
+        """
+        Compute SAPT-like energy components for a batch of dimers from atomic inputs and graph edges.
+        
+        Generates short-range pairwise predictions via intramonomer message passing, applies directional projections and classical corrections (exchange, induction placeholder), computes multipole electrostatics for short- and long-range edges, aggregates per-dimer energies, pads/aligns electrostatic terms, and returns combined and intermediate outputs.
+        
+        Returns:
+            E_output (Tensor): Per-dimer total energy array with shape [ndimer, C_total] combining short-range and electrostatic contributions.
+            E_sr (Tensor): Per-edge short-range SAPT component predictions with shape [n_edges_sr, 4] (elst, exch, indu, disp) after distance scaling and classical exchange correction.
+            E_elst_sr (Tensor): Per-edge short-range multipole electrostatic interactions with shape [n_edges_sr, ...].
+            E_elst_lr (Tensor): Per-edge long-range multipole electrostatic interactions with shape [n_edges_lr, ...].
+            hAB (Tensor): Learned atom-pair feature matrix for A->B edges used by short-range readouts.
+            hBA (Tensor): Learned atom-pair feature matrix for B->A edges used by short-range readouts.
+        """
         natomA = torch.tensor(ZA.size(0), dtype=torch.long)
         natomB = torch.tensor(ZB.size(0), dtype=torch.long)
         ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
