@@ -1,50 +1,35 @@
-import torch
-import torch.nn as nn
-from ..util import scatter_sum_compile
-import numpy as np
+import os
 import time
-from ..AtomModels.ap2_atom_model import (
-    AtomMPNN,
-    # isolate_atomic_property_predictions,
-    qcel_mon_to_pyg_data,
-    unwrap_model,
-    # DistanceLayer,
-)
-from ..AtomModels.ap2_hirshfeld_atom_model import (
-    isolate_atomic_property_predictions
-)
-from ..atomic_datasets import (
-    AtomicDataLoader,
-    atomic_collate_update,
-    atomic_collate_update_no_target,
-    atomic_collate_update_prebatched,
-)
-from ..AtomModels.ap2_hirshfeld_atom_model import (
-    AtomHirshfeldMPNN,
-    atomic_hirshfeld_module_dataset,
-)
-from ..pt_datasets.ap2_fused_ds import (
-    ap2_fused_module_dataset,
-    APNet2_fused_DataLoader,
-    ap2_fused_collate_update,
-    ap2_fused_collate_update_no_target,
-    qcel_dimer_to_fused_data,
-)
+from copy import deepcopy
+from importlib import resources
 
+import numpy as np
+import qcelemental as qcel
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+import torch.nn as nn
+from torch_geometric.data import Data
+
+from apnet_pt.torch_util import set_weights_to_value
 from dftd3.d3 import d3
 
 from .. import constants
-import os
-import torch.distributed as dist
-import torch.multiprocessing as mp
-import qcelemental as qcel
-from importlib import resources
-from copy import deepcopy
-from apnet_pt.torch_util import set_weights_to_value
-from torch_geometric.data import Data
-from ..multipole import thole_damping_mutual_torch, thole_damping_direct_torch
-
-
+from ..atomic_datasets import (AtomicDataLoader, atomic_collate_update,
+                               atomic_collate_update_no_target,
+                               atomic_collate_update_prebatched)
+from ..AtomModels.ap2_atom_model import (  # isolate_atomic_property_predictions,; DistanceLayer,
+    AtomMPNN, qcel_mon_to_pyg_data, unwrap_model)
+from ..AtomModels.ap2_hirshfeld_atom_model import (
+    AtomHirshfeldMPNN, atomic_hirshfeld_module_dataset,
+    isolate_atomic_property_predictions)
+from ..multipole import thole_damping_direct_torch, thole_damping_mutual_torch
+from ..pt_datasets.ap2_fused_ds import (APNet2_fused_DataLoader,
+                                        ap2_fused_collate_update,
+                                        ap2_fused_collate_update_no_target,
+                                        ap2_fused_module_dataset,
+                                        qcel_dimer_to_fused_data)
+from ..util import scatter_sum_compile
 
 max_Z = 118
 
@@ -101,7 +86,7 @@ class DimerProp(nn.Module):
             self.forward = self._ap3_elst_damping_indu_induced_dipole_disp_forward
             self.polarizability_table = constants.polarizability_table.clone()
         elif dimer_eval == "disp":
-            self.forward = self._disp_foward
+            self.forward = self._disp_forward
         elif dimer_eval == "ap3_atomMPNN":
             self.forward = self._ap3_atomMPNN
         else:
@@ -420,7 +405,7 @@ class DimerProp(nn.Module):
         #     print(f"{v_B[-1] =}")
         #     raise ValueError("Electrostatic energy is NaN")
         return torch.vstack((Elst, Indu)).T, v_A, v_B
-    
+
     def _ap3_atomMPNN(
         self,
         batch,
@@ -430,11 +415,23 @@ class DimerProp(nn.Module):
 
         return v_A, v_B
 
-    def _ap3_elst_damping_indu_induced_dipole_disp_forward(
-            self,
-            batch,
+    def _disp_forward(
+        self,
+        batch,
     ):
-   
+        """
+        Compute only the dispersion energy using DFTD3.
+        """
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
+
+        Disp = d3(batch)
+        return Disp, v_A, v_B
+
+    def _ap3_elst_damping_indu_induced_dipole_disp_forward(
+        self,
+        batch,
+    ):
         v_A = self.AtomTypeParam(batch.batch_atomic_A)
         v_B = self.AtomTypeParam(batch.batch_atomic_B)
         Kas = torch.abs(v_A[-1])
@@ -496,9 +493,9 @@ class DimerProp(nn.Module):
             print(f"{v_A[-1] =}")
             print(f"{v_B[-1] =}")
             raise ValueError("Electrostatic energy is NaN")
-        
+
         Disp = d3(batch)
-        return torch.vstack((Elst, Indu, Disp)).T, v_A, v_B    
+        return torch.vstack((Elst, Indu, Disp)).T, v_A, v_B
 
 
 class AtomTypeParamNN(nn.Module):
@@ -1454,8 +1451,14 @@ def monomer_induced_dipole_torch(
 
     # Define helper function to calculate distance tensors with Thole damping
     def distance_tensors(
-        Ri, Rj, e_source, e_target, alpha_i, alpha_j, thole_param,
-        thole_type='direct',
+        Ri,
+        Rj,
+        e_source,
+        e_target,
+        alpha_i,
+        alpha_j,
+        thole_param,
+        thole_type="direct",
     ):
         """Calculate interaction tensors between atoms with optional screening"""
         dR_ang, dR_xyz_ang = get_distances(Ri, Rj, e_source, e_target)
@@ -1466,7 +1469,7 @@ def monomer_induced_dipole_torch(
         alpha_target = alpha_j.index_select(0, e_target)
 
         # Apply Thole damping and screening
-        if thole_type == 'mutual':
+        if thole_type == "mutual":
             au3, lam_3, lam_5 = thole_damping_mutual_torch(
                 dR, alpha_source, alpha_target, thole_param
             )
@@ -1507,7 +1510,7 @@ def monomer_induced_dipole_torch(
         alpha,
         thole_damping_param_direct,
         apply_screening=True,
-        thole_type='direct',
+        thole_type="direct",
     )
 
     # Calculate mutual tensors (induced ↔ induced) without screening
@@ -1520,7 +1523,7 @@ def monomer_induced_dipole_torch(
         alpha,
         thole_damping_param_mutual,
         apply_screening=False,
-        thole_type='mutual',
+        thole_type="mutual",
     )
 
     # Initialize induced dipoles
@@ -1796,8 +1799,8 @@ def induced_dipole_induction_optimized_no_correction(
     alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
 
-    print(f'{alpha_0_A = }')
-    print(f'{alpha_0_B = }')
+    print(f"{alpha_0_A = }")
+    print(f"{alpha_0_B = }")
     # Use index_select for vectorized lookup
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
@@ -1939,6 +1942,7 @@ def induced_dipole_induction_optimized_no_correction(
     E_ind = (E_qu + E_uu) / 2.0
     return E_ind
 
+
 def induced_dipole(
     ZA,
     RA,
@@ -2030,7 +2034,7 @@ def induced_dipole(
     # Final energy calculation
     muA_induced_source = mu_induced_A.index_select(0, e_AA_source)
     muB_induced_target = mu_induced_A.index_select(0, e_AA_target)
-    return 
+    return
 
 
 def isolate_atom_parameter_predictions(batch, output):
@@ -2201,7 +2205,9 @@ class AM_DimerParam_Model:
 """
             )
         if pre_trained_model_path:
-            print(f"Loading pre-trained MTP-MTP {model_type} from {pre_trained_model_path}")
+            print(
+                f"Loading pre-trained MTP-MTP {model_type} from {pre_trained_model_path}"
+            )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             if model_type == "AtomTypeParamNN":
                 self.model = AtomTypeParamNN(
@@ -3018,23 +3024,27 @@ units angstrom
                 cpu_model = self.model.to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "model_type": type(cpu_model).__name__,
-                                    "n_message": cpu_model.n_message,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "param_start_mean": cpu_model.param_start_mean,
-                                    "param_start_std": cpu_model.param_start_std,
-                                    "n_params": cpu_model.n_params,
-                                    "n_rbf": cpu_model.n_rbf if hasattr(cpu_model, "n_rbf") else None,
-                                    "r_cut": cpu_model.r_cut if hasattr(cpu_model, "r_cut") else None,
-                                },
+                    torch.save(
+                        {
+                            "model_state_dict": cpu_model.state_dict(),
+                            "config": {
+                                "model_type": type(cpu_model).__name__,
+                                "n_message": cpu_model.n_message,
+                                "n_neuron": cpu_model.n_neuron,
+                                "n_embed": cpu_model.n_embed,
+                                "param_start_mean": cpu_model.param_start_mean,
+                                "param_start_std": cpu_model.param_start_std,
+                                "n_params": cpu_model.n_params,
+                                "n_rbf": cpu_model.n_rbf
+                                if hasattr(cpu_model, "n_rbf")
+                                else None,
+                                "r_cut": cpu_model.r_cut
+                                if hasattr(cpu_model, "r_cut")
+                                else None,
                             },
-                            self.model_save_path,
-                        )
+                        },
+                        self.model_save_path,
+                    )
                 self.model.to(rank_device)
 
             if isinstance(y_ind, torch.Tensor):
