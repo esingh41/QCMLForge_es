@@ -21,10 +21,16 @@ jobs:
         activate-environment: qcml
         auto-activate-base: false
     
+    - name: Install PyTorch Geometric packages
+      shell: bash -l {0}
+      run: |
+        # Install torch-scatter and torch-geometric from pre-built wheels (CPU version for CI)
+        pip install torch-scatter torch-geometric -f https://data.pyg.org/whl/torch-2.7.0+cpu.html
+    
     - name: Install package
       shell: bash -l {0}
       run: |
-        pip install -e .
+        pip install -e . --no-deps
     
     - name: Run tests
       shell: bash -l {0}
