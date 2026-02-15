@@ -8,53 +8,53 @@ export iter=1
 # for seed in 0 # 1 2 3 4
 # do
 #     export iter=$seed
-    export iter=0
-    python3 -u ./train_models.py \
-        --train_am "AtomModel" \
-        --spec_type_am 12 \
-        --random_seed $iter \
-        --n_epochs 500 \
-        --lr 5e-4 \
-        --data_dir ./data_spice \
-        --world_size 1 \
-        --omp_num_threads 16 \
-        --am_model_path ./models/spice/am_3_feb26.pt \
+    # export iter=0
+    # python3 -u ./train_models.py \
+    #     --train_am "AtomModel" \
+    #     --spec_type_am 12 \
+    #     --random_seed $iter \
+    #     --n_epochs 500 \
+    #     --lr 5e-4 \
+    #     --data_dir ./data_spice \
+    #     --world_size 1 \
+    #     --omp_num_threads 16 \
+    #     --am_model_path ./models/spice/am_3_feb26.pt \
         # --am_model_path ./models/ap3_ensemble/1/am_3.pt \
 # done
 export iter=1
 #
 # AP3-fused FSAPT training
-# python3 -u ./train_models.py \
-#     --train_apnet APNet3-fused \
-#     --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
-#     --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
-#     --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
-#     --random_seed $iter \
-#     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
-#     --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
-#     --n_epochs 50 \
-#     --data_dir ./data_dimer_1 \
-#     --spec_type_ap 8 \
-#     --ds_type fsapt_energies \
-#     --ds_class_type lmdb \
-#     --lr 5e-4 \
-#     --ds_in_memory False \
+python3 -u ./train_models.py \
+    --train_apnet APNet3-fused \
+    --am_model_path ./models/ap3_ensemble/$iter/am_3.pt \
+    --atom_type_param_model_path  ./models/ap3_ensemble/$iter/am_h+1_3.pt \
+    --atom_type_param_model_path2 ./models/ap3_ensemble/$iter/am_elst_h+1_3.pt \
+    --random_seed $iter \
+    --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_fsapt.pt \
+    --ap_pretrained_model_path ./models/ap3_ensemble/$iter/ap3_.pt \
+    --n_epochs 50 \
+    --data_dir ./data_dimer_1 \
+    --spec_type_ap 8 \
+    --ds_type fsapt_energies \
+    --ds_class_type lmdb \
+    --lr 5e-4 \
+    --ds_in_memory False \
 
 # /projects/cos-lab-cs207/ds/awallace43/projects/pdb13k_test_set/fsapt_data/main.py
 
 # export iter=1
 # Induced Dipole on frozen AtomModel
-python train_models.py \
-    --data_dir ./data_spice \
-    --train_am InducedDipoleModel \
-    --n_epochs_atom 20 \
-    --use_nn_screening \
-    --spec_type_am 12 \
-    --precompute_hfvr \
-    --lr 5e-5 \
-    --am_model_path ./models/spice/idm_atp_am_${iter}_feb26.pt \
-    --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1_feb26.pt \
-    --atom_mpnn_pretrained_path ./models/spice/am_3_feb26.pt \
+# python train_models.py \
+#     --data_dir ./data_spice \
+#     --train_am InducedDipoleModel \
+#     --n_epochs_atom 20 \
+#     --use_nn_screening \
+#     --spec_type_am 12 \
+#     --precompute_hfvr \
+#     --lr 5e-5 \
+#     --am_model_path ./models/spice/idm_atp_am_${iter}_feb26.pt \
+#     --atom_type_param_model_path ./models/ap3_ensemble/1/atp_mpnn_1_feb26.pt \
+#     --atom_mpnn_pretrained_path ./models/spice/am_3_feb26.pt \
     # --data_dir ./data_dimer_$iter \
 
     # --am_model_path ./models/ap3_ensemble/1/idm_atp_am_$iter.pt \
