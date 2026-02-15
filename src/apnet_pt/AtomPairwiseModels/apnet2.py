@@ -401,9 +401,9 @@ class APNet2_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter_sum_compile(mA_ij, e_AA_source, dim=0,
+            mA_i = scatter_sum_compile(mA_ij, e_AA_source,
                            reduce="sum", dim_size=natomA)
-            mB_i = scatter_sum_compile(mB_ij, e_BB_source, dim=0,
+            mB_i = scatter_sum_compile(mB_ij, e_BB_source,
                            reduce="sum", dim_size=natomB)
 
             # get the next hidden state of the atom
@@ -427,10 +427,10 @@ class APNet2_MPNN(nn.Module):
             #       because of this constraint, we applied a dense net before
             #       the summation, not after
             hA_dir = scatter_sum_compile(
-                mA_ij_dir, e_AA_source, dim=0, reduce="sum", dim_size=natomA
+                mA_ij_dir, e_AA_source, reduce="sum", dim_size=natomA
             )
             hB_dir = scatter_sum_compile(
-                mB_ij_dir, e_BB_source, dim=0, reduce="sum", dim_size=natomB
+                mB_ij_dir, e_BB_source, reduce="sum", dim_size=natomB
             )
             hA_dir_list.append(hA_dir)
             hB_dir_list.append(hB_dir)
@@ -498,7 +498,7 @@ class APNet2_MPNN(nn.Module):
         E_sr *= cutoff
         # cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
         # E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
-        E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, dim=0,
+        E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind,
                              reduce="add", dim_size=ndimer)
 
         ####################################################
@@ -519,7 +519,7 @@ class APNet2_MPNN(nn.Module):
         )
 
         E_elst_sr_dimer = scatter_sum_compile(
-            E_elst_sr, dimer_ind, dim=0, reduce="add", dim_size=ndimer
+            E_elst_sr, dimer_ind, reduce="add", dim_size=ndimer
         )
         E_elst_sr_dimer = E_elst_sr_dimer.unsqueeze(-1)
 
@@ -536,7 +536,7 @@ class APNet2_MPNN(nn.Module):
             dR_lr_xyz,
         )
         E_elst_lr_dimer = scatter_sum_compile(
-            E_elst_lr, dimer_ind_lr, dim=0, reduce="add", dim_size=ndimer
+            E_elst_lr, dimer_ind_lr, reduce="add", dim_size=ndimer
         )
         E_elst_lr_dimer = E_elst_lr_dimer.unsqueeze(-1)
 
@@ -837,7 +837,7 @@ class APNet2Model:
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
-        checkpoint = torch.load(ap2_model_path)
+        checkpoint = torch.load(ap2_model_path, weights_only=False)
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -846,7 +846,7 @@ class APNet2Model:
             self.model.load_state_dict(model_state_dict)
         else:
             self.model.load_state_dict(checkpoint["model_state_dict"])
-        checkpoint = torch.load(am_model_path)
+        checkpoint = torch.load(am_model_path, weights_only=False)
         if "_orig_mod" not in list(self.atom_model.state_dict().keys())[0]:
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -1097,6 +1097,37 @@ class APNet2Model:
         return_pairs=False,
         return_elst=False,
     ):
+        """
+        Predict per-dimer SAPT and related energies for a list of QCEngine dimer molecules.
+        
+        Parameters:
+        	mols (Sequence): Iterable of QCEngine dimer objects (each convertible via qcel_dimer_to_pyg_data).
+        	batch_size (int): Number of dimers processed per forward pass.
+        	r_cut (float | None): Intramonomer cutoff distance; defaults to self.model.r_cut when None.
+        	r_cut_im (float | None): Intermolecular cutoff distance; defaults to self.model.r_cut_im when None.
+        	verbose (bool): If True, prints progress messages for each processed batch.
+        	return_pairs (bool): If True, also return assembled per-pair short-range and long-range energy contributions.
+        	return_elst (bool): If True, also return assembled multipole electrostatic pair contributions. Mutually exclusive with return_pairs.
+        
+        Returns:
+        	When self.model.return_hidden_states is True:
+        		tuple: (predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers)
+        			predictions (ndarray): (N, 4) array of per-dimer predicted SAPT component energies.
+        			h_ABs, h_BAs (list): per-batch hidden-state tensors for A->B and B->A.
+        			cutoffs (list): per-batch cutoff masks or values returned by the model.
+        			dimer_inds (list): per-batch dimer index tensors.
+        			ndimers (list): per-batch counts of dimers.
+        	When return_pairs or return_elst is True (and hidden states are not returned):
+        		tuple: (predictions, pairwise_energies)
+        			predictions (ndarray): (N, 4) array of per-dimer predicted SAPT component energies.
+        			pairwise_energies (list): assembled per-pair energy records (format produced by _assemble_pairs or _assemble_mtp_pairs).
+        	Otherwise:
+        		ndarray: (N, 4) array of per-dimer predicted SAPT component energies.
+        
+        Notes:
+        	- return_elst and return_pairs are mutually exclusive; an assertion is raised if both are True.
+        	- Inputs are processed in batches; atomic properties are produced by self.atom_model and assembled into dimer Data objects before evaluation.
+        """
         assert not (return_elst and return_pairs), "return_elst and return_pairs are not compatible"
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -1235,10 +1266,203 @@ class APNet2Model:
             return predictions, pairwise_energies
         return predictions
 
+    @torch.inference_mode()
+    def predict_qcel_mols_indexing(
+        self,
+        mols,
+        batch_size=1,
+        r_cut=None,
+        r_cut_im=None,
+        verbose=False,
+        return_pairs=False,
+        return_elst=False,
+    ):
+        """
+        Generate predictions for a list of QCEL dimer molecules using an indexing-based batching workflow.
+        
+        Parameters:
+            mols (Sequence): Iterable of QCEL dimer molecule objects (each convertible by qcel_dimer_to_pyg_data).
+            batch_size (int): Number of dimers processed per atom-model batching step.
+            r_cut (float | None): Short-range cutoff distance; defaults to self.model.r_cut when None.
+            r_cut_im (float | None): Inter-monomer cutoff distance; defaults to self.model.r_cut_im when None.
+            verbose (bool): If True, print progress messages for each processed batch.
+            return_pairs (bool): If True, also return assembled pairwise SAPT component energies for each dimer.
+            return_elst (bool): If True, also return assembled multipole electrostatic pair energies for each dimer.
+                Note: return_pairs and return_elst are mutually exclusive (an assertion enforces this).
+        
+        Returns:
+            If self.model.return_hidden_states is True:
+                (predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components (N = number of input dimers).
+                - h_ABs, h_BAs (list): Lists of hidden-state tensors for A->B and B->A outputs per batch.
+                - cutoffs (list): Cutoff values returned per batch.
+                - dimer_inds (list): Batched dimer index tensors.
+                - ndimers (list): Number of dimers per batch as tensors.
+            Else if return_pairs is True:
+                (predictions, pairwise_energies)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+                - pairwise_energies (list): Assembled per-pair SAPT component entries produced by _assemble_pairs.
+            Else if return_elst is True:
+                (predictions, pairwise_energies)
+                - predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+                - pairwise_energies (list): Assembled multipole electrostatic pair entries produced by _assemble_mtp_pairs.
+            Else:
+                predictions (ndarray, shape (N, 4)): Per-dimer predicted energy components.
+        
+        """
+        assert not (return_elst and return_pairs), "return_elst and return_pairs are not compatible"
+        if r_cut is None:
+            r_cut = self.model.r_cut
+        if r_cut_im is None:
+            r_cut_im = self.model.r_cut_im
+
+        mol_data = [[*qcel_dimer_to_pyg_data(mol)] for mol in mols]
+        predictions = np.zeros((len(mol_data), 4))
+        if return_pairs or return_elst:
+            pairwise_energies = []
+        if self.model.return_hidden_states:
+            # need to capture output
+            h_ABs, h_BAs, cutoffs, dimer_inds, ndimers, e_ABsr_source, e_ABsr_target = [], [], [], [], [], [], []
+        # self.model.to(self.device)
+        self.atom_model.to(self.device)
+        for i in range(0, len(mol_data), batch_size):
+            batch_mol_data = mol_data[i: i + batch_size]
+            data_A = [d[0] for d in batch_mol_data]
+            data_B = [d[1] for d in batch_mol_data]
+            batch_A = atomic_datasets.atomic_collate_update_no_target(data_A)
+            batch_B = atomic_datasets.atomic_collate_update_no_target(data_B)
+            with torch.no_grad():
+                batch_A.to(self.device)
+                am_out_A = self.atom_model(batch_A)
+                batch_B.to(self.device)
+                am_out_B = self.atom_model(batch_B)
+                qAs, muAs, quadAs, hlistAs = isolate_atomic_property_predictions(
+                    batch_A, am_out_A
+                )
+                qBs, muBs, quadBs, hlistBs = isolate_atomic_property_predictions(
+                    batch_B, am_out_B
+                )
+                if len(batch_A.total_charge.size()) == 0:
+                    batch_A.total_charge = batch_A.total_charge.unsqueeze(0)
+                if len(batch_B.total_charge.size()) == 0:
+                    batch_B.total_charge = batch_B.total_charge.unsqueeze(0)
+                dimer_ls = []
+                for j in range(len(batch_mol_data)):
+                    qA, muA, quadA, hlistA = qAs[j], muAs[j], quadAs[j], hlistAs[j]
+                    qB, muB, quadB, hlistB = qBs[j], muBs[j], quadBs[j], hlistBs[j]
+                    if len(qA.size()) == 0:
+                        qA = qA.unsqueeze(0).unsqueeze(0)
+                    elif len(qA.size()) == 1:
+                        qA = qA.unsqueeze(-1)
+                    if len(qB.size()) == 0:
+                        qB = qB.unsqueeze(0).unsqueeze(0)
+                    elif len(qB.size()) == 1:
+                        qB = qB.unsqueeze(-1)
+                        e_AA_source, e_AA_target = pairwise_edges(
+                            data_A[j].R, r_cut)
+                        e_BB_source, e_BB_target = pairwise_edges(
+                            data_B[j].R, r_cut)
+                        e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target = (
+                            pairwise_edges_im(
+                                data_A[j].R, data_B[j].R, r_cut_im)
+                        )
+                        dimer_ind = torch.ones((1), dtype=torch.long) * 0
+                        data = Data(
+                            ZA=data_A[j].x,
+                            RA=data_A[j].R,
+                            ZB=data_B[j].x,
+                            RB=data_B[j].R,
+                            # short range, intermolecular edges
+                            e_ABsr_source=e_ABsr_source,
+                            e_ABsr_target=e_ABsr_target,
+                            dimer_ind=dimer_ind,
+                            # long range, intermolecular edges
+                            e_ABlr_source=e_ABlr_source,
+                            e_ABlr_target=e_ABlr_target,
+                            dimer_ind_lr=dimer_ind,
+                            # intramonomer edges (monomer A)
+                            e_AA_source=e_AA_source,
+                            e_AA_target=e_AA_target,
+                            # intramonomer edges (monomer B)
+                            e_BB_source=e_BB_source,
+                            e_BB_target=e_BB_target,
+                            # monomer charges
+                            total_charge_A=data_A[j].total_charge,
+                            total_charge_B=data_B[j].total_charge,
+                            # monomer A properties
+                            qA=qA,
+                            muA=muA,
+                            quadA=quadA,
+                            hlistA=hlistA,
+                            # monomer B properties
+                            qB=qB,
+                            muB=muB,
+                            quadB=quadB,
+                            hlistB=hlistB,
+                        )
+                        dimer_ls.append(data)
+                dimer_batch = pairwise_datasets.apnet2_collate_update_no_target_monomer_indices(
+                    dimer_ls
+                )
+                dimer_batch.to(device=self.device)
+                preds = self.eval_fn(dimer_batch)
+                if self.model.return_hidden_states:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA, cutoff = preds
+                    h_ABs.append(hAB)
+                    h_BAs.append(hBA)
+                    cutoffs.append(cutoff)
+                    dimer_inds.append(dimer_batch.dimer_ind)
+                    ndimers.append(torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long))
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                elif return_pairs:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                    pairwise_energies.extend(
+                        self._assemble_pairs(
+                            dimer_batch.cpu(),
+                            E_sr_dimer.cpu(),
+                            E_sr.cpu(),
+                            E_elst_sr.cpu(),
+                            E_elst_lr.cpu(),
+                        )
+                    )
+                elif return_elst:
+                    E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
+                    predictions[i: i + batch_size] = E_sr_dimer.cpu().numpy()
+                    pairwise_energies.extend(
+                        self._assemble_mtp_pairs(
+                            dimer_batch,
+                            E_elst_sr,
+                            E_elst_lr,
+                        )
+                    )
+                else:
+                    predictions[i: i + batch_size] = preds[0].cpu().numpy()
+            if verbose:
+                print(
+                    f"Predictions for {i} to {i + batch_size} out of {len(mol_data)}"
+                )
+        if self.model.return_hidden_states:
+            return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
+        if return_pairs or return_elst:
+            return predictions, pairwise_energies
+        return predictions
+
     def example_input(self, mol=None,
         r_cut=5.0,
         r_cut_im=8.0,
 ):
+        """
+        Create a single-batch example input for the model from a QCEngine/QCElemental molecule.
+        
+        Parameters:
+            mol (qcel.models.Molecule | None): Molecule to build the example from. If None, a small default water-like dimer is used.
+            r_cut (float): Short-range cutoff distance (angstrom) used when assembling pairwise inputs.
+            r_cut_im (float): Intramonomer cutoff distance (angstrom) used for internal-distance encodings.
+        
+        Returns:
+            A collated batch object formatted for the APNet2 model's evaluation/prediction methods, containing atom features, coordinates, and pairwise assembly for the specified cutoffs.
+        """
         if mol is None:
             mol = qcel.models.Molecule.from_data("""
 0 1

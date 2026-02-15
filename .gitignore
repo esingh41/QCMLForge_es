@@ -220,3 +220,9 @@ tests/dataset_data/ap2_ensemble_test.pt
 tests/dataset_data/ap2_fused_ensemble_test.pt
 TASKS.md
 agent_scratch
+scratch
+examples
+mpi_train.sh
+logs
+/*.md
+data_spice

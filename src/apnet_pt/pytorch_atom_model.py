@@ -12,19 +12,6 @@ max_Z = 118  # largest atomic number
 #################
 
 
-# from torch_scatter import scatter_add
-# def unsorted_segment_sum(data, segment_ids, num_segments):
-#     """
-#     Args:
-#         data (Tensor): The source tensor.
-#         segment_ids (Tensor): The indices of the segments.
-#         num_segments (int): The number of segments.
-#
-#     Returns:
-#         Tensor: A tensor of the same type as data, containing the result of the operation.
-#     """
-#     return scatter_add(data, segment_ids, dim=0, dim_size=num_segments)
-
 def get_distances(RA, RB, e_source, e_target):
     RA_source = RA[e_source]
     RB_target = RB[e_target]
