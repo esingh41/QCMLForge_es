@@ -30,7 +30,14 @@ from apnet_pt import atomic_datasets
 
 
 def parse_args():
-    """Parse command line arguments"""
+    """
+    Build and parse command-line arguments for dataset, training, dataloader, and DDP configuration.
+    
+    The parser defines required dataset paths (`--data_root`, `--atp_model_path`), training hyperparameters (epochs, batch size, learning rate, split percent, optional `--model_save_path`), dataloader options (`--num_workers`, `--omp_num_threads`), and DDP/SLURM-related settings (`--rank`, `--local_rank`, `--world_size`, `--master_addr`, `--master_port`). `--max_size` accepts the string "None" to indicate the full dataset; `--use_lmdb` and `--precompute_hfvr` accept common true/false string values.
+    
+    Returns:
+        argparse.Namespace: Parsed arguments with attributes matching the defined CLI options.
+    """
     parser = argparse.ArgumentParser(
         description="QCMLForge DDP Training on SLURM",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -157,9 +164,15 @@ def parse_args():
 
 def setup_distributed(args):
     """
-    Setup distributed training environment.
-
-    Reads from SLURM environment variables if not provided as arguments.
+    Configure PyTorch distributed environment variables from provided args or SLURM environment.
+    
+    If `args` is missing rank, local_rank, world_size, or master_addr, those values are read from the SLURM environment variables SLURM_PROCID, SLURM_LOCALID, SLURM_NTASKS, and MASTER_ADDR (respectively). The function sets the environment variables RANK, LOCAL_RANK, WORLD_SIZE, MASTER_ADDR, and MASTER_PORT to values derived from `args`. If `args.omp_num_threads` is provided, OMP_NUM_THREADS is set. A brief summary of the resolved distributed configuration is printed when the global rank is 0.
+    
+    Parameters:
+        args (argparse.Namespace): Namespace with optional attributes `rank`, `local_rank`, `world_size`, `master_addr`, `master_port`, and `omp_num_threads`. The namespace is mutated in-place.
+    
+    Returns:
+        argparse.Namespace: The same `args` namespace with any missing distributed attributes filled in.
     """
     # Get DDP parameters from environment if not provided
     if args.rank is None:
@@ -201,7 +214,19 @@ def setup_distributed(args):
 
 
 def main():
-    """Main training function"""
+    """
+    Orchestrates end-to-end distributed training: parse CLI args, configure the DDP environment, load the pre-trained AtomTypeParamModel, initialize the AtomInducedDipoleModel with dataset settings, and run training across processes.
+    
+    This function performs the following observable actions:
+    - Reads and normalizes command-line arguments and SLURM/environment DDP settings.
+    - Loads a pre-trained AtomTypeParamModel and uses it to construct an AtomInducedDipoleModel configured for the specified dataset.
+    - Starts distributed training with the configured hyperparameters and dataloader options.
+    - Emits configuration and progress messages from the global rank 0 process.
+    
+    Side effects:
+    - Modifies process environment variables used for PyTorch DDP.
+    - Loads model artifacts and may write the trained model to disk if a save path is provided.
+    """
     args = parse_args()
     args = setup_distributed(args)
 

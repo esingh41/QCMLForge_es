@@ -701,13 +701,47 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         cache_size=1000,
     ):
         """
-        LMDB-based dataset for AP3 fused module training.
-
-        Args:
-            lmdb_map_size: Maximum size of LMDB database in bytes (default 1TB)
-            lmdb_readonly: Open LMDB in read-only mode
-            fileserver_url: URL to fileserver for downloading data
-            cache_size: Number of recently accessed items to keep in memory
+        Create an LMDB-backed dataset for AP3-fused FSAPT training that prepares and serves per-dimer fused data objects.
+        
+        Initializes dataset configuration, optional preloaded QCElemental inputs, model references (atomic model and optional dimer property model), LMDB storage, and an in-memory access cache. This constructor does not perform full dataset processing unless process() is invoked later; it only prepares runtime state and opens the LMDB environment when available.
+        
+        Parameters:
+            root (str): Filesystem path for dataset storage and LMDB files.
+            transform: Optional graph transform applied on-the-fly (kept for compatibility).
+            pre_transform: Optional transform applied before saving processed examples.
+            r_cut (float): Short-range cutoff (angstroms) used when building fused data objects.
+            r_cut_im (float): Interaction-model cutoff (angstroms) used for long-range/short-range splitting.
+            spec_type (int or None): Dataset specification type (allowed values: 5, 6, 7, 8, or None) that selects expected raw-file layout.
+            max_size (int or None): Optional upper limit on number of processed dimers to store.
+            force_reprocess (bool): If true, reinitialize LMDB and force reprocessing on next process() call.
+            skip_processed (bool): If true, skip using already-processed LMDB files when loading models from disk.
+            skip_compile (bool): If true, avoid compiling the atomic model with torch.compile.
+            atom_model_path (path-like): Default path to a pre-trained atomic model checkpoint used when atom_model is not supplied.
+            atom_model: Optional already-instantiated AtomModel or underlying model to use for per-atom predictions.
+            dimer_prop_model: Optional model used to compute classical dimer properties (e.g., electrostatics, induction) during processing.
+            batch_size (int): Number of dimer examples to group when computing dimer-level classical properties.
+            atomic_batch_size (int): Number of atoms to batch when running atomic model inference; must be <= datapoint_storage_n_objects.
+            datapoint_storage_n_objects (int): Number of processed examples bundled per LMDB write chunk.
+            in_memory (bool): If true, prefer keeping dataset entries available in memory where feasible.
+            num_devices (int): Number of devices intended for model execution (informational).
+            split (str or int): Dataset split identifier (e.g., "all", train/val/test or numeric split); affects LMDB path selection.
+            print_level (int): Verbosity level for informational prints.
+            qcel_molecules (list[qcel.models.Molecule] or None): Optional pre-loaded QCElemental molecule objects to build dataset directly instead of reading raw files.
+            energy_labels (list[float] or None): Corresponding target energy labels for qcel_molecules; if provided, frag1_indices and frag2_indices must also be provided.
+            frag1_indices (list[list[int]] or None): Fragment indices for fragment 1 for each provided QCElemental molecule (required when qcel_molecules are supplied).
+            frag2_indices (list[list[int]] or None): Fragment indices for fragment 2 for each provided QCElemental molecule (required when qcel_molecules are supplied).
+            random_seed (int): RNG seed used for any dataset subsampling or ordering.
+            check_monomer_validity (bool): If true, perform monomer validity checks during processing.
+            device: Default device for model placement when loading/preparing models.
+            lmdb_map_size (int): Maximum LMDB size in bytes (default 1 TB).
+            lmdb_readonly (bool): Whether to open LMDB in read-only mode.
+            fileserver_url (str or None): Optional URL for retrieving raw data from a fileserver.
+            cache_size (int): Number of recently accessed items to retain in the in-memory LRU cache.
+        
+        Notes:
+            - If qcel_molecules and energy_labels are both provided, frag1_indices and frag2_indices are required and lengths of molecules and labels must match.
+            - The constructor will attempt to import and use the lmdb package; absence of lmdb will raise ImportError.
+            - When an atomic model is supplied or loaded, the code may prepare it for inference (e.g., device placement or optional compilation) so provide compatible model objects.
         """
         try:
             import lmdb
@@ -890,7 +924,19 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
 
     @property
     def raw_file_names(self):
-        """Same as original implementation"""
+        """
+        Return the expected raw dataset file names for the dataset's spec_type.
+        
+        The returned list contains the training and test filenames corresponding to
+        the configured spec_type:
+        - spec_type == 5: "fsapt_train_data.pkl", "fsapt_test_data.pkl"
+        - spec_type == 6: "fsapt_train_simple.pkl", "fsapt_test_simple.pkl"
+        - spec_type == 7: "fsapt_train_simple_2.pkl", "fsapt_test_simple_2.pkl"
+        - spec_type == 8: "90K_fsaptpbe0-d4_fsapt_train.pkl", "90K_fsaptpbe0-d4_fsapt_test.pkl"
+        
+        Returns:
+            list[str]: Two filenames [train, test] for the current spec_type.
+        """
         if self.spec_type == 5:
             return [
                 "fsapt_train_data.pkl",
@@ -914,7 +960,16 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
 
     @property
     def processed_file_names(self):
-        """Check if LMDB database exists and has data"""
+        """
+        Determine the dataset's processed file names based on the LMDB presence and metadata.
+        
+        Checks whether the LMDB at the configured lmdb_path exists and contains at least one entry; if so returns the expected MDB and lock file paths for this dataset split and spec type. If force_reprocess is set, returns ["file"] to signal reprocessing. If the LMDB is missing or empty, returns ["lmdb_missing"].
+        
+        Returns:
+            list[str]: A list containing either the two expected LMDB filenames for this dataset (e.g. 
+            "lmdb_ap3_fused_fsapt[_<split>]_spec_<spec_type>/data.mdb" and the corresponding "lock.mdb"), 
+            or the marker lists ["file"] (when force_reprocess is true) or ["lmdb_missing"] (when no valid LMDB is found).
+        """
         if self.force_reprocess:
             return ["file"]
 
@@ -961,7 +1016,14 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         return ["lmdb_missing"]
 
     def download(self):
-        """Download data - same as original or from fileserver"""
+        """
+        Prepare or fetch the raw data files required by the dataset.
+        
+        If both `energy_labels` and `qcel_molecules` are present on the instance, this method returns without action. Otherwise it prints `processed_paths` and `raw_file_names` and raises NotImplementedError indicating that the dataset must be provided via QCElemental inputs or available raw files for the chosen `spec_type`.
+        
+        Raises:
+            NotImplementedError: If required data are not provided via `qcel_molecules` and `energy_labels`.
+        """
         if self.energy_labels and self.qcel_molecules:
             return
         print(self.processed_paths)
@@ -1050,7 +1112,17 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         self._length = start_idx + len(data_objects)
 
     def process(self):
-        """Process dataset and store in LMDB"""
+        """
+        Process dataset entries into fused dimer Data objects and store them in the LMDB backend.
+        
+        This method reads dimers either from provided QCElemental molecules with corresponding energy labels
+        or from the configured raw data paths, constructs fused dimer Data objects (via dimer_fused_data),
+        optionally augments them by computing classical interaction components using the configured
+        dimer_prop_model, applies the optional pre_filter, and writes validated objects into LMDB in
+        chunks. Storage respects configuration flags and limits such as MAX_SIZE, skip_processed,
+        datapoint_storage_n_objects, and atomic_batch_size. Progress and diagnostic messages are printed
+        according to the instance's print_level.
+        """
         idx = 0
         data_objects = []
 

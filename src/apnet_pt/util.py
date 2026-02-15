@@ -108,7 +108,24 @@ def qcel_to_monomerdata(monomer):
 
 
 def dimerdata_to_qcel(RA, RB, ZA, ZB, aQA, aQB):
-    """ML-ready numpy arrays to qcel mol"""
+    """
+    Convert ML-ready dimer arrays into a qcel Molecule representing the two fragments.
+    
+    Parameters:
+        RA (np.ndarray): Coordinates for fragment A with shape (nA, 3) in angstroms.
+        RB (np.ndarray): Coordinates for fragment B with shape (nB, 3) in angstroms.
+        ZA (Sequence[int]): Atomic numbers for fragment A (length nA).
+        ZB (Sequence[int]): Atomic numbers for fragment B (length nB).
+        aQA (float|int|np.integer): Per-atom charge for fragment A, or an integer total charge for fragment A.
+        aQB (float|int|np.integer): Per-atom charge for fragment B, or an integer total charge for fragment B.
+    
+    Returns:
+        qcel.models.Molecule: A qcel Molecule composed of fragment A and fragment B.
+    
+    Notes:
+        - If `aQA`/`aQB` is an integer type, it is treated as the fragment total charge; otherwise it is interpreted as a per-atom charge and multiplied by the fragment atom count and rounded to produce the total fragment charge (with an assertion that the rounded value matches within 1e-6).
+        - The returned molecule string includes "no_com", "no_reorient", and units set to angstrom.
+    """
 
     nA = RA.shape[0]
     nB = RB.shape[0]
@@ -215,29 +232,46 @@ def load_dimer_dataset(
     return_fragment_indices=False,
     random_seed_shuffle=None,
 ):
-    """Load multiple dimers from a :class:`~pandas.DataFrame`
-
-    Loads dimers from the :class:`~pandas.DataFrame` format associated with the original AP-Net publication.
-    Each row of the :class:`~pandas.DataFrame` corresponds to a molecular dimer.
-
-    The columns [`ZA`, `ZB`, `RA`, `RB`, `TQA`, `TQB`] are required.
-    `ZA` and `ZB` are atom types (:class:`~numpy.ndarray` of `int` with shape (`n`,)).
-    `RA` and `RB` are atomic positions in Angstrom (:class:`~numpy.ndarray` of `float` with shape (`n`,3.)).
-    `TQA` and `TQB` are monomer charges (int).
-
-    The columns [`Total_aug`, `Elst_aug`, `Exch_aug`, `Ind_aug`, and `Disp_aug`] are optional.
-    Each column describes SAPT0/aug-cc-pV(D+d)Z labels in kcal / mol (`float`).
-
-    Parameters
-    ----------
-    file : str
-        The name of a file containing the :class:`~pandas.DataFrame`
-
-    Returns
-    -------
-    dimers : list of :class:`~qcelemental.models.Molecule`
-    labels : list of :class:`~numpy.ndarray` or None
-        None is returned if SAPT0 label columns are not present in the :class:`~pandas.DataFrame`
+    """
+    Load a dataset of molecular dimers from a pandas DataFrame file in AP‑Net format and return selected representations and labels.
+    
+    This function reads a DataFrame pickle, filters rows missing specified SAPT columns (if provided), optionally shuffles and truncates the dataset, validates element types, and extracts per-dimer data either from explicit columns or from a `qcel_molecule` column when present. Depending on the boolean flags it returns qcel Molecule dimers, qcel monomers, fragment index mappings suitable for monomer contexts, or raw per-fragment arrays, along with optional SAPT labels.
+    
+    Parameters:
+        file (str): Path to a pickle file containing the pandas DataFrame.
+        max_size (int or None): If set, limit the returned dataset to at most this many rows.
+        columns (list of str): SAPT label column names to require and return. Rows with NaN in any of these columns are dropped; if these columns are absent or unreadable, returned labels will be None.
+        return_qcel_mols (bool): If True, return a list of qcelemental Molecule objects representing each dimer.
+        return_qcel_mons (bool): If True, return two lists (monomer A list, monomer B list) of qcelemental Molecule objects for each row.
+        return_fragment_indices (bool): If True, return fragment index lists converted to 0-based monomer indexing (see Returns). Mutually exclusive with return_qcel_mons.
+        random_seed_shuffle (int or None): If set, shuffle the DataFrame deterministically using this seed before further processing.
+    
+    Returns:
+        Depending on the flags:
+        - If return_qcel_mons is True:
+            (monAs, monBs, labels)
+            monAs, monBs: lists of qcelemental.models.Molecule for monomer A and monomer B respectively.
+            labels: numpy.ndarray of SAPT columns or None if labels are not available.
+        - Else if return_qcel_mols is True:
+            (dimers, labels)
+            dimers: list of qcelemental.models.Molecule representing each dimer.
+            labels: numpy.ndarray of SAPT columns or None.
+        - Else if return_fragment_indices is True:
+            (RA, RB, ZA, ZB, TQA, TQB, labels, frag1_indices, frag2_indices)
+            RA, RB: lists of per-atom coordinate arrays (Angstrom) for monomer A and B.
+            ZA, ZB: lists of int arrays of atomic numbers for monomer A and B.
+            TQA, TQB: lists of total fragment charges (int or float) for A and B.
+            labels: numpy.ndarray of SAPT columns or None.
+            frag1_indices: list of lists of 0-based atom indices into monomer A corresponding to original dimer Frag1_indices.
+            frag2_indices: list of lists of 0-based atom indices into monomer B corresponding to original dimer Frag2_indices (converted from dimer 1-based indexing by subtracting monomer A size and 1).
+        - Otherwise (default fallback):
+            (RA, RB, ZA, ZB, TQA, TQB, labels)
+            As above but without fragment index lists.
+    
+    Notes:
+        - The DataFrame must contain ZA, ZB, RA, RB, TQA, and TQB columns (or a valid qcel_molecule column). ZA/ZB should be iterable of atomic numbers; RA/RB should be per-atom coordinate arrays in Angstrom.
+        - Rows containing elements not present in the module's allowed element set are removed.
+        - return_qcel_mons and return_fragment_indices cannot both be True.
     """
 
     df = pd.read_pickle(file)
