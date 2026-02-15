@@ -33,7 +33,12 @@ atp_mpnn_path = f"{current_file_path}/test_models/ap3_ensemble_0/atp_mpnn_1.pt"
 
 # Helper function to create a small test dataset
 def create_test_atomtype_model():
-    """Create a small AtomTypeParamMPNN model for testing."""
+    """
+    Create a small AtomTypeParamMPNN configured for unit tests.
+    
+    Returns:
+        model (AtomTypeParamMPNN): An AtomTypeParamMPNN instance with a compact architecture and preset parameter initialization suitable for tests (n_message=2, n_neuron=32, n_embed=4, n_params=2, r_cut=5.0).
+    """
     model = AtomTypeParamMPNN(
         n_message=2,
         n_neuron=32,
@@ -48,7 +53,14 @@ def create_test_atomtype_model():
 
 @pytest.fixture
 def atomtype_hfvr_model():
-    """Load or create atomtype model for testing."""
+    """
+    Load or create an atom-type HFVR model for tests.
+    
+    If a checkpoint exists at `atp_mpnn_path`, the function loads model configuration and weights from that checkpoint; otherwise it constructs a small test AtomTypeParamMPNN. The returned model is set to evaluation mode and has gradients disabled.
+    
+    Returns:
+        AtomTypeParamMPNN: Prepared atom-type model with gradients disabled and in evaluation mode.
+    """
     if os.path.exists(atp_mpnn_path):
         checkpoint = torch.load(atp_mpnn_path, weights_only=False)
         model = AtomTypeParamMPNN(
@@ -74,7 +86,11 @@ def atomtype_hfvr_model():
 
 
 def test_precomputed_dataset_creation(atomtype_hfvr_model):
-    """Test that pre-computed dataset processes and stores hfvr/vw correctly."""
+    """
+    Create a pre-computed HFVR/VW dataset and verify processed files exist and per-atom precomputed fields are present and correctly sized.
+    
+    Verifies that processed files are produced on disk, the dataset contains at least one sample, and that the first sample exposes `volume_ratios` and `valence_widths` with one value per atom.
+    """
     # Clean up any existing processed files
     processed_dir = f"{data_path}/processed"
     if os.path.exists(processed_dir):

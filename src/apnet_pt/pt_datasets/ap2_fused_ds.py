@@ -74,6 +74,37 @@ def dimer_fused_data(
     check_validity=True,
     **kwargs,
 ):
+    """
+    Constructs a PyG Data object representing a fused dimer from two monomer specifications.
+    
+    Creates per-monomer atomic features, optionally validates featurization, computes intra-monomer edges and inter-monomer short- and long-range edges, and returns a Data object containing atom tensors, edge index tensors, molecule indices, and total charges. Returns `None` if validity checks fail.
+    
+    Parameters:
+        RA (Tensor): Positions for monomer A (cartesian coordinates, expected in angstroms).
+        ZA (Tensor or sequence): Atomic numbers or one-hot/feature tensor for monomer A.
+        TQA (Tensor or sequence): Per-atom quantum labels/properties for monomer A.
+        RB (Tensor): Positions for monomer B.
+        ZB (Tensor or sequence): Atomic numbers or one-hot/feature tensor for monomer B.
+        TQB (Tensor or sequence): Per-atom quantum labels/properties for monomer B.
+        dimer_ind (int): Integer index identifying the dimer (used to populate dimer index fields).
+        r_cut (float, optional): Distance cutoff for intramonomer (AA/BB) edges. Default 5.0.
+        r_cut_im (float, optional): Distance threshold separating short- and long-range inter-monomer AB edges. Default 8.0.
+        check_validity (bool, optional): If True, validate that each atom in a monomer has at least one edge; return `None` when invalid. Default True.
+        **kwargs: Additional attributes to include in the returned Data object.
+    
+    Returns:
+        Data or None: A PyG Data object containing at least the following fields when successful:
+            - ZA, RA, ZB, RB: atom features and positions for monomers A and B
+            - e_ABsr_source, e_ABsr_target: short-range AB edge indices
+            - dimer_ind: dimer index for short-range AB edges
+            - e_ABlr_source, e_ABlr_target: long-range AB edge indices
+            - dimer_ind_lr: dimer index for long-range AB edges
+            - e_AA_source, e_AA_target: intramonomer A edge indices
+            - e_BB_source, e_BB_target: intramonomer B edge indices
+            - molecule_ind_A, molecule_ind_B: per-atom molecule indices for A and B
+            - total_charge_A, total_charge_B: total charges for monomers A and B
+        Returns `None` if validation fails.
+    """
     atomic_props_A = atomic_datasets.create_atomic_data(ZA, RA, TQA, r_cut=r_cut)
     atomic_props_B = atomic_datasets.create_atomic_data(ZB, RB, TQB, r_cut=r_cut)
     if check_validity:
@@ -118,6 +149,15 @@ def dimer_fused_data(
 
 
 def natural_key(text):
+    """
+    Create a sort key that splits a string into alternating non-numeric and numeric parts, converting numeric parts to integers for natural ordering.
+    
+    Parameters:
+        text (str): Input string to be split into components.
+    
+    Returns:
+        list: A list of parts where contiguous digit sequences are converted to `int` and all other segments remain `str`, suitable for natural/alphanumeric sorting.
+    """
     return [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", text)]
 
 
@@ -177,9 +217,26 @@ def pairwise_edges_im(RA, RB, r_cut_im, full_indices=False):
 
 def ap2_fused_collate_update(batch):
     """
-    Need to update the edge_index values so that each molecule has a unique
-    set of indices. Then, the data.molecule_ind can be used to group
-    atoms into molecules during a forward pass.
+    Merge a list of per-dimer PyG Data objects into a single batched Data with unique, offset atom and edge indices.
+    
+    Parameters:
+        batch (list[Data]): List of per-dimer Data objects containing fields for monomers A and B (ZA, RA, ZB, RB), per-monomer edge indices (e_AA_*, e_BB_*), inter-monomer edge lists (e_ABsr_*, e_ABlr_*), molecule and dimer index tensors, charges, and target y.
+    
+    Returns:
+        Data: A single PyG Data object containing:
+            - y: stacked targets for the batch.
+            - ZA, RA, ZB, RB: concatenated atomic numbers and coordinates for monomers A and B.
+            - e_AA_source, e_AA_target, e_BB_source, e_BB_target: concatenated intramonomer edge index lists with per-item offsets applied.
+            - e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target: concatenated short- and long-range inter-monomer edge lists with atom-index offsets applied so every atom in the batch has a unique index.
+            - dimer_ind, dimer_ind_lr: per-edge tensors indicating the originating dimer index for short- and long-range AB edges.
+            - molecule_ind_A, molecule_ind_B: concatenated per-atom molecule indices for A and B.
+            - natom_per_mol_A, natom_per_mol_B: number of atoms per molecule for A and B.
+            - total_charge_A, total_charge_B: per-dimer total charges for A and B.
+            - batch_atomic_A, batch_atomic_B: Data sub-objects for the batched monomer A and B atom graphs (x, edge_index, R, molecule_ind, total_charge, natom_per_mol).
+    
+    Behavior notes:
+        - Per-item molecule and dimer index tensors are replaced with batch-local indices (0..batch_size-1).
+        - All atom indices in edge lists are offset so atoms from different batch entries do not collide.
     """
     monA_edge_offset, monB_edge_offset = 0, 0
     local_e_ABsr_source = []
@@ -287,9 +344,22 @@ def ap2_fused_collate_update(batch):
 
 def ap2_fused_collate_update_no_target(batch):
     """
-    Need to update the edge_index values so that each molecule has a unique
-    set of indices. Then, the data.molecule_ind can be used to group
-    atoms into molecules during a forward pass.
+    Batch-collate a list of fused Data objects into a single batched Data without target labels.
+    
+    This function offsets and concatenates per-item atom and edge indices so every atom in the batch has a unique global index, assembles per-monomer (A and B) batched subgraphs, and produces combined inter-monomer edge lists. The resulting Data includes short- and long-range AB edges, a concatenated full AB edge list, corresponding dimer index vectors (including `dimer_ind_full`), per-molecule indices and counts, total charges, and the per-monomer Data objects `batch_atomic_A` and `batch_atomic_B`.
+    
+    Returns:
+        Data: A PyG Data object containing the following notable fields:
+            - ZA, RA, ZB, RB: concatenated atomic numbers and coordinates for monomers A and B
+            - e_AA_source/target, e_BB_source/target: concatenated intra-monomer edge indices
+            - e_ABsr_source/target, e_ABlr_source/target: concatenated short- and long-range AB edge indices
+            - e_ABfull_source/target: concatenated full AB edge indices (short + long)
+            - dimer_ind, dimer_ind_lr, dimer_ind_full: dimer index vectors for AB edges
+            - molecule_ind_A, molecule_ind_B: per-atom molecule indices for A and B
+            - natom_per_mol_A, natom_per_mol_B: atom counts per molecule for A and B
+            - total_charge_A, total_charge_B: per-dimer total charges for A and B
+            - indA, indB: batch-local atom-to-dimer mapping for A and B
+            - batch_atomic_A, batch_atomic_B: Data objects representing the batched A and B atomic graphs
     """
     monA_edge_offset, monB_edge_offset = 0, 0
     local_e_ABsr_source = []
@@ -417,9 +487,21 @@ def ap2_fused_collate_update_no_target(batch):
 
 def ap2_fused_collate_update_no_target_monomer_indices(batch):
     """
-    Need to update the edge_index values so that each molecule has a unique
-    set of indices. Then, the data.molecule_ind can be used to group
-    atoms into molecules during a forward pass.
+    Merge a list of fused-dimer Data objects (no target) into a single batched Data with unique global atom and edge indices and explicit per-monomer molecule indices.
+    
+    Parameters:
+        batch (list[torch_geometric.data.Data]): List of per-dimer Data objects containing atomic features, intra- and inter-monomer edge indices, per-dimer indices, and monomer properties.
+    
+    Returns:
+        torch_geometric.data.Data: A single Data object containing concatenated/offset fields:
+            - ZA, RA, ZB, RB: concatenated atomic numbers and positions for monomers A and B.
+            - e_AA_source, e_AA_target, e_BB_source, e_BB_target: batched intra-monomer edge index components.
+            - e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target: batched short- and long-range inter-monomer edge index components.
+            - dimer_ind, dimer_ind_lr: per-edge dimer membership indices for short- and long-range AB edges.
+            - total_charge_A, total_charge_B: per-dimer total charges for monomers A and B.
+            - qA, muA, quadA, hlistA, qB, muB, quadB, hlistB: concatenated per-monomer properties.
+            - indA, indB (molecule_ind): per-atom tensors mapping each atom to its originating dimer (monomer index).
+            - batch_atomic_A, batch_atomic_B: Data sub-objects representing the batched atomic graphs for monomers A and B (with x, edge_index, R, molecule_ind, total_charge).
     """
     monA_edge_offset, monB_edge_offset = 0, 0
     local_e_ABsr_source = []
@@ -521,6 +603,24 @@ def ap2_fused_collate_update_no_target_monomer_indices(batch):
 
 
 def ap3_fused_collate_update(batch):
+    """
+    Batch-collate a list of fused dimer Data objects into a single batched Data with adjusted intra- and inter-monomer indices.
+    
+    Parameters:
+        batch (list[Data]): List of per-dimer PyG Data objects containing atom features, coordinates, intra-monomer edges (e_AA*, e_BB*), inter-monomer edges (e_ABsr_*, e_ABlr_*), dimer index fields, charges, and target `y`.
+    
+    Returns:
+        Data: A single PyG Data object that contains:
+            - concatenated atom features and coordinates for monomers A and B (ZA, RA, ZB, RB)
+            - adjusted intra-monomer edge lists (e_AA_source/target, e_BB_source/target)
+            - concatenated short- and long-range inter-monomer edge lists (e_ABsr_*, e_ABlr_*)
+            - full inter-monomer edge lists (e_ABfull_source, e_ABfull_target)
+            - per-edge dimer indices (dimer_ind, dimer_ind_lr, dimer_ind_full)
+            - per-monomer molecule indices and counts (molecule_ind_A/B, natom_per_mol_A/B)
+            - total charges per monomer (total_charge_A/B)
+            - stacked targets `y`
+            - nested batch_atomic_A and batch_atomic_B Data objects for the A and B atom pools
+    """
     monA_edge_offset, monB_edge_offset = 0, 0
     local_e_ABsr_source = []
     local_e_ABsr_target = []
@@ -768,7 +868,16 @@ def ap2_fused_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
 
 
 def save_hdf5_data_objects(data_objects, filepath):
-    """Save list of data objects to HDF5 format"""
+    """
+    Save a list of PyG Data objects into an HDF5 file where each object is stored as a separate group.
+    
+    Each data object is written to a group named "data_<index>". The following attributes, when present on a data object, are persisted: ZA, RA, ZB, RB, e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target, e_AA_source, e_AA_target, e_BB_source, e_BB_target, dimer_ind, dimer_ind_lr, molecule_ind_A, molecule_ind_B, total_charge_A, total_charge_B, qA, muA, quadA, hlistA, qB, muB, quadB, hlistB, and y. Tensor attributes are converted to NumPy arrays and saved as datasets; numeric scalar attributes (int/float) are saved as group attributes.
+    
+    Parameters:
+        data_objects (Sequence): Sequence of PyG Data-like objects to save. Objects should expose the attributes listed above when applicable.
+        filepath (str or os.PathLike): Destination HDF5 file path.
+    
+    """
     with h5py.File(filepath, "w") as f:
         for i, data_obj in enumerate(data_objects):
             group = f.create_group(f"data_{i}")
@@ -812,7 +921,17 @@ def save_hdf5_data_objects(data_objects, filepath):
 
 
 def load_hdf5_data_objects(filepath):  # type: ignore
-    """Load list of data objects from HDF5 format"""
+    """
+    Load a list of PyG Data objects stored in an HDF5 file.
+    
+    Reads groups whose names start with "data_" (sorted lexicographically). For each such group, datasets are converted to torch tensors (array datasets become tensor arrays; scalar datasets become 0-dim tensors) and group attributes are copied as scalar fields. Each group's combined data is used to construct a torch_geometric.data.Data object; the function returns the list of these Data objects in the sorted group order.
+    
+    Parameters:
+        filepath (str or os.PathLike): Path to the HDF5 file to read.
+    
+    Returns:
+        list[torch_geometric.data.Data]: List of reconstructed Data objects.
+    """
     data_objects = []
     with h5py.File(filepath, "r") as f:
         for key in sorted(f.keys()):
@@ -1010,6 +1129,15 @@ class ap2_fused_module_dataset(Dataset):
             ]
 
     def reprocess_file_names(self):
+        """
+        Determine which processed file names should be used (or signal that reprocessing is required).
+        
+        If force_reprocess is True, returns ["file"]. Otherwise, searches the processed directory for files matching the dataset split and spec_type, sorts them using natural_key, and trims the list according to MAX_SIZE and datapoint_storage_n_objects. If matching files are found, returns the ordered list of file basenames; if none are found, returns a single marker filename indicating missing data (e.g., "dimer_missing" plus the file extension).
+        
+        Returns:
+            list[str]: Ordered list of processed file basenames to use, or a single-element list
+            signaling reprocessing (either ["file"] for forced reprocess or ["dimer_missing{ext}"] when no files exist).
+        """
         if self.force_reprocess:
             return ["file"]
         else:
@@ -1080,6 +1208,21 @@ class ap2_fused_module_dataset(Dataset):
         return
 
     def process(self):
+        """
+        Builds fused PyG Data objects from raw dimers or provided QCElemental molecules and writes them to disk or stores them in memory.
+        
+        Processes either self.qcel_molecules with self.energy_labels or files listed in self.raw_paths, converts each dimer into a fused Data object via dimer_fused_data (respecting r_cut, r_cut_im, and monomer-validity checks), applies self.pre_filter when provided, and accumulates data objects in chunks of self.points_per_file. Depending on configuration, the method:
+        - appends chunks to self.data when in_memory is True, or
+        - saves chunks to processed files under self.processed_dir using either HDF5 or PT format per self.storage_type.
+        
+        Behavioral details:
+        - Honors self.MAX_SIZE to limit the number of processed dimers.
+        - Skips already-processed files when self.skip_processed is True.
+        - Uses self.print_level to control progress output.
+        - Uses self.random_seed when loading raw datasets.
+        - Populates self.data (when in_memory) and creates processed files named like dimer_ap2_fused_{split_name}_spec_{spec_type}_{file_index}{file_extension}.
+        - Skips dimers for which dimer_fused_data returns None or that fail self.pre_filter.
+        """
         self.data = []
         idx = 0
         data_objects = []
