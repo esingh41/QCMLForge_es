@@ -609,6 +609,11 @@ def test_classical_cliff():
 
 
 def test_elst_ameoba():
+    """
+    Validate AMOEBA-equivalent electrostatic energy components against CLIFF no-damping references for a water dimer.
+    
+    Loads the first entry from the water_dimer_pes3.pkl dataset and computes electrostatic energies (charge-only, charge+dipole, charge+dipole+quadrupole) using the APNET evaluation configured to match CLIFF and AMOEBA-equivalent settings. For each multipole expansion level the test compares the computed AP energy to the corresponding CLIFF no-damping reference and asserts agreement within 1e-4 kcal/mol.
+    """
     df = pd.read_pickle(
         current_file_path
         + os.sep
@@ -729,7 +734,12 @@ def test_elst_ameoba():
     return
 
 
-def test_elst_damping():
+def test_elst_damping_CLIFF():
+    """
+    Validate that AP electrostatic energies match CLIFF reference values for two damping configurations.
+    
+    Loads the first entry from the water dimer test dataset, computes electrostatic components with AMOEBA-equivalent damping and CLIFF matching for the charge-only ("q") and charge+dipole ("q_mu") cases, and asserts the AP-computed totals agree with the stored CLIFF reference values within 1e-4.
+    """
     df = pd.read_pickle(
         current_file_path
         + os.sep
@@ -836,8 +846,8 @@ def test_elst_damping():
     print(f"{ap_q_mu=:.6f} kcal/mol")
     print(f"{E_ZA_ZB=:.6f} + {E_ZA_MB=:.6f} + {E_ZB_MA=:.6f} + {MTP_MTP:.6f}")
     print(
-        f"Elst: {E_ZA_ZB: .6f} + {E_ZA_MB: .6f} + {E_ZB_MA: .6f} + {MTP_MTP: .6f}={
-            ap_q_mu: .6f}"
+        f"Elst: {E_ZA_ZB: .6f} + {E_ZA_MB: .6f} + {E_ZB_MA: .6f} + "
+        f"{MTP_MTP: .6f}={ap_q_mu: .6f}"
     )
     print(
         "Elst: 12056.938032 + -12204.355385 + -11877.736773 + 12014.622387 = -10.531739"
@@ -1304,7 +1314,7 @@ def test_induced_dipole_torch_df():
         print(f"CLIFF induction  = {cliff_ind:.6f}")
 
 
-def test_elst_damping_dipole_torch_df():
+def test_elst_damping_dipole_torch_df_CLIFF():
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -1405,8 +1415,314 @@ def test_elst_damping_dipole_torch_df():
         print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
 
 
-def test_induced_dipole_torch_intramolecular():
+def test_elst_damping_dipole_torch_df_AMOEBA():
+    """
+    Compare AMOEBA-damped electrostatic and induction predictions to SAPT references and AP3 model outputs for water dimer entries, printing distances and energy comparisons.
+    
+    Builds AMOEBA atom-type and dimer parameter models, loads water dimer test data, computes reference AMOEBA-damped energies via eval_qcel_dimer_individual_components, obtains AP3 predictions, and prints SAPT, reference ELST, and AP3 ELST for each dimer entry.
+    """
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=data_path,
+        use_GPU=False,
+        n_neuron=64,
+        n_params=1,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+    )
+    print(atom_type_elst_model)
 
+    df = pd.read_pickle(
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "water_dimer_pes3.pkl")
+    )
+    df = df[df["system_id"].str.contains("01_Water-Water")].copy()
+    df = df.sort_values(by="system_id")
+    Ks = [
+        [1.14769962, 0.685558974, 0.685558974],
+        [1.14769962, 0.685558974, 0.685558974],
+    ]
+    alphaA = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    alphaB = np.array([2.05109221104216, 1.65393856475232, 1.65393856475232])
+    for n, r in df.iterrows():
+        sapt0_elst = r["SAPT0 ELST ENERGY adz"]
+        sapt0_ind = r["SAPT0 IND ENERGY adz"] * h2kcalmol
+        mol = r["qcel_molecule"]
+        monA = mol.get_fragment(0).copy()
+        monB = mol.get_fragment(1).copy()
+        dist = np.sqrt(
+            np.sum((monA.geometry[:, None] - monB.geometry) ** 2, axis=2)
+        ).min()
+        bohr2angstrom = qcel.constants.conversion_factor("bohr", "angstrom")
+        qA = r["q_A pbe0/atz"]
+        muA = r["mu_A pbe0/atz"]
+        # muA = np.zeros_like(muA)
+        thetaA = r["theta_A pbe0/atz"]
+        thetaA = np.zeros_like(thetaA)
+        qB = r["q_B pbe0/atz"]
+        muB = r["mu_B pbe0/atz"]
+        # muB = np.zeros_like(muB)
+        thetaB = r["theta_B pbe0/atz"]
+        thetaB = np.zeros_like(thetaB)
+        thetaA = np.zeros_like(thetaA)
+        thetaB = np.zeros_like(thetaB)
+
+        (
+            ref_elst_q,
+            E_qqs_q,
+            E_qus_q,
+            E_uus_q,
+            E_qQs_q,
+            E_uQs_q,
+            E_QQs_q,
+            E_ZA_ZBs_q,
+            E_ZA_MBs_q,
+            E_ZB_MAs_q,
+        ) = apnet_pt.multipole.eval_qcel_dimer_individual_components(
+            mol_dimer=mol,
+            qA=qA,
+            qB=qB,
+            muA=muA,
+            muB=muB,
+            # muA=np.zeros_like(muA),
+            # muB=np.zeros_like(muB),
+            thetaA=thetaA,
+            thetaB=thetaB,
+            # thetaA=np.zeros_like(thetaA),
+            # thetaB=np.zeros_like(thetaB),
+            alphaA=alphaA,
+            alphaB=alphaB,
+            traceless=False,
+            amoeba_eq=True,
+            match_cliff=False,
+        )
+        elst = ref_elst_q
+        pred, pair_elst, pair_ind = ap3.predict_qcel_mols(
+            [mol], batch_size=1, return_classical_pairs=True
+        )
+        ap3_elst = np.sum(pair_elst[0])
+        ap3_ind = np.sum(pair_ind[0])
+        print(f"Distance between monomers: {dist * bohr2angstrom:.2f} A")
+        print(f"SAPT ELST   = {sapt0_elst:.6f} kcal/mol")
+        print(f"ELST Pred   = {elst:.6f} kcal/mol")
+        print(f"AP3  ELST   = {ap3_elst:.6f} kcal/mol")
+
+
+def test_elst_damping_AMOEBA_mtp_mtp_torch():
+    """
+    Run the AMOEBA (GORDON1) electrostatic damping test on a water dimer and compare results to reference data.
+    
+    Performs an AMOEBA (GORDON1) damped multipole electrostatics calculation for a water dimer using reference multipoles and damping parameters, evaluates low-level damping factors, and compares the computed AMOEBA-damped energy with CLIFF/AMOEBA and SAPT0 reference values. Also performs basic sanity checks to ensure the computed tensor contains no NaN or infinite values.
+    """
+
+    # Load reference data with AMOEBA values
+    ref_data = pd.read_pickle(
+        current_file_path
+        + os.sep
+        + os.path.join("dataset_data", "amoeba_water_dimer_ref.pkl")
+    )
+    mol = ref_data["qcel_molecule"]
+    print(mol.to_string('xyz'))
+    qA = ref_data["q_A pbe0/atz"]
+    muA = ref_data["mu_A pbe0/atz"]
+    thetaA = ref_data["theta_A pbe0/atz"]
+    qB = ref_data["q_B pbe0/atz"]
+    muB = ref_data["mu_B pbe0/atz"]
+    thetaB = ref_data["theta_B pbe0/atz"]
+
+    # AMOEBA damping parameters from reference data
+    Ka = ref_data["alpha_A"]  # [4.7004, 4.7441, 4.7441] for O, H, H
+    Kb = ref_data["alpha_B"]  # [4.7004, 4.7441, 4.7441] for O, H, H
+
+    # Reference values for comparison
+    ref_amoeba_elst = float(ref_data["amoeba_elst_hippo"])  # -7.2136 kcal/mol
+    ref_sapt0_elst = float(ref_data["SAPT0 ELST kcalmol"])  # -7.1946 kcal/mol
+
+    np.set_printoptions(precision=6)
+    torch.set_printoptions(precision=6)
+
+    # Create dimer batch
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+
+    # Set up batch data
+    dimer_batch.Ka = torch.tensor(Ka, dtype=torch.float32)
+    dimer_batch.Kb = torch.tensor(Kb, dtype=torch.float32)
+    dimer_batch.qA = torch.tensor(qA, dtype=torch.float32)
+    dimer_batch.qB = torch.tensor(qB, dtype=torch.float32)
+    dimer_batch.muA = torch.tensor(muA, dtype=torch.float32)
+    dimer_batch.muB = torch.tensor(muB, dtype=torch.float32)
+    dimer_batch.quadA = torch.tensor(thetaA, dtype=torch.float32)
+    dimer_batch.quadB = torch.tensor(thetaB, dtype=torch.float32)
+
+    # Call the AMOEBA damping function
+    torch_elst_amoeba = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping_AMOEBA(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA_0=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB_0=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+    )
+
+    total_elst = torch.sum(torch_elst_amoeba).item()
+    print(f"\n=== AMOEBA (GORDON1) Electrostatic Damping Test ===")
+    print(f"Damping parameters: Ka = {Ka}, Kb = {Kb}")
+    print(f"Total AMOEBA damped elst (torch) = {total_elst:.6f} kcal/mol")
+    print(f"Reference AMOEBA HIPPO = {ref_amoeba_elst:.6f} kcal/mol")
+    print(f"Reference SAPT0 ELST   = {ref_sapt0_elst:.6f} kcal/mol")
+
+    # Also test the low-level damping function directly
+    from apnet_pt.AtomPairwiseModels.mtp_mtp import (
+        elst_damping_AMOEBA_mtp_mtp_torch,
+        get_distances,
+    )
+    from apnet_pt import constants
+
+    # Get distances for testing
+    dR_ang, dR_xyz_ang = get_distances(
+        dimer_batch.RA,
+        dimer_batch.RB,
+        dimer_batch.e_ABsr_source,
+        dimer_batch.e_ABsr_target,
+    )
+    dR = dR_ang / constants.au2ang
+
+    # Call the damping function directly
+    lam1, lam3, lam5 = elst_damping_AMOEBA_mtp_mtp_torch(
+        dimer_batch.Ka,
+        dimer_batch.Kb,
+        dR,
+        dimer_batch.e_ABsr_source,
+        dimer_batch.e_ABsr_target,
+    )
+
+    print(f"\nLow-level damping factors GORDON1:")
+    print(f"  lam1: {lam1}")
+    print(f"  lam3: {lam3}")
+    print(f"  lam5: {lam5}")
+
+    # Basic sanity checks
+    assert not torch.isnan(torch_elst_amoeba).any(), "NaN values in AMOEBA elst output"
+    assert not torch.isinf(torch_elst_amoeba).any(), "Inf values in AMOEBA elst output"
+
+    # Compare with CLIFF damping for reference
+    torch_elst_cliff = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA_0=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=dimer_batch.Ka,
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB_0=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=dimer_batch.Kb,
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+    )
+    total_elst_cliff = torch.sum(torch_elst_cliff).item()
+    print(f"\nComparison with CLIFF (GORDON2) damping:")
+    print(f"  AMOEBA (GORDON1) elst = {total_elst:.6f} kcal/mol")
+    print(f"  Difference = {abs(total_elst - ref_sapt0_elst):.6f} kcal/mol")
+    print(f"  CLIFF  (GORDON2) elst = {total_elst_cliff:.6f} kcal/mol")
+    print(f"  Difference = {abs(total_elst_cliff - ref_sapt0_elst):.6f} kcal/mol")
+
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=data_path,
+        use_GPU=False,
+        n_neuron=64,
+        n_params=1,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3 = apnet_pt.AtomPairwiseModels.apnet3_fused.APNet3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+    )
+    print(ref_data)
+    energies = ap3.predict_qcel_mols([mol], batch_size=1)
+    print(energies)
+    energies = atom_type_elst_model.predict_qcel_mols_dimer([mol], batch_size=1)
+    print(energies)
+    monA, monB = atom_type_elst_model.predict_qcel_mols_monomer_props([mol], batch_size=1)
+    # Compare with CLIFF damping for reference
+    torch_elst_cliff = apnet_pt.AtomPairwiseModels.mtp_mtp.mtp_elst_damping(
+        ZA=dimer_batch.ZA,
+        RA=dimer_batch.RA,
+        qA_0=dimer_batch.qA,
+        muA=dimer_batch.muA,
+        quadA=dimer_batch.quadA,
+        Ka=monA[0][-1],
+        ZB=dimer_batch.ZB,
+        RB=dimer_batch.RB,
+        qB_0=dimer_batch.qB,
+        muB=dimer_batch.muB,
+        quadB=dimer_batch.quadB,
+        Kb=monB[0][-1],
+        e_AB_source=dimer_batch.e_ABsr_source,
+        e_AB_target=dimer_batch.e_ABsr_target,
+    )
+    lam1, lam3, lam5 = apnet_pt.AtomPairwiseModels.mtp_mtp.elst_damping_mtp_mtp_torch(
+        dimer_batch.Ka,
+        dimer_batch.Kb,
+        dR,
+        dimer_batch.e_ABsr_source,
+        dimer_batch.e_ABsr_target,
+    )
+
+    print(f"\nLow-level damping factors GORDON1:")
+    print(f"  lam1: {lam1}")
+    print(f"  lam3: {lam3}")
+    print(f"  lam5: {lam5}")
+    total_elst_cliff = torch.sum(torch_elst_cliff).item()
+    print(f"\nComparison with CLIFF (GORDON1) damping with AP3-DimerParams:")
+    print(f"  CLIFF  (GORDON2) elst = {total_elst_cliff:.6f} kcal/mol")
+    print(f"  Difference = {abs(total_elst_cliff - ref_sapt0_elst):.6f} kcal/mol")
+
+    return
+
+
+def test_induced_dipole_torch_intramolecular():
     # Load the monomer data
     df = pd.read_pickle(
         current_file_path + os.sep + os.path.join("dataset_data", "df_bz_meoh_mbis.pkl")
@@ -1514,7 +1830,7 @@ def test_induced_dipole_torch_intramolecular():
 
 
 if __name__ == "__main__":
-    test_induced_dipole_torch_intramolecular()
+    # test_induced_dipole_torch_intramolecular()
     # test_elst_damping_dipole_torch_df()
     # test_elst_multipoles_MTP_torch_damping()
     # test_elst_damping_dipole_torch_df()
@@ -1534,3 +1850,5 @@ if __name__ == "__main__":
 
     # test_induced_dipole()
     # test_induced_dipole_torch_df()
+    # test_elst_damping_AMOEBA_mtp_mtp_torch()
+    test_elst_multipoles_AP2()

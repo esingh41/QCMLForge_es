@@ -1348,6 +1348,20 @@ units angstrom
 
     @torch.inference_mode()
     def predict_qcel_mols(self, mols, batch_size=2):
+        """
+        Predict per-atom multipole properties for a list of QCEL-formatted molecules by batching them through the model.
+        
+        Parameters:
+            mols (Iterable): Iterable of molecules in QCEL/monomer format accepted by qcel_mon_to_pyg_data.
+            batch_size (int): Number of molecules to process per model forward pass.
+        
+        Returns:
+            List[Tuple]: A list, one entry per input molecule, of tuples (charges, dipoles, qpoles, hlists) where:
+                - charges: Tensor of shape (n_atoms,) containing predicted atomic charges.
+                - dipoles: Tensor of shape (n_atoms, 3) containing predicted atomic dipole vectors.
+                - qpoles: Tensor of shape (n_atoms, 3, 3) containing predicted atomic quadrupole tensors.
+                - hlists: Tensor or list containing per-atom hidden-state vectors returned by the model.
+        """
         output = []
         mol_data = []
         cnt = 0
@@ -1372,7 +1386,105 @@ units angstrom
         return output
 
     @torch.inference_mode()
+    def predict_qcel_mols_dimer(self, mols, batch_size=2):
+        """
+        Predict multipole outputs for each dimer and its two monomer fragments.
+        
+        Parameters:
+            mols (Sequence): Sequence of QCEngine/QCEL molecule objects representing dimers; each molecule must support `get_fragment`.
+            batch_size (int): Number of molecules to process per inference batch.
+        
+        Returns:
+            tuple: (dimer_output, monA_output, monB_output) where each element is the list of per-molecule prediction tuples produced by `predict_qcel_mols` (e.g., (charges, dipoles, qpoles, hlists) per molecule).
+        """
+        monA = [mol.get_fragment([0]) for mol in mols]
+        monB = [mol.get_fragment([1]) for mol in mols]
+        dimer_output = self.predict_qcel_mols(mols, batch_size=batch_size)
+        monA_output = self.predict_qcel_mols(monA, batch_size=batch_size)
+        monB_output = self.predict_qcel_mols(monB, batch_size=batch_size)
+        return dimer_output, monA_output, monB_output
+
+    def predict_elst_ind_dimer(self, mols, batch_size=2):
+        """
+        Compute per-dimer electrostatic energies, dimer electrostatic energies after model prediction, and their difference (induction) for a list of QCELEM dimer molecules.
+        
+        Parameters:
+            mols (Sequence): Iterable of QCEL dimer molecules; each molecule must contain fragment indexing in `fragments`.
+            batch_size (int): Number of molecules to process per prediction batch.
+        
+        Returns:
+            E_elst (list of float): Electrostatic energies computed from monomer reference multipoles for each dimer.
+            E_elst_dimer (list of float): Electrostatic energies computed from model-predicted multipoles on the full dimer for each dimer.
+            E_induction (list of float): Difference `E_elst_dimer - E_elst` for each dimer, representing the induction-like contribution.
+        """
+        E_elst, E_elst_dimer, E_induction = [], [], []
+        dimer, monA, monB = self.predict_qcel_mols_dimer(
+            mols,
+            batch_size=batch_size,
+        )
+        for i, m in enumerate(mols):
+            qA, muA, thetaA = (
+                monA[i][0].detach().numpy(),
+                monA[i][1].numpy(),
+                monA[i][2].numpy(),
+            )
+            qB, muB, thetaB = (
+                monB[i][0].detach().numpy(),
+                monB[i][1].numpy(),
+                monB[i][2].numpy(),
+            )
+            elst = multipole.eval_qcel_dimer(
+                m,
+                qA,
+                muA,
+                thetaA,
+                qB,
+                muB,
+                thetaB,
+            )
+            qD, muD, thetaD = dimer[i][0], dimer[i][1], dimer[i][2]
+            qA, muA, thetaA = (
+                qD[m.fragments[0]].detach().numpy(),
+                muD[m.fragments[0], :].numpy(),
+                thetaD[m.fragments[0], :, :].numpy(),
+            )
+            qB, muB, thetaB = (
+                qD[m.fragments[1]].detach().numpy(),
+                muD[m.fragments[1], :].numpy(),
+                thetaD[m.fragments[1], :, :].numpy(),
+            )
+            elst_dimer = multipole.eval_qcel_dimer(
+                m,
+                qA,
+                muA,
+                thetaA,
+                qB,
+                muB,
+                thetaB,
+            )
+            indu = elst_dimer - elst
+            E_elst.append(elst)
+            E_elst_dimer.append(elst_dimer)
+            E_induction.append(indu)
+        return E_elst, E_elst_dimer, E_induction
+
+    @torch.inference_mode()
     def model_predict(self, data):
+        """
+        Produce atomic multipole predictions and hidden states for a batched input.
+        
+        Parameters:
+            data: Batched graph-like object containing at least the attributes
+                `x` (atom types), `edge_index` (edge indices), `R` (positions),
+                `molecule_ind` (molecule indices per atom), `total_charge` (per-batch total charge),
+                and `natom_per_mol` (number of atoms per molecule).
+        
+        Returns:
+            charge (Tensor): Per-atom scalar charges with shape (N,).
+            dipole (Tensor): Per-atom dipole vectors with shape (N, 3).
+            qpole (Tensor): Per-atom quadrupole tensors with shape (N, 3, 3), traceless.
+            hlist (Tensor or list[Tensor]): Per-atom hidden representations produced by the model.
+        """
         charge, dipole, qpole, hlist = self.model(
             data.x,
             data.edge_index,
