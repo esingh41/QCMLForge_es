@@ -664,7 +664,16 @@ class AtomModel:
         state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
 
         # Handle compiled model prefix mismatch
-        if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
+        model_keys = list(self.model.state_dict().keys())
+        state_keys = list(state_dict.keys())
+        model_is_compiled = model_keys and "_orig_mod" in model_keys[0]
+        state_is_compiled = state_keys and "_orig_mod" in state_keys[0]
+
+        if model_is_compiled and not state_is_compiled:
+            # Loading non-compiled state_dict into compiled model
+            state_dict = model_io.add_prefix_to_state_dict(state_dict)
+        elif not model_is_compiled and state_is_compiled:
+            # Loading compiled state_dict into non-compiled model
             state_dict = model_io.strip_prefix_from_state_dict(state_dict)
 
         self.model.load_state_dict(state_dict)

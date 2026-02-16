@@ -1428,8 +1428,8 @@ class APNet3_AtomType_Model:
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
-            indA_to_atom.append(np.arange(size_A))
-            indB_to_atom.append(np.arange(size_B))
+            indA_to_atom.append(np.arange(size_A.item()))
+            indB_to_atom.append(np.arange(size_B.item()))
             pair_energies_batch.append(np.zeros((4, size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
@@ -1574,8 +1574,8 @@ class APNet3_AtomType_Model:
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
-            indA_to_atom.append(np.arange(size_A))
-            indB_to_atom.append(np.arange(size_B))
+            indA_to_atom.append(np.arange(size_A.item()))
+            indB_to_atom.append(np.arange(size_B.item()))
             pair_elst_batch.append(np.zeros((size_A, size_B)))
             pair_ind_batch.append(np.zeros((size_A, size_B)))
 

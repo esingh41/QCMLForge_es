@@ -88,6 +88,34 @@ def strip_prefix_from_state_dict(
     return new_state_dict
 
 
+def add_prefix_to_state_dict(
+    state_dict: dict[str, Any], prefix: str = "_orig_mod."
+) -> dict[str, Any]:
+    """
+    Add a prefix to state dict keys (e.g., for loading into torch.compile model).
+
+    Parameters
+    ----------
+    state_dict : dict
+        The state dict without prefixed keys
+    prefix : str
+        The prefix to add, default "_orig_mod."
+
+    Returns
+    -------
+    dict
+        State dict with prefix added to keys
+    """
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        if not key.startswith(prefix):
+            new_key = prefix + key
+            new_state_dict[new_key] = value
+        else:
+            new_state_dict[key] = value
+    return new_state_dict
+
+
 def get_checkpoint_version(checkpoint: dict[str, Any]) -> int:
     """
     Determine the version of a checkpoint.

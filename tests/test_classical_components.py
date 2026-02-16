@@ -1037,8 +1037,8 @@ def test_induced_dipole_torch():
         hirshfeld_volume_ratio_B=torch.tensor(vrB),
         valence_widths_A=torch.tensor(vwA),
         valence_widths_B=torch.tensor(vwB),
-        atom_polarizabilities_A=torch.tensor(atom_alpha_iso[0]),
-        atom_polarizabilities_B=torch.tensor(atom_alpha_iso[1]),
+        atom_polarizabilities_A=atom_alpha_iso[0],
+        atom_polarizabilities_B=atom_alpha_iso[1],
         # Q_const=1.0, # Agree with CLIFF
     )
     torch_ap_indu = ap_q_mu_induction.detach().numpy().sum()
@@ -1301,8 +1301,8 @@ def test_induced_dipole_torch_df():
             hirshfeld_volume_ratio_B=torch.tensor(vrB, dtype=torch.float32),
             valence_widths_A=torch.tensor(vwA),
             valence_widths_B=torch.tensor(vwB),
-            atom_polarizabilities_A=torch.tensor(atom_alpha_iso[0]),
-            atom_polarizabilities_B=torch.tensor(atom_alpha_iso[1]),
+            atom_polarizabilities_A=atom_alpha_iso[0],
+            atom_polarizabilities_B=atom_alpha_iso[1],
             K_A=torch.tensor(Ks[0], dtype=torch.float32),
             K_B=torch.tensor(Ks[1], dtype=torch.float32),
             # Q_const=1.0, # Agree with CLIFF
