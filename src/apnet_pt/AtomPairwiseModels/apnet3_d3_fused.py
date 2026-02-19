@@ -21,6 +21,7 @@ from ..pt_datasets.ap3_fused_fsapt_ds import (
     ap3_fused_fsapt_module_dataset_lmdb,
 )
 from .. import constants
+from .. import model_io
 from ..util import scatter_sum_compile
 import os
 import torch.distributed as dist
@@ -128,7 +129,7 @@ def unwrap_model(model):
     return model.module if isinstance(model, DDP) else model
 
 
-#Need to pass in dimer_prop_model that has dispersion packed into it.
+# Need to pass in dimer_prop_model that has dispersion packed into it.
 class APNet3D3_AtomType_MPNN(nn.Module):
     def __init__(
         self,
@@ -233,6 +234,21 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             if activations[i + 1] is not None:
                 layers.append(activations[i + 1])
         return nn.Sequential(*layers)
+
+    def get_config(self) -> dict:
+        """
+        Return model hyperparameters required to reconstruct this model.
+        """
+        return {
+            "n_message": self.n_message,
+            "n_rbf": self.n_rbf,
+            "n_neuron": self.n_neuron,
+            "n_embed": self.n_embed,
+            "r_cut_im": self.r_cut_im,
+            "r_cut": self.r_cut,
+            "use_atom_props": self.use_atom_props,
+            "use_precomputed_classical": self.use_precomputed_classical,
+        }
 
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
@@ -516,7 +532,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             padded[:, 2:3] = E_ind_dimer
             E_ind_dimer = padded
 
-            #Do we need a short range correction for dispersion? Ask mentor.
+            # Do we need a short range correction for dispersion? Ask mentor.
             E_disp_full_dimer = scatter_sum_compile(
                 E_disp, batch.dimer_ind_full, ndimer
             )
@@ -545,7 +561,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             )
         return E_output, E_sr, E_elst, E_ind, E_disp, hAB, hBA
 
-    
+
 class APNet3D3_AtomType_Model:
     def __init__(
         self,
@@ -710,7 +726,7 @@ class APNet3D3_AtomType_Model:
 
         self.device = device
         if hasattr(self.dimer_prop_model, "set_forward"):
-            #self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+            # self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
             self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
             self.dimer_prop_model.to(device)
             self.dimer_prop_model.polarizability_table = (
@@ -954,16 +970,71 @@ class APNet3D3_AtomType_Model:
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
-        checkpoint = torch.load(ap2_model_path)
+        checkpoint = model_io.load_checkpoint(ap2_model_path, map_location=self.device)
+        state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
+
+        # Handle torch.compile prefix mismatch
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
-            self.model.load_state_dict(model_state_dict)
+            self.model.load_state_dict(state_dict)
         else:
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+            # Model was compiled, need to add prefix back
+            state_dict_with_prefix = {
+                f"_orig_mod.{k}": v for k, v in state_dict.items()
+            }
+            self.model.load_state_dict(state_dict_with_prefix)
         return self
+
+    def _create_checkpoint(self, metadata: dict | None = None) -> dict:
+        """
+        Create a v2 checkpoint dictionary for this model.
+
+        The checkpoint embeds the dimer_prop_model as a submodel when
+        available.
+        """
+        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+        config = cpu_model.get_config()
+
+        submodels = {}
+        if (
+            hasattr(self, "dimer_prop_model")
+            and self.dimer_prop_model is not None
+            and hasattr(self.dimer_prop_model, "state_dict")
+        ):
+            if hasattr(self.dimer_prop_model, "get_config"):
+                dimer_prop_config = self.dimer_prop_model.get_config()
+            else:
+                dimer_prop_config = {
+                    "n_message": getattr(self.dimer_prop_model, "n_message", 3),
+                    "n_rbf": getattr(self.dimer_prop_model, "n_rbf", 8),
+                    "n_neuron": getattr(self.dimer_prop_model, "n_neuron", 128),
+                    "n_embed": getattr(self.dimer_prop_model, "n_embed", 8),
+                    "r_cut": getattr(self.dimer_prop_model, "r_cut", 5.0),
+                }
+
+            submodels["dimer_prop_model"] = model_io.create_submodel_checkpoint(
+                model=self.dimer_prop_model,
+                config=dimer_prop_config,
+                model_type="DimerProp",
+            )
+
+        checkpoint = model_io.create_checkpoint(
+            model=cpu_model,
+            config=config,
+            model_type="APNet3D3_AtomType_MPNN",
+            submodels=submodels if submodels else None,
+            metadata=metadata,
+        )
+
+        self.model.to(self.device)
+        return checkpoint
+
+    def save_model(self, path: str, metadata: dict = None) -> None:
+        """
+        Save the model to a checkpoint file.
+        """
+        checkpoint = self._create_checkpoint(metadata=metadata)
+        model_io.save_checkpoint(checkpoint, path)
+        print(f"Model saved to {path}")
 
     def load_ap2_pretrained_weights(self, ap2_model_path):
         print(f"Loading AP2 pretrained weights from {ap2_model_path}")
@@ -1073,7 +1144,9 @@ class APNet3D3_AtomType_Model:
             pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
             pair_energies_batch[i][2, atomA, atomB] += e_ind.numpy()
 
-        for e_pair, e_elst, e_disp, indA, indB in zip(E_sr, E_elst_mtp, E_disp, indsA_sr, indsB_sr):
+        for e_pair, e_elst, e_disp, indA, indB in zip(
+            E_sr, E_elst_mtp, E_disp, indsA_sr, indsB_sr
+        ):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
@@ -1119,7 +1192,7 @@ class APNet3D3_AtomType_Model:
         indsB_monomer = inp_batch.indB
 
         for i in dimer_inds:
-            size_A = torch.sum(indsA_monomer == i) #Finding size of each monomer
+            size_A = torch.sum(indsA_monomer == i)  # Finding size of each monomer
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
@@ -1147,7 +1220,7 @@ class APNet3D3_AtomType_Model:
             atomB = indB_to_atom[indB]
             pair_ind_batch[i][atomA, atomB] += e_ind
 
-        #D3 pairwise energies
+        # D3 pairwise energies
         for e_disp, indA, indB in zip(E_disp, indsA, indsB):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
@@ -1291,7 +1364,12 @@ class APNet3D3_AtomType_Model:
         if return_pairs:
             return predictions, pairwise_energies
         if return_classical_pairs:
-            return predictions, pairwise_elst_energies, pairwise_ind_energies, pairwise_disp_energies
+            return (
+                predictions,
+                pairwise_elst_energies,
+                pairwise_ind_energies,
+                pairwise_disp_energies,
+            )
         return predictions
 
     def example_input(
@@ -1346,7 +1424,9 @@ units angstrom
             # optimizer.zero_grad(set_to_none=True)
             optimizer.zero_grad()
             batch = batch.to(rank_device, non_blocking=True)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, E_disp_lr, hAB, hBA = self.model(batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, E_disp_lr, hAB, hBA = self.model(
+                batch
+            )
             preds = E_sr_dimer.reshape(-1, 4)
             labels = batch.y
             if self.use_precomputed_classical:
@@ -1881,23 +1961,10 @@ units angstrom
                     test_lowered = "*"
                     if self.model_save_path:
                         print("Saving model")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut_im": cpu_model.r_cut_im,
-                                    "r_cut": cpu_model.r_cut,
-                                    "use_atom_props": cpu_model.use_atom_props,
-                                },
-                            },
+                        self.save_model(
                             self.model_save_path,
+                            metadata={"training_mode": "ddp", "epoch": epoch},
                         )
-                        self.model.to(rank_device)
                 else:
                     test_lowered = " "
                 dt = time.time() - t1
@@ -2081,23 +2148,15 @@ units angstrom
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
-                cpu_model = unwrap_model(self.model).to("cpu")
+                cpu_model = model_io.unwrap_model(self.model).to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                    torch.save(
-                        {
-                            "model_state_dict": cpu_model.state_dict(),
-                            "config": {
-                                "n_message": cpu_model.n_message,
-                                "n_rbf": cpu_model.n_rbf,
-                                "n_neuron": cpu_model.n_neuron,
-                                "n_embed": cpu_model.n_embed,
-                                "r_cut_im": cpu_model.r_cut_im,
-                                "r_cut": cpu_model.r_cut,
-                                "use_atom_props": cpu_model.use_atom_props,
-                            },
-                        },
+                    self.save_model(
                         self.model_save_path,
+                        metadata={
+                            "training_mode": "single_proc",
+                            "epoch": epoch,
+                        },
                     )
                 self.model.to(rank_device)
 
@@ -2251,8 +2310,8 @@ units angstrom
         Freeze all model parameters except those in the readout layers for AP2 model
         """
         for name, param in self.model.named_parameters():
-            term = name.split('.')[0]
-            if "readout" in name and term[-4:] in ['elst', 'exch', 'indu', 'disp']:
+            term = name.split(".")[0]
+            if "readout" in name and term[-4:] in ["elst", "exch", "indu", "disp"]:
                 param.requires_grad = True
             else:
                 param.requires_grad = False
@@ -2264,4 +2323,3 @@ units angstrom
         """
         for name, param in self.model.named_parameters():
             param.requires_grad = True
- 
