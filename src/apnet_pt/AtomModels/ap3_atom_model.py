@@ -4,6 +4,7 @@ from apnet_pt.util import scatter_sum_compile
 import numpy as np
 import warnings
 from .. import multipole
+from .. import model_io
 import time
 from apnet_pt.atomic_datasets import (
     atomic_module_dataset,
@@ -48,7 +49,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
     ):
         """
         Initialize the AtomInducedDipoleMPNN and configure its message-passing, readout, and (optional) NN-screening components.
-        
+
         Parameters:
             atomtype_hfvr_model (AtomTypeParamMPNN): Model used to predict atomic Hirshfeld volume ratios (HFVR) and valence widths when HFVR is computed on-the-fly. Not stored if precompute_hfvr is True.
             n_message (int): Number of message-passing iterations.
@@ -58,7 +59,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             r_cut (float): Distance cutoff (Å) used by the distance embedding.
             use_nn_screening (bool): If True, enable NN-based damping/screening networks and allocate corresponding damping update/readout layers.
             precompute_hfvr (bool): If True, HFVR and valence-width inputs are expected to be provided by the dataset/batch and the internal HFVR predictor will not be stored (saves memory).
-        
+
         Behavior:
             - Clones a polarizability lookup table and constructs a DistanceLayer, atom-type embedding, and atom-type charge guess embedding.
             - Builds per-message update and per-message readout networks for predicting atomic charges, dipoles, and quadrupole components.
@@ -174,11 +175,11 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
     def _make_layers(self, layer_nodes, activations):
         """
         Create a sequential stack of linear layers optionally interleaved with activation modules.
-        
+
         Parameters:
             layer_nodes (list[int]): Sizes of each layer's input/output nodes; must have length >= 2.
             activations (list[torch.nn.Module or None]): Activation modules for each layer transition. Must have length `len(layer_nodes) - 1`; an element of `None` means no activation inserted after that linear layer.
-        
+
         Returns:
             torch.nn.Sequential: A sequential container alternating Linear layers and the provided activation modules where not `None`.
         """
@@ -189,10 +190,30 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 layers.append(activations[i])
         return nn.Sequential(*layers)
 
+    def get_config(self) -> dict:
+        """
+        Return the configuration dictionary for this model.
+
+        Returns
+        -------
+        dict
+            Dictionary containing all hyperparameters needed to reconstruct
+            this model architecture.
+        """
+        return {
+            "n_message": self.n_message,
+            "n_rbf": self.n_rbf,
+            "n_neuron": self.n_neuron,
+            "n_embed": self.n_embed,
+            "r_cut": self.r_cut,
+            "use_nn_screening": self.use_nn_screening,
+            "precompute_hfvr": self.precompute_hfvr,
+        }
+
     def get_messages(self, h0, h, rbf, hfvr, vw, e_source, e_target):
         """
         Build per-edge message features by combining source/target embeddings, their radial-basis interactions, radial basis vectors, and per-atom Hirshfeld/valence parameters.
-        
+
         Parameters:
             h0 (Tensor): Initial node embeddings, shape [n_nodes, n_embed].
             h (Tensor): Current node embeddings, shape [n_nodes, n_embed].
@@ -201,7 +222,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             vw (Tensor): Per-atom valence widths, shape [n_nodes, n_vw_embed].
             e_source (LongTensor): Source node indices for each edge, shape [n_edges].
             e_target (LongTensor): Target node indices for each edge, shape [n_edges].
-        
+
         Returns:
             Tensor: Per-edge message tensor m_ij with shape [n_edges, 4*n_embed + 4*n_embed*n_rbf + n_rbf + 2*(n_hfvr_embed+n_vw_embed)],
             containing in order:
@@ -235,7 +256,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
     def get_messages_charges(self, h0, h, rbf, hfvr, vw, q, e_source, e_target):
         """
         Construct per-edge message feature vectors by concatenating source/target atom embeddings, their interactions with radial-basis features, the radial-basis features themselves, and per-atom Hirshfeld volume ratio (HFVR) and valence-width (VW) parameters.
-        
+
         Parameters:
             h0 (torch.Tensor): Initial node embeddings, shape [n_atoms, n_embed0].
             h (torch.Tensor): Current node embeddings, shape [n_atoms, n_embed].
@@ -245,7 +266,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             q (torch.Tensor): Atomic charges (present for API compatibility but not used by this method).
             e_source (torch.LongTensor): Source atom indices per edge, shape [n_edges].
             e_target (torch.LongTensor): Target atom indices per edge, shape [n_edges].
-        
+
         Returns:
             torch.Tensor: Per-edge message tensor of shape [n_edges, F], where each row is the concatenation of
             [h0_source, h0_target, h_source, h_target, flattened(h_all * rbf), rbf, hfvr_source, hfvr_target, vw_source, vw_target].
@@ -305,7 +326,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
     ) -> torch.Tensor:
         """
         Compute intramolecular induced dipoles for a single molecule using permanent multipoles and Thole damping.
-        
+
         Parameters:
             Z (torch.Tensor): Atomic numbers, shape (n_atoms,).
             R (torch.Tensor): Atomic positions in Bohr, shape (n_atoms, 3).
@@ -323,7 +344,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             screening (bool): If True, apply distance-based exclusion of short-range permanent→induced interactions (default True).
             screening_distance (float): Distance threshold in Angstroms below which direct interaction tensors are zeroed for screening (default 2.0).
             compute_energies (bool): Present for API compatibility but not used by this implementation (default False).
-        
+
         Returns:
             torch.Tensor: Converged induced dipoles for each atom, shape (n_atoms, 3).
         """
@@ -577,9 +598,9 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
     ) -> torch.Tensor:
         """
         Compute intramolecular induced dipoles using Hirshfeld-scaled polarizabilities and neural-network–derived screening.
-        
+
         This performs NN-based short-range screening across provided short-edge pairs to modulate Thole-damped direct interactions, then runs a self-consistent field (SCF) loop over full-edge induced↔induced interactions until convergence or max iterations.
-        
+
         Parameters:
             e_source_short (torch.Tensor): Source atom indices for short-range edges used by the NN screening network.
             e_target_short (torch.Tensor): Target atom indices for short-range edges used by the NN screening network.
@@ -595,7 +616,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
             thole_damping_param_mutual (float): Thole damping parameter for mutual (induced–induced) interactions.
             thole_damping_param_direct (float): Thole damping parameter for direct (permanent→induced) interactions.
             compute_energies (bool): If True, compute induction energies (unused in returned value in current implementation).
-        
+
         Returns:
             torch.Tensor: Converged induced dipole moments with shape (n_atoms, 3).
         """
@@ -675,7 +696,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         ):
             """
             Compute pairwise distance quantities and Thole-damped interaction tensors between atom pairs, optionally modulated by per-edge NN screening factors.
-            
+
             Parameters:
                 Ri (Tensor): Atomic positions for set i (shape [..., 3]).
                 Rj (Tensor): Atomic positions for set j (shape [..., 3]).
@@ -686,7 +707,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 thole_param (float or Tensor): Thole damping parameter(s) used to compute damping factors.
                 apply_screening (bool): If True, use the "direct" Thole damping branch and allow application of NN screening factors.
                 screening_factors (Tensor or None): Optional per-edge scaling in [0, 1] applied to direct-damping factors (shape [n_edges]); 0 = fully screened, 1 = no screening.
-            
+
             Returns:
                 dR (Tensor): Scalar interatomic distances in atomic units (shape [n_edges]).
                 dR_xyz (Tensor): Interatomic displacement vectors in atomic units (shape [n_edges, 3]).
@@ -833,9 +854,9 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
         # Extract variables from batch
         """
         Compute per-atom multipoles (charges, induced dipoles, and traceless quadrupoles) and stacked node embeddings for a batched molecular graph.
-        
+
         This performs message-passing updates to predict atomic charges, dipoles, and quadrupoles, enforces charge conservation per molecule and tracelessness for quadrupoles, and then computes intramolecular induced dipoles. If the model was constructed with precompute_hfvr, Hirshfeld volume ratios and valence widths are read from the batch; otherwise they are computed on-the-fly. If NN-based screening is enabled, an alternate induced-dipole routine that uses learned screening on short-range edges is used and requires full-edge indices to compute the final screened interactions.
-        
+
         Parameters:
             batch: A collated PyG-style batch with the following required attributes:
                 - x: atomic numbers or atomic feature tensor of shape [n_atoms, ...].
@@ -849,7 +870,7 @@ class AtomInducedDipoleMPNN(torch.nn.Module):
                 - valence_widths: per-atom valence widths of shape [n_atoms].
               When use_nn_screening is True, batch must also provide:
                 - edge_index_full: full edge index tensor of shape [2, n_edges_full] for induced-dipole calculations.
-        
+
         Returns:
             charge: Tensor of per-atom partial charges (shape [n_atoms]).
             dipole: Tensor of per-atom dipoles including induced contribution (shape [n_atoms, 3]).
@@ -1112,9 +1133,9 @@ class AtomInducedDipoleModel:
     ):
         """
         Initialize an AtomInducedDipoleModel by configuring device, loading pretrained components (optional), creating the AtomInducedDipoleMPNN, and preparing or attaching a dataset.
-        
+
         This constructor will load a full model checkpoint when pre_trained_model_path is provided (overriding most model-related arguments), or instantiate a new model using the provided hyperparameters. It also validates presence of an HFVR provider unless precompute_hfvr is enabled, selects CPU/GPU device, and optionally constructs a dataset (supporting LMDB and precomputed HFVR variants).
-        
+
         Parameters:
             dataset (optional): Preconstructed dataset object to use instead of creating one.
             pre_trained_model_path (str, optional): Path to a saved AtomInducedDipoleModel checkpoint; when present, the checkpoint is loaded and model-related constructor arguments are ignored.
@@ -1133,7 +1154,7 @@ class AtomInducedDipoleModel:
             ds_in_memory (bool): If True, load dataset entries into memory when constructing a dataset.
             ds_use_lmdb (bool): When True, use an LMDB-backed dataset implementation (atomic_module_dataset_lmdb) for more efficient I/O; can be combined with precompute_hfvr.
             model_save_path (str, optional): Directory or path used to store model checkpoints.
-        
+
         Notes:
             - If neither an atomtype_hfvr_model nor atomtype_hfvr_pre_trained_path is provided and precompute_hfvr is False, initialization raises ValueError because HFVR values are required to compute induced dipoles.
             - When loading a checkpoint saved with a different precompute_hfvr flag, the constructor will attempt to reconcile and will filter or ignore submodule weights (e.g., atomtype_hfvr_model) as needed.
@@ -1258,10 +1279,10 @@ class AtomInducedDipoleModel:
             def setup_ds(fp=ds_force_reprocess):
                 """
                 Create and return the dataset instance chosen by the module configuration.
-                
+
                 Parameters:
                     fp (bool): If true, force reprocessing of dataset source files when constructing the dataset.
-                
+
                 Returns:
                     Dataset object configured according to module flags: returns an LMDB-backed dataset when `ds_use_lmdb` is true, a precomputed-HFVR dataset when `precompute_hfvr` is true, or the regular atomic dataset otherwise.
                 """
@@ -1350,30 +1371,88 @@ class AtomInducedDipoleModel:
         return
 
     def set_pretrained_model(self, model_path=None, model_id=None):
+        """
+        Load a pretrained model from a checkpoint file.
+
+        Supports both v1 (legacy) and v2 checkpoint formats.
+
+        Parameters
+        ----------
+        model_path : str, optional
+            Path to a checkpoint file
+        model_id : int, optional
+            ID of a bundled pretrained model (0-9)
+
+        Returns
+        -------
+        self
+            Returns self for method chaining
+        """
         if model_id is not None:
-            # model_path = f"{file_dir}/../models/am_ensemble/am_{model_id}.pt"
             model_path = resources.files("apnet_pt").joinpath(
                 "models", "am_ensemble", f"am_{model_id}.pt"
             )
         elif model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
-        checkpoint = torch.load(model_path, weights_only=False)
-        # pp(checkpoint)
+        checkpoint = model_io.load_checkpoint(model_path)
+        version = model_io.get_checkpoint_version(checkpoint)
+
+        # For v2, optionally validate checkpoint type
+        if version >= 2:
+            model_io.validate_checkpoint(
+                checkpoint, expected_type="AtomInducedDipoleMPNN"
+            )
+
+        # Load the state dict
+        state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
+
+        # Handle compiled model prefix mismatch
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
-            self.model.load_state_dict(model_state_dict)
-        else:
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+            state_dict = model_io.strip_prefix_from_state_dict(state_dict)
+
+        self.model.load_state_dict(state_dict)
         return self
+
+    def _create_checkpoint(self, metadata: dict | None = None) -> dict:
+        """
+        Create a v2 checkpoint dictionary for this model.
+
+        Parameters
+        ----------
+        metadata : dict, optional
+            Additional metadata to include in the checkpoint
+
+        Returns
+        -------
+        dict
+            Checkpoint dictionary in v2 format
+        """
+        return model_io.create_checkpoint(
+            model=self.model,
+            config=model_io.unwrap_model(self.model).get_config(),
+            model_type="AtomInducedDipoleMPNN",
+            metadata=metadata,
+        )
+
+    def save_model(self, path: str, metadata: dict | None = None) -> None:
+        """
+        Save the model to a checkpoint file in v2 format.
+
+        Parameters
+        ----------
+        path : str
+            Path to save the checkpoint
+        metadata : dict, optional
+            Additional metadata to include
+        """
+        checkpoint = self._create_checkpoint(metadata=metadata)
+        model_io.save_checkpoint(checkpoint, path)
 
     def compile_model(self):
         """
         Enable TorchDynamo dynamic-shape optimizations and compile the model in-place.
-        
+
         Sets TorchDynamo configuration flags suitable for dynamic inputs, compiles self.model with torch.compile(dynamic=True), and replaces the original model with the compiled version as a side effect.
         """
         torch._dynamo.config.dynamic_shapes = True
@@ -1409,7 +1488,7 @@ class AtomInducedDipoleModel:
     def cleanup(self):
         """
         Shut down and clean up the active distributed process group used for multi-process training.
-        
+
         This destroys the current torch.distributed process group so that distributed resources (communication backends and connections) are released; call when distributed training is finished.
         """
         dist.destroy_process_group()
@@ -1417,11 +1496,11 @@ class AtomInducedDipoleModel:
     def _qcel_example_input(self, mols, batch_size=1):
         """
         Convert a list of QCEngine molecules to PyG-compatible batched Data objects.
-        
+
         Parameters:
             mols (Iterable): Iterable of QCEngine molecule objects to convert.
             batch_size (int): Number of molecules per returned batch.
-        
+
         Returns:
             List[torch_geometric.data.Batch]: A list of batched PyG Data objects produced with full atom indexing and collated via atomic_collate_update_no_target.
         """
@@ -1522,9 +1601,9 @@ units angstrom
     def pretrain_statistics(self, train_loader, test_loader, criterion):
         """
         Compute and report pre-training mean absolute errors for charges, dipoles, and quadrupoles.
-        
+
         Evaluates the current model on the provided training and test data loaders, computes mean absolute errors (MAE) for per-atom charges, dipoles, and quadrupoles, prints a single-line formatted summary including elapsed time, and returns the test loss.
-        
+
         Parameters:
             train_loader: DataLoader or iterable
                 Data loader providing training batches to evaluate model performance.
@@ -1532,7 +1611,7 @@ units angstrom
                 Data loader providing validation/test batches to evaluate model performance.
             criterion: callable or loss function
                 Loss function (accepted for API compatibility). This function does not use `criterion` internally.
-        
+
         Returns:
             test_loss (float): Loss value computed on the test_loader.
         """
@@ -1621,16 +1700,16 @@ units angstrom
     ):
         """
         Train the model for one epoch using the provided dataloader in a single-process context.
-        
+
         Iterates over batches, runs the model in training mode, computes per-batch mean-squared losses for atomic charges, dipoles, and quadrupoles, backpropagates the summed loss, and steps the optimizer. Accumulates absolute errors to compute mean absolute errors (MAE) per atomic component.
-        
+
         Parameters:
             rank (int): Process rank (used for logging/compatibility).
             dataloader (Iterable): Yields batched graph/data objects with ground-truth attributes `charges`, `dipoles`, and `quadrupoles`.
             criterion (callable): Included for API compatibility but not used by this implementation.
             optimizer (torch.optim.Optimizer): Optimizer used for parameter updates.
             rank_device (torch.device): Device where tensors and model are placed for this rank.
-        
+
         Returns:
             total_loss (float): Sum of per-batch losses (charge + dipole + qpole) accumulated over the epoch.
             charge_mae (float): Mean absolute error per atomic charge.
@@ -1846,9 +1925,9 @@ units angstrom
     ):
         """
         Run distributed (or single-process) training for the model using PyTorch DDP and save the best checkpoint on rank 0.
-        
+
         This sets up the process group when world_size > 1, moves and (optionally) wraps the model for DDP, constructs distributed samplers and data loaders (choosing a collate function depending on whether Hirshfeld HFVR values are precomputed), creates an Adam optimizer and MSE loss, computes initial validation statistics, then performs epoch iterations that run training and evaluation, printing per-epoch MAE metrics and saving the checkpoint with the lowest validation loss from rank 0. Cleans up the process group when finished.
-        
+
         Parameters:
             rank (int or str): Process rank (used for DDP and device selection).
             world_size (int): Total number of processes participating in distributed training.
@@ -1859,7 +1938,7 @@ units angstrom
             lr (float): Learning rate for the Adam optimizer.
             pin_memory (bool): Whether to enable pin_memory on data loaders.
             num_workers (int): Number of worker processes for data loading.
-        
+
         """
         if self.device.type == "cpu":
             # rank = "cpu"
@@ -1955,21 +2034,13 @@ units angstrom
                     test_lowered = "*"
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
-                                    "use_nn_screening": cpu_model.use_nn_screening,
-                                },
-                            },
-                            self.model_save_path,
+                        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                        checkpoint = model_io.create_checkpoint(
+                            model=cpu_model,
+                            config=cpu_model.get_config(),
+                            model_type="AtomInducedDipoleMPNN",
                         )
+                        model_io.save_checkpoint(checkpoint, self.model_save_path)
                         self.model.to(self.device)
                 else:
                     test_lowered = " "
@@ -1999,9 +2070,9 @@ units angstrom
     ):
         """
         Run single-process training for the model over multiple epochs, evaluate on the test set, and save the best checkpoint.
-        
+
         This moves the model to the appropriate device (CPU or the given rank device), optionally compiles it, constructs training and test DataLoaders with the correct collate function depending on whether HFVR is precomputed, and performs training for `n_epochs`. Per-epoch training and evaluation are performed by `train_batches_single_proc` and `evaluate_batches_single_proc`. The method computes initial pretrain statistics, updates the optimizer using MSE loss, and on rank 0 saves the model checkpoint to `self.model_save_path` whenever the test loss improves. If `world_size > 1`, the distributed process group is cleaned up after training.
-        
+
         Parameters:
             rank (int): Process rank; used for device selection and controlling checkpoint saves.
             world_size (int): Total number of processes; if greater than 1, performs cleanup after training.
@@ -2013,7 +2084,7 @@ units angstrom
             pin_memory (bool): Passed to DataLoader to enable pinned memory.
             num_workers (int): Number of worker processes for DataLoader.
             skip_compile (bool): If False, the model will be compiled via `compile_model()` before training.
-        
+
         """
         if self.device.type == "cpu":
             rank_device = "cpu"
@@ -2076,22 +2147,13 @@ units angstrom
                     test_lowered = "*"
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut": cpu_model.r_cut,
-                                    "use_nn_screening": cpu_model.use_nn_screening,
-                                    "precompute_hfvr": cpu_model.precompute_hfvr,
-                                },
-                            },
-                            self.model_save_path,
+                        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                        checkpoint = model_io.create_checkpoint(
+                            model=cpu_model,
+                            config=cpu_model.get_config(),
+                            model_type="AtomInducedDipoleMPNN",
                         )
+                        model_io.save_checkpoint(checkpoint, self.model_save_path)
                         self.model.to(self.device)
                 else:
                     test_lowered = " "
@@ -2274,13 +2336,13 @@ units angstrom
     def predict_qcel_mols(self, mols, batch_size=2):
         """
         Predict per-molecule atomic multipoles and hidden representations for a list of qcel molecules.
-        
+
         Processes `mols` in batches of size `batch_size` and returns a list of per-molecule prediction tuples in the same order as the input.
-        
+
         Parameters:
             mols (Iterable): An iterable of qcel molecule objects convertible via qcel_mon_to_pyg_data.
             batch_size (int): Number of molecules to process per model forward pass.
-        
+
         Returns:
             List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]: A list where each element is a tuple (charges, dipoles, qpoles, hlist) for the corresponding input molecule.
         """
@@ -2311,11 +2373,11 @@ units angstrom
     def predict_qcel_mols_dimer(self, mols, batch_size=2):
         """
         Prepare and predict multipole outputs for dimers and their constituent monomers.
-        
+
         Parameters:
             mols (Sequence): Iterable of dimer molecules (each containing two fragments) to predict.
             batch_size (int): Batch size to use when running predictions.
-        
+
         Returns:
             tuple: Three lists corresponding to predictions for (dimer, monomer A, monomer B). Each list contains per-molecule prediction dictionaries or tensors as produced by predict_qcel_mols.
         """
@@ -2329,13 +2391,13 @@ units angstrom
     def predict_elst_ind_dimer(self, mols, batch_size=2):
         """
         Compute electrostatic and induction energies for each dimer in `mols`.
-        
+
         For each input dimer this runs model predictions for monomers and the full dimer, evaluates the electrostatic energy of the non-polarized (reference) monomer pair and the polarized dimer, then computes the induction energy as the difference (polarized dimer minus reference monomer pair).
-        
+
         Parameters:
             mols (Sequence): Iterable of dimer molecule objects (each must expose fragment indices via `fragments`) suitable for multipole evaluation.
             batch_size (int): Number of dimers to process per prediction batch.
-        
+
         Returns:
             E_elst (list[float]): Electrostatic energies of the separated (reference) monomer pair for each dimer.
             E_elst_dimer (list[float]): Electrostatic energies of the predicted polarized dimer for each dimer.
@@ -2396,7 +2458,7 @@ units angstrom
     def model_predict(self, data):
         """
         Call the underlying model on a prepared batch and return predicted atomic multipoles and hidden states.
-        
+
         Parameters:
             data: A batched data object containing at least the following attributes:
                 - x: node feature tensor
@@ -2405,7 +2467,7 @@ units angstrom
                 - molecule_ind: per-atom molecule index tensor
                 - total_charge: per-molecule total charge tensor
                 - natom_per_mol: tensor with number of atoms per molecule
-        
+
         Returns:
             charge (torch.Tensor): Per-atom predicted partial charges.
             dipole (torch.Tensor): Per-atom predicted induced dipole vectors.

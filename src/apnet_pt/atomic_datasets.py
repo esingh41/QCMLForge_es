@@ -559,11 +559,16 @@ def create_atomic_data(
           - y (Tensor[N,...], optional): cartesian multipoles when provided
           - edge_index_full (LongTensor[2, E_full], optional): full atom-pair indices when `full_indices=True`
     """
-    node_features = np.array(Z, dtype=np.int64)
-    node_features = torch.tensor(node_features)
+    if isinstance(Z, torch.Tensor):
+        node_features = Z.long()
+    else:
+        node_features = torch.tensor(Z, dtype=torch.int64)
     if isinstance(R, np.ndarray):
         R = torch.tensor(R, dtype=torch.float32)
-    torch_total_charge = torch.tensor(total_charge, dtype=torch.int32)
+    if isinstance(total_charge, torch.Tensor):
+        torch_total_charge = total_charge.to(dtype=torch.int32)
+    else:
+        torch_total_charge = torch.tensor(total_charge, dtype=torch.int32)
 
     edge_index_full = None
     if custom:

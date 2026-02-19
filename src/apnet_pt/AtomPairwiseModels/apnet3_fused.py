@@ -21,6 +21,7 @@ from ..pt_datasets.ap3_fused_fsapt_ds import (
     ap3_fused_fsapt_module_dataset_lmdb,
 )
 from .. import constants
+from .. import model_io
 from apnet_pt.util import scatter_sum_compile
 import os
 import torch.distributed as dist
@@ -124,10 +125,6 @@ class DistanceLayer(nn.Module):
         return d_cutoff * torch.sin(self.frequencies * d_scaled)
 
 
-def unwrap_model(model):
-    return model.module if isinstance(model, DDP) else model
-
-
 class APNet3_AtomType_MPNN(nn.Module):
     def __init__(
         self,
@@ -145,7 +142,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         # super().__init__(aggr="add")
         """
         Initialize the APNet3_AtomType_MPNN module and configure its architecture and behavior.
-        
+
         Parameters:
             dimer_prop_model (DimerProp): Optional pretrained dimer property model whose parameters will be frozen if provided.
             n_message (int): Number of message-passing iterations.
@@ -157,7 +154,7 @@ class APNet3_AtomType_MPNN(nn.Module):
             return_hidden_states (bool): If True, forward will return intermediate hidden representations alongside predictions.
             use_precomputed_classical (bool): If True, model expects precomputed classical energy contributions to be provided/used.
             use_atom_props (bool): If True, atom-level classical properties (e.g., charges, polarizabilities) will be included in pair feature construction.
-        
+
         Behavior:
             - Freezes parameters of the provided dimer_prop_model (if any) to prevent gradient updates.
             - Constructs distance embedding layers, an atom embedding layer, readout MLPs for energy components (electrostatics, exchange, induction, dispersion), and per-iteration update and directional MLP stacks according to the provided hyperparameters.
@@ -252,6 +249,27 @@ class APNet3_AtomType_MPNN(nn.Module):
                 layers.append(activations[i + 1])
         return nn.Sequential(*layers)
 
+    def get_config(self) -> dict:
+        """
+        Return the model configuration as a dictionary.
+
+        Returns
+        -------
+        dict
+            Configuration dictionary containing all hyperparameters needed
+            to reconstruct this model.
+        """
+        return {
+            "n_message": self.n_message,
+            "n_rbf": self.n_rbf,
+            "n_neuron": self.n_neuron,
+            "n_embed": self.n_embed,
+            "r_cut_im": self.r_cut_im,
+            "r_cut": self.r_cut,
+            "use_atom_props": self.use_atom_props,
+            "use_precomputed_classical": self.use_precomputed_classical,
+        }
+
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
         if nedge == 0:
@@ -281,7 +299,7 @@ class APNet3_AtomType_MPNN(nn.Module):
     def get_pair(self, hA, hB, qA, qB, rbf, e_source, e_target):
         """
         Build per-edge feature vectors by gathering source/target atom features and concatenating them with per-atom properties and edge radial-basis features.
-        
+
         Parameters:
             hA (Tensor): Atom feature matrix for set A with shape (nA, d_h).
             hB (Tensor): Atom feature matrix for set B with shape (nB, d_h).
@@ -290,7 +308,7 @@ class APNet3_AtomType_MPNN(nn.Module):
             rbf (Tensor): Per-edge radial-basis features with shape (n_edges, d_rbf).
             e_source (LongTensor): Indices of source atoms into A for each edge with shape (n_edges,).
             e_target (LongTensor): Indices of target atoms into B for each edge with shape (n_edges,).
-        
+
         Returns:
             Tensor: Per-edge feature tensor with shape (n_edges, d_h + d_h + d_q + d_q + d_rbf) formed by concatenating
             [hA[source], hB[target], qA[source], qB[target], rbf] along the last dimension.
@@ -308,7 +326,7 @@ class APNet3_AtomType_MPNN(nn.Module):
     ):
         """
         Construct per-edge feature vectors by gathering source and target atom features and concatenating them with radial-basis encodings and, optionally, additional atom properties.
-        
+
         Parameters:
             hA (Tensor): Per-atom hidden states for set A.
             hB (Tensor): Per-atom hidden states for set B.
@@ -321,7 +339,7 @@ class APNet3_AtomType_MPNN(nn.Module):
             rbf (Tensor): Radial-basis function encodings for each edge (shape aligned to edges).
             e_source (LongTensor): 1D index tensor mapping each edge to its source atom index in A.
             e_target (LongTensor): 1D index tensor mapping each edge to its target atom index in B.
-        
+
         Returns:
             Tensor: Per-edge feature tensor with shape (num_edges, F) where each row is the concatenation of:
                 hA[source], hB[target], qA[source], qB[target], (hfvrA[source], hfvrB[target], vwA[source], vwB[target] if `self.use_atom_props`), and rbf.
@@ -383,10 +401,10 @@ class APNet3_AtomType_MPNN(nn.Module):
     ):
         """
         Compute pairwise SAPT-like energy components for a fused batch using intramonomer message passing and distance-based pair features.
-        
+
         Parameters:
             batch: A fused-batch object containing atom indices, coordinates, and edge lists required by the model (expected attributes include ZA, RA, ZB, RB, e_ABsr_source, e_ABsr_target, e_ABlr_source, e_ABlr_target, e_AA_source, e_AA_target, e_BB_source, e_BB_target, dimer_ind, dimer_ind_full, total_charge_A, ...).
-        
+
         Returns:
             Tuple whose contents depend on model configuration:
             - If self.use_precomputed_classical is True:
@@ -398,7 +416,7 @@ class APNet3_AtomType_MPNN(nn.Module):
             - Otherwise (self.return_hidden_states is True):
                 (E_output, E_sr_dimer, E_elst, E_ind, hAB, hBA, cutoff)
                 where E_sr_dimer is short-range energy aggregated per dimer and cutoff is the distance-dependent scaling applied to short-range pair terms.
-        
+
         Notes:
             - The forward pass performs per-monomer message passing to build atomic invariant and directional hidden states, constructs pair features (optionally including atomic properties predicted by an internal dimer_prop_model), computes readout energies for both pair orderings, applies a 1/r^3 short-range cutoff, and assembles per-dimer outputs.
             - The precise shapes and presence of returned arrays depend on model flags (use_precomputed_classical, return_hidden_states) and on batch contents.
@@ -645,9 +663,9 @@ class APNet3_AtomType_Model:
     ):
         """
         Initialize the APNet3_AtomType_Model, set device and model components, optionally load pretrained weights, and prepare or load the dataset(s).
-        
+
         When `pre_trained_model_path` is provided, the APNet3_AtomType_MPNN is loaded from that checkpoint and the remaining model hyperparameters are ignored (dataset-related arguments are still applied). Device selection prefers CUDA if available and `use_GPU` is not False. The initializer constructs or loads an AtomType parameter model and a DimerProp model (optionally from `dimer_prop_model_pre_trained_path` or a provided `dimer_prop_model`), configures the dimer forward mode required for classical predictions, builds or loads the APNet3 model (or loads it from `pre_trained_model_path`), moves models and relevant tensors to the selected device, and prepares dataset objects according to `ds_class_type`, `ds_type`, and split options.
-        
+
         Parameters:
             dataset: Optional existing dataset or None to construct or load datasets inside the initializer.
             pre_trained_model_path: Path to a checkpoint for the APNet3 model; when provided the model is loaded from this checkpoint.
@@ -660,7 +678,7 @@ class APNet3_AtomType_Model:
             ds_type: Dataset content type, e.g., "total_component_energies" or "fsapt_energies"; affects dataset class selection and processing.
             ds_qcel_molecules: Optional list (or split lists) of qcel molecules to build datasets from; supports split (train/test) when provided as two lists.
             ds_* and other hyperparameters: Various dataset construction and model hyperparameters (n_message, n_rbf, n_neuron, n_embed, r_cut_im, r_cut, batch sizes, reprocessing flags, random seed, max size, etc.) are used to configure the dataset and model; when a checkpoint is loaded, hyperparameters come from the checkpoint config.
-        
+
         Behavior notes:
             - Validates `ds_class_type` must be "pt" or "lmdb".
             - If `dimer_prop_model_pre_trained_path` is provided, the DimerProp is reconstructed from checkpoint config and its state dict loaded.
@@ -668,7 +686,7 @@ class APNet3_AtomType_Model:
             - Model attributes (n_rbf, n_message, n_neuron, n_embed, r_cut_im, r_cut) are adjusted to match the initializer arguments if they differ after loading.
             - If the dataset argument is None and `ignore_database_null` is False, the initializer will construct dataset(s) according to the spec type and split configuration; supports both single and split (train/test) dataset creation.
             - Moves models and relevant tensors (e.g., polarizability tables) to the chosen device.
-        
+
         """
         if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
@@ -832,14 +850,14 @@ class APNet3_AtomType_Model:
             def setup_ds(fp=ds_force_reprocess):
                 """
                 Create and return a configured dataset instance for this model.
-                
+
                 When `use_precomputed_classical` is true, returns an instance of `self.dataset_class` configured with the model's dimer property model and dataset options; otherwise returns an `ap2_fused_module_dataset` instance configured with equivalent dataset options.
-                
+
                 Parameters:
-                	fp (bool): If true, force reprocessing of on-disk dataset artifacts; defaults to `ds_force_reprocess`.
-                
+                        fp (bool): If true, force reprocessing of on-disk dataset artifacts; defaults to `ds_force_reprocess`.
+
                 Returns:
-                	Dataset: A dataset object ready for training or evaluation (type depends on `use_precomputed_classical`).
+                        Dataset: A dataset object ready for training or evaluation (type depends on `use_precomputed_classical`).
                 """
                 if use_precomputed_classical:
                     return self.dataset_class(
@@ -903,12 +921,12 @@ class APNet3_AtomType_Model:
             def setup_ds(fp=ds_force_reprocess):
                 """
                 Create and return paired train and test dataset instances configured for the current model and dataset settings.
-                
+
                 When `use_precomputed_classical` is true or `ds_type` equals "fsapt_energies", this returns instances of `self.dataset_class`; otherwise it returns instances of `ap2_fused_module_dataset`. Both datasets are constructed with the same configuration but with `split` set to "train" and "test", respectively.
-                
+
                 Parameters:
                     fp (bool): Override for the `force_reprocess` flag passed to the dataset constructors.
-                
+
                 Returns:
                     list: A two-element list [train_dataset, test_dataset] containing the constructed dataset objects.
                 """
@@ -1047,6 +1065,23 @@ class APNet3_AtomType_Model:
     def set_pretrained_model(
         self, ap2_model_path=None, am_model_path=None, model_id=None
     ):
+        """
+        Load pretrained model weights from a checkpoint file.
+
+        Parameters
+        ----------
+        ap2_model_path : str, optional
+            Path to the checkpoint file
+        am_model_path : str, optional
+            Not used (for API compatibility)
+        model_id : int, optional
+            Model ID to load from bundled ensemble models
+
+        Returns
+        -------
+        self
+            The model instance with loaded weights
+        """
         if model_id is not None:
             ap2_model_path = resources.files("apnet_pt").joinpath(
                 "models", "ap2-fused_ensemble", f"ap2_{model_id}.pt"
@@ -1054,26 +1089,103 @@ class APNet3_AtomType_Model:
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
-        checkpoint = torch.load(ap2_model_path)
+        checkpoint = model_io.load_checkpoint(ap2_model_path, map_location=self.device)
+        state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
+
+        # Handle torch.compile prefix mismatch
         if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
-            self.model.load_state_dict(model_state_dict)
+            self.model.load_state_dict(state_dict)
         else:
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+            # Model was compiled, need to add prefix back
+            state_dict_with_prefix = {
+                f"_orig_mod.{k}": v for k, v in state_dict.items()
+            }
+            self.model.load_state_dict(state_dict_with_prefix)
         return self
+
+    def _create_checkpoint(self, metadata: dict | None = None) -> dict:
+        """
+        Create a v2 checkpoint dictionary for this model.
+
+        The checkpoint embeds the dimer_prop_model as a submodel when available.
+
+        Parameters
+        ----------
+        metadata : dict, optional
+            Additional metadata to include in the checkpoint
+
+        Returns
+        -------
+        dict
+            Complete v2 checkpoint dictionary
+        """
+        # Get model on CPU for saving
+        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+        config = cpu_model.get_config()
+
+        # Create submodel checkpoint for dimer_prop_model if available
+        submodels = {}
+        if (
+            hasattr(self, "dimer_prop_model")
+            and self.dimer_prop_model is not None
+            and hasattr(self.dimer_prop_model, "state_dict")
+        ):
+            # Get dimer_prop_model config if it has get_config method
+            if hasattr(self.dimer_prop_model, "get_config"):
+                dimer_prop_config = self.dimer_prop_model.get_config()
+            else:
+                # Fallback to extracting config from attributes
+                dimer_prop_config = {
+                    "n_message": getattr(self.dimer_prop_model, "n_message", 3),
+                    "n_rbf": getattr(self.dimer_prop_model, "n_rbf", 8),
+                    "n_neuron": getattr(self.dimer_prop_model, "n_neuron", 128),
+                    "n_embed": getattr(self.dimer_prop_model, "n_embed", 8),
+                    "r_cut": getattr(self.dimer_prop_model, "r_cut", 5.0),
+                }
+
+            submodels["dimer_prop_model"] = model_io.create_submodel_checkpoint(
+                model=self.dimer_prop_model,
+                config=dimer_prop_config,
+                model_type="DimerProp",
+            )
+
+        checkpoint = model_io.create_checkpoint(
+            model=cpu_model,
+            config=config,
+            model_type="APNet3_AtomType_MPNN",
+            submodels=submodels if submodels else None,
+            metadata=metadata,
+        )
+
+        # Move model back to device
+        self.model.to(self.device)
+
+        return checkpoint
+
+    def save_model(self, path: str, metadata: dict = None) -> None:
+        """
+        Save the model to a checkpoint file.
+
+        Parameters
+        ----------
+        path : str
+            Path to save the checkpoint to
+        metadata : dict, optional
+            Additional metadata to include
+        """
+        checkpoint = self._create_checkpoint(metadata=metadata)
+        model_io.save_checkpoint(checkpoint, path)
+        print(f"Model saved to {path}")
 
     def load_ap2_pretrained_weights(self, ap2_model_path):
         """
         Load matching parameter tensors from an AP2 checkpoint into the current AP3 model instance.
-        
+
         This method opens the checkpoint at `ap2_model_path`, strips any `_orig_mod.` prefix from AP2 state-dict keys, and copies parameter tensors whose names match keys in the AP3 model's state dictionary for a predefined set of shared layer name prefixes (embed_layer, distance_layer, distance_layer_im, readout_layer_*, update_layers, directional_layers). After copying, the updated AP3 state is loaded into `self.model`. Matching parameter names that were loaded are printed.
-        
+
         Parameters:
             ap2_model_path (str): Filesystem path to the AP2 model checkpoint containing a `model_state_dict`.
-        
+
         Returns:
             self: The same model wrapper instance with AP2 parameters merged into the AP3 model where names matched.
         """
@@ -1147,7 +1259,7 @@ class APNet3_AtomType_Model:
     ):
         """
         Assemble per-dimer pairwise energy tensors from per-pair energy contributions.
-        
+
         Parameters:
             inp_batch: batch object containing mapping indices:
                 - e_ABsr_source / e_ABsr_target: source/target atom indices for short-range pairs
@@ -1156,7 +1268,7 @@ class APNet3_AtomType_Model:
             E_sr: iterable of per-pair short-range energy arrays (added across four channels)
             E_elst_mtp: iterable of per-pair electrostatic (MTP) energy values to add to channel 0
             E_ind_mtp: iterable of per-pair induction (MTP) energy values to add to channel 2
-        
+
         Returns:
             list_of_pair_arrays (list[numpy.ndarray]): list with one array per dimer of shape (4, n_A, n_B),
             where the first dimension indexes energy channels (ordered as elst, exch, indu, disp).
@@ -1185,8 +1297,8 @@ class APNet3_AtomType_Model:
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
-            indA_to_atom.append(np.arange(size_A))
-            indB_to_atom.append(np.arange(size_B))
+            indA_to_atom.append(np.arange(size_A.item()))
+            indB_to_atom.append(np.arange(size_B.item()))
             pair_energies_batch.append(np.zeros((4, size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
@@ -1221,7 +1333,7 @@ class APNet3_AtomType_Model:
     ):
         """
         Assemble per-dimer pairwise SAPT component energies using PyTorch tensors while preserving gradients.
-        
+
         Parameters:
             inp_batch: batch-like object/namespace containing indexing tensors. Required keys/attributes:
                 - "e_ABsr_source", "e_ABsr_target": edge source/target indices for short-range edges.
@@ -1232,7 +1344,7 @@ class APNet3_AtomType_Model:
             E_elst_mtp (Tensor): long-range electrostatic per-edge energies with shape [n_edges_lr].
             E_ind_mtp (Tensor): long-range induction per-edge energies with shape [n_edges_lr].
             E_sr_dimer: (unused in this implementation) provided for API compatibility.
-        
+
         Returns:
             list of Tensors: one tensor per dimer with shape [4, size_A, size_B], where dim 0 indexes SAPT components in order [elst, exch, indu, disp]. The returned tensors are PyTorch tensors and preserve gradient flow.
         """
@@ -1308,7 +1420,7 @@ class APNet3_AtomType_Model:
     ):
         """
         Assemble per-dimer matrices of multipole electrostatic and induction pair energies from edge-wise MTP contributions.
-        
+
         Parameters:
             inp_batch: Batch object containing dimer and per-edge indexing fields:
                 - dimer_ind_full: 1D tensor mapping each atom (in concatenated monomer lists) to its dimer index.
@@ -1316,7 +1428,7 @@ class APNet3_AtomType_Model:
                 - e_ABfull_source, e_ABfull_target: 1D tensors of edge source/target atom indices for the full AB pairing.
             E_elst_mtp: Iterable of scalar electrostatic MTP contributions aligned with edges (same order as e_ABfull_source / e_ABfull_target).
             E_ind_mtp: Iterable of scalar induction MTP contributions aligned with edges (same order as e_ABfull_source / e_ABfull_target).
-        
+
         Returns:
             pair_elst_batch, pair_ind_batch:
                 - pair_elst_batch: list of 2D numpy arrays, one per dimer, where entry (a, b) is the summed electrostatic MTP energy for atom a in monomer A and atom b in monomer B.
@@ -1343,8 +1455,8 @@ class APNet3_AtomType_Model:
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
-            indA_to_atom.append(np.arange(size_A))
-            indB_to_atom.append(np.arange(size_B))
+            indA_to_atom.append(np.arange(size_A.item()))
+            indB_to_atom.append(np.arange(size_B.item()))
             pair_elst_batch.append(np.zeros((size_A, size_B)))
             pair_ind_batch.append(np.zeros((size_A, size_B)))
 
@@ -1379,7 +1491,7 @@ class APNet3_AtomType_Model:
     ):
         """
         Predict energies for a list of QCEngine dimer molecules in batches using the model's current weights.
-        
+
         Parameters:
             mols (Sequence): Iterable of QCEngine dimer objects to predict.
             batch_size (int): Number of dimers to process per batch.
@@ -1389,7 +1501,7 @@ class APNet3_AtomType_Model:
             return_pairs (bool): If True, also return per-dimer pairwise short-range energy lists.
             return_classical_pairs (bool): If True, also return per-dimer classical pairwise energies
                 as two lists (electrostatics, induction). Mutually exclusive with `return_pairs`.
-        
+
         Returns:
             If `model.return_hidden_states` is True:
                 Tuple (predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers)
@@ -1406,7 +1518,7 @@ class APNet3_AtomType_Model:
                 - pairwise_elst_energies, pairwise_ind_energies (lists): per-dimer classical pair energy lists (empty for invalid dimers).
             Else:
                 ndarray[N,4]: per-dimer aggregated energies [sr, elst, ind, disp], with NaNs for invalid dimers.
-        
+
         Notes:
             - Invalid dimers are skipped and represented as NaNs in the predictions array; corresponding pair lists are empty.
             - `return_classical_pairs` and `return_pairs` cannot both be True.
@@ -1649,14 +1761,14 @@ units angstrom
     ):
         """
         Perform a single-process training epoch for the transfer-learning workflow, updating model parameters and accumulating epoch loss and mean absolute error.
-        
+
         Parameters:
             dataloader: Iterable of training batches.
             loss_fn (callable or None): Optional loss function; if None, mean squared error is used.
             optimizer: Optimizer used to update model parameters.
             rank_device: Device to move each batch to (e.g., CPU or CUDA device).
             scheduler: Optional learning-rate scheduler to step after the epoch.
-        
+
         Returns:
             total_loss (float): Sum of the per-batch loss values accumulated over the epoch.
             total_MAE_t (torch.Tensor): Mean absolute error of the component prediction errors across all batches.
@@ -1695,16 +1807,16 @@ units angstrom
     def __evaluate_batches_single_proc_transfer(self, dataloader, loss_fn, rank_device):
         """
         Evaluate the model on a dataloader for transfer-learning style targets and compute aggregate loss and mean absolute error.
-        
+
         Parameters:
             dataloader: Iterable of batches; each batch must have attributes `to(device)`, `y`, and, when `use_precomputed_classical` is True, `E_classical_elst` and `E_classical_ind`.
             loss_fn: Optional loss function accepting (preds, targets). If None, mean squared error between predictions and adjusted labels is used.
             rank_device: Device to move batches to before inference.
-        
+
         Returns:
             total_loss (float): Sum of per-batch losses accumulated over the dataloader (uses .item()).
             total_MAE_t (torch.Tensor): Mean absolute error across all evaluated samples (scalar tensor).
-        
+
         Notes:
             Predictions are computed by summing per-dimer short-range pair contributions produced by the model. If `use_precomputed_classical` is True, classical electrostatic and induction terms are subtracted from labels before error computation.
         """
@@ -1738,13 +1850,13 @@ units angstrom
     ):
         """
         Train the model for one epoch on FSAPT fragment-energy batches, aggregating MPNN pair contributions into fragment-level predictions and returning the epoch loss and per-component MAEs.
-        
+
         This method:
         - Maps short-range pairwise predictions (E_sr) into the full pairwise edge index set (e_ABfull) when present.
         - Assembles full pairwise contributions (MPNN short-range plus classical elst/ind slots) and sums only the edges connecting fragment index sets frag1_ind and frag2_ind for each dimer to produce per-dimer predictions.
         - Computes the batch loss using `loss_fn` if provided or mean squared error otherwise, backpropagates, and performs an optimizer step for each batch. If `scheduler` is provided, steps it once after the epoch.
         - Computes mean absolute errors (MAEs) for the summed total and each of the four components.
-        
+
         Returns:
             total_loss (float): Sum of batch losses accumulated over the epoch.
             total_MAE_t (torch.Tensor): MAE of the summed per-dimer errors across components.
@@ -1832,9 +1944,9 @@ units angstrom
     def __evaluate_batches_fsapt_single_proc(self, dataloader, loss_fn, rank_device):
         """
         Evaluate the model on FSAPT fragment batches and compute component-wise errors and loss.
-        
+
         Processes each batch without gradient updates, assembles per-fragment pairwise predictions from short-range MPNN outputs, sums contributions for fragment pairs defined by frag1_ind/frag2_ind, and compares the resulting 4-component predictions (elst, exch, indu, disp) against labels.
-        
+
         Returns:
             total_loss (float): Accumulated batch loss summed over the evaluation pass.
             total_MAE_t (Tensor): Mean absolute error of the total interaction per dimer (mean over |sum of component errors|).
@@ -2174,23 +2286,10 @@ units angstrom
                     test_lowered = "*"
                     if self.model_save_path:
                         print("Saving model")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_rbf": cpu_model.n_rbf,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "r_cut_im": cpu_model.r_cut_im,
-                                    "r_cut": cpu_model.r_cut,
-                                    "use_atom_props": cpu_model.use_atom_props,
-                                },
-                            },
+                        self.save_model(
                             self.model_save_path,
+                            metadata={"training_mode": "ddp", "epoch": epoch},
                         )
-                        self.model.to(rank_device)
                 else:
                     test_lowered = " "
                 dt = time.time() - t1
@@ -2227,7 +2326,7 @@ units angstrom
         # (1) Compile Model
         """
         Run single-process training and evaluation loop for the model, updating self.model to the best-performing checkpoint and optionally saving it.
-        
+
         Parameters:
             train_dataset: Training dataset or a Subset-wrapped dataset.
             test_dataset: Validation/test dataset or a Subset-wrapped dataset.
@@ -2239,7 +2338,7 @@ units angstrom
             lr_decay (float or None): Decay rate used to construct the step scheduler; if None no scheduler is used.
             skip_compile (bool): If True, skip compiling the model before training.
             transfer_learning (bool): If True, use transfer-learning training/evaluation paths (different metrics and training functions).
-        
+
         Notes:
             - Detects FSAPT datasets and switches to FSAPT-specific training/evaluation routines when applicable.
             - Updates self.model in-place to the best validation-checkpoint found during training; if self.model_save_path is set, the best model state and a minimal config are saved to that path.
@@ -2394,23 +2493,15 @@ units angstrom
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
-                cpu_model = unwrap_model(self.model).to("cpu")
+                cpu_model = model_io.unwrap_model(self.model).to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                    torch.save(
-                        {
-                            "model_state_dict": cpu_model.state_dict(),
-                            "config": {
-                                "n_message": cpu_model.n_message,
-                                "n_rbf": cpu_model.n_rbf,
-                                "n_neuron": cpu_model.n_neuron,
-                                "n_embed": cpu_model.n_embed,
-                                "r_cut_im": cpu_model.r_cut_im,
-                                "r_cut": cpu_model.r_cut,
-                                "use_atom_props": cpu_model.use_atom_props,
-                            },
-                        },
+                    self.save_model(
                         self.model_save_path,
+                        metadata={
+                            "training_mode": "single_proc",
+                            "epoch": epoch,
+                        },
                     )
                 self.model.to(rank_device)
 
@@ -2452,9 +2543,9 @@ units angstrom
     ):
         """
         Train the APNet3 fused model using the provided dataset and training hyperparameters.
-        
+
         Starts or spawns a training run (single-process or multi-process DDP) that prepares train/test splits, configures device and data loaders, optionally loads precomputed classical terms into the dimer property model, and runs the selected training loop. On entry this method sets self.dataset (if provided), self.model_save_path, and self.batch_size and may modify environment thread settings; it raises ValueError if no dataset is available.
-        
+
         Parameters:
             dataset (optional): Dataset or a two-item list [train_dataset, test_dataset]. If None, uses self.dataset.
             n_epochs (int): Number of training epochs.
@@ -2469,10 +2560,10 @@ units angstrom
             random_seed (int): Seed used for numpy RNG when shuffling/splitting datasets.
             skip_compile (bool): If True, skip model compilation step before training in single-process mode.
             transfer_learning (bool): If True, enable transfer-learning training pathway in the single-process training routine.
-        
+
         Raises:
             ValueError: If no dataset is provided or available on self.dataset.
-        
+
         """
         if dataset is not None:
             self.dataset = dataset
@@ -2582,12 +2673,12 @@ units angstrom
     def freeze_parameters_except_readouts(self):
         """
         Freeze all model parameters except readout-layer parameters for elst, exch, indu, and disp.
-        
+
         Keeps trainable only parameters whose name contains "readout" and whose top-level module name ends with one of: "elst", "exch", "indu", "disp". Sets requires_grad=False for all other parameters.
         """
         for name, param in self.model.named_parameters():
-            term = name.split('.')[0]
-            if "readout" in name and term[-4:] in ['elst', 'exch', 'indu', 'disp']:
+            term = name.split(".")[0]
+            if "readout" in name and term[-4:] in ["elst", "exch", "indu", "disp"]:
                 param.requires_grad = True
             else:
                 param.requires_grad = False
@@ -2596,7 +2687,7 @@ units angstrom
     def unfreeze_all_parameters(self):
         """
         Unfreeze all parameters of the wrapped AP3 model so they can be trained.
-        
+
         Sets requires_grad = True for every parameter in self.model.
         """
         for name, param in self.model.named_parameters():
