@@ -130,7 +130,9 @@ class TestStripPrefixFromStateDict:
             "custom_prefix.weight": torch.randn(10, 10),
             "custom_prefix.bias": torch.randn(10),
         }
-        result = model_io.strip_prefix_from_state_dict(state_dict, prefix="custom_prefix.")
+        result = model_io.strip_prefix_from_state_dict(
+            state_dict, prefix="custom_prefix."
+        )
 
         assert "weight" in result
         assert "bias" in result
@@ -1051,12 +1053,14 @@ no_reorient
         # Create test data
         qcel_molecules = [self.mol_cliff_water_close] * 4
         energy_labels = [
-            np.array([
-                -10.779292828139122,
-                11.390991215401051,
-                -3.414543432719425,
-                -2.436025699701581,
-            ])
+            np.array(
+                [
+                    -10.779292828139122,
+                    11.390991215401051,
+                    -3.414543432719425,
+                    -2.436025699701581,
+                ]
+            )
             for _ in range(len(qcel_molecules))
         ]
 
@@ -1156,7 +1160,9 @@ no_reorient
 
         # Verify embedded dimer_prop_model submodel
         assert model_io.has_embedded_submodel(checkpoint, "dimer_prop_model")
-        dimer_prop_ckpt = model_io.get_submodel_checkpoint(checkpoint, "dimer_prop_model")
+        dimer_prop_ckpt = model_io.get_submodel_checkpoint(
+            checkpoint, "dimer_prop_model"
+        )
         assert dimer_prop_ckpt is not None
         assert dimer_prop_ckpt["model_type"] == "DimerProp"
         assert "model_state_dict" in dimer_prop_ckpt
@@ -1164,20 +1170,24 @@ no_reorient
 
         # Load the model back using the checkpoint
         # Create fresh sub-models for loaded model
-        atom_type_hf_vw_model_loaded = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
-            ds_root=None,
-            use_GPU=False,
-            ignore_database_null=True,
-            atom_model_pre_trained_path=am_path,
-            pre_trained_model_path=at_hf_vw_path,
+        atom_type_hf_vw_model_loaded = (
+            apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+                ds_root=None,
+                use_GPU=False,
+                ignore_database_null=True,
+                atom_model_pre_trained_path=am_path,
+                pre_trained_model_path=at_hf_vw_path,
+            )
         )
-        atom_type_elst_model_loaded = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
-            ds_root=None,
-            use_GPU=False,
-            ignore_database_null=True,
-            atom_model=atom_type_hf_vw_model_loaded.model,
-            atom_model_type="AtomTypeParamNN",
-            pre_trained_model_path=at_elst_path,
+        atom_type_elst_model_loaded = (
+            apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+                ds_root=None,
+                use_GPU=False,
+                ignore_database_null=True,
+                atom_model=atom_type_hf_vw_model_loaded.model,
+                atom_model_type="AtomTypeParamNN",
+                pre_trained_model_path=at_elst_path,
+            )
         )
 
         ap3_model_loaded = APNet3_AtomType_Model(
@@ -1198,6 +1208,232 @@ no_reorient
         # Verify predictions match
         assert np.allclose(predictions_before, predictions_after, atol=1e-6), (
             f"Predictions mismatch:\n"
+            f"Before: {predictions_before}\n"
+            f"After: {predictions_after}"
+        )
+
+    def test_apnet3_fused_from_scratch_train_save_load_nested_models(
+        self, tmp_path, ap3_temp_checkpoint_path
+    ):
+        """
+        Build APNet3 fused stack from scratch, train briefly, and verify save/load.
+
+        This test intentionally avoids pretrained checkpoints and validates that:
+        1) the full nested stack can be constructed from fresh model instances,
+        2) APNet3 can be trained on a tiny in-memory dataset,
+        3) v2 checkpoint save includes nested submodel metadata, and
+        4) loading restores predictions and nested dimer-prop parameters.
+        """
+        from apnet_pt.AtomModels.ap2_atom_model import AtomModel
+        from apnet_pt.AtomPairwiseModels.apnet3_fused import APNet3_AtomType_Model
+        from apnet_pt.AtomPairwiseModels.mtp_mtp import (
+            AM_DimerParam_Model,
+            AtomTypeParamModel,
+        )
+        from apnet_pt.pt_datasets.ap3_fused_ds import ap3_fused_module_dataset
+
+        np.random.seed(7)
+        torch.manual_seed(7)
+
+        qcel_molecules = [self.mol_cliff_water_close] * 4
+        energy_labels = [
+            np.array(
+                [
+                    -10.779292828139122,
+                    11.390991215401051,
+                    -3.414543432719425,
+                    -2.436025699701581,
+                ],
+                dtype=np.float32,
+            )
+            for _ in range(len(qcel_molecules))
+        ]
+
+        atom_model = AtomModel(
+            ds_root=None,
+            ignore_database_null=True,
+            use_GPU=False,
+            n_message=1,
+            n_rbf=4,
+            n_neuron=16,
+            n_embed=4,
+            r_cut=4.0,
+        )
+
+        atom_type_hf_vw_model = AtomTypeParamModel(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model=atom_model.model,
+            atom_model_type="AtomMPNN",
+            n_message=1,
+            n_neuron=16,
+            n_embed=4,
+            param_start_mean=1.6,
+            param_start_std=0.05,
+            model_save_path=None,
+            monomer_eval_type="hirshfeld_volume_ratio__valence_width",
+        )
+
+        atom_type_elst_model = AM_DimerParam_Model(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model=atom_type_hf_vw_model.model,
+            atom_model_type="AtomTypeParamNN",
+            model_type="AtomTypeParamNN",
+            n_message=1,
+            n_neuron=16,
+            n_embed=4,
+            n_params=1,
+            dimer_eval_type="ap3_elst_damping__induced_dipole",
+        )
+
+        ds_root = tmp_path / "ap3_fused_scratch_ds"
+        (ds_root / "raw").mkdir(parents=True, exist_ok=True)
+        (ds_root / "processed").mkdir(parents=True, exist_ok=True)
+
+        ds = ap3_fused_module_dataset(
+            root=str(ds_root),
+            r_cut=4.0,
+            r_cut_im=6.0,
+            spec_type=None,
+            max_size=None,
+            force_reprocess=True,
+            atomic_batch_size=2,
+            dimer_prop_model=atom_type_elst_model.dimer_model,
+            datapoint_storage_n_objects=4,
+            batch_size=2,
+            num_devices=1,
+            skip_processed=True,
+            skip_compile=True,
+            print_level=0,
+            qcel_molecules=qcel_molecules,
+            energy_labels=energy_labels,
+            in_memory=True,
+            random_seed=7,
+        )
+
+        ap3_model = APNet3_AtomType_Model(
+            ds_root=None,
+            atom_type_model=atom_type_hf_vw_model.model,
+            dimer_prop_model=atom_type_elst_model.dimer_model,
+            am_dimer_param_model=atom_type_elst_model,
+            use_precomputed_classical=False,
+            use_GPU=False,
+            n_message=1,
+            n_rbf=4,
+            n_neuron=16,
+            n_embed=4,
+            r_cut_im=6.0,
+            r_cut=4.0,
+        )
+
+        ap3_model.train(
+            ds,
+            n_epochs=1,
+            skip_compile=True,
+            transfer_learning=False,
+            lr=5e-4,
+            dataloader_num_workers=0,
+        )
+
+        predictions_before = ap3_model.predict_qcel_mols(
+            qcel_molecules[:2], batch_size=2
+        )
+
+        ap3_model.save_model(
+            ap3_temp_checkpoint_path,
+            metadata={"scratch_build": True, "training_epochs": 1},
+        )
+
+        checkpoint = model_io.load_checkpoint(ap3_temp_checkpoint_path)
+        assert checkpoint["checkpoint_version"] == 2
+        assert checkpoint["model_type"] == "APNet3_AtomType_MPNN"
+        assert checkpoint["metadata"]["scratch_build"] is True
+        assert model_io.has_embedded_submodel(checkpoint, "dimer_prop_model")
+
+        dimer_prop_ckpt = model_io.get_submodel_checkpoint(
+            checkpoint, "dimer_prop_model"
+        )
+        assert dimer_prop_ckpt is not None
+        assert dimer_prop_ckpt["model_type"] == "DimerProp"
+        assert "model_state_dict" in dimer_prop_ckpt
+        assert "config" in dimer_prop_ckpt
+
+        fresh_atom_model = AtomModel(
+            ds_root=None,
+            ignore_database_null=True,
+            use_GPU=False,
+            n_message=1,
+            n_rbf=4,
+            n_neuron=16,
+            n_embed=4,
+            r_cut=4.0,
+        )
+        fresh_atom_type_hf_vw_model = AtomTypeParamModel(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model=fresh_atom_model.model,
+            atom_model_type="AtomMPNN",
+            n_message=1,
+            n_neuron=16,
+            n_embed=4,
+            param_start_mean=1.6,
+            param_start_std=0.05,
+            model_save_path=None,
+            monomer_eval_type="hirshfeld_volume_ratio__valence_width",
+        )
+        fresh_atom_type_elst_model = AM_DimerParam_Model(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model=fresh_atom_type_hf_vw_model.model,
+            atom_model_type="AtomTypeParamNN",
+            model_type="AtomTypeParamNN",
+            n_message=1,
+            n_neuron=16,
+            n_embed=4,
+            n_params=1,
+            dimer_eval_type="ap3_elst_damping__induced_dipole",
+        )
+
+        nested_state_before = fresh_atom_type_elst_model.dimer_model.state_dict()
+        tracked_key = next(
+            k
+            for k in nested_state_before
+            if "param_readout_layers" in k and "weight" in k
+        )
+        nested_param_before = nested_state_before[tracked_key].detach().clone()
+
+        ap3_model_loaded = APNet3_AtomType_Model(
+            ds_root=None,
+            atom_type_model=fresh_atom_type_hf_vw_model.model,
+            dimer_prop_model=fresh_atom_type_elst_model.dimer_model,
+            am_dimer_param_model=fresh_atom_type_elst_model,
+            pre_trained_model_path=ap3_temp_checkpoint_path,
+            use_precomputed_classical=False,
+            use_GPU=False,
+            n_message=1,
+            n_rbf=4,
+            n_neuron=16,
+            n_embed=4,
+            r_cut_im=6.0,
+            r_cut=4.0,
+        )
+
+        nested_param_after = (
+            ap3_model_loaded.dimer_prop_model.state_dict()[tracked_key].detach().clone()
+        )
+        assert not torch.allclose(nested_param_before, nested_param_after)
+
+        predictions_after = ap3_model_loaded.predict_qcel_mols(
+            qcel_molecules[:2], batch_size=2
+        )
+
+        assert np.allclose(predictions_before, predictions_after, atol=1e-5), (
+            f"Predictions mismatch after scratch save/load roundtrip:\n"
             f"Before: {predictions_before}\n"
             f"After: {predictions_after}"
         )
