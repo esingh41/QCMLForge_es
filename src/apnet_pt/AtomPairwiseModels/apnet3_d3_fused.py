@@ -5,15 +5,23 @@ import numpy as np
 import warnings
 import time
 from ..AtomModels.ap2_atom_model import AtomMPNN
-from apnet_pt.util import scatter_sum_compile
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
-    ap2_fused_collate_update,
-    ap2_fused_collate_update_no_target,
     qcel_dimer_to_fused_data,
 )
+from ..pt_datasets.ap3_fused_ds import (
+    ap3_fused_module_dataset_lmdb,
+    ap3_fused_module_dataset,
+    ap3_fused_collate_update,
+    ap3_fused_collate_update_no_target,
+)
+from ..pt_datasets.ap3_fused_fsapt_ds import (
+    ap3_fused_fsapt_collate_update,
+    ap3_fused_fsapt_module_dataset_lmdb,
+)
 from .. import constants
+from ..util import scatter_sum_compile
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -22,6 +30,7 @@ import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
+from .mtp_mtp import AtomTypeParamNN, DimerProp, AtomTypeParamModel
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
@@ -119,10 +128,11 @@ def unwrap_model(model):
     return model.module if isinstance(model, DDP) else model
 
 
-class APNet2_AM_MPNN(nn.Module):
+#Need to pass in dimer_prop_model that has dispersion packed into it.
+class APNet3D3_AtomType_MPNN(nn.Module):
     def __init__(
         self,
-        atom_model: AtomMPNN,
+        dimer_prop_model: DimerProp,
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -130,12 +140,25 @@ class APNet2_AM_MPNN(nn.Module):
         r_cut_im=8.0,
         r_cut=5.0,
         return_hidden_states=False,
+        use_precomputed_classical=False,
+        use_atom_props=True,
     ):
         # super().__init__(aggr="add")
         super().__init__()
-        self.atom_model = atom_model
-        # set atom_model parameters to be not trainable
-        self.atom_model.requires_grad_(False)
+        self.dimer_prop_model = dimer_prop_model
+        if self.dimer_prop_model is not None:
+            if hasattr(self.dimer_prop_model, "parameters"):
+                for param in self.dimer_prop_model.parameters():
+                    param.requires_grad = False
+            elif hasattr(self.dimer_prop_model, "model"):
+                for param in self.dimer_prop_model.model.parameters():
+                    param.requires_grad = False
+                if hasattr(self.dimer_prop_model, "dimer_model"):
+                    for param in self.dimer_prop_model.dimer_model.parameters():
+                        param.requires_grad = False
+                if hasattr(self.dimer_prop_model, "dimer_model_elst"):
+                    for param in self.dimer_prop_model.dimer_model_elst.parameters():
+                        param.requires_grad = False
 
         self.n_message = n_message
         self.n_rbf = n_rbf
@@ -144,6 +167,8 @@ class APNet2_AM_MPNN(nn.Module):
         self.r_cut_im = r_cut_im
         self.r_cut = r_cut
         self.return_hidden_states = return_hidden_states
+        self.use_precomputed_classical = use_precomputed_classical
+        self.use_atom_props = use_atom_props
 
         layer_nodes_hidden = [
             # input_layer_size,
@@ -209,61 +234,6 @@ class APNet2_AM_MPNN(nn.Module):
                 layers.append(activations[i + 1])
         return nn.Sequential(*layers)
 
-    def mtp_elst(
-        self,
-        qA,
-        muA,
-        quadA,
-        qB,
-        muB,
-        quadB,
-        e_ABsr_source,
-        e_ABsr_target,
-        dR_ang,
-        dR_xyz_ang,
-    ):
-        dR = dR_ang / constants.au2ang
-        dR_xyz = dR_xyz_ang / constants.au2ang
-        oodR = 1.0 / dR
-
-        # Identity for 3D
-        delta = torch.eye(3, device=qA.device)
-
-        # Extracting tensor elements
-        qA_source = qA.squeeze(-1).index_select(0, e_ABsr_source)
-        qB_source = qB.squeeze(-1).index_select(0, e_ABsr_target)
-
-        muA_source = muA.index_select(0, e_ABsr_source)
-        muB_source = muB.index_select(0, e_ABsr_target)
-
-        # TF implementation uses 3/2 factor for quadrupoles
-        # quadA_source = (3.0 / 2.0) * quadA.index_select(0, e_ABsr_source)
-        # quadB_source = (3.0 / 2.0) * quadB.index_select(0, e_ABsr_target)
-        quadA_source = quadA.index_select(0, e_ABsr_source)
-        quadB_source = quadB.index_select(0, e_ABsr_target)
-
-        E_qq = torch.einsum("x,x,x->x", qA_source, qB_source, oodR)
-
-        T1 = torch.einsum("x,xy->xy", oodR**3, -1.0 * dR_xyz)
-        qu = torch.einsum("x,xy->xy", qA_source, muB_source) - torch.einsum(
-            "x,xy->xy", qB_source, muA_source
-        )
-        E_qu = torch.einsum("xy,xy->x", T1, qu)
-
-        T2 = 3 * torch.einsum("xy,xz->xyz", dR_xyz, dR_xyz) - torch.einsum(
-            "x,x,yz->xyz", dR, dR, delta
-        )
-        T2 = torch.einsum("x,xyz->xyz", oodR**5, T2)
-
-        E_uu = -1.0 * torch.einsum("xy,xz,xyz->x", muA_source, muB_source, T2)
-
-        qA_quadB_source = torch.einsum("x,xyz->xyz", qA_source, quadB_source)
-        qB_quadA_source = torch.einsum("x,xyz->xyz", qB_source, quadA_source)
-        E_qQ = torch.einsum("xyz,xyz->x", T2, qA_quadB_source + qB_quadA_source) / 3.0
-
-        E_elst = 627.509 * (E_qq + E_qu + E_qQ + E_uu)
-        return E_elst
-
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
         if nedge == 0:
@@ -299,6 +269,38 @@ class APNet2_AM_MPNN(nn.Module):
         # print(f"{hA_source.size() = }, {hB_target.size() = }, {qA_source.size() = }, {qB_target.size() = }, {rbf.size() = }")
         return torch.cat([hA_source, hB_target, qA_source, qB_target, rbf], dim=-1)
 
+    def get_pair_params(
+        self, hA, hB, qA, qB, hfvrA, hfvrB, vwA, vwB, rbf, e_source, e_target
+    ):
+        hA_source = hA.index_select(0, e_source)
+        hB_target = hB.index_select(0, e_target)
+
+        qA_source = qA.index_select(0, e_source)
+        qB_target = qB.index_select(0, e_target)
+
+        if self.use_atom_props:
+            hfvrA_source = hfvrA.index_select(0, e_source)
+            hfvrB_target = hfvrB.index_select(0, e_target)
+
+            vwA_source = vwA.index_select(0, e_source)
+            vwB_target = vwB.index_select(0, e_target)
+            return torch.cat(
+                [
+                    hA_source,
+                    hB_target,
+                    qA_source,
+                    qB_target,
+                    hfvrA_source,
+                    hfvrB_target,
+                    vwA_source,
+                    vwB_target,
+                    rbf,
+                ],
+                dim=-1,
+            )
+        else:
+            return torch.cat([hA_source, hB_target, qA_source, qB_target, rbf], dim=-1)
+
     def get_distances(self, RA, RB, e_source, e_target):
         RA_source = RA.index_select(0, e_source)
         RB_target = RB.index_select(0, e_target)
@@ -309,7 +311,7 @@ class APNet2_AM_MPNN(nn.Module):
         dR = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
         return dR, dR_xyz
 
-    @torch.compile
+    # @torch.compile
     def readouts(self, H):
         return torch.cat(
             [
@@ -325,39 +327,6 @@ class APNet2_AM_MPNN(nn.Module):
         self,
         batch,
     ):
-        """
-        Compute short-range SAPT components via intramonomer message passing, evaluate multipole electrostatic interactions for intermonomer pairs, and assemble per-edge and per-dimer energy outputs; optionally return atom-pair feature tensors and directional cutoff factors.
-        
-        Parameters:
-            batch: fused dimer batch object providing the following attributes used by this method:
-                ZA, RA, ZB, RB (atom types and coordinates for monomers A and B);
-                e_ABsr_source, e_ABsr_target, dimer_ind (short-range intermolecular edge sources, targets, and per-edge dimer indices);
-                e_ABlr_source, e_ABlr_target, dimer_ind_lr (long-range intermolecular edges and dimer indices);
-                e_AA_source, e_AA_target, e_BB_source, e_BB_target (intramonomer edge indices for A and B);
-                batch_atomic_A, batch_atomic_B (inputs consumed by the frozen atom_model);
-                total_charge_A (used for determining ndimer size).
-        
-        Returns:
-            If self.return_hidden_states is True:
-                (E_output, E_sr_dimer, E_elst_sr_dimer, E_elst_lr_dimer, hAB, hBA, cutoff)
-                - E_output (torch.Tensor): per-dimer assembled energy tensor (rows = ndimer, columns = 7: 4 SAPT components + padded electrostatic columns).
-                - E_sr_dimer (torch.Tensor): per-dimer summed short-range SAPT components (shape [ndimer, 4]).
-                - E_elst_sr_dimer (torch.Tensor): per-dimer summed short-range multipole electrostatic contributions (unsqueezed to [,1] before expansion).
-                - E_elst_lr_dimer (torch.Tensor): per-dimer summed long-range multipole electrostatic contributions (unsqueezed to [,1] before expansion).
-                - hAB, hBA (torch.Tensor): atom-pair feature matrices used as readout inputs for A→B and B→A edges.
-                - cutoff (torch.Tensor): per-edge distance-based scaling factor used for short-range SAPT (shape matches number of short-range edges).
-            Otherwise:
-                (E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA)
-                - E_output (torch.Tensor): per-dimer assembled energy tensor as above.
-                - E_sr (torch.Tensor): per-edge short-range SAPT component predictions (shape [n_edges_sr, 4]).
-                - E_elst_sr (torch.Tensor): per-edge short-range multipole electrostatic contributions.
-                - E_elst_lr (torch.Tensor): per-edge long-range multipole electrostatic contributions.
-                - hAB, hBA (torch.Tensor): atom-pair feature matrices as above.
-        
-        Notes:
-            - The function expects the contained atom_model to provide per-atom multipole properties (monopole, dipole, quadrupole) and uses internal distance encodings and message-passing to predict SAPT components.
-            - Per-edge values are summed to per-dimer aggregates; multipole electrostatic outputs are expanded/padded as needed to match the per-dimer output shape.
-        """
         ZA = batch.ZA
         RA = batch.RA
         ZB = batch.ZB
@@ -369,7 +338,7 @@ class APNet2_AM_MPNN(nn.Module):
         # batch.long range intermolecular edges
         e_ABlr_source = batch.e_ABlr_source
         e_ABlr_target = batch.e_ABlr_target
-        dimer_ind_lr = batch.dimer_ind_lr
+        # dimer_ind_lr = batch.dimer_ind_lr
         # batch.intramonomer edges (monomer A)
         e_AA_source = batch.e_AA_source
         e_AA_target = batch.e_AA_target
@@ -403,10 +372,25 @@ class APNet2_AM_MPNN(nn.Module):
         ### predict monomer properties w/ pretrained AtomModel ###
         ##########################################################
 
-        qA, muA, quadA, _ = self.atom_model(batch.batch_atomic_A)
-        qA = qA.reshape(-1, 1)
-        qB, muB, quadB, _ = self.atom_model(batch.batch_atomic_B)
-        qB = qB.reshape(-1, 1)
+        if self.use_precomputed_classical:
+            mA, mB = self.dimer_prop_model(batch)
+        else:
+            E_classical, mA, mB = self.dimer_prop_model(batch)
+            E_elst = E_classical[:, 0]
+            E_ind = E_classical[:, 1]
+            E_disp = E_classical[:, 2]
+        qA = mA[0]
+        qB = mB[0]
+        qA = qA.view(-1, 1)
+        qB = qB.view(-1, 1)
+        hfvrA = mA[-2][:, 0].view(-1, 1)
+        hfvrB = mB[-2][:, 0].view(-1, 1)
+        vwA = mA[-2][:, 1].view(-1, 1)
+        vwB = mB[-2][:, 1].view(-1, 1)
+        # print(f"{hfvrA.shape = }, {hfvrB.shape = }, {vwA.shape = }, {vwB.shape = }")
+        # print(f"{qB.shape = }")
+        # print(f"{qA.shape = }, {muA.shape = }, {quadA.shape = }")
+        # print(f"{Elst.shape = }")
 
         ################################################################
         ### predict SAPT components via intramonomer message passing ###
@@ -440,12 +424,8 @@ class APNet2_AM_MPNN(nn.Module):
             #################
 
             # sum each atom's messages
-            mA_i = scatter_sum_compile(
-                mA_ij, e_AA_source, dim_size=natomA, reduce="sum"
-            )
-            mB_i = scatter_sum_compile(
-                mB_ij, e_BB_source, dim_size=natomB, reduce="sum"
-            )
+            mA_i = scatter_sum_compile(mA_ij, e_AA_source, int(natomA))
+            mB_i = scatter_sum_compile(mB_ij, e_BB_source, int(natomB))
 
             # get the next hidden state of the atom
             hA_next = self.update_layers[i](mA_i)
@@ -467,12 +447,8 @@ class APNet2_AM_MPNN(nn.Module):
             # NOTE: this summation must be linear to guarantee equivariance.
             #       because of this constraint, we applied a dense net before
             #       the summation, not after
-            hA_dir = scatter_sum_compile(
-                mA_ij_dir, e_AA_source, dim_size=natomA, reduce="sum"
-            )
-            hB_dir = scatter_sum_compile(
-                mB_ij_dir, e_BB_source, dim_size=natomB, reduce="sum"
-            )
+            hA_dir = scatter_sum_compile(mA_ij_dir, e_AA_source, int(natomA))
+            hB_dir = scatter_sum_compile(mB_ij_dir, e_BB_source, int(natomB))
             hA_dir_list.append(hA_dir)
             hB_dir_list.append(hB_dir)
 
@@ -480,27 +456,19 @@ class APNet2_AM_MPNN(nn.Module):
         hA = torch.cat(hA_list, dim=-1)
         hB = torch.cat(hB_list, dim=-1)
 
-        # mock right sized output with N_dimer, 4 components
-
         # atom-pair features are a combo of atomic hidden states and the interatomic distance
-        hAB = self.get_pair(hA, hB, qA, qB, rbf_sr, e_ABsr_source, e_ABsr_target)
-        hBA = self.get_pair(hB, hA, qB, qA, rbf_sr, e_ABsr_target, e_ABsr_source)
+        hAB = self.get_pair_params(
+            hA, hB, qA, qB, hfvrA, hfvrB, vwA, vwB, rbf_sr, e_ABsr_source, e_ABsr_target
+        )
+        hBA = self.get_pair_params(
+            hB, hA, qB, qA, hfvrB, hfvrA, vwB, vwA, rbf_sr, e_ABsr_target, e_ABsr_source
+        )
+        # hAB = self.get_pair(hA, hB, qA, qB, rbf_sr, e_ABsr_source, e_ABsr_target)
+        # hBA = self.get_pair(hB, hA, qB, qA, rbf_sr, e_ABsr_target, e_ABsr_source)
 
         # project the directional atomic hidden states along the interatomic axis
         hA_dir = torch.cat(hA_dir_list, dim=-1)
         hB_dir = torch.cat(hB_dir_list, dim=-1)
-        # hA_dir = torch.cat(hA_dir_list, dim=-1) if len(hA_dir_list) > 0 else None
-        # hB_dir = torch.cat(hB_dir_list, dim=-1) if len(hB_dir_list) > 0 else None
-        # if (hA_dir is not None) and (hB_dir is not None):
-        #     hA_dir_s = hA_dir.index_select(0, e_ABsr_source)
-        #     hB_dir_t = hB_dir.index_select(0, e_ABsr_target)
-        #
-        #     # Dot with ± unit vector
-        #     hA_dir_blah = torch.einsum("axf,ax->af", hA_dir_s, dR_sr_unit)
-        #     hB_dir_blah = torch.einsum("axf,ax->af", hB_dir_t, -dR_sr_unit)
-        #     # Concatenate
-        #     hAB = torch.cat([hAB, hA_dir_blah, hB_dir_blah], dim=1)
-        #     hBA = torch.cat([hBA, hB_dir_blah, hA_dir_blah], dim=1)
 
         hA_dir_source = hA_dir.index_select(0, e_ABsr_source)
         hB_dir_target = hB_dir.index_select(0, e_ABsr_target)
@@ -511,25 +479,6 @@ class APNet2_AM_MPNN(nn.Module):
         hAB = torch.cat([hAB, hA_dir_blah, hB_dir_blah], dim=1)
         hBA = torch.cat([hBA, hB_dir_blah, hA_dir_blah], dim=1)
 
-        # run atom-pair features through a dense net to predict SAPT components
-        # EAB_sr = torch.cat(
-        #     [
-        #         self.readout_layer_elst(hAB),
-        #         self.readout_layer_exch(hAB),
-        #         self.readout_layer_indu(hAB),
-        #         self.readout_layer_disp(hAB),
-        #     ],
-        #     dim=1,
-        # )
-        # EBA_sr = torch.cat(
-        #     [
-        #         self.readout_layer_elst(hBA),
-        #         self.readout_layer_exch(hBA),
-        #         self.readout_layer_indu(hBA),
-        #         self.readout_layer_disp(hBA),
-        #     ],
-        #     dim=1,
-        # )
         EAB_sr = self.readouts(hAB)
         EBA_sr = self.readouts(hBA)
 
@@ -537,95 +486,75 @@ class APNet2_AM_MPNN(nn.Module):
 
         cutoff = (1.0 / (dR_sr**3)).unsqueeze(-1)
         E_sr *= cutoff
-        # cutoff = torch.pow(torch.reciprocal(dR_sr), 3)
-        # E_sr = torch.einsum('xy,x->xy', E_sr, cutoff)
-        E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, dim_size=ndimer, reduce="add")
+        E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
+        if self.use_precomputed_classical:
+            E_output = E_sr_dimer
+            return E_output, E_sr, 0, 0, 0, hAB, hBA
+        else:
+            E_elst_full_dimer = scatter_sum_compile(
+                E_elst, batch.dimer_ind_full, ndimer
+            )
+            E_elst_full_dimer = E_elst_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_elst_full_dimer.shape
+            full_expanded = E_elst_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_elst_full_dimer
+            E_elst_dimer = full_expanded
+            rows, cols = E_elst_dimer.shape
+            padded = E_elst_dimer.new_zeros((rows, cols + 3))
+            padded[:, :cols] = E_elst_dimer
+            E_elst_dimer = padded
 
-        ####################################################
-        ### predict multipole electrostatic interactions ###
-        ####################################################
+            E_ind_full_dimer = scatter_sum_compile(E_ind, batch.dimer_ind_full, ndimer)
+            E_ind_full_dimer = E_ind_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_ind_full_dimer.shape
+            full_expanded = E_ind_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_ind_full_dimer
+            E_ind_dimer = full_expanded
 
-        E_elst_sr = self.mtp_elst(
-            qA,
-            muA,
-            quadA,
-            qB,
-            muB,
-            quadB,
-            e_ABsr_source,
-            e_ABsr_target,
-            dR_sr,
-            dR_sr_xyz,
-        )
+            rows, cols = E_ind_dimer.shape
+            padded = E_ind_dimer.new_zeros((rows, cols + 3))
+            padded[:, 2:3] = E_ind_dimer
+            E_ind_dimer = padded
 
-        E_elst_sr_dimer = scatter_sum_compile(
-            E_elst_sr, dimer_ind, dim_size=ndimer, reduce="add"
-        )
-        E_elst_sr_dimer = E_elst_sr_dimer.unsqueeze(-1)
+            #Do we need a short range correction for dispersion? Ask mentor.
+            E_disp_full_dimer = scatter_sum_compile(
+                E_disp, batch.dimer_ind_full, ndimer
+            )
+            E_disp_full_dimer = E_disp_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_disp_full_dimer.shape
+            full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_disp_full_dimer
+            E_disp_dimer = full_expanded
 
-        E_elst_lr = self.mtp_elst(
-            qA,
-            muA,
-            quadA,
-            qB,
-            muB,
-            quadB,
-            e_ABlr_source,
-            e_ABlr_target,
-            dR_lr,
-            dR_lr_xyz,
-        )
-        E_elst_lr_dimer = scatter_sum_compile(
-            E_elst_lr, dimer_ind_lr, dim_size=ndimer, reduce="add"
-        )
-        E_elst_lr_dimer = E_elst_lr_dimer.unsqueeze(-1)
+            rows, cols = E_disp_dimer.shape
+            padded = E_disp_dimer.new_zeros((rows, cols + 3))
+            padded[:, 3:4] = E_disp_dimer
+            E_disp_dimer = padded
 
-        # Example shapes for clarity:
-        # E_elst_sr_dimer : shape [N_sr, C]  (some # of rows, e.g. 4 columns)
-        # E_elst_lr_dimer : shape [N_lr, C]
-        # ndimer          : desired # of rows (N_sr, N_lr <= ndimer)
-
-        # 1) Expand E_elst_sr_dimer up to ndimer rows if needed
-        N_sr, num_cols = E_elst_sr_dimer.shape
-        sr_expanded = E_elst_sr_dimer.new_zeros((ndimer, num_cols))
-        sr_expanded[:N_sr] = E_elst_sr_dimer
-        E_elst_sr_dimer = sr_expanded
-
-        # 2) Expand E_elst_lr_dimer similarly
-        N_lr, num_cols = E_elst_lr_dimer.shape
-        lr_expanded = E_elst_lr_dimer.new_zeros((ndimer, num_cols))
-        lr_expanded[:N_lr] = E_elst_lr_dimer
-        E_elst_lr_dimer = lr_expanded
-
-        # 3) Sum them
-        E_elst_dimer = E_elst_sr_dimer + E_elst_lr_dimer
-
-        # 4) Finally, pad columns by 3 if you want to go from shape [ndimer, 4] to [ndimer, 7]
-        rows, cols = E_elst_dimer.shape
-        padded = E_elst_dimer.new_zeros((rows, cols + 3))
-        padded[:, :cols] = E_elst_dimer
-        E_elst_dimer = padded
-        E_output = E_sr_dimer + E_elst_dimer
+            E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer + E_disp_dimer
         if self.return_hidden_states:
             return (
                 E_output,
                 E_sr_dimer,
-                E_elst_sr_dimer,
-                E_elst_lr_dimer,
+                E_elst,
+                E_ind,
+                E_disp,
                 hAB,
                 hBA,
                 cutoff,
             )
-        return E_output, E_sr, E_elst_sr, E_elst_lr, hAB, hBA
+        return E_output, E_sr, E_elst, E_ind, E_disp, hAB, hBA
 
-
-class APNet2_AM_Model:
+    
+class APNet3D3_AtomType_Model:
     def __init__(
         self,
         dataset=None,
-        atom_model=None,
+        atom_type_model=None,
+        dimer_prop_model=None,
+        am_dimer_param_model=None,
         pre_trained_model_path=None,
-        atom_model_pre_trained_path=None,
+        dimer_prop_model_pre_trained_path=None,
         n_message=3,
         n_rbf=8,
         n_neuron=128,
@@ -638,16 +567,22 @@ class APNet2_AM_Model:
         ds_root="data",
         ds_max_size=None,
         ds_atomic_batch_size=200,
+        ds_batch_size=16,
         ds_force_reprocess=False,
         ds_skip_process=False,
         ds_skip_compile=False,
+        ds_in_memory=False,
         ds_num_devices=1,
         ds_datapoint_storage_n_objects=1000,
         ds_prebatched=False,
         ds_random_seed=42,
+        ds_type="total_component_energies",
         print_lvl=0,
         ds_qcel_molecules=None,
         ds_energy_labels=None,
+        use_precomputed_classical=False,
+        ds_class_type="lmdb",  # "pt" or "lmdb"
+        use_atom_props=True,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -661,17 +596,41 @@ class APNet2_AM_Model:
         else:
             device = torch.device("cpu")
             print("running on the CPU")
+        self.device = device
         self.ds_spec_type = ds_spec_type
-        self.atom_model = AtomMPNN()
+        self.atom_type_model = AtomTypeParamModel()
+        self.dimer_prop_model = DimerProp(ATParam=self.atom_type_model.model)
+        self.am_dimer_param_model = am_dimer_param_model
 
-        if atom_model_pre_trained_path:
+        self.ds_class_type = ds_class_type
+        if self.ds_class_type not in ["pt", "lmdb"]:
+            raise ValueError("ds_class_type must be 'pt' or 'lmdb'")
+        elif self.ds_class_type == "lmdb" and ds_type == "total_component_energies":
+            print("Using LMDB dataset class")
+            self.dataset_class = ap3_fused_module_dataset_lmdb
+        elif self.ds_class_type == "pt" and ds_type == "total_component_energies":
+            self.dataset_class = ap3_fused_module_dataset
+        elif self.ds_class_type == "lmdb" and ds_type == "fsapt_energies":
+            self.dataset_class = ap3_fused_fsapt_module_dataset_lmdb
+        elif self.ds_class_type == "pt" and ds_type == "fsapt_energies":
+            raise NotImplementedError(
+                "PT dataset class for fsapt_energies not implemented yet. Use LMDB."
+            )
+        self.ds_type = ds_type
+        print(f"{self.ds_type = }")
+        print(f"{self.ds_class_type = }")
+        print(f"{self.dataset_class = }")
+
+        if dimer_prop_model_pre_trained_path:
             print(
-                f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
+                f"Loading pre-trained DimerProp model from {dimer_prop_model_pre_trained_path}"
             )
             checkpoint = torch.load(
-                atom_model_pre_trained_path, map_location=device, weights_only=False
+                dimer_prop_model_pre_trained_path,
+                map_location=device,
+                weights_only=False,
             )
-            self.atom_model = AtomMPNN(
+            self.dimer_prop_model = DimerProp(
                 n_message=checkpoint["config"]["n_message"],
                 n_rbf=checkpoint["config"]["n_rbf"],
                 n_neuron=checkpoint["config"]["n_neuron"],
@@ -683,10 +642,10 @@ class APNet2_AM_Model:
                 k.replace("_orig_mod.", ""): v
                 for k, v in checkpoint["model_state_dict"].items()
             }
-            self.atom_model.load_state_dict(model_state_dict)
-        elif atom_model:
-            print("Using provided AtomMPNN model:", atom_model)
-            self.atom_model = atom_model
+            self.dimer_prop_model.load_state_dict(model_state_dict)
+        elif dimer_prop_model:
+            print("Using provided DimerProp model:", dimer_prop_model)
+            self.dimer_prop_model = dimer_prop_model
         else:
             print(
                 """No atom model provided.
@@ -694,19 +653,24 @@ class APNet2_AM_Model:
     pre-computed and passed as input to the model.
 """
             )
+        self.use_precomputed_classical = use_precomputed_classical
         if pre_trained_model_path:
             print(
-                f"Loading pre-trained APNet2_MPNN model from {pre_trained_model_path}"
+                f"Loading pre-trained APNet3D3_AtomType_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            self.model = APNet2_AM_MPNN(
-                atom_model=self.atom_model,
-                n_message=checkpoint["config"]["n_message"],
-                n_rbf=checkpoint["config"]["n_rbf"],
-                n_neuron=checkpoint["config"]["n_neuron"],
-                n_embed=checkpoint["config"]["n_embed"],
-                r_cut_im=checkpoint["config"]["r_cut_im"],
-                r_cut=checkpoint["config"]["r_cut"],
+            config = checkpoint["config"]
+            use_atom_props = config.get("use_atom_props", True)
+            self.model = APNet3D3_AtomType_MPNN(
+                dimer_prop_model=self.dimer_prop_model,
+                n_message=config["n_message"],
+                n_rbf=config["n_rbf"],
+                n_neuron=config["n_neuron"],
+                n_embed=config["n_embed"],
+                r_cut_im=config["r_cut_im"],
+                r_cut=config["r_cut"],
+                use_precomputed_classical=use_precomputed_classical,
+                use_atom_props=use_atom_props,
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -714,14 +678,16 @@ class APNet2_AM_Model:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = APNet2_AM_MPNN(
-                atom_model=self.atom_model,
+            self.model = APNet3D3_AtomType_MPNN(
+                dimer_prop_model=self.dimer_prop_model,
                 n_message=n_message,
                 n_rbf=n_rbf,
                 n_neuron=n_neuron,
                 n_embed=n_embed,
                 r_cut_im=r_cut_im,
                 r_cut=r_cut,
+                use_precomputed_classical=use_precomputed_classical,
+                use_atom_props=use_atom_props,
             )
         if n_rbf != self.model.n_rbf:
             print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
@@ -743,7 +709,26 @@ class APNet2_AM_Model:
             self.model.r_cut = r_cut
 
         self.device = device
-        self.atom_model.to(device)
+        if hasattr(self.dimer_prop_model, "set_forward"):
+            #self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+            self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+            self.dimer_prop_model.to(device)
+            self.dimer_prop_model.polarizability_table = (
+                self.dimer_prop_model.polarizability_table.to(self.device)
+            )
+        elif hasattr(self.dimer_prop_model, "dimer_model"):
+            self.dimer_prop_model.dimer_model.set_forward(
+                "ap3_elst_damping__induced_dipole"
+            )
+            if hasattr(self.dimer_prop_model, "model"):
+                self.dimer_prop_model.model.to(device)
+            self.dimer_prop_model.dimer_model.to(device)
+            if hasattr(self.dimer_prop_model, "dimer_model_elst"):
+                self.dimer_prop_model.dimer_model_elst.to(device)
+            self.dimer_prop_model.dimer_model.polarizability_table = (
+                self.dimer_prop_model.dimer_model.polarizability_table.to(self.device)
+            )
+
         self.model.to(device)
 
         split_dbs = [2, 5, 6, 7]
@@ -753,6 +738,12 @@ class APNet2_AM_Model:
             and isinstance(ds_qcel_molecules[0], list)
         )
         self.dataset = dataset
+        print(
+            not ignore_database_null,
+            self.dataset is None,
+            self.ds_spec_type not in split_dbs,
+            not ds_qcel_split_db,
+        )
         if (
             not ignore_database_null
             and self.dataset is None
@@ -761,25 +752,50 @@ class APNet2_AM_Model:
         ):
 
             def setup_ds(fp=ds_force_reprocess):
-                return ap2_fused_module_dataset(
-                    root=ds_root,
-                    r_cut=r_cut,
-                    r_cut_im=r_cut_im,
-                    spec_type=ds_spec_type,
-                    max_size=ds_max_size,
-                    force_reprocess=fp,
-                    atom_model=self.atom_model,
-                    # atom_model_path=atom_model_pre_trained_path,
-                    atomic_batch_size=ds_atomic_batch_size,
-                    num_devices=ds_num_devices,
-                    skip_processed=ds_skip_process,
-                    skip_compile=ds_skip_compile,
-                    random_seed=ds_random_seed,
-                    datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-                    print_level=print_lvl,
-                    qcel_molecules=ds_qcel_molecules,
-                    energy_labels=ds_energy_labels,
-                )
+                if use_precomputed_classical:
+                    return self.dataset_class(
+                        root=ds_root,
+                        r_cut=r_cut,
+                        r_cut_im=r_cut_im,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        atom_model=self.dimer_prop_model,
+                        dimer_prop_model=self.dimer_prop_model,
+                        atomic_batch_size=ds_atomic_batch_size,
+                        batch_size=ds_batch_size,
+                        num_devices=ds_num_devices,
+                        skip_processed=ds_skip_process,
+                        skip_compile=ds_skip_compile,
+                        random_seed=ds_random_seed,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                        print_level=print_lvl,
+                        qcel_molecules=ds_qcel_molecules,
+                        energy_labels=ds_energy_labels,
+                        in_memory=ds_in_memory,
+                        device=self.device,
+                    )
+                else:
+                    return ap2_fused_module_dataset(
+                        root=ds_root,
+                        r_cut=r_cut,
+                        r_cut_im=r_cut_im,
+                        spec_type=ds_spec_type,
+                        max_size=ds_max_size,
+                        force_reprocess=fp,
+                        atom_model=self.dimer_prop_model,
+                        # atom_model_path=atom_model_pre_trained_path,
+                        atomic_batch_size=ds_atomic_batch_size,
+                        num_devices=ds_num_devices,
+                        skip_processed=ds_skip_process,
+                        skip_compile=ds_skip_compile,
+                        random_seed=ds_random_seed,
+                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                        print_level=print_lvl,
+                        qcel_molecules=ds_qcel_molecules,
+                        energy_labels=ds_energy_labels,
+                        in_memory=ds_in_memory,
+                    )
 
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
@@ -796,52 +812,105 @@ class APNet2_AM_Model:
                 ds_energy_labels = [None, None]
 
             def setup_ds(fp=ds_force_reprocess):
-                return [
-                    ap2_fused_module_dataset(
-                        root=ds_root,
-                        r_cut=r_cut,
-                        r_cut_im=r_cut_im,
-                        spec_type=ds_spec_type,
-                        max_size=ds_max_size,
-                        force_reprocess=fp,
-                        atom_model=self.atom_model,
-                        atomic_batch_size=ds_atomic_batch_size,
-                        num_devices=ds_num_devices,
-                        skip_processed=ds_skip_process,
-                        skip_compile=ds_skip_compile,
-                        random_seed=ds_random_seed,
-                        split="train",
-                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-                        print_level=print_lvl,
-                        qcel_molecules=ds_qcel_molecules[0],
-                        energy_labels=ds_energy_labels[0],
-                    ),
-                    ap2_fused_module_dataset(
-                        root=ds_root,
-                        r_cut=r_cut,
-                        r_cut_im=r_cut_im,
-                        spec_type=ds_spec_type,
-                        max_size=ds_max_size,
-                        force_reprocess=fp,
-                        atom_model=self.atom_model,
-                        atomic_batch_size=ds_atomic_batch_size,
-                        num_devices=ds_num_devices,
-                        skip_processed=ds_skip_process,
-                        skip_compile=ds_skip_compile,
-                        random_seed=ds_random_seed,
-                        split="test",
-                        datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
-                        print_level=print_lvl,
-                        qcel_molecules=ds_qcel_molecules[1],
-                        energy_labels=ds_energy_labels[1],
-                    ),
-                ]
+                if use_precomputed_classical or ds_type == "fsapt_energies":
+                    return [
+                        self.dataset_class(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            dimer_prop_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            batch_size=ds_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="train",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[0],
+                            energy_labels=ds_energy_labels[0],
+                            in_memory=ds_in_memory,
+                            device=self.device,
+                        ),
+                        self.dataset_class(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            dimer_prop_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            batch_size=ds_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="test",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[1],
+                            energy_labels=ds_energy_labels[1],
+                            in_memory=ds_in_memory,
+                            device=self.device,
+                        ),
+                    ]
+                else:
+                    return [
+                        ap2_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="train",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[0],
+                            energy_labels=ds_energy_labels[0],
+                            in_memory=ds_in_memory,
+                        ),
+                        ap2_fused_module_dataset(
+                            root=ds_root,
+                            r_cut=r_cut,
+                            r_cut_im=r_cut_im,
+                            spec_type=ds_spec_type,
+                            max_size=ds_max_size,
+                            force_reprocess=fp,
+                            atom_model=self.dimer_prop_model,
+                            atomic_batch_size=ds_atomic_batch_size,
+                            num_devices=ds_num_devices,
+                            skip_processed=ds_skip_process,
+                            skip_compile=ds_skip_compile,
+                            random_seed=ds_random_seed,
+                            split="test",
+                            datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+                            print_level=print_lvl,
+                            qcel_molecules=ds_qcel_molecules[1],
+                            energy_labels=ds_energy_labels[1],
+                            in_memory=ds_in_memory,
+                        ),
+                    ]
 
             self.dataset = setup_ds()
             self.dataset = setup_ds(False)
             if ds_max_size:
                 self.dataset[0] = self.dataset[0][:ds_max_size]
                 self.dataset[1] = self.dataset[1][:ds_max_size]
+
         print(f"{self.dataset=}")
         self.batch_size = None
         self.shuffle = False
@@ -857,11 +926,6 @@ class APNet2_AM_Model:
         return
 
     def compile_model(self):
-        """
-        Compile the model for optimized execution with dynamic shape support and move it to the configured device.
-        
-        This enables PyTorch Dynamo's dynamic-shape configuration, compiles the model using torch.compile(dynamic=True), and ensures the model is placed on self.device.
-        """
         self.model.to(self.device)
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
@@ -872,13 +936,7 @@ class APNet2_AM_Model:
 
     def set_all_weights_to_value(self, value: float):
         """
-        Set every learnable parameter of the model to the given constant value.
-        
-        Parameters:
-            value (float): Scalar to assign to all model parameters.
-        
-        Notes:
-            Performs one forward pass on an example input to ensure lazy-initialized parameters are created before assignment.
+        Sets the weights of the model to a constant value for debugging.
         """
         batch = self.example_input()
         batch.to(self.device)
@@ -889,20 +947,6 @@ class APNet2_AM_Model:
     def set_pretrained_model(
         self, ap2_model_path=None, am_model_path=None, model_id=None
     ):
-        """
-        Load a pretrained APNet2_AM_MPNN checkpoint into this model instance.
-        
-        Parameters:
-            ap2_model_path (str or pathlib.Path, optional): Path to a saved APNet2_AM_MPNN checkpoint file. Mutually exclusive with `model_id`.
-            am_model_path: (ignored) Present for API compatibility but not used by this method.
-            model_id (str or int, optional): If provided, selects a bundled model resource by id; overrides `ap2_model_path`.
-        
-        Returns:
-            self: The current APNet2_AM_Model instance with weights loaded from the checkpoint.
-        
-        Raises:
-            ValueError: If neither `ap2_model_path` nor `model_id` is provided.
-        """
         if model_id is not None:
             ap2_model_path = resources.files("apnet_pt").joinpath(
                 "models", "ap2-fused_ensemble", f"ap2_{model_id}.pt"
@@ -921,6 +965,45 @@ class APNet2_AM_Model:
             self.model.load_state_dict(checkpoint["model_state_dict"])
         return self
 
+    def load_ap2_pretrained_weights(self, ap2_model_path):
+        print(f"Loading AP2 pretrained weights from {ap2_model_path}")
+        checkpoint = torch.load(
+            ap2_model_path, map_location=self.device, weights_only=False
+        )
+
+        ap2_state_dict = {
+            k.replace("_orig_mod.", ""): v
+            for k, v in checkpoint["model_state_dict"].items()
+        }
+
+        ap3_state_dict = self.model.state_dict()
+
+        shared_layers = [
+            "embed_layer",
+            "distance_layer",
+            "distance_layer_im",
+            "readout_layer_elst",
+            "readout_layer_exch",
+            "readout_layer_indu",
+            "readout_layer_disp",
+            "update_layers",
+            "directional_layers",
+        ]
+
+        loaded_params = []
+        for layer_name in shared_layers:
+            for key in ap2_state_dict.keys():
+                if key.startswith(layer_name):
+                    if key in ap3_state_dict:
+                        ap3_state_dict[key] = ap2_state_dict[key]
+                        loaded_params.append(key)
+
+        self.model.load_state_dict(ap3_state_dict)
+        print(f"Loaded {len(loaded_params)} parameters from AP2 model:")
+        for param in loaded_params:
+            print(f"  - {param}")
+        return self
+
     def _qcel_example_input(
         self,
         mols,
@@ -928,7 +1011,7 @@ class APNet2_AM_Model:
         r_cut=5.0,
         r_cut_im=8.0,
     ):
-        dimer_batch = ap2_fused_collate_update_no_target(
+        dimer_batch = ap3_fused_collate_update_no_target(
             [
                 qcel_dimer_to_fused_data(
                     mol, r_cut=r_cut, r_cut_im=r_cut_im, dimer_ind=n
@@ -948,8 +1031,9 @@ class APNet2_AM_Model:
         inp_batch,
         E_sr_dimer,
         E_sr,
-        E_elst_sr,
-        E_elst_lr,
+        E_elst_mtp,
+        E_ind_mtp,
+        E_disp,
     ):
         indA_to_dimer = []
         indB_to_dimer = []
@@ -959,11 +1043,11 @@ class APNet2_AM_Model:
 
         indsA_sr = inp_batch["e_ABsr_source"]
         indsB_sr = inp_batch["e_ABsr_target"]
-        indsA_lr = inp_batch["e_ABlr_source"]
-        indsB_lr = inp_batch["e_ABlr_target"]
+        indsA = inp_batch["e_ABfull_source"]
+        indsB = inp_batch["e_ABfull_target"]
 
         dimer_inds, atoms_per_dimer = torch.unique(
-            inp_batch.dimer_ind, return_counts=True
+            inp_batch.dimer_ind_full, return_counts=True
         )
         indsA_monomer = inp_batch.indA
         indsB_monomer = inp_batch.indB
@@ -973,81 +1057,105 @@ class APNet2_AM_Model:
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
-            indA_to_atom.append(np.arange(size_A.item()))
-            indB_to_atom.append(np.arange(size_B.item()))
+            indA_to_atom.append(np.arange(size_A))
+            indB_to_atom.append(np.arange(size_B))
             pair_energies_batch.append(np.zeros((4, size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
         indB_to_dimer = np.concatenate(indB_to_dimer)
         indA_to_atom = np.concatenate(indA_to_atom)
         indB_to_atom = np.concatenate(indB_to_atom)
+        for e_elst, e_ind, indA, indB in zip(E_elst_mtp, E_ind_mtp, indsA, indsB):
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
+            pair_energies_batch[i][2, atomA, atomB] += e_ind.numpy()
 
-        # E_sr, E_elst_sr, E_elst_lr
-        for e_pair, e_elst_sr, indA, indB in zip(E_sr, E_elst_sr, indsA_sr, indsB_sr):
+        for e_pair, e_elst, e_disp, indA, indB in zip(E_sr, E_elst_mtp, E_disp, indsA_sr, indsB_sr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
             pair_energies_batch[i][0:4, atomA, atomB] += e_pair.numpy()
-            pair_energies_batch[i][0, atomA, atomB] += e_elst_sr.numpy()
+            pair_energies_batch[i][0, atomA, atomB] += e_elst.numpy()
+            pair_energies_batch[i][3, atomA, atomB] += e_disp.numpy()
 
-        for e_elst_lr, indA, indB in zip(E_elst_lr, indsA_lr, indsB_lr):
+        indsA_lr = inp_batch["e_ABlr_source"]
+        indsB_lr = inp_batch["e_ABlr_target"]
+
+        for e_ind, e_disp, indA, indB in zip(E_ind_mtp, E_disp, indsA_lr, indsB_lr):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_energies_batch[i][0, atomA, atomB] += e_elst_lr
+            pair_energies_batch[i][2, atomA, atomB] += e_ind
+            pair_energies_batch[i][3, atomA, atomB] += e_disp
         return pair_energies_batch
 
     def _assemble_mtp_pairs(
         self,
         inp_batch,
-        E_elst_sr,
-        E_elst_lr,
+        E_elst_mtp,
+        E_ind_mtp,
+        E_disp,
     ):
         indA_to_dimer = []
         indB_to_dimer = []
         indA_to_atom = []
         indB_to_atom = []
-        pair_energies_batch = []
+        pair_elst_batch = []
+        pair_ind_batch = []
+        pair_disp_batch = []
 
-        indsA_sr = inp_batch["e_ABsr_source"]
-        indsB_sr = inp_batch["e_ABsr_target"]
-        indsA_lr = inp_batch["e_ABlr_source"]
-        indsB_lr = inp_batch["e_ABlr_target"]
+        indsA = inp_batch["e_ABfull_source"]
+        indsB = inp_batch["e_ABfull_target"]
 
         dimer_inds, atoms_per_dimer = torch.unique(
-            inp_batch.dimer_ind, return_counts=True
+            inp_batch.dimer_ind_full, return_counts=True
         )
         indsA_monomer = inp_batch.indA
         indsB_monomer = inp_batch.indB
 
         for i in dimer_inds:
-            size_A = torch.sum(indsA_monomer == i)
+            size_A = torch.sum(indsA_monomer == i) #Finding size of each monomer
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
-            indA_to_atom.append(np.arange(size_A.item()))
-            indB_to_atom.append(np.arange(size_B.item()))
-            pair_energies_batch.append(np.zeros((size_A, size_B)))
+            indA_to_atom.append(np.arange(size_A))
+            indB_to_atom.append(np.arange(size_B))
+            pair_elst_batch.append(np.zeros((size_A, size_B)))
+            pair_ind_batch.append(np.zeros((size_A, size_B)))
+            pair_disp_batch.append(np.zeros((size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
         indB_to_dimer = np.concatenate(indB_to_dimer)
         indA_to_atom = np.concatenate(indA_to_atom)
         indB_to_atom = np.concatenate(indB_to_atom)
-        for e_elst_sr, indA, indB in zip(E_elst_sr, indsA_sr, indsB_sr):
+
+        for e_elst, indA, indB in zip(E_elst_mtp, indsA, indsB):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_energies_batch[i][atomA, atomB] += e_elst_sr.numpy()
-        for e_elst_lr, indA, indB in zip(E_elst_lr, indsA_lr, indsB_lr):
+            pair_elst_batch[i][atomA, atomB] += e_elst.numpy()
+        for e_ind, indA, indB in zip(E_ind_mtp, indsA, indsB):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_energies_batch[i][atomA, atomB] += e_elst_lr
-        return pair_energies_batch
+            pair_ind_batch[i][atomA, atomB] += e_ind
+
+        #D3 pairwise energies
+        for e_disp, indA, indB in zip(E_disp, indsA, indsB):
+            i = indA_to_dimer[indA]
+            assert i == indB_to_dimer[indB]
+            atomA = indA_to_atom[indA]
+            atomB = indB_to_atom[indB]
+            pair_disp_batch[i][atomA, atomB] += e_disp
+
+        return pair_elst_batch, pair_ind_batch, pair_disp_batch
 
     @torch.inference_mode()
     def predict_qcel_mols(
@@ -1058,10 +1166,10 @@ class APNet2_AM_Model:
         r_cut_im=None,
         verbose=False,
         return_pairs=False,
-        return_elst=False,
+        return_classical_pairs=False,
     ):
-        assert not (return_elst and return_pairs), (
-            "return_elst and return_pairs are not compatible"
+        assert not (return_classical_pairs and return_pairs), (
+            "return_classical_pairs and return_pairs are not compatible"
         )
         if r_cut is None:
             r_cut = self.model.r_cut
@@ -1070,27 +1178,46 @@ class APNet2_AM_Model:
 
         N = len(mols)
         predictions = np.zeros((N, 4))
-        if return_pairs or return_elst:
+        if return_pairs:
             pairwise_energies = []
+        if return_classical_pairs:
+            pairwise_elst_energies = []
+            pairwise_ind_energies = []
+            pairwise_disp_energies = []
         if self.model.return_hidden_states:
             # need to capture output
             h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
         # self.model.to(self.device)
-        self.atom_model.to(self.device)
+        self.dimer_prop_model.to(self.device)
         for i in range(0, N, batch_size):
             upper_bound = min(i + batch_size, N)
-            dimer_batch = ap2_fused_collate_update_no_target(
-                [
-                    qcel_dimer_to_fused_data(
-                        dimer, r_cut=r_cut, r_cut_im=r_cut_im, dimer_ind=n
+            # Need to capture what dimers are invalid and return None to report nan for these systems
+            data = [
+                qcel_dimer_to_fused_data(
+                    dimer,
+                    r_cut=r_cut,
+                    r_cut_im=r_cut_im,
+                    dimer_ind=n,
+                    check_validity=True,
+                )
+                for n, dimer in enumerate(mols[i:upper_bound])
+            ]
+            # get indices that are None
+            valid_indices = [j for j, d in enumerate(data) if d is not None]
+            all_indices = list(range(len(data)))
+            if len(valid_indices) < len(data):
+                if verbose:
+                    print(
+                        f"Skipping {len(data) - len(valid_indices)} invalid dimers in batch {i} to {upper_bound}"
                     )
-                    for n, dimer in enumerate(mols[i:upper_bound])
-                ]
-            )
+                # create a new data list with only valid data
+                data = [data[j] for j in valid_indices]
+            dimer_batch = ap3_fused_collate_update_no_target(data)
+            # print(dimer_batch)
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
             if self.model.return_hidden_states:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA, cutoff = preds
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA, cutoff = preds
                 h_ABs.append(hAB)
                 h_BAs.append(hBA)
                 cutoffs.append(cutoff)
@@ -1098,37 +1225,73 @@ class APNet2_AM_Model:
                 ndimers.append(
                     torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long)
                 )
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
+                # update correct indices in predictions
+                for idx, valid_idx in enumerate(valid_indices):
+                    predictions[i + valid_idx] = E_sr_dimer[idx].cpu().numpy()
+                # predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
             elif return_pairs:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-                pairwise_energies.extend(
-                    self._assemble_pairs(
-                        dimer_batch.cpu(),
-                        E_sr_dimer.cpu(),
-                        E_sr.cpu(),
-                        E_elst_sr.cpu(),
-                        E_elst_lr.cpu(),
-                    )
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
+                # predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
+                v = self._assemble_pairs(
+                    dimer_batch.cpu(),
+                    E_sr_dimer.cpu(),
+                    E_sr.cpu(),
+                    E_elst.cpu(),
+                    E_ind.cpu(),
+                    E_disp.cpu(),
                 )
-            elif return_elst:
-                E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
-                predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
-                pairwise_energies.extend(
-                    self._assemble_mtp_pairs(
-                        dimer_batch,
-                        E_elst_sr,
-                        E_elst_lr,
-                    )
+                for idx, valid_idx in enumerate(valid_indices):
+                    predictions[i + valid_idx] = E_sr_dimer[idx].cpu().numpy()
+                cnt = 0
+                for idx in all_indices:
+                    if idx in valid_indices:
+                        predictions[i + idx] = E_sr_dimer[cnt].cpu().numpy()
+                        pairwise_energies.append(v[cnt])
+                        cnt += 1
+                    else:
+                        predictions[i + idx] = np.array(
+                            [np.nan, np.nan, np.nan, np.nan]
+                        )
+                        pairwise_energies.append([])
+            elif return_classical_pairs:
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = preds
+                v = self._assemble_mtp_pairs(
+                    dimer_batch,
+                    E_elst,
+                    E_ind,
+                    E_disp,
                 )
+                cnt = 0
+                for idx in all_indices:
+                    if idx in valid_indices:
+                        predictions[i + idx] = E_sr_dimer[cnt].cpu().numpy()
+                        pairwise_elst_energies.append(v[0][cnt])
+                        pairwise_ind_energies.append(v[1][cnt])
+                        pairwise_disp_energies.append(v[2][cnt])
+                        cnt += 1
+                    else:
+                        predictions[i + idx] = np.array(
+                            [np.nan, np.nan, np.nan, np.nan]
+                        )
+                        pairwise_elst_energies.append([])
+                        pairwise_ind_energies.append([])
+                        pairwise_disp_energies.append([])
             else:
-                predictions[i : i + batch_size] = preds[0].cpu().numpy()
+                for cnt, idx in enumerate(all_indices):
+                    if idx in valid_indices:
+                        predictions[i + idx] = preds[0][cnt].cpu().numpy()
+                    else:
+                        predictions[i + idx] = np.array(
+                            [np.nan, np.nan, np.nan, np.nan]
+                        )
         if verbose:
             print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if self.model.return_hidden_states:
             return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
-        if return_pairs or return_elst:
+        if return_pairs:
             return predictions, pairwise_energies
+        if return_classical_pairs:
+            return predictions, pairwise_elst_energies, pairwise_ind_energies, pairwise_disp_energies
         return predictions
 
     def example_input(
@@ -1183,13 +1346,17 @@ units angstrom
             # optimizer.zero_grad(set_to_none=True)
             optimizer.zero_grad()
             batch = batch.to(rank_device, non_blocking=True)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, E_disp_lr, hAB, hBA = self.model(batch)
             preds = E_sr_dimer.reshape(-1, 4)
-            comp_errors = preds - batch.y
+            labels = batch.y
+            if self.use_precomputed_classical:
+                labels[:, 0] -= batch.E_classical_elst
+                labels[:, 2] -= batch.E_classical_ind
+            comp_errors = preds - labels
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
                 if (loss_fn is None)
-                else loss_fn(preds, batch.y)
+                else loss_fn(preds, labels)
             )
             batch_loss.backward()
             optimizer.step()
@@ -1216,13 +1383,18 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                E_sr_dimer, _, _, _, _, _ = self.model(batch)
+                E_sr_dimer, _, _, _, _, _, _ = self.model(batch)
                 preds = E_sr_dimer.reshape(-1, 4)
                 comp_errors = preds - batch.y
+                labels = batch.y
+                if self.use_precomputed_classical:
+                    labels[:, 0] -= batch.E_classical_elst
+                    labels[:, 2] -= batch.E_classical_ind
+                comp_errors = preds - labels
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
                     if (loss_fn is None)
-                    else loss_fn(preds, batch.y)
+                    else loss_fn(preds, labels)
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
@@ -1288,6 +1460,175 @@ units angstrom
         comp_errors_t = torch.cat(comp_errors_t, dim=0)
         total_MAE_t = torch.mean(torch.abs(comp_errors_t))
         return total_loss, total_MAE_t
+
+    def __train_batches_fsapt_single_proc(
+        self, dataloader, loss_fn, optimizer, rank_device, scheduler
+    ):
+        """
+        Single-process training loop for FSAPT fragment energies.
+
+        For FSAPT training, we aggregate atomic pair contributions to fragment-level
+        energies using frag1_ind and frag2_ind before computing loss.
+        """
+        self.model.train()
+        comp_errors_t = []
+        total_loss = 0.0
+        for n, batch in enumerate(dataloader):
+            optimizer.zero_grad()
+            batch = batch.to(rank_device, non_blocking=True)
+            E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
+            # For FSAPT training, use only MPNN predictions (E_sr),
+            # not classical frozen components (E_elst, E_ind)
+            full_pairwise_energies = torch.zeros(E_elst.size(0), 4, device=rank_device)
+            full_pairwise_energies[:, 0] = E_elst
+            full_pairwise_energies[:, 2] = E_ind
+            # Everything is ordered based on e_ABfull_source/target, so we
+            # need to map e_ABsr edges to full edges. We can do this by
+            # learning the mapping from e_ABsr to e_ABfull.
+            e_ABsr_source = batch.e_ABsr_source
+            e_ABsr_target = batch.e_ABsr_target
+            e_ABfull_source = batch.e_ABfull_source
+            e_ABfull_target = batch.e_ABfull_target
+            # For each edge in e_ABsr, find the corresponding index in e_ABfull
+            mapping_indices = []
+            for src, tgt in zip(e_ABsr_source, e_ABsr_target):
+                mask_source = e_ABfull_source == src
+                mask_target = e_ABfull_target == tgt
+                mask = mask_source & mask_target
+                index = torch.nonzero(mask, as_tuple=False).squeeze()
+                mapping_indices.append(index)
+            # if only long-range edges, mapping_indices will be empty.
+            # Generally, long-range models will not be trainable here, but
+            # we need to handle this case and not adjust model outputs.
+            if len(mapping_indices) > 0:
+                mapping_indices = torch.stack(mapping_indices)
+                # Now we add the short-range energies to the full pairwise
+                # energies to assemble all pairwise contributions in one tensor
+                full_pairwise_energies[mapping_indices, :] += E_sr
+            # Okay, now we want to only sum over SPECIFIC pairwise contributions
+            # defined by frag1_ind and frag2_ind. We will loop over dimers
+            # in the batch and sum only the relevant pairwise contributions. Note,
+            # frag1_ind and frag2_ind are lists of atom indices for each fragment that
+            # are comparable to the atom indices in e_ABfull_source/target.
+            ndimer = batch.total_charge_A.size(0)
+            preds = torch.zeros(ndimer, 4, device=rank_device)
+            for i in range(ndimer):
+                frag1_idx = batch.frag1_ind[i]
+                frag2_idx = batch.frag2_ind[i]
+                # Find edges where source is in frag1 AND target is in frag2
+                mask_source = torch.isin(e_ABfull_source, frag1_idx)
+                mask_target = torch.isin(e_ABfull_target, frag2_idx)
+                mask = mask_source & mask_target
+                # Sum the edge contributions for this fragment pair
+                preds[i, :] = full_pairwise_energies[mask, :].sum(dim=0)
+
+            # Labels are [batch_size, 5], we use first 4 components
+            labels = batch.y[:, :4]
+            comp_errors = preds - labels
+            batch_loss = (
+                torch.mean(torch.square(comp_errors))
+                if (loss_fn is None)
+                else loss_fn(preds, labels)
+            )
+            batch_loss.backward()
+            optimizer.step()
+            total_loss += batch_loss.item()
+            comp_errors_t.append(comp_errors.detach().cpu())
+
+        if scheduler is not None:
+            scheduler.step()
+
+        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
+        elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
+        exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
+        indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
+        disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
+        return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
+
+    def __evaluate_batches_fsapt_single_proc(self, dataloader, loss_fn, rank_device):
+        """
+        Single-process evaluation loop for FSAPT fragment energies.
+        """
+        self.model.eval()
+        comp_errors_t = []
+        total_loss = 0.0
+        with torch.no_grad():
+            for n, batch in enumerate(dataloader):
+                batch = batch.to(rank_device, non_blocking=True)
+                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
+                # For FSAPT evaluation, use only MPNN predictions (E_sr),
+                # not classical frozen components (E_elst, E_ind)
+                full_pairwise_energies = torch.zeros(
+                    E_elst.size(0), 4, device=rank_device
+                )
+                # Don't initialize with frozen classical values
+                full_pairwise_energies[:, 0] = E_elst
+                full_pairwise_energies[:, 2] = E_ind
+                # Everything is ordered based on e_ABfull_source/target, so we
+                # need to map e_ABsr edges to full edges. We can do this by
+                # learning the mapping from e_ABsr to e_ABfull.
+                e_ABsr_source = batch.e_ABsr_source
+                e_ABsr_target = batch.e_ABsr_target
+                e_ABfull_source = batch.e_ABfull_source
+                e_ABfull_target = batch.e_ABfull_target
+                # For each edge in e_ABsr, find the corresponding index in e_ABfull
+                mapping_indices = []
+                for src, tgt in zip(e_ABsr_source, e_ABsr_target):
+                    mask_source = e_ABfull_source == src
+                    mask_target = e_ABfull_target == tgt
+                    mask = mask_source & mask_target
+                    index = torch.nonzero(mask, as_tuple=False).squeeze()
+                    mapping_indices.append(index)
+                # if only long-range edges, mapping_indices will be empty.
+                # Generally, long-range models will not be trainable here, but
+                # we need to handle this case and not adjust model outputs.
+                if len(mapping_indices) > 0:
+                    mapping_indices = torch.stack(mapping_indices)
+                    # Now we add the short-range energies to the full pairwise
+                    # energies to assemble all pairwise contributions in one tensor
+                    full_pairwise_energies[mapping_indices, :] += E_sr
+                ndimer = batch.total_charge_A.size(0)
+                preds = torch.zeros(ndimer, 4, device=rank_device)
+                # Okay, now we want to only sum over SPECIFIC pairwise contributions
+                # defined by frag1_ind and frag2_ind. We will loop over dimers
+                # in the batch and sum only the relevant pairwise contributions. Note,
+                # frag1_ind and frag2_ind are lists of atom indices for each fragment that
+                # are comparable to the atom indices in e_ABfull_source/target.
+                for i in range(ndimer):
+                    frag1_idx = batch.frag1_ind[i]
+                    frag2_idx = batch.frag2_ind[i]
+                    # Find edges where source is in frag1 AND target is in frag2
+                    mask_source = torch.isin(e_ABfull_source, frag1_idx)
+                    mask_target = torch.isin(e_ABfull_target, frag2_idx)
+                    mask = mask_source & mask_target
+                    # Sum the edge contributions for this fragment pair
+                    preds[i, :] = full_pairwise_energies[mask, :].sum(dim=0)
+
+                # Labels are [batch_size, 5], we use first 4 components
+                labels = batch.y[:, :4]
+
+                # No precomputed classical correction for FSAPT supported currently
+                # if self.use_precomputed_classical:
+                #     labels[:, 0] -= batch.E_classical_elst if hasattr(batch, 'E_classical_elst') else 0
+                #     labels[:, 2] -= batch.E_classical_ind if hasattr(batch, 'E_classical_ind') else 0
+
+                comp_errors = preds - labels
+                batch_loss = (
+                    torch.mean(torch.square(comp_errors))
+                    if (loss_fn is None)
+                    else loss_fn(preds, labels)
+                )
+                total_loss += batch_loss.item()
+                comp_errors_t.append(comp_errors.detach().cpu())
+
+        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
+        total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
+        elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
+        exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
+        indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
+        disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
+        return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     ########################################################################
     # SINGLE-PROCESS TRAINING
@@ -1416,28 +1757,6 @@ units angstrom
         num_workers,
         lr_decay=None,
     ):
-        """
-        Run a distributed-data-parallel (DDP) training loop for the model, evaluate on validation data, and save the best checkpoint to self.model_save_path.
-        
-        Performs an initial evaluation (pre-training), trains for n_epochs across the provided datasets using PyTorch DDP when world_size > 1, evaluates after each epoch, and saves the model checkpoint when validation loss improves. When using multiple processes, this method will initialize and clean up the process group. The method uses self.device to choose the target device and may move the model to/from CPU for checkpointing.
-        
-        Parameters:
-            rank (int): Process rank in the distributed group (0 is the primary process).
-            world_size (int): Total number of processes participating in DDP; if 1, runs single-process training.
-            train_dataset (torch.utils.data.Dataset): Dataset used for training.
-            test_dataset (torch.utils.data.Dataset): Dataset used for validation/evaluation.
-            n_epochs (int): Number of training epochs to run.
-            batch_size (int): Batch size for data loaders.
-            lr (float): Initial learning rate for the optimizer.
-            pin_memory (bool): If true, data loaders will use pinned memory.
-            num_workers (int): Number of worker processes for data loading.
-            lr_decay (float | None): Optional decay factor for the inverse-time LR scheduler; if None no scheduler is used.
-        
-        Side effects:
-            - May call self.__setup(...) and self.__cleanup() to manage the process group when world_size > 1.
-            - Moves the model to/from devices and may wrap it with torch.distributed.DDP.
-            - Saves the best-performing model checkpoint to self.model_save_path when validation loss decreases.
-        """
         print(f"{self.device.type=}")
         if self.device.type == "cpu":
             rank_device = "cpu"
@@ -1459,7 +1778,7 @@ units angstrom
                 shuffle=False,
                 num_workers=num_workers,
                 pin_memory=pin_memory,
-                collate_fn=ap2_fused_collate_update,
+                collate_fn=ap3_fused_collate_update,
             )
             for b in first_pass_data:
                 b.to(rank_device)
@@ -1494,7 +1813,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=train_sampler,
-            collate_fn=ap2_fused_collate_update,
+            collate_fn=ap3_fused_collate_update,
         )
 
         test_loader = APNet2_fused_DataLoader(
@@ -1504,7 +1823,7 @@ units angstrom
             num_workers=num_workers,
             pin_memory=pin_memory,
             sampler=test_sampler,
-            collate_fn=ap2_fused_collate_update,
+            collate_fn=ap3_fused_collate_update,
         )
         if rank == 0:
             print("Loaders setup\n")
@@ -1573,6 +1892,7 @@ units angstrom
                                     "n_embed": cpu_model.n_embed,
                                     "r_cut_im": cpu_model.r_cut_im,
                                     "r_cut": cpu_model.r_cut,
+                                    "use_atom_props": cpu_model.use_atom_props,
                                 },
                             },
                             self.model_save_path,
@@ -1583,7 +1903,12 @@ units angstrom
                 dt = time.time() - t1
                 test_loss = 0.0
                 print(
-                   f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} { elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{ exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} { disp_MAE_t: > 7.3f}/{disp_MAE_v: < 7.3f} {test_lowered}", flush=True,
+                    f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
+                        total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} {
+                        elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{
+                        exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
+                        disp_MAE_t: > 7.3f}/{disp_MAE_v: < 7.3f} {test_lowered}",
+                    flush=True,
                 )
 
         if world_size > 1:
@@ -1605,28 +1930,8 @@ units angstrom
         lr_decay=None,
         skip_compile=False,
         transfer_learning=False,
-        pretrain_test_loss=True,
     ):
         # (1) Compile Model
-        """
-        Train the model on a single process using provided train and test datasets.
-        
-        Performs an optional compile/warmup, constructs dataloaders and optimizer/scheduler, runs an initial evaluation, then executes the main training loop for n_epochs while tracking and saving the best model by test loss.
-        
-        Parameters:
-            train_dataset: Dataset providing training fused-dimer batches.
-            test_dataset: Dataset providing validation fused-dimer batches.
-            n_epochs (int): Number of training epochs.
-            batch_size (int): Batch size for data loaders.
-            lr (float): Initial learning rate for the optimizer.
-            pin_memory (bool): Passed to DataLoader to pin memory.
-            num_workers (int): Number of worker processes for data loading.
-            lr_decay (float | None): Decay factor used to construct the learning-rate scheduler; if None no scheduler is used.
-            skip_compile (bool): If True, skip torch.compile step.
-            transfer_learning (bool): If True, use transfer-learning evaluation/training routines that aggregate component predictions before loss.
-            pretrain_test_loss (bool): If True, initialize best-model selection using the pre-training test loss; if False, require strictly better test loss to replace the saved best model.
-        
-        """
         rank_device = self.device
         # self.model.to(rank_device)
         batch = self.example_input()
@@ -1638,8 +1943,26 @@ units angstrom
             self.compile_model()
 
         # (2) Dataloaders
-        # if self.ds_spec_type in [1, 5, 6]:
-        collate_fn = ap2_fused_collate_update
+        # Detect if we're using FSAPT dataset (handle Subset wrapper from random_split)
+        actual_dataset = (
+            train_dataset.dataset
+            if hasattr(train_dataset, "dataset")
+            else train_dataset
+        )
+        is_fsapt = isinstance(actual_dataset, (ap3_fused_fsapt_module_dataset_lmdb))
+
+        # Use FSAPT collate function if needed
+        if is_fsapt:
+            collate_fn = ap3_fused_fsapt_collate_update
+            # TODO: remove in production
+            # batch_size = 1
+        else:
+            collate_fn = (
+                ap3_fused_collate_update
+                if self.model.use_precomputed_classical
+                else ap3_fused_collate_update
+            )
+
         train_loader = APNet2_fused_DataLoader(
             dataset=train_dataset,
             batch_size=batch_size,
@@ -1670,7 +1993,19 @@ units angstrom
         criterion = torch.nn.MSELoss()
 
         # (4) Set eval functions
-        if not transfer_learning:
+        if is_fsapt:
+            # FSAPT fragment energy training
+            # ensure pre-compute is not enabled
+            assert not self.use_precomputed_classical, (
+                "Precomputed classical corrections not supported for FSAPT training."
+            )
+            __evaluate_batch = self.__evaluate_batches_fsapt_single_proc
+            __train_batch = self.__train_batches_fsapt_single_proc
+            print(
+                "                                       Total            Elst            Exch            Ind            Disp",
+                flush=True,
+            )
+        elif not transfer_learning:
             __evaluate_batch = self.__evaluate_batches_single_proc
             __train_batch = self.__train_batches_single_proc
             print(
@@ -1689,7 +2024,7 @@ units angstrom
         t0 = time.time()
         t_out = __evaluate_batch(train_loader, criterion, rank_device)
         v_out = __evaluate_batch(test_loader, criterion, rank_device)
-        if not transfer_learning:
+        if is_fsapt or not transfer_learning:
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
                 t_out
             )
@@ -1713,18 +2048,14 @@ units angstrom
             )
 
         # (6) Main training loop
-        if pretrain_test_loss:
-            lowest_test_loss = test_loss
-        else:
-            lowest_test_loss = torch.tensor(float("inf"))
-        # print(f"{lowest_test_loss=:.6f}")
+        lowest_test_loss = test_loss
         for epoch in range(n_epochs):
             t1 = time.time()
             t_out = __train_batch(
                 train_loader, criterion, optimizer, rank_device, scheduler
             )
             v_out = __evaluate_batch(test_loader, criterion, rank_device)
-            if not transfer_learning:
+            if is_fsapt or not transfer_learning:
                 (
                     train_loss,
                     total_MAE_t,
@@ -1747,7 +2078,6 @@ units angstrom
 
             # Track best model
             star_marker = " "
-            # print(f"{test_loss=:.6f}")
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
@@ -1764,13 +2094,14 @@ units angstrom
                                 "n_embed": cpu_model.n_embed,
                                 "r_cut_im": cpu_model.r_cut_im,
                                 "r_cut": cpu_model.r_cut,
+                                "use_atom_props": cpu_model.use_atom_props,
                             },
                         },
                         self.model_save_path,
                     )
                 self.model.to(rank_device)
 
-            if not transfer_learning:
+            if is_fsapt or not transfer_learning:
                 print(
                     f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
                     f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
@@ -1803,34 +2134,12 @@ units angstrom
         omp_num_threads_per_process=6,
         lr_decay=None,
         random_seed=42,
-        skip_compile=False,
+        skip_compile=True,
         transfer_learning=False,
-        pretrain_test_loss=True,
     ):
         """
-        Train the APNet2_AM_Model on the provided dataset using the configured device and training settings.
-        
-        Parameters:
-            dataset (optional): Dataset or [train_dataset, test_dataset] to use for training; if omitted the instance's dataset must be set beforehand.
-            n_epochs (int): Number of training epochs.
-            lr (float): Initial learning rate.
-            split_percent (float): Fraction of dataset assigned to training when a single dataset is provided.
-            model_path (str|None): Path where training results and the best model will be saved.
-            shuffle (bool): Whether to shuffle datasets before splitting and batching.
-            dataloader_num_workers (int): Number of worker processes for data loading.
-            world_size (int): Number of processes for distributed (DDP) training; uses single-process training when 1.
-            omp_num_threads_per_process (int): Value for OMP_NUM_THREADS for each training process.
-            lr_decay (callable|None): Learning-rate scheduler factory or configuration passed to training; when None no LR scheduler is used.
-            random_seed (int): Seed used for dataset shuffling and reproducible splits.
-            skip_compile (bool): When True, skip model compilation/optimization steps prior to training.
-            transfer_learning (bool): When True, use the transfer-learning training variant that sums sub-component predictions before loss computation.
-            pretrain_test_loss (bool): Controls best-model tracking behavior when continuing from a pretrained state; affects initialization and updating of the saved best test loss.
-        
-        Raises:
-            ValueError: If no dataset is provided or available on the instance.
-        
-        Returns:
-            None
+        hyperparameters match the defaults in the original code:
+        https://chemrxiv.org/engage/chemrxiv/article-details/65ccd41866c1381729a2b885
         """
         if dataset is not None:
             self.dataset = dataset
@@ -1841,7 +2150,7 @@ units angstrom
             raise ValueError("No dataset provided")
         np.random.seed(random_seed)
         self.model_save_path = model_path
-        print(f"Saving training results to...\n{self.model_save_path}")
+        print(f"Saving training results to...\n{model_path}")
         if isinstance(self.dataset, list):
             train_dataset = self.dataset[0]
             if shuffle:
@@ -1868,7 +2177,8 @@ units angstrom
             test_dataset = self.dataset[test_indices]
             batch_size = train_dataset.training_batch_size
         self.batch_size = batch_size
-        print("~~ Training APNet2Model ~~", flush=True)
+        print("~~ Training APNet3-fused Model ~~", flush=True)
+        print(f"   Labeled data for {self.ds_type}", flush=True)
         print(
             f"    Training on {len(train_dataset)} samples, Testing on {
                 len(test_dataset)
@@ -1893,6 +2203,12 @@ units angstrom
             pin_memory = False
 
         self.shuffle = shuffle
+
+        # Now that dataset has computed classical terms in dataset, we can set
+        # to only atomMPNN for training
+        if self.use_precomputed_classical:
+            self.dimer_prop_model.set_forward("ap3_atomMPNN")
+            self.dimer_prop_model.to(self.device)
 
         if world_size > 1:
             print("Running multi-process training", flush=True)
@@ -1927,15 +2243,12 @@ units angstrom
                 lr_decay=lr_decay,
                 skip_compile=skip_compile,
                 transfer_learning=transfer_learning,
-                pretrain_test_loss=pretrain_test_loss,
             )
         return
 
     def freeze_parameters_except_readouts(self):
         """
-        Freeze all model parameters except the AP2 model readout layers named with suffixes 'elst', 'exch', 'indu', or 'disp'.
-        
-        This sets requires_grad = False for every parameter not belonging to a readout layer whose top-level module name ends with one of the listed suffixes, and sets requires_grad = True for parameters in those readout layers.
+        Freeze all model parameters except those in the readout layers for AP2 model
         """
         for name, param in self.model.named_parameters():
             term = name.split('.')[0]
@@ -1947,10 +2260,8 @@ units angstrom
 
     def unfreeze_all_parameters(self):
         """
-        Enable gradient updates for all parameters of the AP2 model.
-        
-        Sets `requires_grad = True` on every parameter in `self.model`, allowing all layers to be trained.
+        Unfreeze all model parameters for AP3 model
         """
         for name, param in self.model.named_parameters():
             param.requires_grad = True
-        return
+ 

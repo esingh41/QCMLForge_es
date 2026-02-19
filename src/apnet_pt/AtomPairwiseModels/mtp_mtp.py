@@ -30,15 +30,37 @@ from ..pt_datasets.ap2_fused_ds import (
 from .. import constants
 from .. import model_io
 import os
+import time
+from copy import deepcopy
+from importlib import resources
+
+import numpy as np
+import qcelemental as qcel
+import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import qcelemental as qcel
-from importlib import resources
-from copy import deepcopy
-from apnet_pt.torch_util import set_weights_to_value
+import torch.nn as nn
 from torch_geometric.data import Data
-from ..multipole import thole_damping_mutual_torch, thole_damping_direct_torch
 
+from apnet_pt.torch_util import set_weights_to_value
+from dftd3.d3 import d3
+
+from .. import constants
+from ..atomic_datasets import (AtomicDataLoader, atomic_collate_update,
+                               atomic_collate_update_no_target,
+                               atomic_collate_update_prebatched)
+from ..AtomModels.ap2_atom_model import (  # isolate_atomic_property_predictions,; DistanceLayer,
+    AtomMPNN, qcel_mon_to_pyg_data, unwrap_model)
+from ..AtomModels.ap2_hirshfeld_atom_model import (
+    AtomHirshfeldMPNN, atomic_hirshfeld_module_dataset,
+    isolate_atomic_property_predictions)
+from ..multipole import thole_damping_direct_torch, thole_damping_mutual_torch
+from ..pt_datasets.ap2_fused_ds import (APNet2_fused_DataLoader,
+                                        ap2_fused_collate_update,
+                                        ap2_fused_collate_update_no_target,
+                                        ap2_fused_module_dataset,
+                                        qcel_dimer_to_fused_data)
+from ..util import scatter_sum_compile
 
 max_Z = 118
 
@@ -121,6 +143,11 @@ class DimerProp(nn.Module):
         elif dimer_eval == "ap3_elst_damping__induced_dipole":
             self.forward = self._ap3_elst_damping_indu_induced_dipole_forward
             self.polarizability_table = constants.polarizability_table.clone()
+        elif dimer_eval == "ap3_elst_damping__induced_dipole__disp":
+            self.forward = self._ap3_elst_damping_indu_induced_dipole_disp_forward
+            self.polarizability_table = constants.polarizability_table.clone()
+        elif dimer_eval == "disp":
+            self.forward = self._disp_forward
         elif dimer_eval == "ap3_atomMPNN":
             self.forward = self._ap3_atomMPNN
         else:
@@ -372,6 +399,7 @@ class DimerProp(nn.Module):
         # Kb = torch.clamp(v_B[-1][:, 1], min=0.0001, max=20.0)
         # Ka = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
         # Kb = torch.tensor([1.8398, 2.4643, 2.5112, 1.8398, 2.4643, 2.5112], requires_grad=True)
+
         Indu = induced_dipole_induction_optimized(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -507,7 +535,90 @@ class DimerProp(nn.Module):
     ):
         v_A = self.AtomTypeParam(batch.batch_atomic_A)
         v_B = self.AtomTypeParam(batch.batch_atomic_B)
+
         return v_A, v_B
+
+    def _disp_forward(
+        self,
+        batch,
+    ):
+        """
+        Compute only the dispersion energy using DFTD3.
+        """
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
+
+        Disp = d3(batch)
+        return Disp, v_A, v_B
+
+    def _ap3_elst_damping_indu_induced_dipole_disp_forward(
+        self,
+        batch,
+    ):
+        v_A = self.AtomTypeParam(batch.batch_atomic_A)
+        v_B = self.AtomTypeParam(batch.batch_atomic_B)
+        Kas = torch.abs(v_A[-1])
+        Kbs = torch.abs(v_B[-1])
+        print(f"{Kas =}")
+        print(f"{v_A[-1] =}")
+        print(f"{v_A[-2] =}")
+        Indu = induced_dipole_induction_optimized_no_correction(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+            # Additional parameters for induction
+            e_AA_source=batch.e_AA_source,
+            e_BB_source=batch.e_BB_source,
+            e_AA_target=batch.e_AA_target,
+            e_BB_target=batch.e_BB_target,
+            hirshfeld_volume_ratio_A=torch.abs(v_A[-2][:, 0]),
+            hirshfeld_volume_ratio_B=torch.abs(v_B[-2][:, 0]),
+            polarizability_table=self.polarizability_table,
+        )
+        if Indu.isnan().any():
+            print("Induced dipole energy is NaN, debugging info:")
+            torch.save(batch, "ind_nan_batch.pt")
+            print(f"{v_A[-2] =}")
+            print(f"{v_B[-2] =}")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            raise ValueError("Induced dipole energy is NaN")
+        # Must compute Elst after Ind because we modify qA and qB in place... pain to debug
+
+        Elst = mtp_elst_damping(
+            ZA=batch.ZA,
+            RA=batch.RA,
+            qA_0=v_A[0],
+            muA=v_A[1],
+            quadA=v_A[2],
+            Ka=Kas,
+            ZB=batch.ZB,
+            RB=batch.RB,
+            qB_0=v_B[0],
+            muB=v_B[1],
+            quadB=v_B[2],
+            Kb=Kbs,
+            e_AB_source=batch.e_ABsr_source,
+            e_AB_target=batch.e_ABsr_target,
+        )
+        if Elst.isnan().any():
+            print("Electrostatic energy is NaN, debugging info:")
+            torch.save(batch, "elst_nan_batch.pt")
+            print(f"{v_A[-1] =}")
+            print(f"{v_B[-1] =}")
+            raise ValueError("Electrostatic energy is NaN")
+
+        Disp = d3(batch)
+        return torch.vstack((Elst, Indu, Disp)).T, v_A, v_B
 
 
 class AtomTypeParamNN(nn.Module):
@@ -2088,9 +2199,15 @@ def induced_dipole_induction_optimized_no_correction(
     alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
 
+    print(f"{alpha_0_A = }")
+    print(f"{alpha_0_B = }")
     # Use index_select for vectorized lookup
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
+    print(f"{alpha_0_A = }")
+    print(f"{alpha_0_A = }")
+    print(f"{hirshfeld_volume_ratio_A = }")
+    print(f"{hirshfeld_volume_ratio_B = }")
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B ** (4 / 3.0)
 
