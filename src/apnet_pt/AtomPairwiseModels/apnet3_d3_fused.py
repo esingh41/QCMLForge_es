@@ -129,7 +129,7 @@ def unwrap_model(model):
 
 
 #Need to pass in dimer_prop_model that has dispersion packed into it.
-class APNet3_AtomType_MPNN(nn.Module):
+class APNet3D3_AtomType_MPNN(nn.Module):
     def __init__(
         self,
         dimer_prop_model: DimerProp,
@@ -524,11 +524,11 @@ class APNet3_AtomType_MPNN(nn.Module):
             N_full, num_cols = E_disp_full_dimer.shape
             full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
             full_expanded[:N_full] = E_disp_full_dimer
-            E_disp_dimer = full_expanded        
+            E_disp_dimer = full_expanded
 
             rows, cols = E_disp_dimer.shape
             padded = E_disp_dimer.new_zeros((rows, cols + 3))
-            padded[:, 3] = E_disp_dimer
+            padded[:, 3:4] = E_disp_dimer
             E_disp_dimer = padded
 
             E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer + E_disp_dimer
@@ -546,7 +546,7 @@ class APNet3_AtomType_MPNN(nn.Module):
         return E_output, E_sr, E_elst, E_ind, E_disp, hAB, hBA
 
     
-class APNet3_AtomType_Model:
+class APNet3D3_AtomType_Model:
     def __init__(
         self,
         dataset=None,
@@ -656,12 +656,12 @@ class APNet3_AtomType_Model:
         self.use_precomputed_classical = use_precomputed_classical
         if pre_trained_model_path:
             print(
-                f"Loading pre-trained APNet3_AtomType_MPNN model from {pre_trained_model_path}"
+                f"Loading pre-trained APNet3D3_AtomType_MPNN model from {pre_trained_model_path}"
             )
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             config = checkpoint["config"]
             use_atom_props = config.get("use_atom_props", True)
-            self.model = APNet3_AtomType_MPNN(
+            self.model = APNet3D3_AtomType_MPNN(
                 dimer_prop_model=self.dimer_prop_model,
                 n_message=config["n_message"],
                 n_rbf=config["n_rbf"],
@@ -678,7 +678,7 @@ class APNet3_AtomType_Model:
             }
             self.model.load_state_dict(model_state_dict)
         else:
-            self.model = APNet3_AtomType_MPNN(
+            self.model = APNet3D3_AtomType_MPNN(
                 dimer_prop_model=self.dimer_prop_model,
                 n_message=n_message,
                 n_rbf=n_rbf,
@@ -1346,7 +1346,7 @@ units angstrom
             # optimizer.zero_grad(set_to_none=True)
             optimizer.zero_grad()
             batch = batch.to(rank_device, non_blocking=True)
-            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
+            E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, E_disp_lr, hAB, hBA = self.model(batch)
             preds = E_sr_dimer.reshape(-1, 4)
             labels = batch.y
             if self.use_precomputed_classical:
@@ -1383,7 +1383,7 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                E_sr_dimer, _, _, _, _, _ = self.model(batch)
+                E_sr_dimer, _, _, _, _, _, _ = self.model(batch)
                 preds = E_sr_dimer.reshape(-1, 4)
                 comp_errors = preds - batch.y
                 labels = batch.y

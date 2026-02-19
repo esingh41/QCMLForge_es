@@ -46,7 +46,6 @@ def cn_d3_intermolecular(
 
     cutoff = torch.tensor(defaults.D3_CN_CUTOFF, **dd)
 
-
     e_source_full = torch.concatenate([batch.e_ABsr_source, batch.e_ABlr_source,])
     e_target_full = torch.concatenate([batch.e_ABsr_target, batch.e_ABlr_target,])
     
@@ -60,7 +59,7 @@ def cn_d3_intermolecular(
     RA = RA.index_select(0, e_source_full)
     RB = RB.index_select(0, e_target_full)
 
-    rcov = radii.COV_D3(**dd)[ZA] + radii.COV_D3(**dd)[ZB] 
+    rcov = radii.COV_D3(**dd)[ZA] + radii.COV_D3(**dd)[ZB]
     
     dR_xyz = RB - RA
     distances = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
@@ -74,6 +73,7 @@ def cn_d3_intermolecular(
     cn_A = torch.zeros(size, **dd)
     cn_A.scatter_reduce_(0, e_source_full, cn, reduce="sum", include_self=False)
     
+    size = e_target_full.max().item() + 1
     cn_B = torch.zeros(size, **dd)
     cn_B.scatter_reduce_(0, e_target_full, cn, reduce="sum", include_self=False)
     return cn_A, cn_B

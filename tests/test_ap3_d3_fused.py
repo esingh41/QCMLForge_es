@@ -10,7 +10,7 @@ import qcelemental as qcel
 import torch
 
 import apnet_pt
-from apnet_pt.AtomPairwiseModels.apnet3_d3_fused import APNet3_AtomType_Model
+from apnet_pt.AtomPairwiseModels.apnet3_d3_fused import APNet3D3_AtomType_Model
 from apnet_pt.pt_datasets.ap3_fused_ds import (
     ap3_fused_module_dataset,
     ap3_fused_module_dataset_lmdb,
@@ -169,7 +169,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory():
     )
     # print(atom_type_elst_model.atom_model)
     print(atom_type_elst_model.dimer_model.AtomTypeParam)
-    ap3 = APNet3_AtomType_Model(
+    ap3 = APNet3D3_AtomType_Model(
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -257,7 +257,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute():
     )
     # print(atom_type_elst_model.atom_model)
     print(atom_type_elst_model.dimer_model.AtomTypeParam)
-    ap3 = APNet3_AtomType_Model(
+    ap3 = APNet3D3_AtomType_Model(
         dataset=ds,
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
@@ -318,7 +318,7 @@ def test_classical_ap3():
         atom_model_type="AtomTypeParamNN",
         pre_trained_model_path=at_elst_path,
     )
-    ap3 = APNet3_AtomType_Model(
+    ap3 = APNet3D3_AtomType_Model(
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -401,7 +401,7 @@ def test_classical_ap3():
     # ref = -1.264973
     # assert np.allclose(torch.sum(torch_ind).item(), ref, atol=1e-4)
 
-    pred, pair_elst, pair_ind = ap3.predict_qcel_mols(
+    pred, pair_elst, pair_ind, pair_disp = ap3.predict_qcel_mols(
         [mol], batch_size=1, return_classical_pairs=True
     )
     print(f"AP3 elst = {pred[0][0]:.6f} kcal/mol")
@@ -412,12 +412,12 @@ def test_classical_ap3():
     print(f"{torch_ind = }")
     print(f"{pair_ind  = }")
     assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
-    pred, pair_elst, pair_ind = ap3.predict_qcel_mols(
+    pred, pair_elst, pair_ind, pair_disp = ap3.predict_qcel_mols(
         [mol, mol_element], batch_size=1, return_classical_pairs=True
     )
     assert np.allclose(torch_elst.cpu().numpy(), pair_elst[0].flatten(), atol=1e-4)
     assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
-    pred, pair_ind, pair_ind = ap3.predict_qcel_mols(
+    pred, pair_ind, pair_ind, pair_disp = ap3.predict_qcel_mols(
         [mol, mol_element], batch_size=1, return_classical_pairs=True
     )
     assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
@@ -443,7 +443,7 @@ def test_classical_ap3_long_range():
         atom_model_type="AtomTypeParamNN",
         pre_trained_model_path=at_elst_path,
     )
-    ap3 = APNet3_AtomType_Model(
+    ap3_d3 = APNet3D3_AtomType_Model(
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -523,7 +523,7 @@ def test_classical_ap3_long_range():
     # ref = -0.016318
     # assert np.allclose(torch.sum(torch_ind).item(), ref, atol=1e-4)
 
-    pred, pair_elst, pair_ind = ap3.predict_qcel_mols(
+    pred, pair_elst, pair_ind, pair_disp = ap3_d3.predict_qcel_mols(
         [mol], batch_size=1, return_classical_pairs=True
     )
     print(f"AP3 elst = {pred[0][0]:.6f} kcal/mol")
@@ -534,12 +534,12 @@ def test_classical_ap3_long_range():
     print(f"{torch_ind = }")
     print(f"{pair_ind  = }")
     assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
-    pred, pair_elst, pair_ind = ap3.predict_qcel_mols(
+    pred, pair_elst, pair_ind, pair_disp = ap3_d3.predict_qcel_mols(
         [mol, mol_element], batch_size=1, return_classical_pairs=True
     )
     assert np.allclose(torch_elst.cpu().numpy(), pair_elst[0].flatten(), atol=1e-4)
     assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
-    pred, pair_ind, pair_ind = ap3.predict_qcel_mols(
+    pred, pair_ind, pair_ind, pair_disp = ap3_d3.predict_qcel_mols(
         [mol, mol_element], batch_size=1, return_classical_pairs=True
     )
     assert np.allclose(torch_ind.cpu().numpy(), pair_ind[0].flatten(), atol=1e-4)
@@ -713,7 +713,7 @@ def test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb():
     )
     # print(atom_type_elst_model.atom_model)
     print(atom_type_elst_model.dimer_model.AtomTypeParam)
-    ap3 = APNet3_AtomType_Model(
+    ap3 = APNet3D3_AtomType_Model(
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -858,7 +858,7 @@ def test_classical_ap3_dispersion():
         pre_trained_model_path=at_elst_path,
     )
 
-    ap3 = APNet3_AtomType_Model(
+    ap3 = APNet3D3_AtomType_Model(
         ds_root=None,
         atom_type_model=atom_type_hf_vw_model.model,
         dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -903,4 +903,6 @@ if __name__ == "__main__":
     # test_classical_ap3_induction()
     # test_ap3_fused_lmdb_dataset()
     # test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb()
-    test_classical_ap3_dispersion()
+    # test_classical_ap3_dispersion()
+    # test_ap3_fused_train_qcel_molecules_in_memory()
+    test_classical_ap3_long_range()
