@@ -736,16 +736,14 @@ class APNet2Model:
                 print("Loaded embedded AtomMPNN from checkpoint")
 
             # Load the main APNet2 model
-            config = model_io.load_config_from_checkpoint(checkpoint)
-            if config is None:
-                config = checkpoint.get("config", {})
+            config = model_io.load_config_from_checkpoint(checkpoint) or {}
             self.model = APNet2_MPNN(
-                n_message=config["n_message"],
-                n_rbf=config["n_rbf"],
-                n_neuron=config["n_neuron"],
-                n_embed=config["n_embed"],
-                r_cut_im=config["r_cut_im"],
-                r_cut=config["r_cut"],
+                n_message=config.get("n_message", n_message),
+                n_rbf=config.get("n_rbf", n_rbf),
+                n_neuron=config.get("n_neuron", n_neuron),
+                n_embed=config.get("n_embed", n_embed),
+                r_cut_im=config.get("r_cut_im", r_cut_im),
+                r_cut=config.get("r_cut", r_cut),
             )
             state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.model.load_state_dict(state_dict)

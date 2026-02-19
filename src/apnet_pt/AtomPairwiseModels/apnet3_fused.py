@@ -1103,7 +1103,7 @@ class APNet3_AtomType_Model:
             self.model.load_state_dict(state_dict_with_prefix)
         return self
 
-    def _create_checkpoint(self, metadata: dict = None) -> dict:
+    def _create_checkpoint(self, metadata: dict | None = None) -> dict:
         """
         Create a v2 checkpoint dictionary for this model.
 
