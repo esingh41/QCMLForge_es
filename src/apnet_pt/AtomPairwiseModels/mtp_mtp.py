@@ -889,7 +889,7 @@ def elst_damping_Z_mtp_torch(
     alpha_j = alpha_j.index_select(0, e_target)
     exp_i = torch.exp(-1.0 * torch.multiply(alpha_i, r))
     exp_j = torch.exp(-1.0 * torch.multiply(alpha_j, r))
-    damp_i = torch.multiply(alpha_j, r)
+    damp_i = torch.multiply(alpha_i, r)
     damp_j = torch.multiply(alpha_j, r)
     lam1_j = 1.0 - exp_j
     lam3_j = 1.0 - (1.0 + damp_j) * exp_j
