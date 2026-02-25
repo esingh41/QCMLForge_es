@@ -24,6 +24,9 @@ dependencies = [
     #"torch-scatter==2.1.2",
     "pytorch-minimize",
     "qcportal>=0.59",
+    "huggingface_hub>=0.30.0",
+    "lmdb",
+    "h5py",
 ]
 license = {text = "MIT"}
 
