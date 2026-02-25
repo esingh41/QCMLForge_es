@@ -1,2 +1,3 @@
 recursive-include src/apnet_pt/data *
 recursive-include src/apnet_pt/models *
+recursive-include src/qcml_dftd3/data *

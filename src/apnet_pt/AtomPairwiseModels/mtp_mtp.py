@@ -43,23 +43,33 @@ import torch.nn as nn
 from torch_geometric.data import Data
 
 from apnet_pt.torch_util import set_weights_to_value
-from dftd3.d3 import d3
+from qcml_dftd3.d3 import d3
 
 from .. import constants
-from ..atomic_datasets import (AtomicDataLoader, atomic_collate_update,
-                               atomic_collate_update_no_target,
-                               atomic_collate_update_prebatched)
+from ..atomic_datasets import (
+    AtomicDataLoader,
+    atomic_collate_update,
+    atomic_collate_update_no_target,
+    atomic_collate_update_prebatched,
+)
 from ..AtomModels.ap2_atom_model import (  # isolate_atomic_property_predictions,; DistanceLayer,
-    AtomMPNN, qcel_mon_to_pyg_data, unwrap_model)
+    AtomMPNN,
+    qcel_mon_to_pyg_data,
+    unwrap_model,
+)
 from ..AtomModels.ap2_hirshfeld_atom_model import (
-    AtomHirshfeldMPNN, atomic_hirshfeld_module_dataset,
-    isolate_atomic_property_predictions)
+    AtomHirshfeldMPNN,
+    atomic_hirshfeld_module_dataset,
+    isolate_atomic_property_predictions,
+)
 from ..multipole import thole_damping_direct_torch, thole_damping_mutual_torch
-from ..pt_datasets.ap2_fused_ds import (APNet2_fused_DataLoader,
-                                        ap2_fused_collate_update,
-                                        ap2_fused_collate_update_no_target,
-                                        ap2_fused_module_dataset,
-                                        qcel_dimer_to_fused_data)
+from ..pt_datasets.ap2_fused_ds import (
+    APNet2_fused_DataLoader,
+    ap2_fused_collate_update,
+    ap2_fused_collate_update_no_target,
+    ap2_fused_module_dataset,
+    qcel_dimer_to_fused_data,
+)
 from ..util import scatter_sum_compile
 
 max_Z = 118
