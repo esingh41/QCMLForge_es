@@ -21,6 +21,7 @@ from ..pt_datasets.ap3_fused_fsapt_ds import (
     ap3_fused_fsapt_module_dataset_lmdb,
 )
 from .. import constants
+from ..hf_pretrained import resolve_pretrained_path
 from .. import model_io
 from ..util import scatter_sum_compile
 import os
@@ -964,8 +965,8 @@ class APNet3D3_AtomType_Model:
         self, ap2_model_path=None, am_model_path=None, model_id=None
     ):
         if model_id is not None:
-            ap2_model_path = resources.files("apnet_pt").joinpath(
-                "models", "ap2-fused_ensemble", f"ap2_{model_id}.pt"
+            ap2_model_path = resolve_pretrained_path(
+                f"ap2-fused_ensemble/ap2_{model_id}.pt"
             )
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")

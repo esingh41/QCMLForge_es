@@ -10,13 +10,14 @@ from apnet_pt.pt_datasets.ap2_fused_ds import (
 )
 from apnet_pt.AtomPairwiseModels.apnet2_fused import APNet2_AM_Model
 from glob import glob
+import pandas as pd
 
 torch.manual_seed(42)
 spec_type = 5
 current_file_path = os.path.dirname(os.path.realpath(__file__))
 data_path = f"{current_file_path}/test_data_path"
-am_path = f"{current_file_path}/../src/apnet_pt/models/am_ensemble/am_0.pt"
-am_hf_path = f"{current_file_path}/../src/apnet_pt/models/am_hf_ensemble/am_0.pt"
+am_path = f"{current_file_path}/../pretrain_models/am_ensemble/am_0.pt"
+am_hf_path = f"{current_file_path}/../pretrain_models/am_hf_ensemble/am_0.pt"
 
 mol_dimer = qcel.models.Molecule.from_data("""
 0 1
@@ -242,9 +243,6 @@ def test_ap2_fused_architecture():
 
 
 def test_ap2_fused_ensemble_water_dimer():
-    import torch
-    import pandas as pd
-
     df = pd.read_pickle(
         current_file_path
         + os.sep
@@ -278,8 +276,7 @@ def test_ap2_fused_ensemble_water_dimer():
             ap2_fused=True,
         )
         print(
-            f"TOTAL = {sapt0_total:.6f}\n ELST = {sapt0_elst:.6f}\n EXCH = {
-                sapt0_exch:.6f}\n DISP = {sapt0_disp:.6f}\n IND = {sapt0_ind:.6f}"
+            f"TOTAL = {sapt0_total:.6f}\n ELST = {sapt0_elst:.6f}\n EXCH = {sapt0_exch:.6f}\n DISP = {sapt0_disp:.6f}\n IND = {sapt0_ind:.6f}"
         )
         print(interaction_energies)
 
