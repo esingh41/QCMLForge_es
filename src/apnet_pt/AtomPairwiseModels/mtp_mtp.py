@@ -7,7 +7,6 @@ from ..AtomModels.ap2_atom_model import (
     AtomMPNN,
     # isolate_atomic_property_predictions,
     qcel_mon_to_pyg_data,
-    unwrap_model,
     # DistanceLayer,
 )
 from ..AtomModels.ap2_hirshfeld_atom_model import isolate_atomic_property_predictions
@@ -29,6 +28,7 @@ from ..pt_datasets.ap2_fused_ds import (
     qcel_dimer_to_fused_data,
 )
 from .. import constants
+from .. import model_io
 import os
 import time
 from copy import deepcopy
@@ -92,7 +92,7 @@ class DimerProp(nn.Module):
     def __init__(self, ATParam, dimer_eval="elst_damping", elst_damping_type="CLIFF"):
         """
         Create a DimerProp configured with an AtomTypeParam and selected evaluation and damping modes.
-        
+
         Parameters:
             ATParam: An AtomTypeParam instance providing per-atom parameter tensors and an `atom_model` used for multipole predictions. The `atom_model` will be frozen (requires_grad set to False).
             dimer_eval (str): Name of the dimer evaluation forward mode to use (e.g., "elst_damping", "induced_dipole", "elst").
@@ -108,7 +108,7 @@ class DimerProp(nn.Module):
     def set_forward(self, dimer_eval):
         """
         Configure which forward method the instance will use and set related resources.
-        
+
         Parameters:
             dimer_eval (str): Mode selector for the dimer evaluation. Accepted values:
                 - "elst_damping": use damped electrostatics (_elst_damping_forward)
@@ -119,7 +119,7 @@ class DimerProp(nn.Module):
                 - "elst_damping__induced_dipole": combined damped electrostatics and induction (_elst_damping_indu_induced_dipole_forward)
                 - "ap3_elst_damping__induced_dipole": AP3-specific damped electrostatics plus induction (_ap3_elst_damping_indu_induced_dipole_forward)
                 - "ap3_atomMPNN": return AP3 atom multipole parameters only (_ap3_atomMPNN)
-        
+
         Notes:
             - This method sets self.forward to the corresponding internal forward implementation.
             - For modes that compute induction ("induced_dipole", "induced_dipole_param", and the combined induction modes), this method also clones the global polarizability table into self.polarizability_table.
@@ -159,7 +159,7 @@ class DimerProp(nn.Module):
     ):
         """
         Compute the damped electrostatic energy for a batched dimer and return per-atom parameter outputs.
-        
+
         Parameters:
             batch: Batched dimer data containing at least the following attributes used for the evaluation:
                 - ZA, ZB: nuclear charges for fragments A and B
@@ -167,7 +167,7 @@ class DimerProp(nn.Module):
                 - batch_atomic_A, batch_atomic_B: atom index mappings for AtomTypeParam lookup
                 - e_ABsr_source, e_ABsr_target: edge source/target indices for short-range A–B interactions
                 The function also uses the AtomTypeParam module attached to self and self.elst_damping_type to select the damping variant.
-        
+
         Returns:
             Elst: Tensor of electrostatic energy values for the batch (damped MTP–MTP A–B interactions).
             v_A: Tuple/list of per-atom parameter tensors produced for fragment A (e.g., monopole, dipole, quadrupole, ...).
@@ -210,10 +210,10 @@ class DimerProp(nn.Module):
     ):
         """
         Compute the AMOEBA-damped multipole electrostatic energy for a batched dimer and return per-atom parameter tensors.
-        
+
         Parameters:
             batch: Batched dimer data object containing at least ZA, ZB (atomic numbers), RA, RB (coordinates), e_ABsr_source, e_ABsr_target (short-range inter-molecular edge index arrays), and batch_atomic_A / batch_atomic_B indices used by the AtomTypeParam module.
-        
+
         Returns:
             Elst (torch.Tensor): Batched AMOEBA-damped electrostatic energy for each dimer in the input batch.
             v_A (tuple): Per-atom multipole parameter tensors produced for molecule A (q, mu, quad, ..., last element used to derive Ka).
@@ -714,6 +714,25 @@ class AtomTypeParamNN(nn.Module):
                 layers.append(activations[i])
         return nn.Sequential(*layers)
 
+    def get_config(self) -> dict:
+        """
+        Return the configuration dictionary for this model.
+
+        Returns
+        -------
+        dict
+            Dictionary containing all hyperparameters needed to reconstruct
+            this model architecture.
+        """
+        return {
+            "n_message": self.n_message,
+            "n_neuron": self.n_neuron,
+            "n_embed": self.n_embed,
+            "param_start_mean": self.param_start_mean,
+            "param_start_std": self.param_start_std,
+            "n_params": self.n_params,
+        }
+
     def forward(
         self,
         batch,
@@ -791,14 +810,14 @@ def elst_damping_mtp_mtp_torch(
 ):
     """
     Compute Gordon1-style damping factors for multipole–multipole interactions per edge.
-    
+
     Parameters:
         alpha_i (torch.Tensor): Per-atom alpha values for the source ensemble (shape [N_atoms]).
         alpha_j (torch.Tensor): Per-atom alpha values for the target ensemble (shape [M_atoms]).
         r (torch.Tensor): Interatomic distances for each edge (shape [n_edges]).
         e_source (torch.Tensor): Source atom indices for each edge (shape [n_edges]).
         e_target (torch.Tensor): Target atom indices for each edge (shape [n_edges]).
-    
+
     Returns:
         tuple: (lam1, lam3, lam5) — three torch.Tensors of damping factors for each edge (each shape [n_edges]).
     """
@@ -849,14 +868,14 @@ def elst_damping_Z_mtp_torch(
 ):
     """
     Compute Gordon1-style damping factors for Z (nuclear charge) to multipole (MTP) interactions for each pair defined by edge indices.
-    
+
     Parameters:
         alpha_i (torch.Tensor): Per-atom polarizabilities for atoms in set A (shape [n_atoms_A]).
         alpha_j (torch.Tensor): Per-atom polarizabilities for atoms in set B (shape [n_atoms_B]).
         r (torch.Tensor): Pairwise scalar distances for edges (shape [n_edges]).
         e_source (torch.Tensor): Source atom indices for each edge (maps entries in `r` to indices in `alpha_i`).
         e_target (torch.Tensor): Target atom indices for each edge (maps entries in `r` to indices in `alpha_j`).
-    
+
     Returns:
         lam1_j (torch.Tensor): First-order damping factor for the j-side (shape [n_edges]).
         lam3_j (torch.Tensor): Third-order damping factor for the j-side (shape [n_edges]).
@@ -899,16 +918,16 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
 ):
     """
     Compute AMOEBA-style Gordon1 damping factors for multipole–multipole interactions.
-    
+
     Computes per-edge damping scaling factors lam1, lam3, and lam5 for pairs of atomic sites using their effective damping parameters (alpha_i, alpha_j), inter-site distances r, and edge index mappings (e_source selects sites from alpha_i, e_target selects sites from alpha_j). Handles both same-alpha and different-alpha cases with numerical safeguards.
-    
+
     Parameters:
         alpha_i (torch.Tensor): Per-atom damping parameter tensor for the "i" set.
         alpha_j (torch.Tensor): Per-atom damping parameter tensor for the "j" set.
         r (torch.Tensor): Interatomic distances for each edge (matches length of e_source/e_target).
         e_source (torch.Tensor): Index tensor selecting source atoms from alpha_i for each edge.
         e_target (torch.Tensor): Index tensor selecting target atoms from alpha_j for each edge.
-    
+
     Returns:
         tuple: (lam1, lam3, lam5) tensors of the same shape as r containing the computed damping factors.
     """
@@ -946,20 +965,25 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
     term_i2 = term_i * term_i
     term_k2 = term_k * term_k
 
-    lam1_same = (
-        1.0 - exp_i * (1 + 11/16 * damp_i + 3/16 * damp_i2 + damp_i3 / 48)
-    )
+    lam1_same = 1.0 - exp_i * (1 + 11 / 16 * damp_i + 3 / 16 * damp_i2 + damp_i3 / 48)
     lam1_diff = (
         1.0
-        - exp_i * alpha_j ** 4 / (alpha_i ** 2 - alpha_j ** 2) ** 2 * (1.0 - 2.0 * alpha_i ** 2 / (alpha_j ** 2 - alpha_i **2) +  0.5 * damp_i)
-        - exp_k * alpha_i ** 4 / (alpha_j ** 2 - alpha_i ** 2) ** 2 * (1.0 - 2.0 * alpha_j ** 2 / (alpha_i ** 2 - alpha_j **2) +  0.5 * damp_k)
+        - exp_i
+        * alpha_j**4
+        / (alpha_i**2 - alpha_j**2) ** 2
+        * (1.0 - 2.0 * alpha_i**2 / (alpha_j**2 - alpha_i**2) + 0.5 * damp_i)
+        - exp_k
+        * alpha_i**4
+        / (alpha_j**2 - alpha_i**2) ** 2
+        * (1.0 - 2.0 * alpha_j**2 / (alpha_i**2 - alpha_j**2) + 0.5 * damp_k)
         # - exp_i * term_i2 * (1.0 - 2.0 * term_k2 +  0.5 * damp_i)
         # - exp_k * term_k2 * (1.0 - 2.0 * term_i2 +  0.5 * damp_k)
     )
     lam1 = torch.where(diff, lam1_diff, lam1_same)
 
     lam3_same = (
-        1.0 - (1.0 + damp_i + 0.5 * damp_i2 + 7.0 * damp_i3 / 48.0 + damp_i4 / 48.0) * exp_i
+        1.0
+        - (1.0 + damp_i + 0.5 * damp_i2 + 7.0 * damp_i3 / 48.0 + damp_i4 / 48.0) * exp_i
     )
     # Different alpha case:
     lam3_diff = (
@@ -975,7 +999,14 @@ def elst_damping_AMOEBA_mtp_mtp_torch(
     # Same alpha case:
     lam5_same = (
         1.0
-        - (1.0 + damp_i + 0.5 * damp_i2 + damp_i3 / 6.0 + damp_i4 / 24.0 + damp_i5 / 144.0)
+        - (
+            1.0
+            + damp_i
+            + 0.5 * damp_i2
+            + damp_i3 / 6.0
+            + damp_i4 / 24.0
+            + damp_i5 / 144.0
+        )
         * exp_i
     )
     # Different alpha case:
@@ -1001,14 +1032,14 @@ def elst_damping_AMOEBA_Z_mtp_torch(
 ):
     """
     Compute AMOEBA-style Gordon1 damping factors for Z–MTP (core–valence) interactions per edge.
-    
+
     Parameters:
         alpha_i (torch.Tensor): Per-atom alpha values for the "i" set (will be indexed by e_source).
         alpha_j (torch.Tensor): Per-atom alpha values for the "j" set (will be indexed by e_target).
         r (torch.Tensor): Distance scalar per edge (aligned with e_source/e_target).
         e_source (torch.Tensor): Edge source indices selecting entries from alpha_i.
         e_target (torch.Tensor): Edge target indices selecting entries from alpha_j.
-    
+
     Returns:
         lam1_j, lam3_j, lam5_j, lam1_i, lam3_i, lam5_i (torch.Tensor):
             Damping factors of orders 1, 3, and 5 for the j-side followed by the i-side,
@@ -1155,7 +1186,7 @@ def mtp_elst_damping(
 ):
     """
     Compute damped multipole electrostatic interactions for paired atoms using the Gordon2 (CLIFF) damping scheme.
-    
+
     Parameters:
         ZA (Tensor): Nuclear charges for atoms in A.
         RA (Tensor): Cartesian coordinates for atoms in A (au or consistent internal units).
@@ -1172,7 +1203,7 @@ def mtp_elst_damping(
         e_AB_source (LongTensor): Source atom indices into A for each A–B interacting pair.
         e_AB_target (LongTensor): Target atom indices into B for each A–B interacting pair.
         Q_const (float, optional): Scaling constant applied to quadrupole contributions (default 3.0).
-    
+
     Returns:
         Tensor: Per-pair electrostatic interaction energies (one value per entry in the edge index arrays), scaled by the factor 627.509.
     """
@@ -1283,7 +1314,7 @@ def mtp_elst_damping_AMOEBA(
 ):
     """
     Compute the AMOEBA-style damped electrostatic interaction energy between multipole-expanded atoms for each A-B edge.
-    
+
     Parameters:
         ZA (Tensor): Nuclear charges for atoms in A, shape (nA, 1) or (nA,).
         RA (Tensor): Coordinates for atoms in A, shape (nA, 3) (atomic units).
@@ -1300,7 +1331,7 @@ def mtp_elst_damping_AMOEBA(
         e_AB_source (LongTensor): Source atom indices from A for each A-B interaction edge, shape (n_edges,).
         e_AB_target (LongTensor): Target atom indices from B for each A-B interaction edge, shape (n_edges,).
         Q_const (float, optional): Quadrupole scaling constant; default 3.0 (set to 1.0 to match CLIFF/Gordon2 convention).
-    
+
     Returns:
         Tensor: Per-edge electrostatic interaction energies in kcal/mol, shape (n_edges,).
     """
@@ -1401,7 +1432,7 @@ def distance_tensors(
 ):
     """
     Compute Thole-damped distance and interaction tensors for pairs of atoms.
-    
+
     Parameters:
         Ri (Tensor): Coordinates of atom set A with shape (N_A, 3).
         Rj (Tensor): Coordinates of atom set B with shape (N_B, 3).
@@ -1410,7 +1441,7 @@ def distance_tensors(
         alpha_A (Tensor): Per-atom polarizabilities for Ri (shape (N_A,) or (N_A,1)).
         alpha_B (Tensor): Per-atom polarizabilities for Rj (shape (N_B,) or (N_B,1)).
         thole_damping_param (float): Thole damping parameter controlling short-range screening (default 0.39).
-    
+
     Returns:
         dR (Tensor): Pairwise scalar distances for each edge (in atomic units).
         dR_xyz (Tensor): Pairwise displacement vectors for each edge (in atomic units), shape (E,3).
@@ -1470,9 +1501,9 @@ def induced_dipole_induction(
 ) -> float:
     """
     Compute per-edge induced-dipole induction energies for a dimer using Hirshfeld-scaled atomic polarizabilities and Thole damping.
-    
+
     Per-edge energies include mutual induction between atoms in molecule A and B, computed via a self-consistent field (SCF) on induced dipoles with optional Thole damping and an exponential overlap correction. The function returns one energy value per A–B interaction edge (indexed by e_AB_source / e_AB_target) in kilocalories per mole.
-    
+
     Parameters:
         ZA (Tensor): Atomic numbers for molecule A.
         RA (Tensor): Coordinates for molecule A (N_A x 3).
@@ -1491,7 +1522,7 @@ def induced_dipole_induction(
         thole_damping_param (float): Thole damping parameter controlling short-range screening.
         Q_const (float): Multiplicative constant for electrostatic prefactors (keeps internal scaling; default chosen for unit conventions).
         polarizability_table (Tensor): Lookup table of free-atom isotropic polarizabilities indexed by atomic number.
-    
+
     Returns:
         Tensor: Per-interaction induced induction energies (kcal/mol) for each A–B edge (shape equals number of entries in e_AB_source).
     """
@@ -1749,7 +1780,7 @@ def monomer_induced_dipole_torch(
     ):
         """
         Compute Thole-damped interaction tensors and distance measures between two sets of atoms for a list of pair indices.
-        
+
         Parameters:
             Ri (Tensor): Coordinates of source atoms (units: atomic units).
             Rj (Tensor): Coordinates of target atoms (units: atomic units).
@@ -1759,14 +1790,14 @@ def monomer_induced_dipole_torch(
             alpha_j (Tensor): Per-atom polarizabilities for target atoms.
             thole_param (float or Tensor): Thole damping parameter (scalar or per-pair).
             thole_type (str): Either "direct" or "mutual", selects the Thole damping variant.
-        
+
         Returns:
             dR (Tensor): Pairwise scalar distances (Angstrom).
             dR_xyz (Tensor): Pairwise displacement vectors (Angstrom) from source to target.
             oodR (Tensor): 1.0 / dR (inverse distances).
             T1 (Tensor): Rank-1 interaction tensor (field) for each pair, Thole-damped.
             T2 (Tensor): Rank-2 interaction tensor (field gradient) for each pair, Thole-damped.
-        
+
         Notes:
             - Distances and displacement vectors are converted from atomic units to Angstrom.
             - Short-range pairs below the configured screening distance are replaced with safe values and their damping factors set to zero to avoid singularities.
@@ -1917,7 +1948,7 @@ def induced_dipole_induction_optimized(
 ) -> float:
     """
     Compute per-pair induced-dipole induction energies for a dimer using an optimized SCF procedure.
-    
+
     Parameters:
         ZA (Tensor): atomic numbers for molecule A (shape [n_A]).
         RA (Tensor): Cartesian coordinates for molecule A (shape [n_A, 3]).
@@ -1947,7 +1978,7 @@ def induced_dipole_induction_optimized(
         thole_damping_param (float): Thole damping parameter for interaction tensors (default 0.39).
         Q_const (float): scaling constant applied in tensor construction (default 3.0).
         polarizability_table (Tensor): lookup table of free-atom polarizabilities indexed by atomic number.
-    
+
     Returns:
         Tensor: per-pair induced induction energy (kcal/mol) for each A–B pair in the order given by e_AB_source/e_AB_target.
     """
@@ -2135,9 +2166,9 @@ def induced_dipole_induction_optimized_no_correction(
 ) -> float:
     """
     Compute induction energy from self-consistent induced dipoles for a dimer without overlap/valence-width correction.
-    
+
     Performs a Thole-damped SCF to converge induced dipoles on each monomer due to permanent multipoles and mutual induced dipoles, then returns the induction energy per A–B interaction edge.
-    
+
     Parameters:
         ZA (Tensor): Atomic numbers for molecule A (N_A,).
         RA (Tensor): Cartesian coordinates for molecule A (N_A, 3).
@@ -2157,7 +2188,7 @@ def induced_dipole_induction_optimized_no_correction(
         thole_damping_param (float): Thole damping parameter for short-range screening.
         Q_const (float): Scaling constant applied in electrostatic/tensor prefactors (kept for compatibility).
         polarizability_table (Tensor): Lookup table mapping atomic number to base polarizability.
-    
+
     Returns:
         Tensor: Induction energy per A–B interaction edge (n_edges,) in kcal/mol.
     """
@@ -2330,9 +2361,9 @@ def induced_dipole(
 ) -> float:
     """
     Compute self-consistent induced dipoles for a single molecule A from its permanent multipoles and Hirshfeld volume ratios.
-    
+
     Performs a Thole-damped SCF to converge induced dipoles on each atom of molecule A using its charges (qA), permanent dipoles (muA), quadrupoles (quadA), and atomic coordinates (RA). Iteration continues until the change in induced dipoles falls below convergence_threshold or max_iterations is reached.
-    
+
     Parameters:
         ZA (Tensor): Atomic number indices for atoms in molecule A.
         RA (Tensor): Atomic coordinates for molecule A with shape (n_atoms, 3).
@@ -2348,7 +2379,7 @@ def induced_dipole(
         thole_damping_param (float, optional): Thole damping parameter. Default 0.39.
         Q_const (float, optional): Multiplicative constant for electrostatic scaling (kept for consistency). Default 3.0.
         polarizability_table (Tensor or array-like, optional): Table of free-atom polarizabilities indexed by ZA.
-    
+
     Notes:
         - Polarizabilities are scaled as alpha = alpha_free * (hirshfeld_volume_ratio)^(4/3).
         - Thole damping is applied via distance_tensors.
@@ -2432,7 +2463,7 @@ def induced_dipole(
 def isolate_atom_parameter_predictions(batch, output):
     """
     Split batched per-atom prediction tensors into per-molecule lists.
-    
+
     Parameters:
         batch: object with attribute `natom_per_mol`, a 1D tensor-like giving the number of atoms for each molecule in the batch.
         output: sequence where
@@ -2441,7 +2472,7 @@ def isolate_atom_parameter_predictions(batch, output):
             - output[2] is per-atom quadrupoles,
             - output[3] is per-atom `hlist`,
             - output[-1] is per-atom parameter tensor `K`.
-    
+
     Returns:
         mol_charges, mol_dipoles, mol_qpoles, mol_hlist, mol_K:
             Five lists of length `batch.natom_per_mol.size(0)`. Each element is a tensor containing the corresponding property restricted to the atoms of that molecule.
@@ -2536,13 +2567,13 @@ class AM_DimerParam_Model:
     ):
         """
         Construct an AtomTypeParamModel wrapper that builds or loads an atom-level model, a parameter-predicting model, and optional dimer evaluators and dataset.
-        
+
         This initializer will:
         - Prefer loading a full pretrained model if `pre_trained_model_path` is given (all other model-building parameters are ignored except `dataset`).
         - Optionally load a pretrained atom model via `atom_model_pre_trained_path`.
         - Instantiate or use the provided `atom_model` and `model` (controlled by `atom_model_type` and `model_type`), then create dimer evaluators (DimerProp) configured by `dimer_eval_type` and `elst_damping_type`.
         - Select device automatically (GPU if available unless `use_GPU` is False), move models to that device, and optionally construct an on-disk/in-memory dataset unless `ignore_database_null` is True.
-        
+
         Parameters:
             dataset (optional): Preconstructed dataset object to use instead of building one.
             atom_model (optional): Preconstructed atom-level model instance to use.
@@ -2577,7 +2608,7 @@ class AM_DimerParam_Model:
             ds_energy_labels (optional): Energy label specifications for dataset builder.
             dimer_eval_type (str): Dimer evaluation mode used by created DimerProp (e.g., "elst_damping", "elst").
             elst_damping_type (str): Electrostatic damping variant to use ("CLIFF" or "AMOEBA"); can be overridden by loaded checkpoint config.
-        
+
         Notes:
             - When loading checkpoints, model constructor parameters (n_message, n_neuron, n_embed, param_start_*) are read from the checkpoint config to reinstantiate compatible model instances.
             - The constructed instance exposes `self.model`, `self.atom_model`, `self.dimer_model`, `self.dimer_model_elst` (when applicable), `self.dataset`, and `self.device`.
@@ -2608,25 +2639,28 @@ class AM_DimerParam_Model:
             print(
                 f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
             )
-            checkpoint = torch.load(
-                atom_model_pre_trained_path, map_location=device, weights_only=False
+            checkpoint = model_io.load_checkpoint(
+                atom_model_pre_trained_path, map_location=device
             )
+            am_config = model_io.load_config_from_checkpoint(checkpoint)
+            if am_config is None:
+                am_config = checkpoint.get("config", {})
             if atom_model_type in ["AtomHirshfeldMPNN", "AtomMPNN"]:
                 self.atom_model = am_type(
-                    n_message=checkpoint["config"]["n_message"],
-                    n_rbf=checkpoint["config"]["n_rbf"],
-                    n_neuron=checkpoint["config"]["n_neuron"],
-                    n_embed=checkpoint["config"]["n_embed"],
-                    r_cut=checkpoint["config"]["r_cut"],
+                    n_message=am_config["n_message"],
+                    n_rbf=am_config["n_rbf"],
+                    n_neuron=am_config["n_neuron"],
+                    n_embed=am_config["n_embed"],
+                    r_cut=am_config["r_cut"],
                 )
             elif atom_model_type == "AtomTypeParamNN":
                 self.atom_model = am_type(
-                    n_message=checkpoint["config"]["n_message"],
-                    n_neuron=checkpoint["config"]["n_neuron"],
-                    n_embed=checkpoint["config"]["n_embed"],
-                    param_start_mean=checkpoint["config"]["param_start_mean"],
-                    param_start_std=checkpoint["config"]["param_start_std"],
-                    n_params=checkpoint["config"]["n_params"],
+                    n_message=am_config["n_message"],
+                    n_neuron=am_config["n_neuron"],
+                    n_embed=am_config["n_embed"],
+                    param_start_mean=am_config["param_start_mean"],
+                    param_start_std=am_config["param_start_std"],
+                    n_params=am_config["n_params"],
                 )
             # elif atom_model_type == "AtomTypeParamMPNN":
             #     self.atom_model = am_type(
@@ -2640,10 +2674,7 @@ class AM_DimerParam_Model:
             #         n_params=checkpoint["config"]["n_params"],
             #     )
             # model_state_dict = checkpoint["model_state_dict"]
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
+            model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
             print("Using provided AtomMPNN model:", atom_model)
@@ -2659,20 +2690,21 @@ class AM_DimerParam_Model:
             print(
                 f"Loading pre-trained MTP-MTP {model_type} from {pre_trained_model_path}"
             )
-            checkpoint = torch.load(pre_trained_model_path, weights_only=False)
+            checkpoint = model_io.load_checkpoint(pre_trained_model_path)
+            config = model_io.load_config_from_checkpoint(checkpoint)
+            if config is None:
+                config = checkpoint.get("config", {})
             # Load elst_damping_type from checkpoint if available, otherwise use default
-            elst_damping_type = checkpoint["config"].get(
-                "elst_damping_type", elst_damping_type
-            )
+            elst_damping_type = config.get("elst_damping_type", elst_damping_type)
             if model_type == "AtomTypeParamNN":
                 self.model = AtomTypeParamNN(
                     atom_model=self.atom_model,
-                    n_message=checkpoint["config"]["n_message"],
-                    n_neuron=checkpoint["config"]["n_neuron"],
-                    n_embed=checkpoint["config"]["n_embed"],
-                    param_start_mean=checkpoint["config"]["param_start_mean"],
-                    param_start_std=checkpoint["config"]["param_start_std"],
-                    n_params=checkpoint["config"].get("n_params", 1),
+                    n_message=config["n_message"],
+                    n_neuron=config["n_neuron"],
+                    n_embed=config["n_embed"],
+                    param_start_mean=config["param_start_mean"],
+                    param_start_std=config["param_start_std"],
+                    n_params=config.get("n_params", 1),
                 )
             # elif model_type == "AtomTypeParamMPNN":
             #     self.model = AtomTypeParamMPNN(
@@ -2688,10 +2720,7 @@ class AM_DimerParam_Model:
             #     )
             else:
                 raise ValueError(f"Unknown model_type: {model_type}")
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
+            model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.model.load_state_dict(model_state_dict)
         else:
             if model_type == "AtomTypeParamNN":
@@ -2913,16 +2942,92 @@ class AM_DimerParam_Model:
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 
-        checkpoint = torch.load(ap2_model_path)
-        if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
-            self.model.load_state_dict(model_state_dict)
-        else:
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+        checkpoint = model_io.load_checkpoint(ap2_model_path, map_location=self.device)
+        model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
+        self.model.load_state_dict(model_state_dict)
+
+        if am_model_path is not None:
+            am_checkpoint = model_io.load_checkpoint(
+                am_model_path, map_location=self.device
+            )
+            am_state_dict = model_io.load_state_dict_from_checkpoint(am_checkpoint)
+            self.atom_model.load_state_dict(am_state_dict)
         return self
+
+    def _create_checkpoint(
+        self,
+        model: nn.Module = None,
+        atom_model: nn.Module = None,
+        embed_atom_model: bool = True,
+        metadata: dict | None = None,
+    ) -> dict:
+        """
+        Create a v2 checkpoint dictionary for this model.
+        """
+        if model is None:
+            model = self.model
+        if atom_model is None:
+            atom_model = self.atom_model
+
+        model = model_io.unwrap_model(model)
+        atom_model = model_io.unwrap_model(atom_model)
+
+        if hasattr(model, "get_config"):
+            model_config = model.get_config()
+        else:
+            model_config = {
+                "n_message": getattr(model, "n_message", 3),
+                "n_neuron": getattr(model, "n_neuron", 128),
+                "n_embed": getattr(model, "n_embed", 8),
+                "param_start_mean": getattr(model, "param_start_mean", [1.8]),
+                "param_start_std": getattr(model, "param_start_std", [0.01]),
+                "n_params": getattr(model, "n_params", 1),
+            }
+        model_config["elst_damping_type"] = self.elst_damping_type
+        model_config["dimer_eval_type"] = self.dimer_eval_type
+
+        submodels = None
+        if embed_atom_model and atom_model is not None:
+            if hasattr(atom_model, "get_config"):
+                atom_config = atom_model.get_config()
+            else:
+                atom_config = {
+                    "n_message": getattr(atom_model, "n_message", 3),
+                    "n_rbf": getattr(atom_model, "n_rbf", 8),
+                    "n_neuron": getattr(atom_model, "n_neuron", 128),
+                    "n_embed": getattr(atom_model, "n_embed", 8),
+                    "r_cut": getattr(atom_model, "r_cut", 5.0),
+                }
+            submodels = {
+                "atom_model": model_io.create_submodel_checkpoint(
+                    model=atom_model,
+                    config=atom_config,
+                    model_type=type(atom_model).__name__,
+                )
+            }
+
+        return model_io.create_checkpoint(
+            model=model,
+            config=model_config,
+            model_type=type(model).__name__,
+            submodels=submodels,
+            metadata=metadata,
+        )
+
+    def save_model(
+        self,
+        path: str,
+        embed_atom_model: bool = True,
+        metadata: dict | None = None,
+    ) -> None:
+        """
+        Save the model to a checkpoint file in v2 format.
+        """
+        checkpoint = self._create_checkpoint(
+            embed_atom_model=embed_atom_model,
+            metadata=metadata,
+        )
+        model_io.save_checkpoint(checkpoint, path)
 
     def _qcel_example_input(
         self,
@@ -2996,8 +3101,8 @@ class AM_DimerParam_Model:
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
-            indA_to_atom.append(np.arange(size_A))
-            indB_to_atom.append(np.arange(size_B))
+            indA_to_atom.append(np.arange(size_A.item()))
+            indB_to_atom.append(np.arange(size_B.item()))
             pair_energies_batch.append(np.zeros((4, size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
@@ -3050,8 +3155,8 @@ class AM_DimerParam_Model:
             size_B = torch.sum(indsB_monomer == i)
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
-            indA_to_atom.append(np.arange(size_A))
-            indB_to_atom.append(np.arange(size_B))
+            indA_to_atom.append(np.arange(size_A.item()))
+            indB_to_atom.append(np.arange(size_B.item()))
             pair_energies_batch.append(np.zeros((size_A, size_B)))
 
         indA_to_dimer = np.concatenate(indA_to_dimer)
@@ -3084,7 +3189,7 @@ class AM_DimerParam_Model:
     ):
         """
         Predict per-dimer energies for a list of qcel dimer molecules using the configured dimer model.
-        
+
         Parameters:
             mols (Sequence): Iterable of qcel dimer objects convertible by qcel_dimer_to_fused_data.
             batch_size (int): Number of dimers to process per forward pass.
@@ -3092,10 +3197,10 @@ class AM_DimerParam_Model:
             verbose (bool): If true, prints a brief progress message after processing batches.
             return_pairs (bool): If true, also return per-pair (atom-pair) energy components alongside per-dimer totals.
             return_elst (bool): If true, also return pairwise electrostatic components. Mutually exclusive with `return_pairs`.
-        
+
         Returns:
             numpy.ndarray or (numpy.ndarray, list): If neither `return_pairs` nor `return_elst` is set, returns a NumPy array of shape (N, M) with per-dimer predictions (N = number of dimers, M = model-determined number of outputs). If `return_pairs` or `return_elst` is set, returns a tuple (predictions, pairwise_energies) where `pairwise_energies` is a list of per-dimer pairwise energy entries produced during prediction.
-        
+
         Notes:
             - Moves the atom_model to the wrapper's configured device.
             - The number of output columns M is determined from the first batch forward pass.
@@ -3380,9 +3485,9 @@ units angstrom
         # (1) Compile Model
         """
         Train the model in a single process using provided datasets and hyperparameters.
-        
+
         Performs optional model compilation, constructs data loaders, runs epoch-wise training and evaluation, tracks and saves the best model (by test loss) to self.model_save_path, and stops early if NaNs are detected. The saved checkpoint includes model state and a config that captures architecture and the active elst_damping_type.
-        
+
         Parameters:
             train_dataset: Dataset
                 Training dataset compatible with APNet2_fused_DataLoader.
@@ -3529,31 +3634,16 @@ units angstrom
             if test_loss < lowest_test_loss:
                 lowest_test_loss = test_loss
                 star_marker = "*"
-                cpu_model = self.model.to("cpu")
+                cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                cpu_atom_model = model_io.unwrap_model(self.atom_model).to("cpu")
                 best_model = deepcopy(cpu_model)
                 if self.model_save_path:
-                    torch.save(
-                        {
-                            "model_state_dict": cpu_model.state_dict(),
-                            "config": {
-                                "model_type": type(cpu_model).__name__,
-                                "n_message": cpu_model.n_message,
-                                "n_neuron": cpu_model.n_neuron,
-                                "n_embed": cpu_model.n_embed,
-                                "param_start_mean": cpu_model.param_start_mean,
-                                "param_start_std": cpu_model.param_start_std,
-                                "n_params": cpu_model.n_params,
-                                "n_rbf": cpu_model.n_rbf
-                                if hasattr(cpu_model, "n_rbf")
-                                else None,
-                                "r_cut": cpu_model.r_cut
-                                if hasattr(cpu_model, "r_cut")
-                                else None,
-                                "elst_damping_type": self.elst_damping_type,
-                            },
-                        },
-                        self.model_save_path,
+                    checkpoint = self._create_checkpoint(
+                        model=cpu_model,
+                        atom_model=cpu_atom_model,
+                        embed_atom_model=True,
                     )
+                    model_io.save_checkpoint(checkpoint, self.model_save_path)
                 self.model.to(rank_device)
 
             if isinstance(y_ind, torch.Tensor):
@@ -3573,23 +3663,16 @@ units angstrom
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
             if torch.any(total_MAE_t.isnan()) or torch.any(total_MAE_v.isnan()):
-                cpu_model = self.model.to("cpu")
+                cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                cpu_atom_model = model_io.unwrap_model(self.atom_model).to("cpu")
                 print("NaN detected, stopping training")
-                torch.save(
-                    {
-                        "model_state_dict": cpu_model.state_dict(),
-                        "config": {
-                            "n_message": cpu_model.n_message,
-                            "n_neuron": cpu_model.n_neuron,
-                            "n_embed": cpu_model.n_embed,
-                            "n_params": cpu_model.n_params,
-                            "param_start_mean": cpu_model.param_start_mean,
-                            "param_start_std": cpu_model.param_start_std,
-                            "elst_damping_type": self.elst_damping_type,
-                        },
-                    },
-                    "nan_crash_model.pt",
+                checkpoint = self._create_checkpoint(
+                    model=cpu_model,
+                    atom_model=cpu_atom_model,
+                    embed_atom_model=True,
+                    metadata={"nan_crash": True},
                 )
+                model_io.save_checkpoint(checkpoint, "nan_crash_model.pt")
                 break
         self.model = best_model
         self.model.to(rank_device)
@@ -3751,21 +3834,20 @@ class AtomTypeParamModel:
             print(
                 f"Loading pre-trained AtomMPNN model from {atom_model_pre_trained_path}"
             )
-            checkpoint = torch.load(
-                atom_model_pre_trained_path, map_location=device, weights_only=False
+            checkpoint = model_io.load_checkpoint(
+                atom_model_pre_trained_path, map_location=device
             )
+            am_config = model_io.load_config_from_checkpoint(checkpoint)
+            if am_config is None:
+                am_config = checkpoint.get("config", {})
             self.atom_model = am_type(
-                n_message=checkpoint["config"]["n_message"],
-                n_rbf=checkpoint["config"]["n_rbf"],
-                n_neuron=checkpoint["config"]["n_neuron"],
-                n_embed=checkpoint["config"]["n_embed"],
-                r_cut=checkpoint["config"]["r_cut"],
+                n_message=am_config["n_message"],
+                n_rbf=am_config["n_rbf"],
+                n_neuron=am_config["n_neuron"],
+                n_embed=am_config["n_embed"],
+                r_cut=am_config["r_cut"],
             )
-            # model_state_dict = checkpoint["model_state_dict"]
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
+            model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.atom_model.load_state_dict(model_state_dict)
         elif atom_model:
             print("Using provided AtomMPNN model:", atom_model)
@@ -3779,20 +3861,20 @@ class AtomTypeParamModel:
             )
         if pre_trained_model_path:
             print(f"Loading pre-trained MTP-MTP model from {pre_trained_model_path}")
-            checkpoint = torch.load(pre_trained_model_path, weights_only=False)
+            checkpoint = model_io.load_checkpoint(pre_trained_model_path)
+            config = model_io.load_config_from_checkpoint(checkpoint)
+            if config is None:
+                config = checkpoint.get("config", {})
             self.model = AtomTypeParamNN(
                 atom_model=self.atom_model,
-                n_message=checkpoint["config"]["n_message"],
-                n_neuron=checkpoint["config"]["n_neuron"],
-                n_embed=checkpoint["config"]["n_embed"],
-                param_start_mean=checkpoint["config"]["param_start_mean"],
-                param_start_std=checkpoint["config"]["param_start_std"],
-                n_params=checkpoint["config"].get("n_params", 1),
+                n_message=config["n_message"],
+                n_neuron=config["n_neuron"],
+                n_embed=config["n_embed"],
+                param_start_mean=config["param_start_mean"],
+                param_start_std=config["param_start_std"],
+                n_params=config.get("n_params", 1),
             )
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
+            model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.model.load_state_dict(model_state_dict)
         else:
             self.model = AtomTypeParamNN(
@@ -3828,16 +3910,86 @@ class AtomTypeParamModel:
         return
 
     def set_pretrained_model(self, model_path):
-        checkpoint = torch.load(model_path)
-        if "_orig_mod" not in list(self.model.state_dict().keys())[0]:
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
+        checkpoint = model_io.load_checkpoint(model_path, map_location=self.device)
+        model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
+        self.model.load_state_dict(model_state_dict)
+        return self
+
+    def _create_checkpoint(
+        self,
+        model: nn.Module = None,
+        atom_model: nn.Module = None,
+        embed_atom_model: bool = True,
+        metadata: dict | None = None,
+    ) -> dict:
+        """
+        Create a v2 checkpoint dictionary for this model.
+        """
+        if model is None:
+            model = self.model
+        if atom_model is None:
+            atom_model = self.atom_model
+
+        model = model_io.unwrap_model(model)
+        atom_model = model_io.unwrap_model(atom_model)
+
+        model_config = (
+            model.get_config()
+            if hasattr(model, "get_config")
+            else {
+                "n_message": getattr(model, "n_message", 3),
+                "n_neuron": getattr(model, "n_neuron", 128),
+                "n_embed": getattr(model, "n_embed", 8),
+                "param_start_mean": getattr(model, "param_start_mean", [1.8]),
+                "param_start_std": getattr(model, "param_start_std", [0.01]),
+                "n_params": getattr(model, "n_params", 1),
             }
-            self.model.load_state_dict(model_state_dict)
-        else:
-            self.model.load_state_dict(checkpoint["model_state_dict"])
-        return
+        )
+        model_config["monomer_eval_type"] = self.monomer_eval_type
+
+        submodels = None
+        if embed_atom_model and atom_model is not None:
+            atom_config = (
+                atom_model.get_config()
+                if hasattr(atom_model, "get_config")
+                else {
+                    "n_message": getattr(atom_model, "n_message", 3),
+                    "n_rbf": getattr(atom_model, "n_rbf", 8),
+                    "n_neuron": getattr(atom_model, "n_neuron", 128),
+                    "n_embed": getattr(atom_model, "n_embed", 8),
+                    "r_cut": getattr(atom_model, "r_cut", 5.0),
+                }
+            )
+            submodels = {
+                "atom_model": model_io.create_submodel_checkpoint(
+                    model=atom_model,
+                    config=atom_config,
+                    model_type=type(atom_model).__name__,
+                )
+            }
+
+        return model_io.create_checkpoint(
+            model=model,
+            config=model_config,
+            model_type=type(model).__name__,
+            submodels=submodels,
+            metadata=metadata,
+        )
+
+    def save_model(
+        self,
+        path: str,
+        embed_atom_model: bool = True,
+        metadata: dict | None = None,
+    ) -> None:
+        """
+        Save the model to a checkpoint file in v2 format.
+        """
+        checkpoint = self._create_checkpoint(
+            embed_atom_model=embed_atom_model,
+            metadata=metadata,
+        )
+        model_io.save_checkpoint(checkpoint, path)
 
     def compile_model(self):
         torch._dynamo.config.dynamic_shapes = True
@@ -4239,21 +4391,16 @@ class AtomTypeParamModel:
                     lowest_test_loss = test_loss
                     test_lowered = "*"
                     if self.model_save_path:
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "param_start_mean": cpu_model.param_start_mean,
-                                    "param_start_std": cpu_model.param_start_std,
-                                    "n_params": cpu_model.n_params,
-                                },
-                            },
-                            self.model_save_path,
+                        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                        cpu_atom_model = model_io.unwrap_model(self.atom_model).to(
+                            "cpu"
                         )
+                        checkpoint = self._create_checkpoint(
+                            model=cpu_model,
+                            atom_model=cpu_atom_model,
+                            embed_atom_model=True,
+                        )
+                        model_io.save_checkpoint(checkpoint, self.model_save_path)
                         self.model.to(self.device)
                 else:
                     test_lowered = " "
@@ -4347,21 +4494,16 @@ class AtomTypeParamModel:
                     test_lowered = "*"
                     if self.model_save_path:
                         # cpu_model = self.model.to("cpu")
-                        cpu_model = unwrap_model(self.model).to("cpu")
-                        torch.save(
-                            {
-                                "model_state_dict": cpu_model.state_dict(),
-                                "config": {
-                                    "n_message": cpu_model.n_message,
-                                    "n_neuron": cpu_model.n_neuron,
-                                    "n_embed": cpu_model.n_embed,
-                                    "param_start_mean": cpu_model.param_start_mean,
-                                    "param_start_std": cpu_model.param_start_std,
-                                    "n_params": cpu_model.n_params,
-                                },
-                            },
-                            self.model_save_path,
+                        cpu_model = model_io.unwrap_model(self.model).to("cpu")
+                        cpu_atom_model = model_io.unwrap_model(self.atom_model).to(
+                            "cpu"
                         )
+                        checkpoint = self._create_checkpoint(
+                            model=cpu_model,
+                            atom_model=cpu_atom_model,
+                            embed_atom_model=True,
+                        )
+                        model_io.save_checkpoint(checkpoint, self.model_save_path)
                         self.model.to(self.device)
                 else:
                     test_lowered = " "
@@ -4590,10 +4732,10 @@ class AtomTypeParamModel:
     def model_predict(self, data):
         """
         Run the atom-level model on a batch and return predicted per-atom multipole parameters and related atom properties.
-        
+
         Parameters:
             data: A batched graph or input compatible with the wrapped atom model containing node features and batch indices.
-        
+
         Returns:
             charge: Per-atom monopole (charge) tensor.
             dipole: Per-atom dipole tensor.
