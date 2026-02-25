@@ -226,3 +226,4 @@ mpi_train.sh
 logs
 /*.md
 data_spice
+tinker
