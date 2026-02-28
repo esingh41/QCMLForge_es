@@ -33,7 +33,7 @@ def train_atom_model(
 ):
     """
     Train a single-atom model of the specified type using data in data_dir.
-    
+
     Parameters:
         atom_model_type (str): One of "AtomModel", "AtomHirshfeldModel", "AtomTypeParamModel",
             "AtomInducedDipoleModel", or "InducedDipoleModel"; selects the model class and default batch size.
@@ -57,7 +57,7 @@ def train_atom_model(
         use_nn_screening (bool): If true, enable learned neural-network screening used by induced-dipole models.
         precompute_hfvr (bool): If true, enable precomputation of HF/VR features where supported.
         ds_use_lmdb (bool): If true, configure dataset to use LMDB storage (applied to InducedDipoleModel).
-    
+
     """
     if atom_model_type == "AtomModel":
         AM = AtomModels.ap2_atom_model.AtomModel
@@ -185,13 +185,14 @@ def train_pairwise_model(
     DimerProp_model_type="AtomTypeParamNN",
     ap2_pretrained_model_only=None,
     ds_type="total_component_energies",
+    no_disp_nn=False,
 ):
     # Ensure param_start_mean and param_start_std are lists
     """
     Create and train an APNet-style pairwise model variant on the specified dataset.
-    
+
     This function selects and configures an APNet variant (e.g., APNet2, dAPNet2, APNet3-fused, AM-DimerParam, AtomTypeParamModel), prepares any required submodels or pretrained weights, configures dataset and training hyperparameters, and runs training to save the resulting model to model_out.
-    
+
     Parameters:
         apnet_model_type (str): Which APNet variant to train (e.g., "APNet2", "dAPNet2", "APNet3-fused", "AM-DimerParam", "AtomTypeParamModel").
         model_out (str): Path where the trained APNet model will be written.
@@ -222,7 +223,8 @@ def train_pairwise_model(
         DimerProp_model_type (str): Dimer property model type name used when constructing AM-DimerParam models.
         ap2_pretrained_model_only (str or None): If provided for APNet3-fused variants, load AP2 weights from this path into the APNet.
         ds_type (str): Dataset energy-type selector (e.g., "total_component_energies", "fsapt_energies").
-    
+        no_disp_nn (bool): Skip the dispersion readout when training APNet3-fused-d3 and compute D3 at predict time instead.
+
     """
     if not isinstance(param_start_mean, (list, tuple)):
         param_start_mean = [param_start_mean] * n_params
@@ -230,6 +232,11 @@ def train_pairwise_model(
         param_start_std = [param_start_std] * n_params
     ds_atomic_batch_size = 4 * 256
     ds_datapoint_storage_n_objects = 16
+    if no_disp_nn and apnet_model_type != "APNet3-fused-d3":
+        print(
+            f"WARNING: --no_disp_nn applies only to APNet3-fused-d3 (requested {apnet_model_type}); ignoring flag."
+        )
+        no_disp_nn = False
     if apnet_model_type == "APNet2":
         APNet = AtomPairwiseModels.apnet2.APNet2Model
     elif apnet_model_type == "APNet2-fused":
@@ -243,6 +250,13 @@ def train_pairwise_model(
         ds_batch_size = 16
     elif apnet_model_type == "APNet3-fused-variant":
         APNet = AtomPairwiseModels.apnet3_fused_variants.APNet3_AtomType_Model
+        # Note: presently ap3_fused_ds requires atomic batch size to be <=
+        # n_objects. NEDS FIXED
+        ds_atomic_batch_size = 16
+        ds_datapoint_storage_n_objects = 16
+        ds_batch_size = 16
+    elif apnet_model_type == "APNet3-fused-d3":
+        APNet = AtomPairwiseModels.apnet3_d3_fused.APNet3D3_AtomType_Model
         # Note: presently ap3_fused_ds requires atomic batch size to be <=
         # n_objects. NEDS FIXED
         ds_atomic_batch_size = 16
@@ -397,6 +411,56 @@ def train_pairwise_model(
         if ap2_pretrained_model_only is not None:
             print(f"Loading AP2 pretrained weights from {ap2_pretrained_model_only}")
             apnet.load_ap2_pretrained_weights(ap2_pretrained_model_only)
+    elif apnet_model_type in ["APNet3-fused-d3"]:
+        print("Setting AtomTypeParams...")
+        atom_type_hf_vw_model = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model_pre_trained_path=am_model_path,
+            pre_trained_model_path=atom_type_param_model_path,
+        )
+        atom_type_elst_model = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+            ds_root=None,
+            use_GPU=False,
+            ignore_database_null=True,
+            atom_model=atom_type_hf_vw_model.model,
+            atom_model_type="AtomTypeParamNN",
+            pre_trained_model_path=atom_type_param_model_path2,
+            elst_damping_type=elst_damping_type,
+        )
+        am_model_path = None
+        print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
+        if ds_type == "fsapt_energies":
+            use_precomputed_classical = False
+        else:
+            use_precomputed_classical = True
+        apnet = APNet(
+            atom_type_model=atom_type_hf_vw_model.model,
+            dimer_prop_model=atom_type_elst_model.dimer_model,
+            pre_trained_model_path=pretrained_model,
+            n_rbf=n_rbf,
+            n_neuron=n_neuron,
+            n_embed=n_embed,
+            r_cut=r_cut,
+            ds_spec_type=spec_type,
+            ds_root=data_dir,
+            ignore_database_null=False,
+            ds_atomic_batch_size=ds_atomic_batch_size,
+            ds_num_devices=1,
+            ds_skip_process=False,
+            ds_datapoint_storage_n_objects=ds_datapoint_storage_n_objects,
+            ds_prebatched=False,
+            ds_random_seed=random_seed,
+            ds_class_type=ds_class_type,
+            use_precomputed_classical=use_precomputed_classical,
+            ds_type=ds_type,
+            no_disp_nn=no_disp_nn,
+            ds_batch_size=ds_batch_size,
+        )
+        if ap2_pretrained_model_only is not None:
+            print(f"Loading AP2 pretrained weights from {ap2_pretrained_model_only}")
+            apnet.load_ap2_pretrained_weights(ap2_pretrained_model_only)
     elif apnet_model_type in ["AtomTypeParamModel"]:
         apnet = APNet(
             atom_model_pre_trained_path=am_model_path,
@@ -474,7 +538,7 @@ def parse_param_list(param_str):
 def main():
     """
     Parse command-line arguments and run configured model training routines.
-    
+
     Parses command-line options that configure atom and pairwise (APNet) training, converts the parameter-start mean/std strings to numeric lists, sets global random seeds, prints the parsed arguments, and invokes train_atom_model and/or train_pairwise_model when the corresponding flags are provided.
     """
     args = argparse.ArgumentParser()
@@ -530,7 +594,7 @@ def main():
         "--train_apnet",
         type=str,
         default="",
-        help="Train APNet Model: (APNet2, APNet3-fused, APNet3-fused-variant, dAPNet2, APNet2-fused, AM-DimerParam)",
+        help="Train APNet Model: (APNet2, APNet3-fused, APNet3-fused-variant, APNet3-fused-d3, dAPNet2, APNet2-fused, AM-DimerParam)",
     )
     args.add_argument(
         "--dimer_eval_type",
@@ -711,6 +775,12 @@ def main():
         default="total_component_energies",
         help="Dataset type for APNet3-fused only (default: total_component_energies, other options: fsapt_energies)",
     )
+    args.add_argument(
+        "--no_disp_nn",
+        action="store_true",
+        default=False,
+        help="APNet3-fused-d3 only: train elst/exch/indu (three components) and compute D3 at predict time instead of a dispersion NN.",
+    )
     args = args.parse_args()
     # Parse param_start_mean and param_start_std
     args.param_start_mean = parse_param_list(args.param_start_mean)
@@ -771,6 +841,7 @@ def main():
             DimerProp_model_type=args.DimerProp_model_type,
             ap2_pretrained_model_only=args.ap2_pretrained_model_only,
             ds_type=args.ds_type,
+            no_disp_nn=args.no_disp_nn,
         )
     return
 

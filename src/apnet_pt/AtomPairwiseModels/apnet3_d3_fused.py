@@ -143,8 +143,8 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         return_hidden_states=False,
         use_precomputed_classical=False,
         use_atom_props=True,
+        no_disp_nn=False,
     ):
-        # super().__init__(aggr="add")
         super().__init__()
         self.dimer_prop_model = dimer_prop_model
         if self.dimer_prop_model is not None:
@@ -170,6 +170,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         self.return_hidden_states = return_hidden_states
         self.use_precomputed_classical = use_precomputed_classical
         self.use_atom_props = use_atom_props
+        self.no_disp_nn = no_disp_nn
 
         layer_nodes_hidden = [
             # input_layer_size,
@@ -209,9 +210,10 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         self.readout_layer_indu = self._make_layers(
             layer_nodes_readout, layer_activations
         )
-        self.readout_layer_disp = self._make_layers(
-            layer_nodes_readout, layer_activations
-        )
+        if not no_disp_nn:
+            self.readout_layer_disp = self._make_layers(
+                layer_nodes_readout, layer_activations
+            )
 
         # update layers for hidden states
         self.update_layers = nn.ModuleList()
@@ -248,6 +250,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             "r_cut": self.r_cut,
             "use_atom_props": self.use_atom_props,
             "use_precomputed_classical": self.use_precomputed_classical,
+            "no_disp_nn": self.no_disp_nn,
         }
 
     def get_messages(self, h0, h, rbf, e_source, e_target):
@@ -329,15 +332,14 @@ class APNet3D3_AtomType_MPNN(nn.Module):
 
     # @torch.compile
     def readouts(self, H):
-        return torch.cat(
-            [
-                self.readout_layer_elst(H),
-                self.readout_layer_exch(H),
-                self.readout_layer_indu(H),
-                self.readout_layer_disp(H),
-            ],
-            dim=1,
-        )
+        parts = [
+            self.readout_layer_elst(H),
+            self.readout_layer_exch(H),
+            self.readout_layer_indu(H),
+        ]
+        if not self.no_disp_nn:
+            parts.append(self.readout_layer_disp(H))
+        return torch.cat(parts, dim=1)
 
     def forward(
         self,
@@ -532,22 +534,30 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             padded[:, 2:3] = E_ind_dimer
             E_ind_dimer = padded
 
-            # Do we need a short range correction for dispersion? Ask mentor.
-            E_disp_full_dimer = scatter_sum_compile(
-                E_disp, batch.dimer_ind_full, ndimer
-            )
-            E_disp_full_dimer = E_disp_full_dimer.unsqueeze(-1)
-            N_full, num_cols = E_disp_full_dimer.shape
-            full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
-            full_expanded[:N_full] = E_disp_full_dimer
-            E_disp_dimer = full_expanded
+            if self.no_disp_nn:
+                # no_disp_nn mode: keep 3 columns (elst at col 0, ind at col 2)
+                # E_elst_dimer has shape (ndimer, 4) with elst at col 0
+                # E_ind_dimer has shape (ndimer, 4) with ind at col 2
+                # E_sr_dimer has shape (ndimer, 3)
+                # Truncate to 3 columns
+                E_output = E_sr_dimer + E_elst_dimer[:, :3] + E_ind_dimer[:, :3]
+            else:
+                # Default 4-col mode: build dispersion and sum all
+                E_disp_full_dimer = scatter_sum_compile(
+                    E_disp, batch.dimer_ind_full, ndimer
+                )
+                E_disp_full_dimer = E_disp_full_dimer.unsqueeze(-1)
+                N_full, num_cols = E_disp_full_dimer.shape
+                full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
+                full_expanded[:N_full] = E_disp_full_dimer
+                E_disp_dimer = full_expanded
 
-            rows, cols = E_disp_dimer.shape
-            padded = E_disp_dimer.new_zeros((rows, cols + 3))
-            padded[:, 3:4] = E_disp_dimer
-            E_disp_dimer = padded
+                rows, cols = E_disp_dimer.shape
+                padded = E_disp_dimer.new_zeros((rows, cols + 3))
+                padded[:, 3:4] = E_disp_dimer
+                E_disp_dimer = padded
 
-            E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer + E_disp_dimer
+                E_output = E_sr_dimer + E_elst_dimer + E_ind_dimer + E_disp_dimer
         if self.return_hidden_states:
             return (
                 E_output,
@@ -599,9 +609,9 @@ class APNet3D3_AtomType_Model:
         use_precomputed_classical=False,
         ds_class_type="lmdb",  # "pt" or "lmdb"
         use_atom_props=True,
+        no_disp_nn=False,
     ):
         """
-        If pre_trained_model_path is provided, the model will be loaded from
         the path and all other parameters will be ignored except for dataset.
 
         use_GPU will check for a GPU and use it if available unless set to false.
@@ -677,6 +687,7 @@ class APNet3D3_AtomType_Model:
             checkpoint = torch.load(pre_trained_model_path, weights_only=False)
             config = checkpoint["config"]
             use_atom_props = config.get("use_atom_props", True)
+            no_disp_nn = config.get("no_disp_nn", False)
             self.model = APNet3D3_AtomType_MPNN(
                 dimer_prop_model=self.dimer_prop_model,
                 n_message=config["n_message"],
@@ -687,6 +698,7 @@ class APNet3D3_AtomType_Model:
                 r_cut=config["r_cut"],
                 use_precomputed_classical=use_precomputed_classical,
                 use_atom_props=use_atom_props,
+                no_disp_nn=no_disp_nn,
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -704,6 +716,7 @@ class APNet3D3_AtomType_Model:
                 r_cut=r_cut,
                 use_precomputed_classical=use_precomputed_classical,
                 use_atom_props=use_atom_props,
+                no_disp_nn=no_disp_nn,
             )
         if n_rbf != self.model.n_rbf:
             print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
@@ -1289,6 +1302,24 @@ class APNet3D3_AtomType_Model:
             # print(dimer_batch)
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
+            # If no_disp_nn=True, model outputs 3 cols; expand to 4 by computing D3 at predict time
+            if self.model.no_disp_nn:
+                from qcml_dftd3.d3 import d3 as d3_disp
+
+                # Compute D3 dispersion per-pair and aggregate per-dimer
+                E_disp = d3_disp(dimer_batch)
+                ndimer = dimer_batch.total_charge_A.size(0)
+                E_disp_dimer = scatter_sum_compile(
+                    E_disp, dimer_batch.dimer_ind_full, ndimer
+                )
+                # Now expand predictions from 3 cols to 4 cols
+                # preds[0] is E_sr_dimer with shape (ndimer, 3)
+                E_sr_dimer_3col = preds[0]
+                E_out4 = torch.zeros((ndimer, 4), device=E_sr_dimer_3col.device)
+                E_out4[:, :3] = E_sr_dimer_3col
+                E_out4[:, 3] = E_disp_dimer
+                # Replace preds[0] with expanded 4-col tensor
+                preds = (E_out4,) + preds[1:]
             if self.model.return_hidden_states:
                 E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA, cutoff = preds
                 h_ABs.append(hAB)
@@ -1417,6 +1448,7 @@ units angstrom
         """
         Single-process training loop body.
         """
+        n_comp = 3 if self.model.no_disp_nn else 4
         self.model.train()
         comp_errors_t = []
         total_loss = 0.0
@@ -1427,8 +1459,8 @@ units angstrom
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, E_disp_lr, hAB, hBA = self.model(
                 batch
             )
-            preds = E_sr_dimer.reshape(-1, 4)
-            labels = batch.y
+            preds = E_sr_dimer.reshape(-1, n_comp)
+            labels = batch.y[:, :n_comp]
             if self.use_precomputed_classical:
                 labels[:, 0] -= batch.E_classical_elst
                 labels[:, 2] -= batch.E_classical_ind
@@ -1447,16 +1479,21 @@ units angstrom
         if scheduler is not None:
             scheduler.step()
 
-        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
+        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, n_comp)
         total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
-        disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
+        disp_MAE_t = (
+            torch.tensor(0.0)
+            if self.model.no_disp_nn
+            else torch.mean(torch.abs(comp_errors_t[:, 3]))
+        )
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     # @torch.inference_mode()
     def __evaluate_batches_single_proc(self, dataloader, loss_fn, rank_device):
+        n_comp = 3 if self.model.no_disp_nn else 4
         self.model.eval()
         comp_errors_t = []
         total_loss = 0.0
@@ -1464,9 +1501,8 @@ units angstrom
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
                 E_sr_dimer, _, _, _, _, _, _ = self.model(batch)
-                preds = E_sr_dimer.reshape(-1, 4)
-                comp_errors = preds - batch.y
-                labels = batch.y
+                preds = E_sr_dimer.reshape(-1, n_comp)
+                labels = batch.y[:, :n_comp]
                 if self.use_precomputed_classical:
                     labels[:, 0] -= batch.E_classical_elst
                     labels[:, 2] -= batch.E_classical_ind
@@ -1478,12 +1514,16 @@ units angstrom
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
-        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
+        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, n_comp)
         total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
-        disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
+        disp_MAE_t = (
+            torch.tensor(0.0)
+            if self.model.no_disp_nn
+            else torch.mean(torch.abs(comp_errors_t[:, 3]))
+        )
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     def __train_batches_single_proc_transfer(
@@ -1550,6 +1590,7 @@ units angstrom
         For FSAPT training, we aggregate atomic pair contributions to fragment-level
         energies using frag1_ind and frag2_ind before computing loss.
         """
+        n_comp = 3 if self.model.no_disp_nn else 4
         self.model.train()
         comp_errors_t = []
         total_loss = 0.0
@@ -1559,7 +1600,9 @@ units angstrom
             E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
             # For FSAPT training, use only MPNN predictions (E_sr),
             # not classical frozen components (E_elst, E_ind)
-            full_pairwise_energies = torch.zeros(E_elst.size(0), 4, device=rank_device)
+            full_pairwise_energies = torch.zeros(
+                E_elst.size(0), n_comp, device=rank_device
+            )
             full_pairwise_energies[:, 0] = E_elst
             full_pairwise_energies[:, 2] = E_ind
             # Everything is ordered based on e_ABfull_source/target, so we
@@ -1591,7 +1634,7 @@ units angstrom
             # frag1_ind and frag2_ind are lists of atom indices for each fragment that
             # are comparable to the atom indices in e_ABfull_source/target.
             ndimer = batch.total_charge_A.size(0)
-            preds = torch.zeros(ndimer, 4, device=rank_device)
+            preds = torch.zeros(ndimer, n_comp, device=rank_device)
             for i in range(ndimer):
                 frag1_idx = batch.frag1_ind[i]
                 frag2_idx = batch.frag2_ind[i]
@@ -1602,8 +1645,8 @@ units angstrom
                 # Sum the edge contributions for this fragment pair
                 preds[i, :] = full_pairwise_energies[mask, :].sum(dim=0)
 
-            # Labels are [batch_size, 5], we use first 4 components
-            labels = batch.y[:, :4]
+            # Labels are [batch_size, 5], we use first n_comp components
+            labels = batch.y[:, :n_comp]
             comp_errors = preds - labels
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
@@ -1618,18 +1661,23 @@ units angstrom
         if scheduler is not None:
             scheduler.step()
 
-        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
+        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, n_comp)
         total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
-        disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
+        disp_MAE_t = (
+            torch.tensor(0.0)
+            if self.model.no_disp_nn
+            else torch.mean(torch.abs(comp_errors_t[:, 3]))
+        )
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     def __evaluate_batches_fsapt_single_proc(self, dataloader, loss_fn, rank_device):
         """
         Single-process evaluation loop for FSAPT fragment energies.
         """
+        n_comp = 3 if self.model.no_disp_nn else 4
         self.model.eval()
         comp_errors_t = []
         total_loss = 0.0
@@ -1640,7 +1688,7 @@ units angstrom
                 # For FSAPT evaluation, use only MPNN predictions (E_sr),
                 # not classical frozen components (E_elst, E_ind)
                 full_pairwise_energies = torch.zeros(
-                    E_elst.size(0), 4, device=rank_device
+                    E_elst.size(0), n_comp, device=rank_device
                 )
                 # Don't initialize with frozen classical values
                 full_pairwise_energies[:, 0] = E_elst
@@ -1669,7 +1717,7 @@ units angstrom
                     # energies to assemble all pairwise contributions in one tensor
                     full_pairwise_energies[mapping_indices, :] += E_sr
                 ndimer = batch.total_charge_A.size(0)
-                preds = torch.zeros(ndimer, 4, device=rank_device)
+                preds = torch.zeros(ndimer, n_comp, device=rank_device)
                 # Okay, now we want to only sum over SPECIFIC pairwise contributions
                 # defined by frag1_ind and frag2_ind. We will loop over dimers
                 # in the batch and sum only the relevant pairwise contributions. Note,
@@ -1685,8 +1733,8 @@ units angstrom
                     # Sum the edge contributions for this fragment pair
                     preds[i, :] = full_pairwise_energies[mask, :].sum(dim=0)
 
-                # Labels are [batch_size, 5], we use first 4 components
-                labels = batch.y[:, :4]
+                # Labels are [batch_size, 5], we use first n_comp components
+                labels = batch.y[:, :n_comp]
 
                 # No precomputed classical correction for FSAPT supported currently
                 # if self.use_precomputed_classical:
@@ -1702,12 +1750,16 @@ units angstrom
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
 
-        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, 4)
+        comp_errors_t = torch.cat(comp_errors_t, dim=0).reshape(-1, n_comp)
         total_MAE_t = torch.mean(torch.abs(torch.sum(comp_errors_t, axis=1)))
         elst_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 0]))
         exch_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 1]))
         indu_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 2]))
-        disp_MAE_t = torch.mean(torch.abs(comp_errors_t[:, 3]))
+        disp_MAE_t = (
+            torch.tensor(0.0)
+            if self.model.no_disp_nn
+            else torch.mean(torch.abs(comp_errors_t[:, 3]))
+        )
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     ########################################################################
@@ -1717,6 +1769,7 @@ units angstrom
     def __train_batches(
         self, rank, dataloader, loss_fn, optimizer, rank_device, scheduler
     ):
+        n_comp = 3 if self.model.no_disp_nn else 4
         self.model.train()
         total_loss = 0.0
         total_error = 0.0
@@ -1730,23 +1783,24 @@ units angstrom
             optimizer.zero_grad()
             batch = batch.to(rank_device)
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
-            preds = E_sr_dimer.reshape(-1, 4)
-            comp_errors = preds - batch.y
+            preds = E_sr_dimer.reshape(-1, n_comp)
+            comp_errors = preds - batch.y[:, :n_comp]
             if loss_fn is None:
                 batch_loss = torch.mean(torch.square(comp_errors))
             else:
-                batch_loss = loss_fn(preds.flatten(), batch.y.flatten())
+                batch_loss = loss_fn(preds.flatten(), batch.y[:, :n_comp].flatten())
 
             batch_loss.backward()
             optimizer.step()
 
             total_loss += batch_loss.item()
-            total_errors = preds.sum(dim=1) - batch.y.sum(dim=1)
+            total_errors = preds.sum(dim=1) - batch.y[:, :n_comp].sum(dim=1)
             total_error += torch.sum(torch.abs(total_errors)).item()
             elst_error += torch.sum(torch.abs(comp_errors[:, 0])).item()
             exch_error += torch.sum(torch.abs(comp_errors[:, 1])).item()
             indu_error += torch.sum(torch.abs(comp_errors[:, 2])).item()
-            disp_error += torch.sum(torch.abs(comp_errors[:, 3])).item()
+            if not self.model.no_disp_nn:
+                disp_error += torch.sum(torch.abs(comp_errors[:, 3])).item()
             count += preds.numel()
         if scheduler is not None:
             scheduler.step()
@@ -1756,6 +1810,7 @@ units angstrom
         elst_error = torch.tensor(elst_error, dtype=torch.float32, device=rank_device)
         exch_error = torch.tensor(exch_error, dtype=torch.float32, device=rank_device)
         indu_error = torch.tensor(indu_error, dtype=torch.float32, device=rank_device)
+        disp_error = torch.tensor(disp_error, dtype=torch.float32, device=rank_device)
         count = torch.tensor(count, dtype=torch.int, device=rank_device)
 
         dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
@@ -1763,17 +1818,21 @@ units angstrom
         dist.all_reduce(elst_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(exch_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(indu_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(disp_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(count, op=dist.ReduceOp.SUM)
 
         total_MAE_t = (total_error / count).cpu()
         elst_MAE_t = (elst_error / count).cpu()
         exch_MAE_t = (exch_error / count).cpu()
         indu_MAE_t = (indu_error / count).cpu()
-        disp_MAE_t = (disp_error / count).cpu()
+        disp_MAE_t = (
+            torch.tensor(0.0) if self.model.no_disp_nn else (disp_error / count).cpu()
+        )
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     # @torch.inference_mode()
     def __evaluate_batches(self, rank, dataloader, loss_fn, rank_device):
+        n_comp = 3 if self.model.no_disp_nn else 4
         self.model.eval()
         total_loss = 0.0
         total_error = 0.0
@@ -1787,20 +1846,21 @@ units angstrom
                 batch_loss = 0.0
                 batch = batch.to(rank_device)
                 E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
-                preds = E_sr_dimer.reshape(-1, 4)
-                comp_errors = preds - batch.y
+                preds = E_sr_dimer.reshape(-1, n_comp)
+                comp_errors = preds - batch.y[:, :n_comp]
                 if loss_fn is None:
                     batch_loss = torch.mean(torch.square(comp_errors))
                 else:
-                    batch_loss = loss_fn(preds.flatten(), batch.y.flatten())
+                    batch_loss = loss_fn(preds.flatten(), batch.y[:, :n_comp].flatten())
 
                 total_loss += batch_loss.item()
-                total_errors = preds.sum(dim=1) - batch.y.sum(dim=1)
+                total_errors = preds.sum(dim=1) - batch.y[:, :n_comp].sum(dim=1)
                 total_error += torch.sum(torch.abs(total_errors)).item()
                 elst_error += torch.sum(torch.abs(comp_errors[:, 0])).item()
                 exch_error += torch.sum(torch.abs(comp_errors[:, 1])).item()
                 indu_error += torch.sum(torch.abs(comp_errors[:, 2])).item()
-                disp_error += torch.sum(torch.abs(comp_errors[:, 3])).item()
+                if not self.model.no_disp_nn:
+                    disp_error += torch.sum(torch.abs(comp_errors[:, 3])).item()
                 count += preds.numel()
 
         total_loss = torch.tensor(total_loss, device=rank_device)
@@ -1808,6 +1868,7 @@ units angstrom
         elst_error = torch.tensor(elst_error, device=rank_device)
         exch_error = torch.tensor(exch_error, device=rank_device)
         indu_error = torch.tensor(indu_error, device=rank_device)
+        disp_error = torch.tensor(disp_error, device=rank_device)
         count = torch.tensor(count, dtype=torch.int, device=rank_device)
 
         dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
@@ -1815,13 +1876,16 @@ units angstrom
         dist.all_reduce(elst_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(exch_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(indu_error, op=dist.ReduceOp.SUM)
+        dist.all_reduce(disp_error, op=dist.ReduceOp.SUM)
         dist.all_reduce(count, op=dist.ReduceOp.SUM)
 
         total_MAE_t = (total_error / count).cpu()
         elst_MAE_t = (elst_error / count).cpu()
         exch_MAE_t = (exch_error / count).cpu()
         indu_MAE_t = (indu_error / count).cpu()
-        disp_MAE_t = (disp_error / count).cpu()
+        disp_MAE_t = (
+            torch.tensor(0.0) if self.model.no_disp_nn else (disp_error / count).cpu()
+        )
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     def ddp_train(
@@ -1920,10 +1984,16 @@ units angstrom
         self.model = self.model.to(rank_device)
 
         if rank == 0:
-            print(
-                "                                       Total            Elst            Exch            Ind            Disp",
-                flush=True,
-            )
+            if self.model.no_disp_nn:
+                print(
+                    "                                       Total            Elst            Exch            Ind",
+                    flush=True,
+                )
+            else:
+                print(
+                    "                                       Total            Elst            Exch            Ind            Disp",
+                    flush=True,
+                )
         t1 = time.time()
         with torch.no_grad():
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
@@ -1934,10 +2004,16 @@ units angstrom
             )
             dt = time.time() - t1
             if rank == 0:
-                print(
-                    f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
-                    flush=True,
-                )
+                if self.model.no_disp_nn:
+                    print(
+                        f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                        flush=True,
+                    )
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False
@@ -1969,14 +2045,25 @@ units angstrom
                     test_lowered = " "
                 dt = time.time() - t1
                 test_loss = 0.0
-                print(
-                    f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
-                        total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} {
-                        elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {exch_MAE_t: > 7.3f}/{
-                        exch_MAE_v: < 7.3f} {indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
-                        disp_MAE_t: > 7.3f}/{disp_MAE_v: < 7.3f} {test_lowered}",
-                    flush=True,
-                )
+                if self.model.no_disp_nn:
+                    print(
+                        f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
+                            total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} {
+                            elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {
+                            exch_MAE_t: > 7.3f}/{exch_MAE_v: < 7.3f} {
+                            indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {test_lowered}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"  EPOCH: {epoch: 4d}({dt: < 7.2f} sec)  MAE: {
+                            total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} {
+                            elst_MAE_t: > 7.3f}/{elst_MAE_v: < 7.3f} {
+                            exch_MAE_t: > 7.3f}/{exch_MAE_v: < 7.3f} {
+                            indu_MAE_t: > 7.3f}/{indu_MAE_v: < 7.3f} {
+                            disp_MAE_t: > 7.3f}/{disp_MAE_v: < 7.3f} {test_lowered}",
+                        flush=True,
+                    )
 
         if world_size > 1:
             self.__cleanup()
@@ -2068,17 +2155,24 @@ units angstrom
             )
             __evaluate_batch = self.__evaluate_batches_fsapt_single_proc
             __train_batch = self.__train_batches_fsapt_single_proc
-            print(
-                "                                       Total            Elst            Exch            Ind            Disp",
-                flush=True,
-            )
+            if self.model.no_disp_nn:
+                print(
+                    "                                       Total            Elst            Exch            Ind",
+                    flush=True,
+                )
+            else:
+                print(
+                    "                                       Total            Elst            Exch            Ind            Disp",
+                    flush=True,
+                )
         elif not transfer_learning:
             __evaluate_batch = self.__evaluate_batches_single_proc
             __train_batch = self.__train_batches_single_proc
-            print(
-                "                                       Total            Elst            Exch            Ind            Disp",
-                flush=True,
-            )
+            if self.model.no_disp_nn:
+                print(
+                    "                                       Total            Elst            Exch            Ind",
+                    flush=True,
+                )
         else:
             __evaluate_batch = self.__evaluate_batches_single_proc_transfer
             __train_batch = self.__train_batches_single_proc_transfer
@@ -2098,13 +2192,22 @@ units angstrom
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
                 v_out
             )
-            print(
-                f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
-                    total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} "
-                f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
-                f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
-                flush=True,
-            )
+            if self.model.no_disp_nn:
+                print(
+                    f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
+                        total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} "
+                    f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
+                    f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"  (Pre-training)({time.time() - t0: < 7.2f}s)  MAE: {
+                        total_MAE_t: > 7.3f}/{total_MAE_v: < 7.3f} "
+                    f"{elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} "
+                    f"{indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
+                    flush=True,
+                )
         else:
             train_loss, total_MAE_t = t_out
             test_loss, total_MAE_v = v_out
@@ -2161,13 +2264,22 @@ units angstrom
                 self.model.to(rank_device)
 
             if is_fsapt or not transfer_learning:
-                print(
-                    f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
-                    f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
-                    f"{exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} "
-                    f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
-                    flush=True,
-                )
+                if self.model.no_disp_nn:
+                    print(
+                        f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
+                        f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
+                        f"{exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} "
+                        f"{star_marker}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
+                        f"{total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} "
+                        f"{exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} "
+                        f"{disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f} {star_marker}",
+                        flush=True,
+                    )
             else:
                 print(
                     f"  EPOCH: {epoch:4d} ({time.time() - t1:<7.2f}s)  MAE: "
@@ -2312,7 +2424,11 @@ units angstrom
         for name, param in self.model.named_parameters():
             term = name.split(".")[0]
             if "readout" in name and term[-4:] in ["elst", "exch", "indu", "disp"]:
-                param.requires_grad = True
+                # Only allow disp if not in no_disp_nn mode
+                if term[-4:] == "disp" and self.model.no_disp_nn:
+                    param.requires_grad = False
+                else:
+                    param.requires_grad = True
             else:
                 param.requires_grad = False
         return

@@ -43,7 +43,7 @@ import torch.nn as nn
 from torch_geometric.data import Data
 
 from apnet_pt.torch_util import set_weights_to_value
-from dftd3.d3 import d3
+from qcml_dftd3.d3 import d3
 
 from .. import constants
 from ..atomic_datasets import (AtomicDataLoader, atomic_collate_update,
