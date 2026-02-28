@@ -31,7 +31,8 @@ python3 -u ./train_models.py \
     --lr 5e-4 \
     --ds_in_memory False \
     --ds_class_type lmdb \
-    --ap_model_path ./models/ap3d3_ensemble/ap3d3_0.pt
+    --ap_model_path ./models/ap3d3_ensemble/ap3d3_0_no_disp.pt \
+    --no_disp_nn
 
 # AP3-fused FSAPT training
 # python3 -u ./train_models.py \
