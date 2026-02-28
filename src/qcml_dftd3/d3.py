@@ -46,8 +46,12 @@ def cn_d3_intermolecular(
 
     cutoff = torch.tensor(defaults.D3_CN_CUTOFF, **dd)
 
-    e_source_full = torch.concatenate([batch.e_ABsr_source, batch.e_ABlr_source,])
-    e_target_full = torch.concatenate([batch.e_ABsr_target, batch.e_ABlr_target,])
+    if hasattr(batch, 'e_ABfull_source'):
+        e_source_full = batch.e_ABfull_source
+        e_target_full = batch.e_ABfull_target
+    else:
+        e_source_full = torch.concatenate([batch.e_ABsr_source, batch.e_ABlr_source,])
+        e_target_full = torch.concatenate([batch.e_ABsr_target, batch.e_ABlr_target,])
     
     ZA = batch.ZA
     ZB = batch.ZB
@@ -99,8 +103,12 @@ def d3(
     ZB = batch.ZB
     RB = batch.RB / bohr2angstrom
     
-    e_source_full = torch.concatenate([batch.e_ABsr_source, batch.e_ABlr_source,])
-    e_target_full = torch.concatenate([batch.e_ABsr_target, batch.e_ABlr_target,])
+    if hasattr(batch, 'e_ABfull_source'):
+        e_source_full = batch.e_ABfull_source
+        e_target_full = batch.e_ABfull_target
+    else:
+        e_source_full = torch.concatenate([batch.e_ABsr_source, batch.e_ABlr_source,])
+        e_target_full = torch.concatenate([batch.e_ABsr_target, batch.e_ABlr_target,])
     cn_A = cn_A.index_select(0, e_source_full)
 
     cn_B = cn_B.index_select(0, e_target_full)    

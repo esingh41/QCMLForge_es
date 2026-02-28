@@ -559,9 +559,9 @@ class DimerProp(nn.Module):
         v_B = self.AtomTypeParam(batch.batch_atomic_B)
         Kas = torch.abs(v_A[-1])
         Kbs = torch.abs(v_B[-1])
-        print(f"{Kas =}")
-        print(f"{v_A[-1] =}")
-        print(f"{v_A[-2] =}")
+        # print(f"{Kas =}")
+        # print(f"{v_A[-1] =}")
+        # print(f"{v_A[-2] =}")
         Indu = induced_dipole_induction_optimized_no_correction(
             ZA=batch.ZA,
             RA=batch.RA,
@@ -573,8 +573,8 @@ class DimerProp(nn.Module):
             qB=v_B[0],
             muB=v_B[1],
             quadB=v_B[2],
-            e_AB_source=batch.e_ABsr_source,
-            e_AB_target=batch.e_ABsr_target,
+            e_AB_source=batch.e_ABfull_source,
+            e_AB_target=batch.e_ABfull_target,
             # Additional parameters for induction
             e_AA_source=batch.e_AA_source,
             e_BB_source=batch.e_BB_source,
@@ -607,8 +607,8 @@ class DimerProp(nn.Module):
             muB=v_B[1],
             quadB=v_B[2],
             Kb=Kbs,
-            e_AB_source=batch.e_ABsr_source,
-            e_AB_target=batch.e_ABsr_target,
+            e_AB_source=batch.e_ABfull_source,
+            e_AB_target=batch.e_ABfull_target,
         )
         if Elst.isnan().any():
             print("Electrostatic energy is NaN, debugging info:")
@@ -2199,15 +2199,15 @@ def induced_dipole_induction_optimized_no_correction(
     alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
 
-    print(f"{alpha_0_A = }")
-    print(f"{alpha_0_B = }")
+    # print(f"{alpha_0_A = }")
+    # print(f"{alpha_0_B = }")
     # Use index_select for vectorized lookup
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
-    print(f"{alpha_0_A = }")
-    print(f"{alpha_0_A = }")
-    print(f"{hirshfeld_volume_ratio_A = }")
-    print(f"{hirshfeld_volume_ratio_B = }")
+    # print(f"{alpha_0_A = }")
+    # print(f"{alpha_0_A = }")
+    # print(f"{hirshfeld_volume_ratio_A = }")
+    # print(f"{hirshfeld_volume_ratio_B = }")
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
     alpha_B = alpha_0_B * hirshfeld_volume_ratio_B ** (4 / 3.0)
 
