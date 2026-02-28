@@ -19,19 +19,19 @@
         # --am_model_path ./models/ap3_ensemble/1/am_3.pt \
 # done
 # export iter=1
-# python3 -u ./train_models.py \
-#     --train_apnet APNet3-fused \
-#     --am_model_path ./models/ap3_ensemble/1/am_3.pt \
-#     --atom_type_param_model_path  ./models/ap3_ensemble/1/am_h+1_3.pt \
-#     --atom_type_param_model_path2 ./models/ap3_ensemble/1/am_elst_h+1_CLIFF.pt \
-#     --random_seed $iter \
-#     --ap_model_path ./models/ap3_ensemble/$iter/ap3_${iter}_ap2-pretrained.pt \
-#     --n_epochs 10 \
-#     --data_dir ./data_dimer_1 \
-#     --spec_type_ap 5 \
-#     --lr 5e-4 \
-#     --ds_in_memory False \
-#     --ds_class_type lmdb
+python3 -u ./train_models.py \
+    --train_apnet APNet3-fused-d3 \
+    --am_model_path ./models/ap3d3_ensemble/am_3.pt \
+    --atom_type_param_model_path  ./models/ap3d3_ensemble/am_h+1_3.pt \
+    --atom_type_param_model_path2 ./models/ap3d3_ensemble/am_elst_h+1_CLIFF.pt \
+    --random_seed 1 \
+    --n_epochs 10 \
+    --data_dir ./data_dimer_1 \
+    --spec_type_ap 5 \
+    --lr 5e-4 \
+    --ds_in_memory False \
+    --ds_class_type lmdb \
+    --ap_model_path ./models/ap3d3_ensemble/ap3d3_0.pt
 
 # AP3-fused FSAPT training
 # python3 -u ./train_models.py \

@@ -569,8 +569,8 @@ def main():
     args.add_argument(
         "--ap_model_path",
         type=str,
-        default="./models/ap2_ensemble/ap2_0.pt",
-        help="specify where to save output model (default: ./models/ap2_ensemble/ap2_1.pt)",
+        default="./models/ap_default.pt",
+        help="specify where to save output model (default: ./models/ap_default.pt)",
     )
     args.add_argument(
         "--ap_pretrained_model_path",
