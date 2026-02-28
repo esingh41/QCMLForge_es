@@ -396,7 +396,8 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             E_classical, mA, mB = self.dimer_prop_model(batch)
             E_elst = E_classical[:, 0]
             E_ind = E_classical[:, 1]
-            E_disp = E_classical[:, 2]
+            if not self.no_disp_nn:
+                E_disp = E_classical[:, 2]
         qA = mA[0]
         qB = mB[0]
         qA = qA.view(-1, 1)
@@ -541,6 +542,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
                 # E_sr_dimer has shape (ndimer, 3)
                 # Truncate to 3 columns
                 E_output = E_sr_dimer + E_elst_dimer[:, :3] + E_ind_dimer[:, :3]
+                E_disp = torch.tensor(0.0, device=E_sr_dimer.device)
             else:
                 # Default 4-col mode: build dispersion and sum all
                 E_disp_full_dimer = scatter_sum_compile(
@@ -739,8 +741,10 @@ class APNet3D3_AtomType_Model:
 
         self.device = device
         if hasattr(self.dimer_prop_model, "set_forward"):
-            # self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
-            self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+            if self.model.no_disp_nn:
+                self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+            else:
+                self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
             self.dimer_prop_model.to(device)
             self.dimer_prop_model.polarizability_table = (
                 self.dimer_prop_model.polarizability_table.to(self.device)
@@ -1304,22 +1308,23 @@ class APNet3D3_AtomType_Model:
             preds = self.model(dimer_batch)
             # If no_disp_nn=True, model outputs 3 cols; expand to 4 by computing D3 at predict time
             if self.model.no_disp_nn:
-                from qcml_dftd3.d3 import d3 as d3_disp
-
-                # Compute D3 dispersion per-pair and aggregate per-dimer
-                E_disp = d3_disp(dimer_batch)
+                # Switch dimer_prop_model to full classical (elst + ind + D3 disp)
+                self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+                with torch.no_grad():
+                    E_classical, _, _ = self.dimer_prop_model(dimer_batch)
+                E_disp = E_classical[:, 2]
                 ndimer = dimer_batch.total_charge_A.size(0)
                 E_disp_dimer = scatter_sum_compile(
                     E_disp, dimer_batch.dimer_ind_full, ndimer
                 )
-                # Now expand predictions from 3 cols to 4 cols
-                # preds[0] is E_sr_dimer with shape (ndimer, 3)
+                # Expand predictions from 3 cols to 4 cols
                 E_sr_dimer_3col = preds[0]
                 E_out4 = torch.zeros((ndimer, 4), device=E_sr_dimer_3col.device)
                 E_out4[:, :3] = E_sr_dimer_3col
                 E_out4[:, 3] = E_disp_dimer
-                # Replace preds[0] with expanded 4-col tensor
                 preds = (E_out4,) + preds[1:]
+                # Restore dimer_prop_model to training mode (elst + ind only)
+                self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
             if self.model.return_hidden_states:
                 E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA, cutoff = preds
                 h_ABs.append(hAB)

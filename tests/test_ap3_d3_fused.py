@@ -891,21 +891,7 @@ def test_classical_ap3_dispersion():
     simple_dftd3_energies = np.array([-1.6318158037336559, -3.095885350720171, -6.786625297216168])
     print(f"{simple_dftd3_energies = }")
     print(f"{ap3_disp = }")
-
     return
-
-
-if __name__ == "__main__":
-    # test_classical_ap3()
-    # test_classical_ap3_long_range()
-    # test_ap3_fused_train_qcel_molecules_in_memory()
-    # test_ap3_fused_train_qcel_molecules_in_memory_precompute()
-    # test_classical_ap3_induction()
-    # test_ap3_fused_lmdb_dataset()
-    # test_ap3_fused_train_qcel_molecules_in_memory_precompute_lmdb()
-    # test_classical_ap3_dispersion()
-    # test_ap3_fused_train_qcel_molecules_in_memory()
-    test_classical_ap3_long_range()
 
 
 def test_ap3_d3_fused_import_qcml_dftd3():
@@ -1150,3 +1136,11 @@ def test_ap3_d3_fused_predict_expansion_to_4_cols():
     
     print(f"no_disp_nn=True predictions shape: {predictions_no_disp.shape}")
     print(f"no_disp_nn=False predictions shape: {predictions_with_disp.shape}")
+
+if __name__ == "__main__":
+    # test_ap3_d3_fused_import_qcml_dftd3()
+    # test_ap3_d3_fused_no_disp_nn_architecture()
+    # test_ap3_d3_fused_default_architecture()
+    # test_ap3_d3_fused_get_config_recreate_model()
+    # test_ap3_d3_fused_predict_expansion_to_4_cols()
+    pytest.main([__file__])
