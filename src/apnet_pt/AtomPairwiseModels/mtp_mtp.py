@@ -89,18 +89,19 @@ class NoisyConstantEmbedding(nn.Embedding):
 
 
 class DimerProp(nn.Module):
-    def __init__(self, ATParam, dimer_eval="elst_damping", elst_damping_type="CLIFF"):
+    def __init__(self, ATParam, dimer_eval="elst_damping", elst_damping_type="CLIFF", freeze_atom_model=True):
         """
         Create a DimerProp configured with an AtomTypeParam and selected evaluation and damping modes.
 
         Parameters:
-            ATParam: An AtomTypeParam instance providing per-atom parameter tensors and an `atom_model` used for multipole predictions. The `atom_model` will be frozen (requires_grad set to False).
+            ATParam: An AtomTypeParam instance providing per-atom parameter tensors and an `atom_model` used for multipole predictions. The `atom_model` will be frozen (requires_grad set to False) when freeze_atom_model is True (default).
             dimer_eval (str): Name of the dimer evaluation forward mode to use (e.g., "elst_damping", "induced_dipole", "elst").
             elst_damping_type (str): Electrostatic damping scheme to apply for damped elst evaluations; supported values include "CLIFF" and "AMOEBA".
         """
         super().__init__()
         self.AtomTypeParam = ATParam
-        self.AtomTypeParam.atom_model.requires_grad_(False)
+        if freeze_atom_model:
+            self.AtomTypeParam.atom_model.requires_grad_(False)
         self.elst_damping_type = elst_damping_type
         self.set_forward(dimer_eval)
         return
@@ -631,10 +632,12 @@ class AtomTypeParamNN(nn.Module):
         param_start_mean=1.8,
         param_start_std=0.01,
         n_params=1,
+        freeze_atom_model=True,
     ):
         super().__init__()
         self.atom_model = atom_model
-        self.atom_model.requires_grad_(False)
+        if freeze_atom_model:
+            self.atom_model.requires_grad_(False)
         self.n_message = n_message
         if type(self.atom_model) in [AtomMPNN, AtomHirshfeldMPNN]:
             self.h_list_ind = -1
@@ -2564,6 +2567,7 @@ class AM_DimerParam_Model:
         ds_energy_labels=None,
         dimer_eval_type="elst_damping",
         elst_damping_type="CLIFF",
+        freeze_atom_model=True,
     ):
         """
         Construct an AtomTypeParamModel wrapper that builds or loads an atom-level model, a parameter-predicting model, and optional dimer evaluators and dataset.
@@ -2751,11 +2755,13 @@ class AM_DimerParam_Model:
         self.dimer_eval_type = dimer_eval_type
         self.elst_damping_type = elst_damping_type
         self.dimer_model = DimerProp(
-            self.model, dimer_eval=dimer_eval_type, elst_damping_type=elst_damping_type
+            self.model, dimer_eval=dimer_eval_type, elst_damping_type=elst_damping_type,
+            freeze_atom_model=freeze_atom_model,
         )
         if self.dimer_eval_type in ["elst", "elst_damping"]:
             self.dimer_model_elst = DimerProp(
-                self.model, dimer_eval="elst", elst_damping_type=elst_damping_type
+                self.model, dimer_eval="elst", elst_damping_type=elst_damping_type,
+                freeze_atom_model=freeze_atom_model,
             )
         else:
             self.dimer_model_elst = None
@@ -3803,6 +3809,7 @@ class AtomTypeParamModel:
         ds_in_memory=True,
         model_save_path=None,
         monomer_eval_type="hirshfeld_volume_ratio__valence_width",
+        freeze_atom_model=True,
     ):
         """
         If pre_trained_model_path is provided, the model will be loaded from
@@ -3873,6 +3880,7 @@ class AtomTypeParamModel:
                 param_start_mean=config["param_start_mean"],
                 param_start_std=config["param_start_std"],
                 n_params=config.get("n_params", 1),
+                freeze_atom_model=freeze_atom_model,
             )
             model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.model.load_state_dict(model_state_dict)
@@ -3885,6 +3893,7 @@ class AtomTypeParamModel:
                 param_start_mean=param_start_mean,
                 param_start_std=param_start_std,
                 n_params=self.n_params,
+                freeze_atom_model=freeze_atom_model,
             )
         self.n_params = self.n_params
         self.monomer_eval_type = monomer_eval_type

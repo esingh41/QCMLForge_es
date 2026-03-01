@@ -186,6 +186,8 @@ def train_pairwise_model(
     ap2_pretrained_model_only=None,
     ds_type="total_component_energies",
     no_disp_nn=False,
+    freeze_dimer_prop_model=True,
+    freeze_atom_model=True,
 ):
     # Ensure param_start_mean and param_start_std are lists
     """
@@ -370,6 +372,7 @@ def train_pairwise_model(
             ignore_database_null=True,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=atom_type_param_model_path,
+            freeze_atom_model=freeze_atom_model,
         )
         atom_type_elst_model = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
             ds_root=None,
@@ -379,6 +382,7 @@ def train_pairwise_model(
             atom_model_type="AtomTypeParamNN",
             pre_trained_model_path=atom_type_param_model_path2,
             elst_damping_type=elst_damping_type,
+            freeze_atom_model=freeze_atom_model,
         )
         am_model_path = None
         print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
@@ -407,6 +411,7 @@ def train_pairwise_model(
             use_precomputed_classical=use_precomputed_classical,
             ds_type=ds_type,
             ds_batch_size=ds_batch_size,
+            freeze_dimer_prop_model=freeze_dimer_prop_model,
         )
         if ap2_pretrained_model_only is not None:
             print(f"Loading AP2 pretrained weights from {ap2_pretrained_model_only}")
@@ -419,6 +424,7 @@ def train_pairwise_model(
             ignore_database_null=True,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=atom_type_param_model_path,
+            freeze_atom_model=freeze_atom_model,
         )
         atom_type_elst_model = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
             ds_root=None,
@@ -428,6 +434,7 @@ def train_pairwise_model(
             atom_model_type="AtomTypeParamNN",
             pre_trained_model_path=atom_type_param_model_path2,
             elst_damping_type=elst_damping_type,
+            freeze_atom_model=freeze_atom_model,
         )
         am_model_path = None
         print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
@@ -457,6 +464,7 @@ def train_pairwise_model(
             ds_type=ds_type,
             no_disp_nn=no_disp_nn,
             ds_batch_size=ds_batch_size,
+            freeze_dimer_prop_model=freeze_dimer_prop_model,
         )
         if ap2_pretrained_model_only is not None:
             print(f"Loading AP2 pretrained weights from {ap2_pretrained_model_only}")
@@ -781,6 +789,18 @@ def main():
         default=False,
         help="APNet3-fused-d3 only: train elst/exch/indu (three components) and compute D3 at predict time instead of a dispersion NN.",
     )
+    args.add_argument(
+        "--unfreeze_dimer_prop_model",
+        action="store_true",
+        default=False,
+        help="APNet3-fused/APNet3-fused-d3: unfreeze the dimer_prop_model submodel during training (default: frozen).",
+    )
+    args.add_argument(
+        "--unfreeze_atom_model",
+        action="store_true",
+        default=False,
+        help="APNet3-fused/APNet3-fused-d3: unfreeze the atom_model inside DimerProp/AtomTypeParamNN during training (default: frozen).",
+    )
     args = args.parse_args()
     # Parse param_start_mean and param_start_std
     args.param_start_mean = parse_param_list(args.param_start_mean)
@@ -842,6 +862,8 @@ def main():
             ap2_pretrained_model_only=args.ap2_pretrained_model_only,
             ds_type=args.ds_type,
             no_disp_nn=args.no_disp_nn,
+            freeze_dimer_prop_model=not args.unfreeze_dimer_prop_model,
+            freeze_atom_model=not args.unfreeze_atom_model,
         )
     return
 

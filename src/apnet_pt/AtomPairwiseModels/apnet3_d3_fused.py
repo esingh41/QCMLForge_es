@@ -144,23 +144,10 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         use_precomputed_classical=False,
         use_atom_props=True,
         no_disp_nn=False,
+        freeze_dimer_prop_model=True,
     ):
         super().__init__()
         self.dimer_prop_model = dimer_prop_model
-        if self.dimer_prop_model is not None:
-            if hasattr(self.dimer_prop_model, "parameters"):
-                for param in self.dimer_prop_model.parameters():
-                    param.requires_grad = False
-            elif hasattr(self.dimer_prop_model, "model"):
-                for param in self.dimer_prop_model.model.parameters():
-                    param.requires_grad = False
-                if hasattr(self.dimer_prop_model, "dimer_model"):
-                    for param in self.dimer_prop_model.dimer_model.parameters():
-                        param.requires_grad = False
-                if hasattr(self.dimer_prop_model, "dimer_model_elst"):
-                    for param in self.dimer_prop_model.dimer_model_elst.parameters():
-                        param.requires_grad = False
-
         self.n_message = n_message
         self.n_rbf = n_rbf
         self.n_neuron = n_neuron
@@ -171,6 +158,24 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         self.use_precomputed_classical = use_precomputed_classical
         self.use_atom_props = use_atom_props
         self.no_disp_nn = no_disp_nn
+        self.freeze_dimer_prop_model = freeze_dimer_prop_model
+
+        if self.freeze_dimer_prop_model:
+            if self.dimer_prop_model is not None:
+                if hasattr(self.dimer_prop_model, "parameters"):
+                    for param in self.dimer_prop_model.parameters():
+                        param.requires_grad = False
+                elif hasattr(self.dimer_prop_model, "model"):
+                    for param in self.dimer_prop_model.model.parameters():
+                        param.requires_grad = False
+                    if hasattr(self.dimer_prop_model, "dimer_model"):
+                        for param in self.dimer_prop_model.dimer_model.parameters():
+                            param.requires_grad = False
+                    if hasattr(self.dimer_prop_model, "dimer_model_elst"):
+                        for (
+                            param
+                        ) in self.dimer_prop_model.dimer_model_elst.parameters():
+                            param.requires_grad = False
 
         layer_nodes_hidden = [
             # input_layer_size,
@@ -251,6 +256,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             "use_atom_props": self.use_atom_props,
             "use_precomputed_classical": self.use_precomputed_classical,
             "no_disp_nn": self.no_disp_nn,
+            "freeze_dimer_prop_model": self.freeze_dimer_prop_model,
         }
 
     def get_messages(self, h0, h, rbf, e_source, e_target):
@@ -612,6 +618,7 @@ class APNet3D3_AtomType_Model:
         ds_class_type="lmdb",  # "pt" or "lmdb"
         use_atom_props=True,
         no_disp_nn=False,
+        freeze_dimer_prop_model=True,
     ):
         """
         the path and all other parameters will be ignored except for dataset.
@@ -690,6 +697,7 @@ class APNet3D3_AtomType_Model:
             config = checkpoint["config"]
             use_atom_props = config.get("use_atom_props", True)
             no_disp_nn = config.get("no_disp_nn", False)
+            freeze_dimer_prop_model = config.get("freeze_dimer_prop_model", True)
             self.model = APNet3D3_AtomType_MPNN(
                 dimer_prop_model=self.dimer_prop_model,
                 n_message=config["n_message"],
@@ -701,6 +709,7 @@ class APNet3D3_AtomType_Model:
                 use_precomputed_classical=use_precomputed_classical,
                 use_atom_props=use_atom_props,
                 no_disp_nn=no_disp_nn,
+                freeze_dimer_prop_model=freeze_dimer_prop_model,
             )
             model_state_dict = {
                 k.replace("_orig_mod.", ""): v
@@ -719,6 +728,7 @@ class APNet3D3_AtomType_Model:
                 use_precomputed_classical=use_precomputed_classical,
                 use_atom_props=use_atom_props,
                 no_disp_nn=no_disp_nn,
+                freeze_dimer_prop_model=freeze_dimer_prop_model,
             )
         if n_rbf != self.model.n_rbf:
             print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
@@ -744,7 +754,9 @@ class APNet3D3_AtomType_Model:
             if self.model.no_disp_nn:
                 self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
             else:
-                self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+                self.dimer_prop_model.set_forward(
+                    "ap3_elst_damping__induced_dipole__disp"
+                )
             self.dimer_prop_model.to(device)
             self.dimer_prop_model.polarizability_table = (
                 self.dimer_prop_model.polarizability_table.to(self.device)
@@ -1309,7 +1321,9 @@ class APNet3D3_AtomType_Model:
             # If no_disp_nn=True, model outputs 3 cols; expand to 4 by computing D3 at predict time
             if self.model.no_disp_nn:
                 # Switch dimer_prop_model to full classical (elst + ind + D3 disp)
-                self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+                self.dimer_prop_model.set_forward(
+                    "ap3_elst_damping__induced_dipole__disp"
+                )
                 with torch.no_grad():
                     E_classical, _, _ = self.dimer_prop_model(dimer_batch)
                 E_disp = E_classical[:, 2]
