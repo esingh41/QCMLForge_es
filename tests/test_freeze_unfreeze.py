@@ -16,6 +16,7 @@ import os
 import numpy as np
 import pytest
 import torch
+import qcelemental as qcel
 
 import apnet_pt
 from apnet_pt.AtomPairwiseModels.apnet3_d3_fused import (
@@ -578,9 +579,9 @@ class TestGradientFlow:
         dimer = DimerProp(ATParam=hf_vw.model, freeze_atom_model=True)
 
         for name, param in dimer.AtomTypeParam.atom_model.named_parameters():
-            assert not param.requires_grad, (
-                f"Frozen atom_model param {name} should have requires_grad=False"
-            )
+            assert not param.requires_grad, f"Frozen atom_model param {
+                name
+            } should have requires_grad=False"
 
     def test_unfrozen_atom_model_has_grad(self):
         """Unfrozen atom_model inside DimerProp should have requires_grad."""
@@ -626,12 +627,16 @@ class TestOptimizerParamCounts:
         )
 
         n_trainable_frozen = sum(
-            p.numel() for p in model_frozen.parameters()
-            if p.requires_grad and not isinstance(p, torch.nn.parameter.UninitializedParameter)
+            p.numel()
+            for p in model_frozen.parameters()
+            if p.requires_grad
+            and not isinstance(p, torch.nn.parameter.UninitializedParameter)
         )
         n_trainable_unfrozen = sum(
-            p.numel() for p in model_unfrozen.parameters()
-            if p.requires_grad and not isinstance(p, torch.nn.parameter.UninitializedParameter)
+            p.numel()
+            for p in model_unfrozen.parameters()
+            if p.requires_grad
+            and not isinstance(p, torch.nn.parameter.UninitializedParameter)
         )
 
         assert n_trainable_unfrozen > n_trainable_frozen, (
@@ -660,15 +665,21 @@ class TestOptimizerParamCounts:
         )
 
         n_trainable_frozen = sum(
-            p.numel() for p in model_frozen.parameters()
-            if p.requires_grad and not isinstance(p, torch.nn.parameter.UninitializedParameter)
+            p.numel()
+            for p in model_frozen.parameters()
+            if p.requires_grad
+            and not isinstance(p, torch.nn.parameter.UninitializedParameter)
         )
         n_trainable_unfrozen = sum(
-            p.numel() for p in model_unfrozen.parameters()
-            if p.requires_grad and not isinstance(p, torch.nn.parameter.UninitializedParameter)
+            p.numel()
+            for p in model_unfrozen.parameters()
+            if p.requires_grad
+            and not isinstance(p, torch.nn.parameter.UninitializedParameter)
         )
 
         assert n_trainable_unfrozen > n_trainable_frozen, (
             f"Unfrozen D3 model should have more trainable params "
             f"({n_trainable_unfrozen}) than frozen D3 model ({n_trainable_frozen})"
         )
+
+

@@ -30,6 +30,7 @@ from ..pt_datasets.ap2_fused_ds import (
 from .. import constants
 from .. import model_io
 import os
+import re
 import time
 from copy import deepcopy
 from importlib import resources
@@ -46,20 +47,30 @@ from apnet_pt.torch_util import set_weights_to_value
 from qcml_dftd3.d3 import d3
 
 from .. import constants
-from ..atomic_datasets import (AtomicDataLoader, atomic_collate_update,
-                               atomic_collate_update_no_target,
-                               atomic_collate_update_prebatched)
+from ..atomic_datasets import (
+    AtomicDataLoader,
+    atomic_collate_update,
+    atomic_collate_update_no_target,
+    atomic_collate_update_prebatched,
+)
 from ..AtomModels.ap2_atom_model import (  # isolate_atomic_property_predictions,; DistanceLayer,
-    AtomMPNN, qcel_mon_to_pyg_data, unwrap_model)
+    AtomMPNN,
+    qcel_mon_to_pyg_data,
+    unwrap_model,
+)
 from ..AtomModels.ap2_hirshfeld_atom_model import (
-    AtomHirshfeldMPNN, atomic_hirshfeld_module_dataset,
-    isolate_atomic_property_predictions)
+    AtomHirshfeldMPNN,
+    atomic_hirshfeld_module_dataset,
+    isolate_atomic_property_predictions,
+)
 from ..multipole import thole_damping_direct_torch, thole_damping_mutual_torch
-from ..pt_datasets.ap2_fused_ds import (APNet2_fused_DataLoader,
-                                        ap2_fused_collate_update,
-                                        ap2_fused_collate_update_no_target,
-                                        ap2_fused_module_dataset,
-                                        qcel_dimer_to_fused_data)
+from ..pt_datasets.ap2_fused_ds import (
+    APNet2_fused_DataLoader,
+    ap2_fused_collate_update,
+    ap2_fused_collate_update_no_target,
+    ap2_fused_module_dataset,
+    qcel_dimer_to_fused_data,
+)
 from ..util import scatter_sum_compile
 
 max_Z = 118
@@ -89,7 +100,13 @@ class NoisyConstantEmbedding(nn.Embedding):
 
 
 class DimerProp(nn.Module):
-    def __init__(self, ATParam, dimer_eval="elst_damping", elst_damping_type="CLIFF", freeze_atom_model=True):
+    def __init__(
+        self,
+        ATParam,
+        dimer_eval="elst_damping",
+        elst_damping_type="CLIFF",
+        freeze_atom_model=True,
+    ):
         """
         Create a DimerProp configured with an AtomTypeParam and selected evaluation and damping modes.
 
@@ -153,6 +170,35 @@ class DimerProp(nn.Module):
             self.forward = self._ap3_atomMPNN
         else:
             raise ValueError(f"Unknown dimer_eval: {dimer_eval}")
+
+    def get_config(self) -> dict:
+        """
+        Return a reconstruction config for this DimerProp hierarchy.
+        """
+        atom_type_param_config = None
+        atom_type_param_type = None
+        atom_model_config = None
+        atom_model_type = None
+
+        if hasattr(self, "AtomTypeParam") and self.AtomTypeParam is not None:
+            atom_type_param_type = type(self.AtomTypeParam).__name__
+            if hasattr(self.AtomTypeParam, "get_config"):
+                atom_type_param_config = self.AtomTypeParam.get_config()
+
+            if hasattr(self.AtomTypeParam, "atom_model"):
+                atom_model = self.AtomTypeParam.atom_model
+                atom_model_type = type(atom_model).__name__
+                if hasattr(atom_model, "get_config"):
+                    atom_model_config = atom_model.get_config()
+
+        return {
+            "dimer_eval": getattr(getattr(self, "forward", None), "__name__", None),
+            "elst_damping_type": self.elst_damping_type,
+            "atom_type_param_type": atom_type_param_type,
+            "atom_type_param_config": atom_type_param_config,
+            "atom_model_type": atom_model_type,
+            "atom_model_config": atom_model_config,
+        }
 
     def _elst_damping_forward(
         self,
@@ -620,6 +666,149 @@ class DimerProp(nn.Module):
 
         Disp = d3(batch)
         return torch.vstack((Elst, Indu, Disp)).T, v_A, v_B
+
+
+def _substate_dict(state_dict: dict, prefix: str) -> dict:
+    return {
+        key[len(prefix) :]: value
+        for key, value in state_dict.items()
+        if key.startswith(prefix)
+    }
+
+
+def _infer_max_index(state_dict: dict, pattern: str) -> int | None:
+    matches = []
+    regex = re.compile(pattern)
+    for key in state_dict:
+        match = regex.match(key)
+        if match:
+            matches.append(int(match.group(1)))
+    if not matches:
+        return None
+    return max(matches)
+
+
+def _infer_atommpnn_from_state_dict(
+    state_dict: dict,
+    r_cut: float = 5.0,
+):
+    n_message_max = _infer_max_index(
+        state_dict,
+        r"^charge_update_layers\.(\d+)\.0\.weight$",
+    )
+    n_message = 0 if n_message_max is None else n_message_max + 1
+    n_rbf = int(state_dict["distance_layer.frequencies"].shape[0])
+    n_embed = int(state_dict["embed_layer.weight"].shape[1])
+    n_neuron = int(state_dict["charge_readout_layers.0.0.weight"].shape[0] // 2)
+    return AtomMPNN(
+        n_message=n_message,
+        n_rbf=n_rbf,
+        n_neuron=n_neuron,
+        n_embed=n_embed,
+        r_cut=r_cut,
+    )
+
+
+def _infer_atomtypeparamnn_from_state_dict(
+    state_dict: dict,
+    r_cut: float = 5.0,
+):
+    nested_atom_type = any(
+        key.startswith("atom_model.param_readout_layers.") for key in state_dict
+    )
+    atom_model_state = _substate_dict(state_dict, "atom_model.")
+    if nested_atom_type:
+        atom_model = _infer_atomtypeparamnn_from_state_dict(
+            atom_model_state, r_cut=r_cut
+        )
+    else:
+        atom_model = _infer_atommpnn_from_state_dict(atom_model_state, r_cut=r_cut)
+
+    n_params_max = _infer_max_index(
+        state_dict,
+        r"^param_readout_layers\.(\d+)\.\d+\.0\.weight$",
+    )
+    n_params = 1 if n_params_max is None else n_params_max + 1
+    n_message_max = _infer_max_index(
+        state_dict,
+        r"^param_readout_layers\.\d+\.(\d+)\.0\.weight$",
+    )
+    n_message = 0 if n_message_max is None else n_message_max
+    first_weight = state_dict["param_readout_layers.0.0.0.weight"]
+    n_embed = int(first_weight.shape[1])
+    n_neuron = int(first_weight.shape[0] // 2)
+
+    return AtomTypeParamNN(
+        atom_model=atom_model,
+        n_message=n_message,
+        n_neuron=n_neuron,
+        n_embed=n_embed,
+        param_start_mean=[0.0] * n_params,
+        param_start_std=[0.01] * n_params,
+        n_params=n_params,
+        freeze_atom_model=False,
+    )
+
+
+def load_dimer_prop_from_checkpoint(
+    checkpoint: dict,
+    freeze_atom_model: bool = False,
+):
+    """
+    Reconstruct a DimerProp model from a v1/v2 checkpoint.
+
+    This supports older v2 checkpoints that embedded the full recursive state
+    dict but did not yet store enough nested config to rebuild the hierarchy
+    directly from config alone.
+    """
+    config = model_io.load_config_from_checkpoint(checkpoint) or {}
+    state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
+    atom_type_param_state = _substate_dict(state_dict, "AtomTypeParam.")
+
+    atom_type_param_config = config.get("atom_type_param_config") or {}
+    atom_type_param_type = config.get("atom_type_param_type", "AtomTypeParamNN")
+    atom_model_config = config.get("atom_model_config") or {}
+    atom_model_type = config.get("atom_model_type")
+    r_cut = atom_model_config.get("r_cut", config.get("r_cut", 5.0))
+
+    if atom_type_param_type == "AtomTypeParamNN" and atom_type_param_config:
+        atom_model_state = _substate_dict(atom_type_param_state, "atom_model.")
+        if atom_model_type == "AtomMPNN" and atom_model_config:
+            atom_model = AtomMPNN(
+                n_message=atom_model_config["n_message"],
+                n_rbf=atom_model_config["n_rbf"],
+                n_neuron=atom_model_config["n_neuron"],
+                n_embed=atom_model_config["n_embed"],
+                r_cut=atom_model_config["r_cut"],
+            )
+        else:
+            atom_model = _infer_atomtypeparamnn_from_state_dict(
+                atom_model_state, r_cut=r_cut
+            )
+
+        atom_type_param = AtomTypeParamNN(
+            atom_model=atom_model,
+            n_message=atom_type_param_config["n_message"],
+            n_neuron=atom_type_param_config["n_neuron"],
+            n_embed=atom_type_param_config["n_embed"],
+            param_start_mean=atom_type_param_config["param_start_mean"],
+            param_start_std=atom_type_param_config["param_start_std"],
+            n_params=atom_type_param_config.get("n_params", 1),
+            freeze_atom_model=False,
+        )
+    else:
+        atom_type_param = _infer_atomtypeparamnn_from_state_dict(
+            atom_type_param_state,
+            r_cut=r_cut,
+        )
+
+    dimer_prop = DimerProp(
+        ATParam=atom_type_param,
+        freeze_atom_model=freeze_atom_model,
+        elst_damping_type=config.get("elst_damping_type", "CLIFF"),
+    )
+    dimer_prop.load_state_dict(state_dict)
+    return dimer_prop
 
 
 class AtomTypeParamNN(nn.Module):
@@ -2755,12 +2944,16 @@ class AM_DimerParam_Model:
         self.dimer_eval_type = dimer_eval_type
         self.elst_damping_type = elst_damping_type
         self.dimer_model = DimerProp(
-            self.model, dimer_eval=dimer_eval_type, elst_damping_type=elst_damping_type,
+            self.model,
+            dimer_eval=dimer_eval_type,
+            elst_damping_type=elst_damping_type,
             freeze_atom_model=freeze_atom_model,
         )
         if self.dimer_eval_type in ["elst", "elst_damping"]:
             self.dimer_model_elst = DimerProp(
-                self.model, dimer_eval="elst", elst_damping_type=elst_damping_type,
+                self.model,
+                dimer_eval="elst",
+                elst_damping_type=elst_damping_type,
                 freeze_atom_model=freeze_atom_model,
             )
         else:

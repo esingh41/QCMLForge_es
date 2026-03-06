@@ -31,7 +31,12 @@ import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
-from .mtp_mtp import AtomTypeParamNN, DimerProp, AtomTypeParamModel
+from .mtp_mtp import (
+    AtomTypeParamNN,
+    DimerProp,
+    AtomTypeParamModel,
+    load_dimer_prop_from_checkpoint,
+)
 
 
 def inverse_time_decay(step, initial_lr, decay_steps, decay_rate, staircase=True):
@@ -636,6 +641,7 @@ class APNet3D3_AtomType_Model:
         self.atom_type_model = AtomTypeParamModel()
         self.dimer_prop_model = DimerProp(ATParam=self.atom_type_model.model)
         self.am_dimer_param_model = am_dimer_param_model
+        dimer_prop_model_loaded_from_embed = False
 
         self.ds_class_type = ds_class_type
         if self.ds_class_type not in ["pt", "lmdb"]:
@@ -693,8 +699,31 @@ class APNet3D3_AtomType_Model:
             print(
                 f"Loading pre-trained APNet3D3_AtomType_MPNN model from {pre_trained_model_path}"
             )
-            checkpoint = torch.load(pre_trained_model_path, weights_only=False)
-            config = checkpoint["config"]
+            checkpoint = model_io.load_checkpoint(
+                pre_trained_model_path,
+                map_location=device,
+            )
+            version = model_io.get_checkpoint_version(checkpoint)
+            if version >= 2 and model_io.has_embedded_submodel(
+                checkpoint,
+                "dimer_prop_model",
+            ):
+                if dimer_prop_model_pre_trained_path:
+                    model_io.warn_submodel_override(
+                        "dimer_prop_model",
+                        embedded_type="DimerProp",
+                        external_path=dimer_prop_model_pre_trained_path,
+                    )
+                dimer_checkpoint = model_io.get_submodel_checkpoint(
+                    checkpoint,
+                    "dimer_prop_model",
+                )
+                self.dimer_prop_model = load_dimer_prop_from_checkpoint(
+                    dimer_checkpoint,
+                    freeze_atom_model=False,
+                )
+                dimer_prop_model_loaded_from_embed = True
+            config = model_io.load_config_from_checkpoint(checkpoint) or {}
             use_atom_props = config.get("use_atom_props", True)
             no_disp_nn = config.get("no_disp_nn", False)
             freeze_dimer_prop_model = config.get("freeze_dimer_prop_model", True)
@@ -711,10 +740,7 @@ class APNet3D3_AtomType_Model:
                 no_disp_nn=no_disp_nn,
                 freeze_dimer_prop_model=freeze_dimer_prop_model,
             )
-            model_state_dict = {
-                k.replace("_orig_mod.", ""): v
-                for k, v in checkpoint["model_state_dict"].items()
-            }
+            model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.model.load_state_dict(model_state_dict)
         else:
             self.model = APNet3D3_AtomType_MPNN(
@@ -773,6 +799,9 @@ class APNet3D3_AtomType_Model:
             self.dimer_prop_model.dimer_model.polarizability_table = (
                 self.dimer_prop_model.dimer_model.polarizability_table.to(self.device)
             )
+
+        if dimer_prop_model_loaded_from_embed:
+            print("Loaded embedded DimerProp from checkpoint")
 
         self.model.to(device)
 
