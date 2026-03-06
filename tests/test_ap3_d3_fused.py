@@ -963,9 +963,9 @@ def test_ap3_d3_fused_no_disp_nn_architecture():
     H = torch.randn(10, in_features)
     output = model.readouts(H)
 
-    assert (
-        output.shape[1] == 3
-    ), f"readouts() should return 3 columns when no_disp_nn=True, got {output.shape[1]}"
+    assert output.shape[1] == 3, (
+        f"readouts() should return 3 columns when no_disp_nn=True, got {output.shape[1]}"
+    )
 
 
 def test_ap3_d3_fused_default_architecture():
@@ -1137,9 +1137,9 @@ def test_ap3_d3_fused_predict_expansion_to_4_cols():
     )
 
     # Should always return 4 columns: [elst, exch, indu, disp]
-    assert (
-        predictions_no_disp.shape[1] == 4
-    ), f"predict_qcel_mols should return 4 columns, got {predictions_no_disp.shape[1]}"
+    assert predictions_no_disp.shape[1] == 4, (
+        f"predict_qcel_mols should return 4 columns, got {predictions_no_disp.shape[1]}"
+    )
 
     # Test with no_disp_nn=False (default)
     ap3_with_disp = APNet3D3_AtomType_Model(
@@ -1188,9 +1188,8 @@ def test_ap3d3_frozen():
         pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
     )
     print(ap3d3.model)
-    print(torch.load("./models/ap3d3_ensemble/ap3d3_0_no_disp.pt"))
-    pred = ap3d3.predict_qcel_mols([mol_cliff_water_close])
-    print(pred)
+    # print(torch.load("./models/ap3d3_ensemble/ap3d3_0_no_disp.pt"))
+    # pred = ap3d3.predict_qcel_mols([mol_cliff_water_close])
     df = pd.read_pickle(
         current_file_path
         + os.sep
@@ -1198,16 +1197,30 @@ def test_ap3d3_frozen():
     )
     print(df)
     from pprint import pprint as pp
-    pp(df.columns.tolist())
+
     mols = df["qcel_molecule"].tolist()
-    preds = ap3d3.predict_qcel_mols(mols, batch_size=2)
+    preds, pairwise_elst_energies, pairwise_ind_energies, pairwise_disp_energies = ap3d3.predict_qcel_mols(
+        mols,
+        batch_size=1,
+        return_pairs=False,
+        return_classical_pairs=True,
+    )
     print(preds)
     print(preds.shape)
+    # df['SAPT0 ELST ENERGY adz'] = df['SAPT0 ELST ENERGY adz'].values * 627.509
+    df['SAPT0 EXCH ENERGY adz'] = df['SAPT0 EXCH ENERGY adz'].values * 627.509
+    df['SAPT0 IND ENERGY adz'] = df['SAPT0 IND ENERGY adz'].values * 627.509
+    df['SAPT0 DISP ENERGY adz'] = df['SAPT0 DISP ENERGY adz'].values * 627.509
     for n, (id, r) in enumerate(df.iterrows()):
         # Print 'SAPT0 ELST ENERGY adz', and SAPT0 TOTAL ENERGY adz with pred row
+        # print(
+        #     f"Row {n}:  {r['SAPT0 ELST ENERGY adz']:.6f}, {
+        #         r['SAPT0 TOTAL ENERGY adz']:.6f}, AP3D3 pred = {preds[n, 0]:.6f}"
+        # )
         print(
-            f"Row {n}:  {r['SAPT0 ELST ENERGY adz']:.6f}, {r['SAPT0 TOTAL ENERGY adz']:.6f}, AP3D3 pred = {preds[n, 0]:.6f}"
+            f"{n}:  {r['SAPT0 ELST ENERGY adz']:.6f}, {r['SAPT0 EXCH ENERGY adz']:.6f}, {r['SAPT0 IND ENERGY adz']:.6f}, {r['SAPT0 DISP ENERGY adz']:.6f}"
         )
+        
     return
 
 

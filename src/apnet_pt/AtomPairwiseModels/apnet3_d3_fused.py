@@ -552,6 +552,8 @@ class APNet3D3_AtomType_MPNN(nn.Module):
                 # E_ind_dimer has shape (ndimer, 4) with ind at col 2
                 # E_sr_dimer has shape (ndimer, 3)
                 # Truncate to 3 columns
+                # print(f"{E_elst_dimer = }")
+                # print(f"{E_ind_dimer = }")
                 E_output = E_sr_dimer + E_elst_dimer[:, :3] + E_ind_dimer[:, :3]
                 E_disp = torch.tensor(0.0, device=E_sr_dimer.device)
             else:
@@ -1365,7 +1367,27 @@ class APNet3D3_AtomType_Model:
                 E_out4 = torch.zeros((ndimer, 4), device=E_sr_dimer_3col.device)
                 E_out4[:, :3] = E_sr_dimer_3col
                 E_out4[:, 3] = E_disp_dimer
-                preds = (E_out4,) + preds[1:]
+                if self.model.return_hidden_states:
+                    preds = (
+                        E_out4,
+                        preds[1],
+                        preds[2],
+                        preds[3],
+                        E_disp,
+                        preds[5],
+                        preds[6],
+                        preds[7],
+                    )
+                else:
+                    preds = (
+                        E_out4,
+                        preds[1],
+                        preds[2],
+                        preds[3],
+                        E_disp,
+                        preds[5],
+                        preds[6],
+                    )
                 # Restore dimer_prop_model to training mode (elst + ind only)
                 self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
             if self.model.return_hidden_states:

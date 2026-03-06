@@ -11,9 +11,9 @@ from . import defaults
 
 
 param = {
-    "a1": 0.095,
-    "s8": 0.738,
-    "a2": 3.637,
+    "a1": 0.7171,
+    "s8": 0.8614,
+    "a2": 0.5375,
 }
 
 def get_distances(RA, RB, e_source, e_target):
