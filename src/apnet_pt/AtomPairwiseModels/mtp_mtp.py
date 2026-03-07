@@ -184,6 +184,15 @@ class DimerProp(nn.Module):
         """
         Return a reconstruction config for this DimerProp hierarchy.
         """
+
+        def _infer_nested_r_cut(model):
+            current = model
+            while current is not None:
+                if hasattr(current, "r_cut"):
+                    return getattr(current, "r_cut")
+                current = getattr(current, "atom_model", None)
+            return None
+
         atom_type_param_config = None
         atom_type_param_type = None
         atom_model_config = None
@@ -199,6 +208,9 @@ class DimerProp(nn.Module):
                 atom_model_type = type(atom_model).__name__
                 if hasattr(atom_model, "get_config"):
                     atom_model_config = atom_model.get_config()
+                    nested_r_cut = _infer_nested_r_cut(atom_model)
+                    if nested_r_cut is not None and "r_cut" not in atom_model_config:
+                        atom_model_config["r_cut"] = nested_r_cut
 
         return {
             "dimer_eval": getattr(getattr(self, "forward", None), "__name__", None),
