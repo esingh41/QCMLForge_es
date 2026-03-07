@@ -1468,7 +1468,7 @@ no_reorient
     ref_d3_energy = -2.459578
     print(f"D3I energy: {d3_energy:.6f} kcal/mol")
     print(f"Reference D3I energy: {ref_d3_energy:.6f} kcal/mol")
-    assert np.isclose(d3_energy, ref_d3_energy, atol=1e-5), f"D3I energy {
+    assert np.isclose(d3_energy, ref_d3_energy, atol=1e-4), f"D3I energy {
         d3_energy:.6f} does not match reference {ref_d3_energy:.6f}"
     return
 

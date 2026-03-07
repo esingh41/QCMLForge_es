@@ -56,17 +56,18 @@ def cn_d3_intermolecular(
 
     cutoff = torch.tensor(defaults.D3_CN_CUTOFF, **dd)
 
+    # Intermolecular edges (A->B)
     if hasattr(batch, "e_ABfull_source"):
-        e_source_full = batch.e_ABfull_source
-        e_target_full = batch.e_ABfull_target
+        e_AB_source = batch.e_ABfull_source
+        e_AB_target = batch.e_ABfull_target
     else:
-        e_source_full = torch.concatenate(
+        e_AB_source = torch.concatenate(
             [
                 batch.e_ABsr_source,
                 batch.e_ABlr_source,
             ]
         )
-        e_target_full = torch.concatenate(
+        e_AB_target = torch.concatenate(
             [
                 batch.e_ABsr_target,
                 batch.e_ABlr_target,
@@ -75,29 +76,74 @@ def cn_d3_intermolecular(
 
     ZA = batch.ZA
     ZB = batch.ZB
-    RA = batch.RA
-    RB = batch.RB
+    # Convert coordinates from angstrom to bohr (covalent radii and cutoff are in bohr)
+    RA = batch.RA / bohr2angstrom
+    RB = batch.RB / bohr2angstrom
 
-    ZA = ZA.index_select(0, e_source_full)
-    ZB = ZB.index_select(0, e_target_full)
-    RA = RA.index_select(0, e_source_full)
-    RB = RB.index_select(0, e_target_full)
+    rcov = radii.COV_D3(**dd)
 
-    rcov = radii.COV_D3(**dd)[ZA] + radii.COV_D3(**dd)[ZB]
+    # --- CN for monomer A atoms ---
+    # Contribution from intramolecular A-A edges
+    cn_A = torch.zeros(len(batch.ZA), **dd)
 
-    dR_xyz = RB - RA
-    distances = torch.sqrt(torch.sum(dR_xyz * dR_xyz, dim=-1).clamp_min(1e-10))
-    cn = torch.where(
-        (distances <= cutoff), exp_count(distances, rcov), torch.tensor(0.0, **dd)
-    )
+    if hasattr(batch, "e_AA_source") and len(batch.e_AA_source) > 0:
+        e_AA_s = batch.e_AA_source
+        e_AA_t = batch.e_AA_target
+        ZA_AA_s = ZA.index_select(0, e_AA_s)
+        ZA_AA_t = ZA.index_select(0, e_AA_t)
+        RA_AA_s = RA.index_select(0, e_AA_s)
+        RA_AA_t = RA.index_select(0, e_AA_t)
+        rcov_AA = rcov[ZA_AA_s] + rcov[ZA_AA_t]
+        dR_AA = torch.sqrt(torch.sum((RA_AA_t - RA_AA_s) ** 2, dim=-1).clamp_min(1e-10))
+        cn_AA = torch.where(
+            (dR_AA <= cutoff), exp_count(dR_AA, rcov_AA), torch.tensor(0.0, **dd)
+        )
+        cn_A.scatter_add_(0, e_AA_s, cn_AA)
 
-    size = e_source_full.max().item() + 1
-    cn_A = torch.zeros(size, **dd)
-    cn_A.scatter_reduce_(0, e_source_full, cn, reduce="sum", include_self=False)
+    # Contribution from intermolecular A->B edges (A atom is source)
+    if len(e_AB_source) > 0:
+        ZA_AB = ZA.index_select(0, e_AB_source)
+        ZB_AB = ZB.index_select(0, e_AB_target)
+        RA_AB = RA.index_select(0, e_AB_source)
+        RB_AB = RB.index_select(0, e_AB_target)
+        rcov_AB = rcov[ZA_AB] + rcov[ZB_AB]
+        dR_AB = torch.sqrt(torch.sum((RB_AB - RA_AB) ** 2, dim=-1).clamp_min(1e-10))
+        cn_AB_vals = torch.where(
+            (dR_AB <= cutoff), exp_count(dR_AB, rcov_AB), torch.tensor(0.0, **dd)
+        )
+        cn_A.scatter_add_(0, e_AB_source, cn_AB_vals)
 
-    size = e_target_full.max().item() + 1
-    cn_B = torch.zeros(size, **dd)
-    cn_B.scatter_reduce_(0, e_target_full, cn, reduce="sum", include_self=False)
+    # --- CN for monomer B atoms ---
+    # Contribution from intramolecular B-B edges
+    cn_B = torch.zeros(len(batch.ZB), **dd)
+
+    if hasattr(batch, "e_BB_source") and len(batch.e_BB_source) > 0:
+        e_BB_s = batch.e_BB_source
+        e_BB_t = batch.e_BB_target
+        ZB_BB_s = ZB.index_select(0, e_BB_s)
+        ZB_BB_t = ZB.index_select(0, e_BB_t)
+        RB_BB_s = RB.index_select(0, e_BB_s)
+        RB_BB_t = RB.index_select(0, e_BB_t)
+        rcov_BB = rcov[ZB_BB_s] + rcov[ZB_BB_t]
+        dR_BB = torch.sqrt(torch.sum((RB_BB_t - RB_BB_s) ** 2, dim=-1).clamp_min(1e-10))
+        cn_BB = torch.where(
+            (dR_BB <= cutoff), exp_count(dR_BB, rcov_BB), torch.tensor(0.0, **dd)
+        )
+        cn_B.scatter_add_(0, e_BB_s, cn_BB)
+
+    # Contribution from intermolecular A->B edges (B atom is target)
+    if len(e_AB_target) > 0:
+        ZA_BA = ZA.index_select(0, e_AB_source)
+        ZB_BA = ZB.index_select(0, e_AB_target)
+        RA_BA = RA.index_select(0, e_AB_source)
+        RB_BA = RB.index_select(0, e_AB_target)
+        rcov_BA = rcov[ZA_BA] + rcov[ZB_BA]
+        dR_BA = torch.sqrt(torch.sum((RB_BA - RA_BA) ** 2, dim=-1).clamp_min(1e-10))
+        cn_BA_vals = torch.where(
+            (dR_BA <= cutoff), exp_count(dR_BA, rcov_BA), torch.tensor(0.0, **dd)
+        )
+        cn_B.scatter_add_(0, e_AB_target, cn_BA_vals)
+
     return cn_A, cn_B
 
 
@@ -161,15 +207,12 @@ def d3(
 
     # C8 is computed recursively from c6
 
-    # Q_A = sqrt(Z) * r^4/r^2
+    # Fortran: rrij = 3*r4r2(izp)*r4r2(jzp)
+    # R4R2() already returns sqrt(0.5 * raw * sqrtZ), matching Fortran r4r2 values
     r4_over_r2 = r4r2.R4R2(**dd)
-    # ad hoc nuclear charge dependent factor
-    sqrtz = torch.sqrt(torch.arange(len(r4_over_r2), **dd))
-    Q = r4_over_r2 * sqrtz
-    # C_8 = 3 * C_6 * sqrt(Q_A * Q_B)
 
-    # quotient of C8 and C6, used later by damping function
-    qAqB = 3 * torch.sqrt((Q[ZA] * Q[ZB]))
+    # quotient of C8 and C6: qAqB = 3 * r4r2[A] * r4r2[B]
+    qAqB = 3 * r4_over_r2[ZA] * r4_over_r2[ZB]
     c8 = c6 * qAqB
 
     t6 = rational_damping(
