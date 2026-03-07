@@ -1346,7 +1346,6 @@ class APNet3D3_AtomType_Model:
                 # create a new data list with only valid data
                 data = [data[j] for j in valid_indices]
             dimer_batch = ap3_fused_collate_update_no_target(data)
-            # print(dimer_batch)
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
             # If no_disp_nn=True, model outputs 3 cols; expand to 4 by computing D3 at predict time
