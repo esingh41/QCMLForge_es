@@ -4,7 +4,6 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap2_atom_model import AtomMPNN
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
@@ -150,7 +149,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         use_precomputed_classical=False,
         use_atom_props=True,
         no_disp_nn=False,
-        freeze_dimer_prop_model=True,
+        freeze_dimer_prop_model=None,
         d3_damping_parameters=None,
     ):
         super().__init__()
@@ -736,7 +735,8 @@ class APNet3D3_AtomType_Model:
             config = model_io.load_config_from_checkpoint(checkpoint) or {}
             use_atom_props = config.get("use_atom_props", True)
             no_disp_nn = config.get("no_disp_nn", False)
-            freeze_dimer_prop_model = config.get("freeze_dimer_prop_model", True)
+            if freeze_dimer_prop_model is None:
+                freeze_dimer_prop_model = config.get("freeze_dimer_prop_model", True)
             resolved_d3_damping_parameters = resolve_d3_damping_parameters(
                 d3_damping_parameters
                 if d3_damping_parameters is not None
@@ -759,6 +759,8 @@ class APNet3D3_AtomType_Model:
             model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.model.load_state_dict(model_state_dict)
         else:
+            if freeze_dimer_prop_model is None:
+                freeze_dimer_prop_model = True
             resolved_d3_damping_parameters = resolve_d3_damping_parameters(
                 d3_damping_parameters
             )
@@ -1390,10 +1392,13 @@ class APNet3D3_AtomType_Model:
                 E_out4 = torch.zeros((ndimer, 4), device=E_sr_dimer_3col.device)
                 E_out4[:, :3] = E_sr_dimer_3col
                 E_out4[:, 3] = E_disp_dimer
+                E_sr_3col = preds[1]
+                E_sr_out4 = torch.zeros((E_sr_3col.size(0), 4), device=E_sr_3col.device)
+                E_sr_out4[:, :3] = E_sr_3col
                 if self.model.return_hidden_states:
                     preds = (
                         E_out4,
-                        preds[1],
+                        E_sr_out4,
                         preds[2],
                         preds[3],
                         E_disp,
@@ -1404,7 +1409,7 @@ class APNet3D3_AtomType_Model:
                 else:
                     preds = (
                         E_out4,
-                        preds[1],
+                        E_sr_out4,
                         preds[2],
                         preds[3],
                         E_disp,

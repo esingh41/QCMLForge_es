@@ -1,10 +1,12 @@
+from functools import lru_cache
+from importlib import resources
+
 from .weights import weight_references
 from . import defaults
 from .rational import rational_damping
 from .data import radii, r4r2
 import qcelemental
 import torch
-import os
 
 h2kcalmol = qcelemental.constants.hartree2kcalmol
 bohr2angstrom = qcelemental.constants.bohr2angstroms
@@ -41,6 +43,25 @@ def resolve_d3_damping_parameters(params: dict | None = None) -> dict[str, float
     for key, value in params.items():
         resolved[key] = _to_python_float(value)
     return resolved
+
+
+@lru_cache(maxsize=1)
+def _load_reference_c6_cpu() -> torch.Tensor:
+    ref_path = resources.files("qcml_dftd3.data").joinpath("reference-c6.pt")
+    with ref_path.open("rb") as handle:
+        return torch.load(handle, map_location="cpu", weights_only=True)
+
+
+_REF_C6_CACHE: dict[tuple[str, str], torch.Tensor] = {}
+
+
+def _get_reference_c6(device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+    cache_key = (str(device), str(dtype))
+    ref_c6 = _REF_C6_CACHE.get(cache_key)
+    if ref_c6 is None:
+        ref_c6 = _load_reference_c6_cpu().to(device=device, dtype=dtype)
+        _REF_C6_CACHE[cache_key] = ref_c6
+    return ref_c6
 
 
 def get_distances(RA, RB, e_source, e_target):
@@ -173,9 +194,7 @@ def d3(
     dd = {"device": RA.device, "dtype": RA.dtype}
     params = resolve_d3_damping_parameters(params)
 
-    path = os.path.join(os.path.dirname(__file__), "data/reference-c6.pt")
-    kwargs = {"weights_only": True, "map_location": dd["device"]}
-    ref_c6 = torch.load(path, **kwargs).type(dtype=dd["dtype"])
+    ref_c6 = _get_reference_c6(dd["device"], dd["dtype"])
 
     cn_A, cn_B = cn_d3_intermolecular(
         batch,

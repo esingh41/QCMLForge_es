@@ -834,10 +834,6 @@ def test_classical_ap3_dispersion():
         benzene_pyridine_dimer,
     ]
 
-    # mols = [
-    #     water_water_dimer,
-    # ]
-
     batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
             apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
@@ -846,8 +842,6 @@ def test_classical_ap3_dispersion():
             for n, mol in enumerate(mols)
         ]
     )
-
-    print(dir(batch))
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -877,22 +871,10 @@ def test_classical_ap3_dispersion():
         # use_precomputed_classical=False,
     )
     print(f"{batch.dimer_ind=}")
-    v = ap3.predict_qcel_mols(
-        [
-            water_water_dimer,
-        ],
-        batch_size=1,
-        return_classical_pairs=True,
-    )
     E_classical, mA, mB = ap3.dimer_prop_model(batch)
-    ref_disp = 0
     print(f"{E_classical[:, 2]=}")
     torch_disp = E_classical[:, 2]
-    # print(f"{torch_disp = }")
-
-    dimer_energies = torch.zeros(
-        3,
-    )
+    dimer_energies = torch.zeros(3)
 
     dimer_energies.scatter_add_(0, batch.dimer_ind, torch_disp)
     print(f"{dimer_energies=}")
@@ -900,10 +882,13 @@ def test_classical_ap3_dispersion():
     # Energies are from simple dftd3
 
     simple_dftd3_energies = np.array(
-        [-1.6318158037336559, -3.095885350720171, -6.786625297216168]
+        [-2.4595184, -4.3240623, -7.2716193]
     )
     print(f"{simple_dftd3_energies=}")
     print(f"{ap3_disp=}")
+    assert np.allclose(ap3_disp, simple_dftd3_energies, atol=1e-5), (
+        f"AP3 dispersion energies {ap3_disp} should be close to simple DFTD3 energies {simple_dftd3_energies}"
+    )
     return
 
 
@@ -1406,7 +1391,8 @@ no_reorient
 
 
 if __name__ == "__main__":
-    test_d3i()
+    test_classical_ap3_dispersion()
+    # test_d3i()
     # test_ap3d3_frozen()
     # test_ap3_d3_fused_import_qcml_dftd3()
     # test_ap3_d3_fused_no_disp_nn_architecture()
