@@ -1424,7 +1424,7 @@ no_reorient
 
     """
     # Should get -4.813840 kcal/mol for the D3I dispersion energy
-    s_dftd3_bin = os.path.expanduser("~/papers_gt/sapt_dft_ddftd4/code_ddft_d4/simple-dftd3/_build/app/s-dftd3")
+    s_dftd3_bin = os.path.expanduser("./simple-dftd3/_build/app/s-dftd3")
     print(s_dftd3_bin)
     au2ang = qcel.constants.conversion_factor("bohr", "angstrom")
     d3data = collect_bjm_d3data_dimer_intermolecular(
