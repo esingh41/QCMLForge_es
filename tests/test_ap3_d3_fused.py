@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 import qcelemental as qcel
 import torch
-from qm_tools_aw import tools
+from qcml_dftd3.d3 import d3
 
 import apnet_pt
 from apnet_pt.AtomPairwiseModels.apnet3_d3_fused import APNet3D3_AtomType_Model
@@ -1357,58 +1357,6 @@ def test_ap3d3_frozen():
     return
 
 
-def collect_bjm_d3data_dimer_intermolecular(
-    pos, carts, monAs, monBs, ATM=False, s_dftd3_bin=None, params=None
-):
-    import subprocess
-
-    if s_dftd3_bin is None:
-        s_dftd3_bin = "s-dftd3"
-    with open("tmp.xyz", "w") as f:
-        f.write(tools.carts_to_xyz(pos, carts))
-    if ATM:
-        cmd = [s_dftd3_bin, "--bj", "hf", "--pair-resolved", "--atm", "tmp.xyz"]
-    elif params is not None:
-        # --bjm-param <list>    Specify parameters for rational damping,
-        #                       expected order is s6, s8, a1, a2 (requires four arguments
-        cmd = [
-            s_dftd3_bin,
-            "--bj-param",
-            str(params["s6"]),
-            str(params["s8"]),
-            str(params["a1"]),
-            str(params["a2"]),
-            "--pair-resolved",
-            "tmp.xyz",
-        ]
-    else:
-        cmd = [s_dftd3_bin, "--bj", "hf", "--pair-resolved", "tmp.xyz"]
-    print(" ".join(cmd))
-    # proc1 = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    # proc1.wait()
-    subprocess.run(cmd, stdout=subprocess.PIPE)
-
-    # print(proc1.stdout.read())
-    data = tools.json_to_dict("d3data.json")
-    # os.remove("tmp.xyz")
-    # os.remove("d3data.json")
-    output = []
-    for i in monAs:
-        for j in monBs:
-            output.append(
-                [
-                    i + 1,
-                    j + 1,
-                    data["rs"][j, i],
-                    data["r0s"][j, i],
-                    data["c6s"][j, i],
-                    data["c8s"][j, i],
-                ]
-            )
-    # return data, np.array(output), e_disp
-    return np.array(output)
-
-
 def test_d3i():
     """
     Checks that using saptpbe0-d3i parameters yields the correct result
@@ -1429,87 +1377,6 @@ units bohr
 no_com
 no_reorient
 """)
-
-    print(
-        """
-                system_id  SAPT(PBE0)-D3 INTER DISP ENERGY atz  SAPT2+3(CCD) DISP ENERGY atz
-3556  01_Water-Water_1.00                            -2.459578                     -2.185902
-Molecule(name='H4O2', formula='H4O2', hash='fa17e4a')
-0 1
---
-0 1
-O                    -1.326958230000    -0.105938530000     0.018788150000
-H                    -1.931665240000     1.600174320000    -0.021710520000
-H                     0.486644280000     0.079598090000     0.009862480000
---
-0 1
-O                     4.287563290000     0.049775580000     0.000960040000
-H                     4.999275000000    -0.778642690000     1.448725300000
-H                     4.991040900000    -0.850136520000    -1.407646550000
-units bohr
-no_com
-no_reorient
-
-# D3Data is ordered as [[i + 1, j + 1, data["rs"][j, i], data["r0s"][j, i], data["c6s"][j, i], data["c8s"][j, i]], ...]
-                ]
-
-[
- [  1.         4.         5.616709   4.403635  10.412259 210.125055]
- [  1.         5.         6.520619   4.220777   5.436685  84.914938]
- [  1.         6.         6.519636   4.220777   5.436685  84.914944]
- [  2.         4.         6.409606   4.220777   5.436305  84.909007]
- [  2.         5.         7.47388    4.059907   3.092829  37.387197]
- [  2.         6.         7.473199   4.059907   3.092829  37.3872  ]
- [  3.         4.         3.801046   4.220777   5.435648  84.898749]
- [  3.         5.         4.813599   4.059907   3.09241   37.382139]
- [  3.         6.         4.812829   4.059907   3.092411  37.382142]
-    """
-    )
-    """
-[[  1.         2.         1.810561   4.220777   5.436615  84.913855]
- [  1.         3.         1.82309    4.220777   5.435958  84.903596]
- [  1.         4.         5.616709   4.403635  10.412259 210.125055]
- [  1.         5.         6.520619   4.220777   5.436685  84.914938]
- [  1.         6.         6.519636   4.220777   5.436685  84.914944]
- [  2.         3.         2.856811   4.059907   3.092366  37.381605]
- [  2.         4.         6.409606   4.220777   5.436305  84.909007]
- [  2.         5.         7.47388    4.059907   3.092829  37.387197]
- [  2.         6.         7.473199   4.059907   3.092829  37.3872  ]
- [  3.         4.         3.801046   4.220777   5.435648  84.898749]
- [  3.         5.         4.813599   4.059907   3.09241   37.382139]
- [  3.         6.         4.812829   4.059907   3.092411  37.382142]
- [  4.         5.         1.813514   4.220777   5.436374  84.91009 ]
- [  4.         6.         1.813531   4.220777   5.436375  84.910096]
- [  5.         6.         2.857278   4.059907   3.092873  37.387734]
- [  1.         2.         1.810561   4.220777  -5.436739 -84.915782]
- [  1.         3.         1.82309    4.220777  -5.437074 -84.921013]
- [  2.         3.         2.856811   4.059907  -3.093022 -37.389537]
- [  1.         2.         1.813514   4.220777  -5.436764 -84.916182]
- [  1.         3.         1.813531   4.220777  -5.436765 -84.916189]
- [  2.         3.         2.857278   4.059907  -3.092905 -37.388123]]
-
-    """
-    # Should get -4.813840 kcal/mol for the D3I dispersion energy
-    s_dftd3_bin = os.path.expanduser("./simple-dftd3/_build/app/s-dftd3")
-    print(s_dftd3_bin)
-    au2ang = qcel.constants.conversion_factor("bohr", "angstrom")
-    d3data = collect_bjm_d3data_dimer_intermolecular(
-        pos=mol.atomic_numbers,
-        carts=mol.geometry * au2ang,
-        monAs=[0, 1, 2],
-        monBs=[3, 4, 5],
-        ATM=False,
-        s_dftd3_bin=s_dftd3_bin,
-        params={
-            "s6": 1.0,
-            "s8": 0.8614,  # D3(I)
-            "a1": 0.7171,  # D3(I)
-            "a2": 0.5375,  # D3(I)
-        },
-    )
-    print(d3data)
-    from qcml_dftd3.d3 import d3
-
     dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
             apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
@@ -1528,7 +1395,6 @@ no_reorient
             "a2": 0.5375,  # D3(I)
         },
     )
-    print(d3_pairs)
     d3_energy = torch.sum(d3_pairs).item()
     print(d3_energy)
     ref_d3_energy = -2.459578
