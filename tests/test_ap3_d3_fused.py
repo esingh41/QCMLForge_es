@@ -17,6 +17,7 @@ from apnet_pt.pt_datasets.ap3_fused_ds import (
     ap3_fused_module_dataset_lmdb,
 )
 from apnet_pt.util import scatter_sum_compile
+from qcml_dftd3.d3 import params_intermolecular_saptpbe0_d3i
 
 torch.manual_seed(42)
 spec_type = 5
@@ -116,6 +117,14 @@ def set_weights_to_value(model, value=0.9):
         for param in model.parameters():
             param.fill_(value)  # Set all elements to the given value
     return
+
+
+def assert_d3_params_equal(actual, expected):
+    assert set(actual) == set(expected)
+    for key in expected:
+        assert np.isclose(actual[key], expected[key]), (
+            f"D3 parameter {key} mismatch: {actual[key]} != {expected[key]}"
+        )
 
 
 def test_ap3_fused_train_qcel_molecules_in_memory():
@@ -965,9 +974,9 @@ def test_ap3_d3_fused_no_disp_nn_architecture():
     H = torch.randn(10, in_features)
     output = model.readouts(H)
 
-    assert (
-        output.shape[1] == 3
-    ), f"readouts() should return 3 columns when no_disp_nn=True, got {output.shape[1]}"
+    assert output.shape[1] == 3, (
+        f"readouts() should return 3 columns when no_disp_nn=True, got {output.shape[1]}"
+    )
 
 
 def test_ap3_d3_fused_default_architecture():
@@ -1083,7 +1092,6 @@ def test_ap3_d3_fused_get_config_recreate_model():
     assert config["r_cut"] == 4.5
     assert config["use_precomputed_classical"] is True
     assert config["use_atom_props"] is True  # default
-
     # Recreate model with dimer_prop_model=None using config
     model2 = APNet3D3_AtomType_MPNN(dimer_prop_model=None, **config)
 
@@ -1099,6 +1107,58 @@ def test_ap3_d3_fused_get_config_recreate_model():
     assert model2.n_rbf == 6
     assert model2.n_neuron == 64
     assert model2.n_embed == 4
+
+
+def test_ap3_d3_model_d3_damping_parameters_precedence(tmp_path):
+    saved_params = {
+        "s6": 1.0,
+        "s8": 0.91,
+        "a1": 0.44,
+        "a2": 3.8,
+    }
+    override_params = {
+        "s6": 1.0,
+        "s8": 0.88,
+        "a1": 0.61,
+        "a2": 2.9,
+    }
+    checkpoint_path = tmp_path / "ap3d3_saved_d3.pt"
+
+    ap3d3_default = APNet3D3_AtomType_Model(
+        pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
+    )
+    assert_d3_params_equal(
+        ap3d3_default.d3_damping_parameters,
+        params_intermolecular_saptpbe0_d3i,
+    )
+    assert_d3_params_equal(
+        ap3d3_default.model.get_config()["d3_damping_parameters"],
+        params_intermolecular_saptpbe0_d3i,
+    )
+
+    ap3d3 = APNet3D3_AtomType_Model(
+        pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
+        d3_damping_parameters=saved_params,
+    )
+    ap3d3.save_model(str(checkpoint_path))
+
+    restored_default = APNet3D3_AtomType_Model(
+        pre_trained_model_path=str(checkpoint_path)
+    )
+    assert_d3_params_equal(restored_default.d3_damping_parameters, saved_params)
+    assert_d3_params_equal(
+        restored_default.model.get_config()["d3_damping_parameters"], saved_params
+    )
+
+    restored_override = APNet3D3_AtomType_Model(
+        pre_trained_model_path=str(checkpoint_path),
+        d3_damping_parameters=override_params,
+    )
+    assert_d3_params_equal(restored_override.d3_damping_parameters, override_params)
+    assert_d3_params_equal(
+        restored_override.dimer_prop_model.d3_damping_parameters,
+        override_params,
+    )
 
 
 def test_ap3_d3_fused_predict_expansion_to_4_cols():
@@ -1139,9 +1199,9 @@ def test_ap3_d3_fused_predict_expansion_to_4_cols():
     )
 
     # Should always return 4 columns: [elst, exch, indu, disp]
-    assert (
-        predictions_no_disp.shape[1] == 4
-    ), f"predict_qcel_mols should return 4 columns, got {predictions_no_disp.shape[1]}"
+    assert predictions_no_disp.shape[1] == 4, (
+        f"predict_qcel_mols should return 4 columns, got {predictions_no_disp.shape[1]}"
+    )
 
     # Test with no_disp_nn=False (default)
     ap3_with_disp = APNet3D3_AtomType_Model(
@@ -1309,12 +1369,18 @@ def collect_bjm_d3data_dimer_intermolecular(
     if ATM:
         cmd = [s_dftd3_bin, "--bj", "hf", "--pair-resolved", "--atm", "tmp.xyz"]
     elif params is not None:
-
-   # --bjm-param <list>    Specify parameters for rational damping,
-   #                       expected order is s6, s8, a1, a2 (requires four arguments
-        cmd = [s_dftd3_bin, "--bj-param",
-               str(params['s6']), str(params['s8']), str(params['a1']), str(params['a2']),
-               "--pair-resolved", "tmp.xyz"]
+        # --bjm-param <list>    Specify parameters for rational damping,
+        #                       expected order is s6, s8, a1, a2 (requires four arguments
+        cmd = [
+            s_dftd3_bin,
+            "--bj-param",
+            str(params["s6"]),
+            str(params["s8"]),
+            str(params["a1"]),
+            str(params["a2"]),
+            "--pair-resolved",
+            "tmp.xyz",
+        ]
     else:
         cmd = [s_dftd3_bin, "--bj", "hf", "--pair-resolved", "tmp.xyz"]
     print(" ".join(cmd))
@@ -1436,9 +1502,9 @@ no_reorient
         s_dftd3_bin=s_dftd3_bin,
         params={
             "s6": 1.0,
-            "s8": 0.8614, # D3(I)
-            "a1": 0.7171, # D3(I)
-            "a2": 0.5375, # D3(I)
+            "s8": 0.8614,  # D3(I)
+            "a1": 0.7171,  # D3(I)
+            "a2": 0.5375,  # D3(I)
         },
     )
     print(d3data)
@@ -1457,9 +1523,9 @@ no_reorient
         batch=dimer_batch,
         params={
             "s6": 1.0,
-            "s8": 0.8614, # D3(I)
-            "a1": 0.7171, # D3(I)
-            "a2": 0.5375, # D3(I)
+            "s8": 0.8614,  # D3(I)
+            "a1": 0.7171,  # D3(I)
+            "a2": 0.5375,  # D3(I)
         },
     )
     print(d3_pairs)

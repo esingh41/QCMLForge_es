@@ -25,6 +25,24 @@ params_intermolecular_sapt0_d3i = {
 }
 
 
+def _to_python_float(value) -> float:
+    if torch.is_tensor(value):
+        if value.numel() != 1:
+            raise ValueError("D3 damping parameter tensors must be scalar-valued")
+        return float(value.detach().cpu().item())
+    return float(value)
+
+
+def resolve_d3_damping_parameters(params: dict | None = None) -> dict[str, float]:
+    resolved = dict(params_intermolecular_saptpbe0_d3i)
+    if params is None:
+        return resolved
+
+    for key, value in params.items():
+        resolved[key] = _to_python_float(value)
+    return resolved
+
+
 def get_distances(RA, RB, e_source, e_target):
     RA_source = RA.index_select(0, e_source)
     RB_target = RB.index_select(0, e_target)
@@ -37,9 +55,9 @@ def get_distances(RA, RB, e_source, e_target):
 
 
 def exp_count(
-    distances: torch.tensor,
-    cov_r: torch.tensor,
-) -> torch.tensor:
+    distances: torch.Tensor,
+    cov_r: torch.Tensor,
+) -> torch.Tensor:
 
     k2 = 4.0 / 3.0  # ad hoc factor so the cn is reasonable for molecules
     k1 = 16  # large so distant atoms are not counted so CN does not depend on size of system
@@ -49,7 +67,7 @@ def exp_count(
 
 def cn_d3_intermolecular(
     batch,
-) -> torch.tensor:
+) -> tuple[torch.Tensor, torch.Tensor]:
 
     RA = batch.RA
     dd = {"device": RA.device, "dtype": RA.dtype}
@@ -153,6 +171,7 @@ def d3(
 ):
     RA = batch.RA
     dd = {"device": RA.device, "dtype": RA.dtype}
+    params = resolve_d3_damping_parameters(params)
 
     path = os.path.join(os.path.dirname(__file__), "data/reference-c6.pt")
     kwargs = {"weights_only": True, "map_location": dd["device"]}
@@ -235,14 +254,14 @@ def d3(
     pairwise_energies = e6 + e8
     pairwise_energies *= h2kcalmol
 
-    print(f"{e_source_full = }")
-    print(f"{e_target_full = }")
-    print("rs", distances)
+    # print(f"{e_source_full = }")
+    # print(f"{e_target_full = }")
+    # print("rs", distances)
     # rrij = 3*r4r2(izp)*r4r2(jzp)
     # r0ij = self%a1 * sqrt(rrij) + self%a2
 
-    print("r0ij", params["a1"] * torch.sqrt(qAqB) + params["a2"])
-    print("c6", c6)
-    print("c8", c8)
+    # print("r0ij", params["a1"] * torch.sqrt(qAqB) + params["a2"])
+    # print("c6", c6)
+    # print("c8", c8)
 
     return pairwise_energies
