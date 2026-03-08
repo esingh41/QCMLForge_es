@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 import qcelemental as qcel
 import torch
+from qcml_dftd3.d3 import d3
 
 import apnet_pt
 from apnet_pt.AtomPairwiseModels.apnet3_d3_fused import APNet3D3_AtomType_Model
@@ -15,6 +16,8 @@ from apnet_pt.pt_datasets.ap3_fused_ds import (
     ap3_fused_module_dataset,
     ap3_fused_module_dataset_lmdb,
 )
+from apnet_pt.util import scatter_sum_compile
+from qcml_dftd3.d3 import params_intermolecular_saptpbe0_d3i
 
 torch.manual_seed(42)
 spec_type = 5
@@ -114,6 +117,14 @@ def set_weights_to_value(model, value=0.9):
         for param in model.parameters():
             param.fill_(value)  # Set all elements to the given value
     return
+
+
+def assert_d3_params_equal(actual, expected):
+    assert set(actual) == set(expected)
+    for key in expected:
+        assert np.isclose(actual[key], expected[key]), (
+            f"D3 parameter {key} mismatch: {actual[key]} != {expected[key]}"
+        )
 
 
 def test_ap3_fused_train_qcel_molecules_in_memory():
@@ -823,10 +834,6 @@ def test_classical_ap3_dispersion():
         benzene_pyridine_dimer,
     ]
 
-    # mols = [
-    #     water_water_dimer,
-    # ]
-
     batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
         [
             apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
@@ -835,8 +842,6 @@ def test_classical_ap3_dispersion():
             for n, mol in enumerate(mols)
         ]
     )
-
-    print(dir(batch))
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -866,22 +871,10 @@ def test_classical_ap3_dispersion():
         # use_precomputed_classical=False,
     )
     print(f"{batch.dimer_ind=}")
-    v = ap3.predict_qcel_mols(
-        [
-            water_water_dimer,
-        ],
-        batch_size=1,
-        return_classical_pairs=True,
-    )
     E_classical, mA, mB = ap3.dimer_prop_model(batch)
-    ref_disp = 0
     print(f"{E_classical[:, 2]=}")
     torch_disp = E_classical[:, 2]
-    # print(f"{torch_disp = }")
-
-    dimer_energies = torch.zeros(
-        3,
-    )
+    dimer_energies = torch.zeros(3)
 
     dimer_energies.scatter_add_(0, batch.dimer_ind, torch_disp)
     print(f"{dimer_energies=}")
@@ -889,10 +882,13 @@ def test_classical_ap3_dispersion():
     # Energies are from simple dftd3
 
     simple_dftd3_energies = np.array(
-        [-1.6318158037336559, -3.095885350720171, -6.786625297216168]
+        [-2.4595184, -4.3240623, -7.2716193]
     )
     print(f"{simple_dftd3_energies=}")
     print(f"{ap3_disp=}")
+    assert np.allclose(ap3_disp, simple_dftd3_energies, atol=1e-5), (
+        f"AP3 dispersion energies {ap3_disp} should be close to simple DFTD3 energies {simple_dftd3_energies}"
+    )
     return
 
 
@@ -1081,7 +1077,6 @@ def test_ap3_d3_fused_get_config_recreate_model():
     assert config["r_cut"] == 4.5
     assert config["use_precomputed_classical"] is True
     assert config["use_atom_props"] is True  # default
-
     # Recreate model with dimer_prop_model=None using config
     model2 = APNet3D3_AtomType_MPNN(dimer_prop_model=None, **config)
 
@@ -1097,6 +1092,58 @@ def test_ap3_d3_fused_get_config_recreate_model():
     assert model2.n_rbf == 6
     assert model2.n_neuron == 64
     assert model2.n_embed == 4
+
+
+def test_ap3_d3_model_d3_damping_parameters_precedence(tmp_path):
+    saved_params = {
+        "s6": 1.0,
+        "s8": 0.91,
+        "a1": 0.44,
+        "a2": 3.8,
+    }
+    override_params = {
+        "s6": 1.0,
+        "s8": 0.88,
+        "a1": 0.61,
+        "a2": 2.9,
+    }
+    checkpoint_path = tmp_path / "ap3d3_saved_d3.pt"
+
+    ap3d3_default = APNet3D3_AtomType_Model(
+        pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
+    )
+    assert_d3_params_equal(
+        ap3d3_default.d3_damping_parameters,
+        params_intermolecular_saptpbe0_d3i,
+    )
+    assert_d3_params_equal(
+        ap3d3_default.model.get_config()["d3_damping_parameters"],
+        params_intermolecular_saptpbe0_d3i,
+    )
+
+    ap3d3 = APNet3D3_AtomType_Model(
+        pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
+        d3_damping_parameters=saved_params,
+    )
+    ap3d3.save_model(str(checkpoint_path))
+
+    restored_default = APNet3D3_AtomType_Model(
+        pre_trained_model_path=str(checkpoint_path)
+    )
+    assert_d3_params_equal(restored_default.d3_damping_parameters, saved_params)
+    assert_d3_params_equal(
+        restored_default.model.get_config()["d3_damping_parameters"], saved_params
+    )
+
+    restored_override = APNet3D3_AtomType_Model(
+        pre_trained_model_path=str(checkpoint_path),
+        d3_damping_parameters=override_params,
+    )
+    assert_d3_params_equal(restored_override.d3_damping_parameters, override_params)
+    assert_d3_params_equal(
+        restored_override.dimer_prop_model.d3_damping_parameters,
+        override_params,
+    )
 
 
 def test_ap3_d3_fused_predict_expansion_to_4_cols():
@@ -1167,6 +1214,72 @@ def test_ap3_d3_fused_predict_expansion_to_4_cols():
     print(f"no_disp_nn=False predictions shape: {predictions_with_disp.shape}")
 
 
+def test_ap3_d3_fused_component_order_preserved_no_disp_checkpoint():
+    """No-disp checkpoint keeps elst/exch/ind at indices 0/1/2."""
+    ap3d3 = APNet3D3_AtomType_Model(
+        pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
+    )
+
+    batch = ap3d3._qcel_example_input(
+        [mol_cliff_water_close],
+        batch_size=1,
+        r_cut=ap3d3.model.r_cut,
+        r_cut_im=ap3d3.model.r_cut_im,
+    )
+    E_out, E_sr, E_elst, E_ind, _, _, _ = ap3d3.model(batch)
+
+    sr_dimer = scatter_sum_compile(E_sr, batch.dimer_ind, 1)
+    elst_dimer = scatter_sum_compile(E_elst, batch.dimer_ind_full, 1)
+    ind_dimer = scatter_sum_compile(E_ind, batch.dimer_ind_full, 1)
+
+    ap3d3.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+    E_classical, _, _ = ap3d3.dimer_prop_model(batch)
+    ap3d3.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
+    disp_dimer = scatter_sum_compile(E_classical[:, 2], batch.dimer_ind_full, 1)
+
+    predictions = ap3d3.predict_qcel_mols([mol_cliff_water_close], batch_size=1)
+
+    assert np.allclose(
+        predictions[:, 0],
+        (sr_dimer[:, 0] + elst_dimer).detach().cpu().numpy(),
+    )
+    assert np.allclose(predictions[:, 1], sr_dimer[:, 1].detach().cpu().numpy())
+    assert np.allclose(
+        predictions[:, 2],
+        (sr_dimer[:, 2] + ind_dimer).detach().cpu().numpy(),
+    )
+    assert np.allclose(predictions[:, 3], disp_dimer.detach().cpu().numpy())
+    assert np.allclose(predictions[:, :3], E_out.detach().cpu().numpy())
+
+
+def test_ap3_d3_fused_classical_pair_sums_do_not_spoil_exchange():
+    """Classical pair returns sum into elst/ind/disp only, not exchange."""
+    ap3d3 = APNet3D3_AtomType_Model(
+        pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
+    )
+
+    predictions, pair_elst, pair_ind, pair_disp = ap3d3.predict_qcel_mols(
+        [mol_cliff_water_close],
+        batch_size=1,
+        return_classical_pairs=True,
+    )
+
+    batch = ap3d3._qcel_example_input(
+        [mol_cliff_water_close],
+        batch_size=1,
+        r_cut=ap3d3.model.r_cut,
+        r_cut_im=ap3d3.model.r_cut_im,
+    )
+    E_out, E_sr, _, _, _, _, _ = ap3d3.model(batch)
+    sr_dimer = scatter_sum_compile(E_sr, batch.dimer_ind, 1)
+
+    assert np.allclose(pair_elst[0].sum(), predictions[0, 0] - sr_dimer[0, 0].item())
+    assert np.allclose(pair_ind[0].sum(), predictions[0, 2] - sr_dimer[0, 2].item())
+    assert np.allclose(pair_disp[0].sum(), predictions[0, 3])
+    assert np.allclose(predictions[0, 1], sr_dimer[0, 1].item())
+    assert np.allclose(predictions[0, 1], E_out[0, 1].item())
+
+
 def test_ap3d3_frozen():
     import pandas as pd
 
@@ -1185,7 +1298,8 @@ def test_ap3d3_frozen():
     no_reorient
     """)
     ap3d3 = APNet3D3_AtomType_Model(
-        pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
+        # pre_trained_model_path="./models/ap3d3_ensemble/ap3d3_0_no_disp.pt",
+        pre_trained_model_path="./models/ap3_ensemble/1/ap3_d3_no_disp_nn_1.pt",
     )
     print(ap3d3.model)
     # print(torch.load("./models/ap3d3_ensemble/ap3d3_0_no_disp.pt"))
@@ -1199,18 +1313,20 @@ def test_ap3d3_frozen():
     from pprint import pprint as pp
 
     mols = df["qcel_molecule"].tolist()
-    preds, pairwise_elst_energies, pairwise_ind_energies, pairwise_disp_energies = ap3d3.predict_qcel_mols(
-        mols,
-        batch_size=1,
-        return_pairs=False,
-        return_classical_pairs=True,
+    preds, pairwise_elst_energies, pairwise_ind_energies, pairwise_disp_energies = (
+        ap3d3.predict_qcel_mols(
+            mols,
+            batch_size=1,
+            return_pairs=False,
+            return_classical_pairs=True,
+        )
     )
     print(preds)
     print(preds.shape)
     # df['SAPT0 ELST ENERGY adz'] = df['SAPT0 ELST ENERGY adz'].values * 627.509
-    df['SAPT0 EXCH ENERGY adz'] = df['SAPT0 EXCH ENERGY adz'].values * 627.509
-    df['SAPT0 IND ENERGY adz'] = df['SAPT0 IND ENERGY adz'].values * 627.509
-    df['SAPT0 DISP ENERGY adz'] = df['SAPT0 DISP ENERGY adz'].values * 627.509
+    df["SAPT0 EXCH ENERGY adz"] = df["SAPT0 EXCH ENERGY adz"].values * 627.509
+    df["SAPT0 IND ENERGY adz"] = df["SAPT0 IND ENERGY adz"].values * 627.509
+    df["SAPT0 DISP ENERGY adz"] = df["SAPT0 DISP ENERGY adz"].values * 627.509
     for n, (id, r) in enumerate(df.iterrows()):
         # Print 'SAPT0 ELST ENERGY adz', and SAPT0 TOTAL ENERGY adz with pred row
         # print(
@@ -1218,14 +1334,66 @@ def test_ap3d3_frozen():
         #         r['SAPT0 TOTAL ENERGY adz']:.6f}, AP3D3 pred = {preds[n, 0]:.6f}"
         # )
         print(
-            f"{n}:  {r['SAPT0 ELST ENERGY adz']:.6f}, {r['SAPT0 EXCH ENERGY adz']:.6f}, {r['SAPT0 IND ENERGY adz']:.6f}, {r['SAPT0 DISP ENERGY adz']:.6f}"
+            f"{n}:  {r['SAPT0 ELST ENERGY adz']:.6f}, {
+                r['SAPT0 EXCH ENERGY adz']:.6f}, {r['SAPT0 IND ENERGY adz']:.6f}, {
+                r['SAPT0 DISP ENERGY adz']:.6f}"
         )
-        
+
+    return
+
+
+def test_d3i():
+    """
+    Checks that using saptpbe0-d3i parameters yields the correct result
+    """
+    mol = qcel.models.Molecule.from_data("""
+0 1
+--
+0 1
+O                    -1.326958230000    -0.105938530000     0.018788150000
+H                    -1.931665240000     1.600174320000    -0.021710520000
+H                     0.486644280000     0.079598090000     0.009862480000
+--
+0 1
+O                     4.287563290000     0.049775580000     0.000960040000
+H                     4.999275000000    -0.778642690000     1.448725300000
+H                     4.991040900000    -0.850136520000    -1.407646550000
+units bohr
+no_com
+no_reorient
+""")
+    dimer_batch = apnet_pt.pt_datasets.ap2_fused_ds.ap2_fused_collate_update_no_target(
+        [
+            apnet_pt.pt_datasets.ap2_fused_ds.qcel_dimer_to_fused_data(
+                mol, r_cut_im=99999.0, dimer_ind=0
+            )
+        ]
+    )
+
+    # param = d3_param(a1=0.3385_wp, s8=0.9171_wp, a2=2.8830_wp)
+    d3_pairs = d3(
+        batch=dimer_batch,
+        params={
+            "s6": 1.0,
+            "s8": 0.8614,  # D3(I)
+            "a1": 0.7171,  # D3(I)
+            "a2": 0.5375,  # D3(I)
+        },
+    )
+    d3_energy = torch.sum(d3_pairs).item()
+    print(d3_energy)
+    ref_d3_energy = -2.459578
+    print(f"D3I energy: {d3_energy:.6f} kcal/mol")
+    print(f"Reference D3I energy: {ref_d3_energy:.6f} kcal/mol")
+    assert np.isclose(d3_energy, ref_d3_energy, atol=1e-4), f"D3I energy {
+        d3_energy:.6f} does not match reference {ref_d3_energy:.6f}"
     return
 
 
 if __name__ == "__main__":
-    test_ap3d3_frozen()
+    test_classical_ap3_dispersion()
+    # test_d3i()
+    # test_ap3d3_frozen()
     # test_ap3_d3_fused_import_qcml_dftd3()
     # test_ap3_d3_fused_no_disp_nn_architecture()
     # test_ap3_d3_fused_default_architecture()

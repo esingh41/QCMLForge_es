@@ -4,7 +4,6 @@ from torch_geometric.data import Data
 import numpy as np
 import warnings
 import time
-from ..AtomModels.ap2_atom_model import AtomMPNN
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
     APNet2_fused_DataLoader,
@@ -31,6 +30,7 @@ import qcelemental as qcel
 from importlib import resources
 from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
+from qcml_dftd3.d3 import resolve_d3_damping_parameters
 from .mtp_mtp import (
     AtomTypeParamNN,
     DimerProp,
@@ -149,7 +149,8 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         use_precomputed_classical=False,
         use_atom_props=True,
         no_disp_nn=False,
-        freeze_dimer_prop_model=True,
+        freeze_dimer_prop_model=None,
+        d3_damping_parameters=None,
     ):
         super().__init__()
         self.dimer_prop_model = dimer_prop_model
@@ -164,6 +165,9 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         self.use_atom_props = use_atom_props
         self.no_disp_nn = no_disp_nn
         self.freeze_dimer_prop_model = freeze_dimer_prop_model
+        self.d3_damping_parameters = resolve_d3_damping_parameters(
+            d3_damping_parameters
+        )
 
         if self.freeze_dimer_prop_model:
             if self.dimer_prop_model is not None:
@@ -262,6 +266,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             "use_precomputed_classical": self.use_precomputed_classical,
             "no_disp_nn": self.no_disp_nn,
             "freeze_dimer_prop_model": self.freeze_dimer_prop_model,
+            "d3_damping_parameters": deepcopy(self.d3_damping_parameters),
         }
 
     def get_messages(self, h0, h, rbf, e_source, e_target):
@@ -626,6 +631,7 @@ class APNet3D3_AtomType_Model:
         use_atom_props=True,
         no_disp_nn=False,
         freeze_dimer_prop_model=True,
+        d3_damping_parameters=None,
     ):
         """
         the path and all other parameters will be ignored except for dataset.
@@ -644,6 +650,7 @@ class APNet3D3_AtomType_Model:
         self.dimer_prop_model = DimerProp(ATParam=self.atom_type_model.model)
         self.am_dimer_param_model = am_dimer_param_model
         dimer_prop_model_loaded_from_embed = False
+        config = {}
 
         self.ds_class_type = ds_class_type
         if self.ds_class_type not in ["pt", "lmdb"]:
@@ -728,7 +735,13 @@ class APNet3D3_AtomType_Model:
             config = model_io.load_config_from_checkpoint(checkpoint) or {}
             use_atom_props = config.get("use_atom_props", True)
             no_disp_nn = config.get("no_disp_nn", False)
-            freeze_dimer_prop_model = config.get("freeze_dimer_prop_model", True)
+            if freeze_dimer_prop_model is None:
+                freeze_dimer_prop_model = config.get("freeze_dimer_prop_model", True)
+            resolved_d3_damping_parameters = resolve_d3_damping_parameters(
+                d3_damping_parameters
+                if d3_damping_parameters is not None
+                else config.get("d3_damping_parameters")
+            )
             self.model = APNet3D3_AtomType_MPNN(
                 dimer_prop_model=self.dimer_prop_model,
                 n_message=config["n_message"],
@@ -741,10 +754,16 @@ class APNet3D3_AtomType_Model:
                 use_atom_props=use_atom_props,
                 no_disp_nn=no_disp_nn,
                 freeze_dimer_prop_model=freeze_dimer_prop_model,
+                d3_damping_parameters=resolved_d3_damping_parameters,
             )
             model_state_dict = model_io.load_state_dict_from_checkpoint(checkpoint)
             self.model.load_state_dict(model_state_dict)
         else:
+            if freeze_dimer_prop_model is None:
+                freeze_dimer_prop_model = True
+            resolved_d3_damping_parameters = resolve_d3_damping_parameters(
+                d3_damping_parameters
+            )
             self.model = APNet3D3_AtomType_MPNN(
                 dimer_prop_model=self.dimer_prop_model,
                 n_message=n_message,
@@ -757,6 +776,13 @@ class APNet3D3_AtomType_Model:
                 use_atom_props=use_atom_props,
                 no_disp_nn=no_disp_nn,
                 freeze_dimer_prop_model=freeze_dimer_prop_model,
+                d3_damping_parameters=resolved_d3_damping_parameters,
+            )
+        self.d3_damping_parameters = deepcopy(resolved_d3_damping_parameters)
+        self.model.d3_damping_parameters = deepcopy(resolved_d3_damping_parameters)
+        if hasattr(self.dimer_prop_model, "set_d3_damping_parameters"):
+            self.dimer_prop_model.set_d3_damping_parameters(
+                resolved_d3_damping_parameters
             )
         if n_rbf != self.model.n_rbf:
             print(f"Changing n_rbf from {self.model.n_rbf} to {n_rbf}")
@@ -1346,7 +1372,6 @@ class APNet3D3_AtomType_Model:
                 # create a new data list with only valid data
                 data = [data[j] for j in valid_indices]
             dimer_batch = ap3_fused_collate_update_no_target(data)
-            # print(dimer_batch)
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
             # If no_disp_nn=True, model outputs 3 cols; expand to 4 by computing D3 at predict time
@@ -1367,10 +1392,13 @@ class APNet3D3_AtomType_Model:
                 E_out4 = torch.zeros((ndimer, 4), device=E_sr_dimer_3col.device)
                 E_out4[:, :3] = E_sr_dimer_3col
                 E_out4[:, 3] = E_disp_dimer
+                E_sr_3col = preds[1]
+                E_sr_out4 = torch.zeros((E_sr_3col.size(0), 4), device=E_sr_3col.device)
+                E_sr_out4[:, :3] = E_sr_3col
                 if self.model.return_hidden_states:
                     preds = (
                         E_out4,
-                        preds[1],
+                        E_sr_out4,
                         preds[2],
                         preds[3],
                         E_disp,
@@ -1381,7 +1409,7 @@ class APNet3D3_AtomType_Model:
                 else:
                     preds = (
                         E_out4,
-                        preds[1],
+                        E_sr_out4,
                         preds[2],
                         preds[3],
                         E_disp,

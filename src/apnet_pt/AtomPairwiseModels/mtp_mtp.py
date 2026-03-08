@@ -41,10 +41,11 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn as nn
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch_geometric.data import Data
 
 from apnet_pt.torch_util import set_weights_to_value
-from qcml_dftd3.d3 import d3
+from qcml_dftd3.d3 import d3, resolve_d3_damping_parameters
 
 from .. import constants
 from ..atomic_datasets import (
@@ -105,6 +106,7 @@ class DimerProp(nn.Module):
         ATParam,
         dimer_eval="elst_damping",
         elst_damping_type="CLIFF",
+        d3_damping_parameters=None,
         freeze_atom_model=True,
     ):
         """
@@ -120,7 +122,14 @@ class DimerProp(nn.Module):
         if freeze_atom_model:
             self.AtomTypeParam.atom_model.requires_grad_(False)
         self.elst_damping_type = elst_damping_type
+        self.set_d3_damping_parameters(d3_damping_parameters)
         self.set_forward(dimer_eval)
+        return
+
+    def set_d3_damping_parameters(self, d3_damping_parameters=None):
+        self.d3_damping_parameters = resolve_d3_damping_parameters(
+            d3_damping_parameters
+        )
         return
 
     def set_forward(self, dimer_eval):
@@ -175,6 +184,15 @@ class DimerProp(nn.Module):
         """
         Return a reconstruction config for this DimerProp hierarchy.
         """
+
+        def _infer_nested_r_cut(model):
+            current = model
+            while current is not None:
+                if hasattr(current, "r_cut"):
+                    return getattr(current, "r_cut")
+                current = getattr(current, "atom_model", None)
+            return None
+
         atom_type_param_config = None
         atom_type_param_type = None
         atom_model_config = None
@@ -190,10 +208,14 @@ class DimerProp(nn.Module):
                 atom_model_type = type(atom_model).__name__
                 if hasattr(atom_model, "get_config"):
                     atom_model_config = atom_model.get_config()
+                    nested_r_cut = _infer_nested_r_cut(atom_model)
+                    if nested_r_cut is not None and "r_cut" not in atom_model_config:
+                        atom_model_config["r_cut"] = nested_r_cut
 
         return {
             "dimer_eval": getattr(getattr(self, "forward", None), "__name__", None),
             "elst_damping_type": self.elst_damping_type,
+            "d3_damping_parameters": deepcopy(self.d3_damping_parameters),
             "atom_type_param_type": atom_type_param_type,
             "atom_type_param_config": atom_type_param_config,
             "atom_model_type": atom_model_type,
@@ -595,7 +617,7 @@ class DimerProp(nn.Module):
         v_A = self.AtomTypeParam(batch.batch_atomic_A)
         v_B = self.AtomTypeParam(batch.batch_atomic_B)
 
-        Disp = d3(batch)
+        Disp = d3(batch, params=self.d3_damping_parameters)
         return Disp, v_A, v_B
 
     def _ap3_elst_damping_indu_induced_dipole_disp_forward(
@@ -664,7 +686,7 @@ class DimerProp(nn.Module):
             print(f"{v_B[-1] =}")
             raise ValueError("Electrostatic energy is NaN")
 
-        Disp = d3(batch)
+        Disp = d3(batch, params=self.d3_damping_parameters)
         return torch.vstack((Elst, Indu, Disp)).T, v_A, v_B
 
 
@@ -806,6 +828,7 @@ def load_dimer_prop_from_checkpoint(
         ATParam=atom_type_param,
         freeze_atom_model=freeze_atom_model,
         elst_damping_type=config.get("elst_damping_type", "CLIFF"),
+        d3_damping_parameters=config.get("d3_damping_parameters"),
     )
     dimer_prop.load_state_dict(state_dict)
     return dimer_prop
