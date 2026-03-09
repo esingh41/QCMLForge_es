@@ -180,23 +180,19 @@ class APNet3_AtomType_MPNN(nn.Module):
         self.use_atom_props = use_atom_props
         self.freeze_dimer_prop_model = freeze_dimer_prop_model
 
-        if self.freeze_dimer_prop_model:
-            if self.dimer_prop_model is not None:
-                if hasattr(self.dimer_prop_model, "parameters"):
-                    for param in self.dimer_prop_model.parameters():
-                        param.requires_grad = False
-                elif hasattr(self.dimer_prop_model, "model"):
-                    for param in self.dimer_prop_model.model.parameters():
-                        param.requires_grad = False
-                    if hasattr(self.dimer_prop_model, "dimer_model"):
-                        for param in self.dimer_prop_model.dimer_model.parameters():
-                            param.requires_grad = False
-                    if hasattr(self.dimer_prop_model, "dimer_model_elst"):
-                        for (
-                            param
-                        ) in self.dimer_prop_model.dimer_model_elst.parameters():
-                            param.requires_grad = False
-
+        if self.dimer_prop_model is not None:
+            if hasattr(self.dimer_prop_model, "parameters"):
+                for param in self.dimer_prop_model.parameters():
+                    param.requires_grad = not self.freeze_dimer_prop_model
+            elif hasattr(self.dimer_prop_model, "model"):
+                for param in self.dimer_prop_model.model.parameters():
+                    param.requires_grad = not self.freeze_dimer_prop_model
+                if hasattr(self.dimer_prop_model, "dimer_model"):
+                    for param in self.dimer_prop_model.dimer_model.parameters():
+                        param.requires_grad = not self.freeze_dimer_prop_model
+                if hasattr(self.dimer_prop_model, "dimer_model_elst"):
+                    for param in self.dimer_prop_model.dimer_model_elst.parameters():
+                        param.requires_grad = not self.freeze_dimer_prop_model
         layer_nodes_hidden = [
             # input_layer_size,
             n_neuron * 2,
