@@ -31,9 +31,7 @@ from time import time
 from pathlib import Path
 from importlib import resources
 from apnet_pt import constants
-from .ap3_fused_ds import (
-    dimer_fused_data,
-)
+from .ap3_fused_ds import dimer_fused_data, qcel_inputs_are_split_db
 import json
 
 ###############################
@@ -664,7 +662,22 @@ class APNet2_fused_DataLoader(torch.utils.data.DataLoader):
         )
 
 
+AP3_FUSED_FSAPT_SPLIT_SPEC_TYPES = frozenset({5, 6, 7, 8})
+
+
+def fsapt_spec_type_uses_split_files(spec_type):
+    return spec_type in AP3_FUSED_FSAPT_SPLIT_SPEC_TYPES
+
+
 class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
+    split_spec_types = AP3_FUSED_FSAPT_SPLIT_SPEC_TYPES
+
+    @classmethod
+    def is_split_db_config(cls, spec_type, qcel_molecules=None):
+        return fsapt_spec_type_uses_split_files(spec_type) or qcel_inputs_are_split_db(
+            qcel_molecules
+        )
+
     def __init__(
         self,
         root,
@@ -791,6 +804,7 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         self.random_seed = random_seed
         self.in_memory = in_memory
         self.split = split
+        self.split_db = self.is_split_db_config(self.spec_type, self.qcel_molecules)
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess

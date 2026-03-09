@@ -746,19 +746,13 @@ class APNet2_AM_Model:
         self.atom_model.to(device)
         self.model.to(device)
 
-        split_dbs = [2, 5, 6, 7]
-        ds_qcel_split_db = (
-            ds_qcel_molecules is not None
-            and len(ds_qcel_molecules) == 2
-            and isinstance(ds_qcel_molecules[0], list)
+        ds_split_db = ap2_fused_module_dataset.is_split_db_config(
+            self.ds_spec_type, ds_qcel_molecules
         )
         self.dataset = dataset
-        if (
-            not ignore_database_null
-            and self.dataset is None
-            and self.ds_spec_type not in split_dbs
-            and not ds_qcel_split_db
-        ):
+        if self.dataset is not None:
+            ds_split_db = getattr(self.dataset, "split_db", ds_split_db)
+        if not ignore_database_null and self.dataset is None and not ds_split_db:
 
             def setup_ds(fp=ds_force_reprocess):
                 return ap2_fused_module_dataset(
@@ -785,11 +779,7 @@ class APNet2_AM_Model:
             self.dataset = setup_ds(False)
             if ds_max_size:
                 self.dataset = self.dataset[:ds_max_size]
-        elif (
-            not ignore_database_null
-            and self.dataset is None
-            and (self.ds_spec_type in split_dbs or ds_qcel_split_db)
-        ):
+        elif not ignore_database_null and self.dataset is None and ds_split_db:
             print("Processing Split dataset...")
             if ds_qcel_molecules is None:
                 ds_qcel_molecules = [None, None]

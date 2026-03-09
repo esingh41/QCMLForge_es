@@ -24,6 +24,21 @@ from apnet_pt import constants
 import h5py
 
 
+AP2_FUSED_SPLIT_SPEC_TYPES = frozenset({2, 5, 6, 7, 9})
+
+
+def spec_type_uses_split_files(spec_type):
+    return spec_type in AP2_FUSED_SPLIT_SPEC_TYPES
+
+
+def qcel_inputs_are_split_db(qcel_molecules):
+    return (
+        qcel_molecules is not None
+        and len(qcel_molecules) == 2
+        and isinstance(qcel_molecules[0], list)
+    )
+
+
 def qcel_dimer_to_fused_data(dimer, r_cut=5.0, r_cut_im=8.0, **kwargs):
     return dimer_fused_data(
         RA=dimer.get_fragment(0).geometry * constants.au2ang,
@@ -955,6 +970,14 @@ def load_hdf5_data_objects(filepath):  # type: ignore
 
 
 class ap2_fused_module_dataset(Dataset):
+    split_spec_types = AP2_FUSED_SPLIT_SPEC_TYPES
+
+    @classmethod
+    def is_split_db_config(cls, spec_type, qcel_molecules=None):
+        return spec_type_uses_split_files(spec_type) or qcel_inputs_are_split_db(
+            qcel_molecules
+        )
+
     def __init__(
         self,
         root,
@@ -1025,6 +1048,7 @@ class ap2_fused_module_dataset(Dataset):
         self.random_seed = random_seed
         self.in_memory = in_memory
         self.split = split
+        self.split_db = self.is_split_db_config(self.spec_type, self.qcel_molecules)
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
@@ -1089,6 +1113,10 @@ class ap2_fused_module_dataset(Dataset):
         return ".h5" if self.storage_type == "h5" else ".pt"
 
     @property
+    def split_name(self):
+        return f"_{self.split}" if self.split_db and self.split != "all" else ""
+
+    @property
     def raw_file_names(self):
         # TODO: enable users to specify data source via QCArchive, url, or local file
         # spec_1 = "spec_1" # 'SAPT0/jun-cc-pVDZ'
@@ -1142,11 +1170,11 @@ class ap2_fused_module_dataset(Dataset):
         if self.force_reprocess:
             return ["file"]
         else:
-            if self.split == "train":
+            if self.split_db and self.split == "train":
                 file_cmd = f"{self.root}/processed/dimer_ap2_fused_train_spec_{
                     self.spec_type
                 }_*{self.file_extension}"
-            elif self.split == "test":
+            elif self.split_db and self.split == "test":
                 file_cmd = f"{self.root}/processed/dimer_ap2_fused_test_spec_{
                     self.spec_type
                 }_*{self.file_extension}"
@@ -1231,7 +1259,7 @@ class ap2_fused_module_dataset(Dataset):
         RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
         if self.qcel_molecules is not None and self.energy_labels is not None:
             print("Processing directly from provided QCElemental molecules...")
-            split_name = f"_{self.split}" if self.split != "all" else ""
+            split_name = self.split_name
 
             # Process directly from qcel_mols and energy_labels
             for mol in self.qcel_molecules:
@@ -1271,8 +1299,8 @@ class ap2_fused_module_dataset(Dataset):
         else:
             for raw_path in self.raw_paths:
                 split_name = ""
-                if self.spec_type in [2, 5, 6, 7, 9]:
-                    split_name = f"_{self.split}" if self.split != "all" else ""
+                if self.split_db:
+                    split_name = self.split_name
                     print(f"{split_name=}")
                     if self.split not in Path(raw_path).stem:
                         print(f"{self.split} is skipping {raw_path}")
@@ -1406,8 +1434,8 @@ class ap2_fused_module_dataset(Dataset):
         if self.active_idx_data == idx_datapath:
             return self.active_data[obj_ind]
         split_name = ""
-        if self.spec_type in [2, 5, 6, 7, 9, None]:
-            split_name = f"_{self.split}" if self.split != "all" else ""
+        if self.split_db:
+            split_name = self.split_name
         datapath = osp.join(
             self.processed_dir,
             f"dimer_ap2_fused{split_name}_spec_{self.spec_type}_{idx_datapath}{self.file_extension}",

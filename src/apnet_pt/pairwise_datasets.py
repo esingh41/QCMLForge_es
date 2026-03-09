@@ -28,6 +28,21 @@ import pandas as pd
 from importlib import resources
 from apnet_pt import constants
 
+APNET2_SPLIT_SPEC_TYPES = frozenset({2, 5, 6, 7, 9})
+
+
+def spec_type_uses_split_files(spec_type):
+    return spec_type in APNET2_SPLIT_SPEC_TYPES
+
+
+def qcel_inputs_are_split_db(qcel_molecules):
+    return (
+        qcel_molecules is not None
+        and len(qcel_molecules) == 2
+        and isinstance(qcel_molecules[0], list)
+    )
+
+
 current_file_path = str(Path(__file__).parent)
 
 libmbd_vwd_params = pd.read_csv(
@@ -643,6 +658,14 @@ def apnet2_setup(molA_data, molB_data, atom_model, r_cut, r_cut_im, index=0):
 
 
 class apnet2_module_dataset(Dataset):
+    split_spec_types = APNET2_SPLIT_SPEC_TYPES
+
+    @classmethod
+    def is_split_db_config(cls, spec_type, qcel_molecules=None):
+        return spec_type_uses_split_files(spec_type) or qcel_inputs_are_split_db(
+            qcel_molecules
+        )
+
     def __init__(
         self,
         root,
@@ -668,6 +691,7 @@ class apnet2_module_dataset(Dataset):
         split="all",  # train, test
         print_level=1,
         qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
+        qcel_molecules_raw=None,
         energy_labels: Optional[List[float]] = None,
         random_seed=42,
     ):
@@ -689,10 +713,13 @@ class apnet2_module_dataset(Dataset):
         self.spec_type = spec_type
 
         self.qcel_molecules = None
+        self.qcel_molecules_raw = qcel_molecules_raw
         self.energy_labels = None
         # Store qcel_molecules and energy_labels if provided
         if qcel_molecules is not None and energy_labels is not None:
             self.qcel_molecules = qcel_molecules
+            if self.qcel_molecules_raw is None:
+                self.qcel_molecules_raw = qcel_molecules
             self.energy_labels = energy_labels
             if len(qcel_molecules) != len(energy_labels):
                 raise ValueError(
@@ -712,6 +739,9 @@ class apnet2_module_dataset(Dataset):
         self.random_seed = random_seed
         self.in_memory = in_memory
         self.split = split
+        self.split_db = self.is_split_db_config(
+            self.spec_type, self.qcel_molecules_raw
+        ) or (self.qcel_molecules is not None and self.split != "all")
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess
@@ -816,15 +846,19 @@ class apnet2_module_dataset(Dataset):
                 "splinter_spec1.pkl",
             ]
 
+    @property
+    def split_name(self):
+        return f"_{self.split}" if self.split_db and self.split != "all" else ""
+
     def reprocess_file_names(self):
         if self.force_reprocess:
             return ["file"]
         else:
-            if self.split == "train":
+            if self.split_db and self.split == "train":
                 file_cmd = (
                     f"{self.root}/processed/dimer_ap2_train_spec_{self.spec_type}_*.pt"
                 )
-            elif self.split == "test":
+            elif self.split_db and self.split == "test":
                 file_cmd = (
                     f"{self.root}/processed/dimer_ap2_test_spec_{self.spec_type}_*.pt"
                 )
@@ -904,7 +938,7 @@ class apnet2_module_dataset(Dataset):
         RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
         if self.qcel_molecules is not None and self.energy_labels is not None:
             print("Processing directly from provided QCElemental molecules...")
-            split_name = f"_{self.split}" if self.split != "all" else ""
+            split_name = self.split_name
 
             # Process directly from qcel_mols and energy_labels
             for mol in self.qcel_molecules:
@@ -949,8 +983,8 @@ class apnet2_module_dataset(Dataset):
         else:
             for raw_path in self.raw_paths:
                 split_name = ""
-                if self.spec_type in [2, 5, 6, 7, 9]:
-                    split_name = f"_{self.split}" if self.split != "all" else ""
+                if self.split_db:
+                    split_name = self.split_name
                     print(f"{split_name=}")
                     if self.split not in Path(raw_path).stem:
                         print(f"{self.split} is skipping {raw_path}")
@@ -1172,8 +1206,8 @@ class apnet2_module_dataset(Dataset):
         if self.active_idx_data == idx_datapath:
             return self.active_data[obj_ind]
         split_name = ""
-        if self.spec_type in [2, 5, 6, 7, 9, None]:
-            split_name = f"_{self.split}" if self.split != "all" else ""
+        if self.split_db:
+            split_name = self.split_name
         datapath = osp.join(
             self.processed_dir,
             f"dimer_ap2{split_name}_spec_{self.spec_type}_{idx_datapath}.pt",
