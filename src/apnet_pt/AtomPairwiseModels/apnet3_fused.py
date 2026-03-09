@@ -15,6 +15,7 @@ from ..pt_datasets.ap3_fused_ds import (
     ap3_fused_module_dataset,
     ap3_fused_collate_update,
     ap3_fused_collate_update_no_target,
+    qcel_inputs_are_split_db,
 )
 from ..pt_datasets.ap3_fused_fsapt_ds import (
     ap3_fused_fsapt_collate_update,
@@ -867,23 +868,23 @@ class APNet3_AtomType_Model:
 
         self.model.to(device)
 
-        split_dbs = [2, 5, 6, 7, 8]
-        ds_qcel_split_db = (
-            ds_qcel_molecules is not None
-            and len(ds_qcel_molecules) == 2
-            and isinstance(ds_qcel_molecules[0], list)
+        ds_split_db = self.dataset_class.is_split_db_config(
+            self.ds_spec_type, ds_qcel_molecules
         )
+        ds_qcel_split_db = qcel_inputs_are_split_db(ds_qcel_molecules)
         self.dataset = dataset
+        if self.dataset is not None:
+            ds_split_db = getattr(self.dataset, "split_db", ds_split_db)
         print(
             not ignore_database_null,
             self.dataset is None,
-            self.ds_spec_type not in split_dbs,
+            not ds_split_db,
             not ds_qcel_split_db,
         )
         if (
             not ignore_database_null
             and self.dataset is None
-            and self.ds_spec_type not in split_dbs
+            and not ds_split_db
             and not ds_qcel_split_db
         ):
 
@@ -948,11 +949,7 @@ class APNet3_AtomType_Model:
             self.dataset = setup_ds(False)
             if ds_max_size:
                 self.dataset = self.dataset[:ds_max_size]
-        elif (
-            not ignore_database_null
-            and self.dataset is None
-            and (self.ds_spec_type in split_dbs or ds_qcel_split_db)
-        ):
+        elif not ignore_database_null and self.dataset is None and ds_split_db:
             print("Processing Split dataset...")
             if ds_qcel_molecules is None:
                 ds_qcel_molecules = [None, None]

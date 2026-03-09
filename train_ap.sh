@@ -25,13 +25,13 @@ python3 -u ./train_models.py \
     --atom_type_param_model_path  ./models/ap3d3_ensemble/am_h+1_3.pt \
     --atom_type_param_model_path2 ./models/ap3d3_ensemble/am_elst_h+1_CLIFF.pt \
     --random_seed 1 \
-    --n_epochs 100 \
-    --data_dir ./data_dimer_1 \
-    --spec_type_ap 5 \
-    --lr 5e-4 \
+    --n_epochs 25 \
+    --data_dir ~/gits/qcmlforge/data_dimer_1 \
+    --spec_type_ap 10 \
+    --lr 5e-5 \
     --ds_in_memory False \
     --ds_class_type lmdb \
-    --ap_model_path ./models/ap3d3_ensemble/ap3d3_0_no_disp.pt \
+    --ap_model_path ./models/ap3_ensemble/1/ap3_d3_no_disp_nn_1_saptpbe0.pt \
     --no_disp_nn
 
 # AP3-fused FSAPT training

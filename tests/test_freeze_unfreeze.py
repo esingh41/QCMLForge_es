@@ -12,19 +12,13 @@ Tests the freeze chain:
 """
 
 import os
+from typing import Any, cast
 
-import numpy as np
-import pytest
 import torch
-import qcelemental as qcel
-
-import apnet_pt
 from apnet_pt.AtomPairwiseModels.apnet3_d3_fused import (
-    APNet3D3_AtomType_Model,
     APNet3D3_AtomType_MPNN,
 )
 from apnet_pt.AtomPairwiseModels.apnet3_fused import (
-    APNet3_AtomType_Model,
     APNet3_AtomType_MPNN,
 )
 from apnet_pt.AtomPairwiseModels.mtp_mtp import (
@@ -47,9 +41,9 @@ at_elst_path = f"{current_file_path}/test_models/ap3_ensemble_0/am_elst_h+1_3.pt
 # ---------------------------------------------------------------------------
 
 
-def _build_atom_type_hf_vw_model(**kwargs):
+def _build_atom_type_hf_vw_model(**kwargs: Any) -> Any:
     """Build an AtomTypeParamModel with default test paths."""
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         ds_root=None,
         use_GPU=False,
         ignore_database_null=True,
@@ -60,9 +54,9 @@ def _build_atom_type_hf_vw_model(**kwargs):
     return AtomTypeParamModel(**defaults)
 
 
-def _build_atom_type_elst_model(atom_type_hf_vw_model, **kwargs):
+def _build_atom_type_elst_model(atom_type_hf_vw_model: Any, **kwargs: Any) -> Any:
     """Build an AM_DimerParam_Model with default test paths."""
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         ds_root=None,
         use_GPU=False,
         ignore_database_null=True,
@@ -174,22 +168,24 @@ class TestAMDimerParamModelFreezePassthrough:
 
     def test_freeze_passthrough_unfrozen(self):
         """
-        freeze_atom_model=False in AM_DimerParam_Model prevents DimerProp-level
-        freeze. However, the inner AtomTypeParamNN.__init__ always defaults to
-        freeze_atom_model=True (line 2704 in mtp_mtp.py doesn't forward the flag),
-        so the innermost AtomMPNN params are still frozen.
+        freeze_atom_model=False should keep the outer AtomTypeParamNN trainable.
 
-        This test verifies that with freeze_atom_model=False, the DimerProp does
-        NOT additionally freeze self.AtomTypeParam.atom_model (the hf_vw model).
+        The nested atom_model remains partially frozen because
+        AM_DimerParam_Model constructs its AtomTypeParamNN without forwarding
+        freeze_atom_model, so AtomTypeParamNN falls back to its default
+        freeze_atom_model=True for the inner model.
         """
         hf_vw = _build_atom_type_hf_vw_model(freeze_atom_model=False)
         elst = _build_atom_type_elst_model(hf_vw, freeze_atom_model=False)
-        # The elst AtomTypeParamNN was constructed from checkpoint (line 2704),
-        # which defaults freeze_atom_model=True, freezing the inner hf_vw model.
-        # But DimerProp with freeze_atom_model=False does NOT add another freeze layer.
-        # The elst model's OWN params (guess_layer, param_readout_layers) should be trainable.
         assert _has_any_trainable(elst.dimer_model.AtomTypeParam), (
-            "elst AtomTypeParam should have some trainable params (its own readout layers)"
+            "elst AtomTypeParam should have trainable params when "
+            "freeze_atom_model=False"
+        )
+        assert _has_any_frozen(elst.dimer_model.AtomTypeParam), (
+            "elst AtomTypeParam should retain frozen params from the inner atom_model"
+        )
+        assert _has_any_frozen(elst.dimer_model.AtomTypeParam.atom_model), (
+            "elst AtomTypeParam.atom_model should still contain frozen params"
         )
 
 
@@ -253,7 +249,7 @@ class TestAPNet3FusedMPNNFreezeDimerPropModel:
     def test_freeze_with_none_dimer_prop_model(self):
         """freeze_dimer_prop_model=True with dimer_prop_model=None should not raise."""
         model = APNet3_AtomType_MPNN(
-            dimer_prop_model=None,
+            dimer_prop_model=cast(Any, None),
             use_precomputed_classical=True,
             freeze_dimer_prop_model=True,
         )
@@ -285,7 +281,7 @@ class TestAPNet3FusedMPNNFreezeDimerPropModel:
         )
         config = model.get_config()
         model2 = APNet3_AtomType_MPNN(
-            dimer_prop_model=None,
+            dimer_prop_model=cast(Any, None),
             **config,
         )
         config2 = model2.get_config()
@@ -329,7 +325,7 @@ class TestAPNet3D3FusedMPNNFreezeDimerPropModel:
     def test_freeze_with_none_dimer_prop_model(self):
         """freeze_dimer_prop_model=True with dimer_prop_model=None should not raise."""
         model = APNet3D3_AtomType_MPNN(
-            dimer_prop_model=None,
+            dimer_prop_model=cast(Any, None),
             use_precomputed_classical=True,
             freeze_dimer_prop_model=True,
         )
@@ -362,7 +358,7 @@ class TestAPNet3D3FusedMPNNFreezeDimerPropModel:
         )
         config = model.get_config()
         model2 = APNet3D3_AtomType_MPNN(
-            dimer_prop_model=None,
+            dimer_prop_model=cast(Any, None),
             **config,
         )
         config2 = model2.get_config()
@@ -681,5 +677,3 @@ class TestOptimizerParamCounts:
             f"Unfrozen D3 model should have more trainable params "
             f"({n_trainable_unfrozen}) than frozen D3 model ({n_trainable_frozen})"
         )
-
-
