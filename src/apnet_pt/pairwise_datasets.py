@@ -692,6 +692,7 @@ class apnet2_module_dataset(Dataset):
         split="all",  # train, test
         print_level=1,
         qcel_molecules: Optional[List[qcel.models.Molecule]] = None,
+        qcel_molecules_raw=None,
         energy_labels: Optional[List[float]] = None,
         random_seed=42,
     ):
@@ -713,10 +714,13 @@ class apnet2_module_dataset(Dataset):
         self.spec_type = spec_type
 
         self.qcel_molecules = None
+        self.qcel_molecules_raw = qcel_molecules_raw
         self.energy_labels = None
         # Store qcel_molecules and energy_labels if provided
         if qcel_molecules is not None and energy_labels is not None:
             self.qcel_molecules = qcel_molecules
+            if self.qcel_molecules_raw is None:
+                self.qcel_molecules_raw = qcel_molecules
             self.energy_labels = energy_labels
             if len(qcel_molecules) != len(energy_labels):
                 raise ValueError(
@@ -736,7 +740,9 @@ class apnet2_module_dataset(Dataset):
         self.random_seed = random_seed
         self.in_memory = in_memory
         self.split = split
-        self.split_db = self.is_split_db_config(self.spec_type, self.qcel_molecules)
+        self.split_db = self.is_split_db_config(
+            self.spec_type, self.qcel_molecules_raw
+        ) or (self.qcel_molecules is not None and self.split != "all")
         self.r_cut = r_cut
         self.r_cut_im = r_cut_im
         self.force_reprocess = force_reprocess

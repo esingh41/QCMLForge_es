@@ -993,8 +993,11 @@ class APNet3_AtomType_Model:
 
         self.model.to(device)
 
-        ds_split_db = self.dataset_class.is_split_db_config(
-            self.ds_spec_type, ds_qcel_molecules
+        is_split_db_config = getattr(self.dataset_class, "is_split_db_config", None)
+        ds_split_db = (
+            is_split_db_config(self.ds_spec_type, ds_qcel_molecules)
+            if is_split_db_config is not None
+            else False
         )
         ds_qcel_split_db = qcel_inputs_are_split_db(ds_qcel_molecules)
         self.dataset = dataset

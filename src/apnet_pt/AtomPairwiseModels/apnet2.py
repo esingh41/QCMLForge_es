@@ -872,6 +872,7 @@ class APNet2Model:
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
                         qcel_molecules=ds_qcel_molecules[0],
+                        qcel_molecules_raw=ds_qcel_molecules,
                         energy_labels=ds_energy_labels[0],
                     ),
                     apnet2_module_dataset(
@@ -892,6 +893,7 @@ class APNet2Model:
                         prebatched=ds_prebatched,
                         print_level=print_lvl,
                         qcel_molecules=ds_qcel_molecules[1],
+                        qcel_molecules_raw=ds_qcel_molecules,
                         energy_labels=ds_energy_labels[1],
                     ),
                 ]
