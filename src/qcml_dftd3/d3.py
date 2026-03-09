@@ -40,7 +40,10 @@ def resolve_d3_damping_parameters(params: dict | None = None) -> dict[str, float
     if params is None:
         return resolved
 
+    allowed_keys = set(resolved)
     for key, value in params.items():
+        if key not in allowed_keys:
+            raise ValueError(f"Unknown D3 damping parameter: {key}")
         resolved[key] = _to_python_float(value)
     return resolved
 
