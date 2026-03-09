@@ -1,32 +1,32 @@
 import os
-import qcelemental as qcel
+import os.path as osp
+import re
+import tarfile
+from glob import glob
+from importlib import resources
+from math import ceil
+from pathlib import Path
+from time import time
 from typing import List, Optional, Sequence, Union
+
+import pandas as pd
+import qcelemental as qcel
+import torch
+from torch_geometric.data import Data
+from torch_geometric.data import Dataset
+from torch_geometric.data import download_url
 from torch_geometric.data.data import BaseData
 from torch_geometric.data.datapipes import DatasetAdapter
 from torch_geometric.data.on_disk_dataset import OnDiskDataset
 
-# from numba import jit
-from torch_geometric.data import Data
-from torch_geometric.data import Dataset
-import os.path as osp
-import torch
-from torch_geometric.data import download_url
+from apnet_pt import constants
 
+# from numba import jit
+from . import atomic_datasets
 from . import util
 from .AtomModels.ap2_atom_model import AtomModel
 from .AtomModels.ap2_hirshfeld_atom_model import AtomHirshfeldModel
 from .hf_pretrained import resolve_pretrained_path
-from . import atomic_datasets
-from glob import glob
-import tarfile
-from time import time
-import re
-from pathlib import Path
-from math import ceil
-
-import pandas as pd
-from importlib import resources
-from apnet_pt import constants
 
 APNET2_SPLIT_SPEC_TYPES = frozenset({2, 5, 6, 7, 9})
 
@@ -707,7 +707,7 @@ class apnet2_module_dataset(Dataset):
         self.print_level = print_level
         try:
             assert spec_type in [1, 2, 5, 6, 7, 8, 9, None]
-        except Exception:
+        except AssertionError:
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
         self.spec_type = spec_type
@@ -839,7 +839,7 @@ class apnet2_module_dataset(Dataset):
                 "t_test_19.pkl",
             ]
         elif self.spec_type is None:
-            os.system(f"touch {self.raw_dir}/tmp.txt")
+            Path(self.raw_dir, "tmp.txt").touch(exist_ok=True)
             return ["tmp.txt"]
         else:
             return [
@@ -1013,9 +1013,9 @@ class apnet2_module_dataset(Dataset):
         molA_data = []
         molB_data = []
         energies = []
-        for i in range(
-            0, len(RAs) + len(RAs) % self.atomic_batch_size + 1, self.atomic_batch_size
-        ):
+        # Reviewer note: keep the range exact so divisible batch sizes do not
+        # create a trailing empty batch.
+        for i in range(0, len(RAs), self.atomic_batch_size):
             if self.skip_processed:
                 datapath = osp.join(
                     self.processed_dir,
@@ -1215,10 +1215,11 @@ class apnet2_module_dataset(Dataset):
         self.active_data = torch.load(datapath, weights_only=False)
         try:
             self.active_data[obj_ind]
-        except Exception:
+        except IndexError:
             print(
                 f"Error loading {datapath}\n    at {idx=}, {idx_datapath=}, {obj_ind=}"
             )
+            raise
         return self.active_data[obj_ind]
 
     def get_in_memory(self, idx):
@@ -1268,7 +1269,7 @@ class apnet3_module_dataset(Dataset):
         self.print_level = print_level
         try:
             assert spec_type in [1, 2, 5, 6, 7, 8]
-        except Exception:
+        except AssertionError:
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
         self.spec_type = spec_type
@@ -1479,11 +1480,7 @@ class apnet3_module_dataset(Dataset):
             molA_data = []
             molB_data = []
             energies = []
-            for i in range(
-                0,
-                len(RAs) + len(RAs) % self.atomic_batch_size + 1,
-                self.atomic_batch_size,
-            ):
+            for i in range(0, len(RAs), self.atomic_batch_size):
                 if self.skip_processed:
                     datapath = osp.join(
                         self.processed_dir,
@@ -1724,8 +1721,9 @@ class apnet3_module_dataset(Dataset):
         self.active_data = torch.load(datapath, weights_only=False)
         try:
             self.active_data[obj_ind]
-        except Exception:
+        except IndexError:
             print(
                 f"Error loading {datapath}\n    at {idx=}, {idx_datapath=}, {obj_ind=}"
             )
+            raise
         return self.active_data[obj_ind]

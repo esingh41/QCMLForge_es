@@ -1,9 +1,11 @@
 import os
 import sys
 from importlib import resources
+import logging
 
 HF_REPO_ID = "awallace3/qcmlforge"
 _DOWNLOAD_APPROVED = None
+LOGGER = logging.getLogger(__name__)
 
 
 def _hf_hub_download(rel_path: str, local_files_only: bool) -> str:
@@ -36,9 +38,17 @@ def _allow_model_download(missing_paths: list[str]) -> bool:
     env_value = os.getenv("QCMLFORGE_AUTO_DOWNLOAD_PRETRAINED", "").strip().lower()
     if env_value in {"1", "true", "yes", "y"}:
         _DOWNLOAD_APPROVED = True
+        LOGGER.info(
+            "QCMLFORGE_AUTO_DOWNLOAD_PRETRAINED enabled pretrained downloads from %s",
+            HF_REPO_ID,
+        )
         return True
     if env_value in {"0", "false", "no", "n"}:
         _DOWNLOAD_APPROVED = False
+        LOGGER.info(
+            "QCMLFORGE_AUTO_DOWNLOAD_PRETRAINED disabled pretrained downloads from %s",
+            HF_REPO_ID,
+        )
         return False
 
     if not sys.stdin.isatty():
@@ -48,26 +58,52 @@ def _allow_model_download(missing_paths: list[str]) -> bool:
     preview = ", ".join(missing_paths[:3])
     if len(missing_paths) > 3:
         preview += ", ..."
-    answer = (
-        input(
-            "Pretrained model weights are not available locally and need to be "
-            f"downloaded from https://huggingface.co/{HF_REPO_ID} "
-            f"(missing: {preview}). Download now? [y/N]: "
+    try:
+        answer = (
+            input(
+                "Pretrained model weights are not available locally and need to be "
+                f"downloaded from https://huggingface.co/{HF_REPO_ID} "
+                f"(missing: {preview}). Download now? [y/N]: "
+            )
+            .strip()
+            .lower()
         )
-        .strip()
-        .lower()
-    )
+    except (EOFError, KeyboardInterrupt):
+        _DOWNLOAD_APPROVED = False
+        return False
     _DOWNLOAD_APPROVED = answer in {"y", "yes"}
     return _DOWNLOAD_APPROVED
 
 
 def resolve_pretrained_paths(rel_paths: list[str]) -> dict[str, str]:
+    """
+    Resolve pretrained artifact paths for one or more model files.
+
+    Parameters
+    ----------
+    rel_paths : list[str]
+        Relative paths inside the QCMLForge Hugging Face repository.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping from each requested relative path to a local filesystem path.
+
+    Notes
+    -----
+    Resolution checks the local Hugging Face cache first, optionally downloads
+    missing artifacts, and falls back to packaged files when they exist.
+    Interactive downloads are controlled by
+    ``QCMLFORGE_AUTO_DOWNLOAD_PRETRAINED``.
+    """
     resolved = {}
     missing = []
 
     for rel_path in rel_paths:
         try:
             resolved[rel_path] = _hf_hub_download(rel_path, local_files_only=True)
+        except ImportError:
+            raise
         except Exception:
             missing.append(rel_path)
 
@@ -90,6 +126,8 @@ def resolve_pretrained_paths(rel_paths: list[str]) -> dict[str, str]:
     for rel_path in missing:
         try:
             resolved[rel_path] = _hf_hub_download(rel_path, local_files_only=False)
+        except ImportError:
+            raise
         except Exception as exc:
             fallback = _packaged_model_path(rel_path)
             if fallback is not None:
@@ -104,4 +142,21 @@ def resolve_pretrained_paths(rel_paths: list[str]) -> dict[str, str]:
 
 
 def resolve_pretrained_path(rel_path: str) -> str:
+    """
+    Resolve a single pretrained artifact path.
+
+    Parameters
+    ----------
+    rel_path : str
+        Relative path inside the QCMLForge Hugging Face repository.
+
+    Returns
+    -------
+    str
+        Local filesystem path for the requested artifact.
+
+    Notes
+    -----
+    This is a thin wrapper around ``resolve_pretrained_paths``.
+    """
     return resolve_pretrained_paths([rel_path])[rel_path]

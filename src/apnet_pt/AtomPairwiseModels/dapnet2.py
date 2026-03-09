@@ -545,8 +545,10 @@ class APNet2_dAPNet2Model:
             )
             am_model_path = model_paths[f"am_ensemble/am_{model_id}.pt"]
             ap2_model_path = model_paths[f"ap2_ensemble/ap2_{model_id}.pt"]
-        elif ap2_model_path is None and model_id is None:
-            raise ValueError("Either model_path or model_id must be provided.")
+        elif ap2_model_path is None or am_model_path is None:
+            raise ValueError(
+                "Provide both ap2_model_path and am_model_path, or set model_id."
+            )
 
         # Load main model checkpoint
         checkpoint = model_io.load_checkpoint(ap2_model_path, map_location=self.device)
@@ -1672,8 +1674,10 @@ class dAPNet2Model:
             )
             am_model_path = model_paths[f"am_ensemble/am_{model_id}.pt"]
             ap2_model_path = model_paths[f"ap2_ensemble/ap2_{model_id}.pt"]
-        elif ap2_model_path is None and model_id is None:
-            raise ValueError("Either model_path or model_id must be provided.")
+        elif ap2_model_path is None or am_model_path is None:
+            raise ValueError(
+                "Provide both ap2_model_path and am_model_path, or set model_id."
+            )
 
         checkpoint = torch.load(ap2_model_path)
         print(checkpoint)

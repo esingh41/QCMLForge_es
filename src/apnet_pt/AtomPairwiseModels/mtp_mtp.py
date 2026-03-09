@@ -1,35 +1,3 @@
-import torch
-import torch.nn as nn
-from apnet_pt.util import scatter_sum_compile
-import numpy as np
-import time
-from ..AtomModels.ap2_atom_model import (
-    AtomMPNN,
-    # isolate_atomic_property_predictions,
-    qcel_mon_to_pyg_data,
-    # DistanceLayer,
-)
-from ..AtomModels.ap2_hirshfeld_atom_model import isolate_atomic_property_predictions
-from ..atomic_datasets import (
-    AtomicDataLoader,
-    atomic_collate_update,
-    atomic_collate_update_no_target,
-    atomic_collate_update_prebatched,
-)
-from ..AtomModels.ap2_hirshfeld_atom_model import (
-    AtomHirshfeldMPNN,
-    atomic_hirshfeld_module_dataset,
-)
-from ..pt_datasets.ap2_fused_ds import (
-    ap2_fused_module_dataset,
-    APNet2_fused_DataLoader,
-    ap2_fused_collate_update,
-    ap2_fused_collate_update_no_target,
-    qcel_dimer_to_fused_data,
-)
-from .. import constants
-from ..hf_pretrained import resolve_pretrained_path
-from .. import model_io
 import os
 import re
 import time
@@ -49,6 +17,7 @@ from apnet_pt.torch_util import set_weights_to_value
 from qcml_dftd3.d3 import d3, resolve_d3_damping_parameters
 
 from .. import constants
+from .. import model_io
 from ..atomic_datasets import (
     AtomicDataLoader,
     atomic_collate_update,
@@ -65,6 +34,7 @@ from ..AtomModels.ap2_hirshfeld_atom_model import (
     atomic_hirshfeld_module_dataset,
     isolate_atomic_property_predictions,
 )
+from ..hf_pretrained import resolve_pretrained_path
 from ..multipole import thole_damping_direct_torch, thole_damping_mutual_torch
 from ..pt_datasets.ap2_fused_ds import (
     APNet2_fused_DataLoader,
@@ -3156,11 +3126,16 @@ class AM_DimerParam_Model:
         return
 
     def set_pretrained_model(
-        self, ap2_model_path=None, am_model_path=None, model_id=None
+        self,
+        ap2_model_path=None,
+        am_model_path=None,
+        model_id=None,
+        ap2_fused: bool = False,
     ):
         if model_id is not None:
+            ensemble_prefix = "ap2-fused_ensemble" if ap2_fused else "ap2_ensemble"
             ap2_model_path = resolve_pretrained_path(
-                f"ap2-fused_ensemble/ap2_{model_id}.pt"
+                f"{ensemble_prefix}/ap2_{model_id}.pt"
             )
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")

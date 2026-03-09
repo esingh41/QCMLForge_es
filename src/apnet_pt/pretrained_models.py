@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 import sys
 from importlib import resources
@@ -17,6 +18,7 @@ from . import atomic_datasets
 model_dir = resources.files("apnet_pt").joinpath("models")
 HF_REPO_ID = "awallace3/qcmlforge"
 _DOWNLOAD_APPROVED = None
+LOGGER = logging.getLogger(__name__)
 
 
 def _hf_hub_download(rel_path: str, local_files_only: bool) -> str:
@@ -49,9 +51,17 @@ def _allow_model_download(missing_paths: list[str]) -> bool:
     env_value = os.getenv("QCMLFORGE_AUTO_DOWNLOAD_PRETRAINED", "").strip().lower()
     if env_value in {"1", "true", "yes", "y"}:
         _DOWNLOAD_APPROVED = True
+        LOGGER.info(
+            "QCMLFORGE_AUTO_DOWNLOAD_PRETRAINED enabled pretrained downloads from %s",
+            HF_REPO_ID,
+        )
         return True
     if env_value in {"0", "false", "no", "n"}:
         _DOWNLOAD_APPROVED = False
+        LOGGER.info(
+            "QCMLFORGE_AUTO_DOWNLOAD_PRETRAINED disabled pretrained downloads from %s",
+            HF_REPO_ID,
+        )
         return False
 
     if not sys.stdin.isatty():
@@ -61,15 +71,19 @@ def _allow_model_download(missing_paths: list[str]) -> bool:
     preview = ", ".join(missing_paths[:3])
     if len(missing_paths) > 3:
         preview += ", ..."
-    answer = (
-        input(
-            "Pretrained model weights are not available locally and need to be "
-            f"downloaded from https://huggingface.co/{HF_REPO_ID} "
-            f"(missing: {preview}). Download now? [y/N]: "
+    try:
+        answer = (
+            input(
+                "Pretrained model weights are not available locally and need to be "
+                f"downloaded from https://huggingface.co/{HF_REPO_ID} "
+                f"(missing: {preview}). Download now? [y/N]: "
+            )
+            .strip()
+            .lower()
         )
-        .strip()
-        .lower()
-    )
+    except (EOFError, KeyboardInterrupt):
+        _DOWNLOAD_APPROVED = False
+        return False
     _DOWNLOAD_APPROVED = answer in {"y", "yes"}
     return _DOWNLOAD_APPROVED
 
@@ -81,6 +95,8 @@ def _resolve_pretrained_paths(rel_paths: list[str]) -> dict[str, str]:
     for rel_path in rel_paths:
         try:
             resolved[rel_path] = _hf_hub_download(rel_path, local_files_only=True)
+        except ImportError:
+            raise
         except Exception:
             missing.append(rel_path)
 
@@ -103,6 +119,8 @@ def _resolve_pretrained_paths(rel_paths: list[str]) -> dict[str, str]:
     for rel_path in missing:
         try:
             resolved[rel_path] = _hf_hub_download(rel_path, local_files_only=False)
+        except ImportError:
+            raise
         except Exception as exc:
             fallback = _packaged_model_path(rel_path)
             if fallback is not None:
@@ -117,7 +135,7 @@ def _resolve_pretrained_paths(rel_paths: list[str]) -> dict[str, str]:
 
 
 def atom_model_predict(
-    mols: [Molecule],
+    mols: list[Molecule],
     compile: bool = True,
     batch_size: int = 3,
     return_mol_arrays: bool = True,
@@ -195,7 +213,7 @@ def atom_model_predict(
 
 
 def apnet2_model_predict(
-    mols: [Molecule],
+    mols: list[Molecule],
     compile: bool = True,
     batch_size: int = 16,
     ensemble_model_dir: str = model_dir,
@@ -250,12 +268,12 @@ def apnet2_model_predict(
 
 
 def apnet2_model_predict_pairs(
-    mols: [Molecule],
+    mols: list[Molecule],
     compile: bool = True,
     batch_size: int = 16,
     ensemble_model_dir: str = model_dir,
-    fAs: [{str: [int]}] = None,
-    fBs: [{str: [int]}] = None,
+    fAs: list[dict[str, list[int]]] | None = None,
+    fBs: list[dict[str, list[int]]] | None = None,
     print_results: bool = False,
     ap2_fused: bool = True,
 ):
@@ -339,20 +357,22 @@ def apnet2_model_predict_pairs(
     )
     pred_IEs[:, 1:] += IEs
     pred_IEs[:, 0] += np.sum(IEs, axis=1)
-    for i in range(1, num_models):
-        IEs, pairs = models[i].predict_qcel_mols(
+    for model_idx in range(1, num_models):
+        IEs, pairs = models[model_idx].predict_qcel_mols(
             mols,
             batch_size=batch_size,
             return_pairs=True,
         )
-        for i in range(len(pairs)):
-            for j in range(len(pairs[i])):
-                pairwise_energies[i][j] += pairs[i][j]
+        for pair_idx in range(len(pairs)):
+            for component_idx in range(len(pairs[pair_idx])):
+                pairwise_energies[pair_idx][component_idx] += pairs[pair_idx][
+                    component_idx
+                ]
         pred_IEs[:, 1:] += IEs
         pred_IEs[:, 0] += np.sum(IEs, axis=1)
-    for i in range(len(pairs)):
-        for j in range(len(pairs[i])):
-            pairwise_energies[i][j] /= num_models
+    for pair_idx in range(len(pairwise_energies)):
+        for component_idx in range(len(pairwise_energies[pair_idx])):
+            pairwise_energies[pair_idx][component_idx] /= num_models
     pred_IEs /= num_models
 
     data_dict = {
@@ -415,12 +435,12 @@ monA-monB full IE: {pred_IEs[i]}
 
 
 def apnet3_model_predict_pairs(
-    mols: [Molecule],
+    mols: list[Molecule],
     compile: bool = True,
     batch_size: int = 16,
     ensemble_model_dir: str = model_dir,
-    fAs: [{str: [int]}] = None,
-    fBs: [{str: [int]}] = None,
+    fAs: list[dict[str, list[int]]] | None = None,
+    fBs: list[dict[str, list[int]]] | None = None,
     print_results: bool = False,
 ):
     """
@@ -559,7 +579,7 @@ def dapnet2_levels_of_theory_pretrained():
 
 
 def dapnet2_model_predict(
-    mols: [Molecule],
+    mols: list[Molecule],
     m1: str,
     m2: str,
     compile: bool = True,

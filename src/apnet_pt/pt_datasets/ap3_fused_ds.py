@@ -1113,8 +1113,6 @@ class ap3_fused_module_dataset(Dataset):
                     "dimer_prop_model must have either set_forward or dimer_model attribute"
                 )
 
-            n_dimers = len(batch_data_list)
-
             if E_classical.ndim == 1:
                 E_elst_pairs = E_classical
                 E_ind_pairs = torch.zeros_like(E_classical)
@@ -1763,8 +1761,6 @@ class ap3_fused_module_dataset_lmdb(Dataset):
                 raise ValueError(
                     "dimer_prop_model must have either set_forward or dimer_model attribute"
                 )
-
-            n_dimers = len(batch_data_list)
 
             if E_classical.ndim == 1:
                 E_elst_pairs = E_classical
