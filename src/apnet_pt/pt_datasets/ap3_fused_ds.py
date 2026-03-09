@@ -750,7 +750,7 @@ class ap3_fused_module_dataset(Dataset):
         """
         self.print_level = print_level
         try:
-            assert spec_type in [1, 2, 5, 6, 7, 8, 9, None]
+            assert spec_type in [1, 2, 5, 6, 7, 8, 9, 10, None]
         except Exception:
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
@@ -862,6 +862,7 @@ class ap3_fused_module_dataset(Dataset):
     def raw_file_names(self):
         # TODO: enable users to specify data source via QCArchive, url, or local file
         # spec_1 = "spec_1" # 'SAPT0/jun-cc-pVDZ'
+        # spec 10 SAPT(PBE0)-D4(I)/aug-cc-pVDZ
         if self.spec_type == 2:
             return [
                 "1600K_train_dimers-fixed.pkl",
@@ -891,6 +892,11 @@ class ap3_fused_module_dataset(Dataset):
                 "t_train_19.pkl",
                 "t_test_19.pkl",
             ]
+        elif self.spec_type == 10:
+            return [
+                "35K_saptpbe0-d4_totals_train.pkl",
+                "35K_saptpbe0-d4_totals_test.pkl",
+            ]
         elif self.spec_type is None:
             os.system(f"touch {self.raw_dir}/tmp.txt")
             return ["tmp.txt"]
@@ -913,15 +919,12 @@ class ap3_fused_module_dataset(Dataset):
                 )
             spec_files = glob(file_cmd)
             spec_files = [i.split("/")[-1] for i in spec_files]
+            print(f"{spec_files = }")
             if len(spec_files) > 0:
                 # want to preserve idx ordering
                 spec_files.sort(key=natural_key)
                 if self.MAX_SIZE is not None:
                     max_size = int(self.MAX_SIZE / self.datapoint_storage_n_objects)
-                    # if max_size == 0:
-                    #     raise ValueError(
-                    #         "MAX_SIZE must be greater than datapoint_storage_n_objects"
-                    #     )
                 if self.MAX_SIZE is not None:
                     if len(spec_files) > max_size and max_size > 0:
                         spec_files = spec_files[:max_size]
@@ -1309,7 +1312,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
         self.json = json
         self.print_level = print_level
         try:
-            assert spec_type in [1, 2, 5, 6, 7, 8, 9, None]
+            assert spec_type in [1, 2, 5, 6, 7, 8, 9, 10, None]
         except Exception:
             print("Currently spec_type must be 1 or 2 for SAPT0/jun-cc-pVDZ")
             raise ValueError
