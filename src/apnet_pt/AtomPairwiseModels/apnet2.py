@@ -6,6 +6,7 @@ import warnings
 import time
 from ..AtomModels.ap2_atom_model import AtomMPNN, isolate_atomic_property_predictions
 from .. import atomic_datasets
+from ..hf_pretrained import resolve_pretrained_paths
 from .. import pairwise_datasets
 from .. import model_io
 from ..pairwise_datasets import (
@@ -23,7 +24,6 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import qcelemental as qcel
-from importlib import resources
 from copy import deepcopy
 from apnet_pt.torch_util import set_weights_to_value
 from apnet_pt.util import scatter_sum_compile
@@ -962,12 +962,14 @@ class APNet2Model:
             Returns self for method chaining.
         """
         if model_id is not None:
-            am_model_path = resources.files("apnet_pt").joinpath(
-                "models", "am_ensemble", f"am_{model_id}.pt"
+            model_paths = resolve_pretrained_paths(
+                [
+                    f"am_ensemble/am_{model_id}.pt",
+                    f"ap2_ensemble/ap2_{model_id}.pt",
+                ]
             )
-            ap2_model_path = resources.files("apnet_pt").joinpath(
-                "models", "ap2_ensemble", f"ap2_{model_id}.pt"
-            )
+            am_model_path = model_paths[f"am_ensemble/am_{model_id}.pt"]
+            ap2_model_path = model_paths[f"ap2_ensemble/ap2_{model_id}.pt"]
         elif ap2_model_path is None and model_id is None:
             raise ValueError("Either model_path or model_id must be provided.")
 

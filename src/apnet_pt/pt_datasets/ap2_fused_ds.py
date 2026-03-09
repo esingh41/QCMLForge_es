@@ -12,6 +12,7 @@ from torch_geometric.data import download_url
 
 from .. import util
 from ..AtomModels.ap2_atom_model import AtomModel
+from ..hf_pretrained import resolve_pretrained_path
 from .. import atomic_datasets
 from glob import glob
 import tarfile
@@ -990,9 +991,7 @@ class ap2_fused_module_dataset(Dataset):
         skip_processed=True,
         skip_compile=False,
         # only need for processing
-        atom_model_path=resources.files("apnet_pt").joinpath(
-            "models", "am_ensemble", "am_0.pt"
-        ),
+        atom_model_path=None,
         atom_model=None,
         batch_size=16,
         atomic_batch_size=200,
@@ -1079,7 +1078,9 @@ class ap2_fused_module_dataset(Dataset):
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True
                 )
-        elif atom_model_path is not None and not self.skip_processed:
+        elif not self.skip_processed:
+            if atom_model_path is None:
+                atom_model_path = resolve_pretrained_path("am_ensemble/am_0.pt")
             self.atom_model = AtomModel(
                 pre_trained_model_path=atom_model_path,
                 ds_root=None,

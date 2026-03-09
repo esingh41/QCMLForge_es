@@ -24,6 +24,7 @@ from torch_geometric.data import download_url
 
 from .. import util
 from ..AtomModels.ap2_atom_model import AtomModel
+from ..hf_pretrained import resolve_pretrained_path
 from .. import atomic_datasets
 import tarfile
 from time import time
@@ -689,9 +690,7 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
         force_reprocess=False,
         skip_processed=True,
         skip_compile=False,
-        atom_model_path=resources.files("apnet_pt").joinpath(
-            "models", "am_ensemble", "am_0.pt"
-        ),
+        atom_model_path=None,
         atom_model=None,
         dimer_prop_model=None,
         batch_size=16,
@@ -846,7 +845,9 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True
                 )
-        elif atom_model_path is not None and not self.skip_processed:
+        elif not self.skip_processed:
+            if atom_model_path is None:
+                atom_model_path = resolve_pretrained_path("am_ensemble/am_0.pt")
             self.atom_model = AtomModel(
                 pre_trained_model_path=atom_model_path,
                 ds_root=None,
