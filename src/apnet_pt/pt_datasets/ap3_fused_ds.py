@@ -1020,8 +1020,8 @@ class ap3_fused_module_dataset(Dataset):
             ]
         elif self.spec_type == 10:
             return [
-                "51K_saptpbe0-d4_totals_train.pkl",
-                "51K_saptpbe0-d4_totals_test.pkl",
+                "100K_saptpbe0-d4_totals_train.pkl",
+                "100K_saptpbe0-d4_totals_test.pkl",
             ]
         elif self.spec_type is None:
             os.system(f"touch {self.raw_dir}/tmp.txt")
@@ -1567,6 +1567,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
         self.lmdb_path = osp.join(
             root, "processed", f"lmdb_ap3_fused{self.split_name}_spec_{self.spec_type}"
         )
+        print(self.lmdb_path)
 
     @property
     def split_name(self):
@@ -1646,8 +1647,8 @@ class ap3_fused_module_dataset_lmdb(Dataset):
             ]
         elif self.spec_type == 10:
             return [
-                "51K_saptpbe0-d4_totals_train.pkl",
-                "51K_saptpbe0-d4_totals_test.pkl",
+                "100K_saptpbe0-d4_totals_train.pkl",
+                "100K_saptpbe0-d4_totals_test.pkl",
             ]
         elif self.spec_type is None:
             os.system(f"touch {self.raw_dir}/tmp.txt")
