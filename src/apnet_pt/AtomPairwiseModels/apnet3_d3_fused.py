@@ -271,6 +271,44 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             "d3_damping_parameters": deepcopy(self.d3_damping_parameters),
         }
 
+    def get_model_info(self):
+        """Return a ModelInfo describing this module for print_model_tree."""
+        from apnet_pt.model_print import ModelInfo, _safe_numel
+
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        outputs = ["E_exch_NN", "\u0394E_elst_NN", "\u0394E_ind_NN"]
+        if not self.no_disp_nn:
+            outputs.append("\u0394E_disp_NN")
+        inputs = [
+            "h_A",
+            "h_B",
+            "q_A",
+            "q_B",
+            "HFVR_A",
+            "HFVR_B",
+            "VW_A",
+            "VW_B",
+            "E_elst_cl",
+            "E_ind_cl",
+            "E_disp_D3",
+        ]
+        return ModelInfo(
+            name="APNet3D3_AtomType_MPNN",
+            role="Predicts short-range SAPT corrections via intermolecular MPNN",
+            inputs=inputs,
+            outputs=outputs,
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            n_calls=1,
+            call_note=(
+                "intra-monomer MPNN layers (update_layers, directional_layers) "
+                "applied independently to monomer A and B with shared weights "
+                "before pairwise readout"
+            ),
+        )
+
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
         if nedge == 0:
@@ -1027,6 +1065,120 @@ class APNet3D3_AtomType_Model:
             batch = batch.to(self.device)
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
         return
+
+    def get_model_info(self):
+        """Return a ModelInfo assembling the full AP3D3 architecture tree.
+
+        Produces the human-readable flattened view:
+          APNet3D3_AtomType_Model
+          ├─ [frozen ×2] AtomHirshfeldMPNN
+          ├─ [frozen ×2] AtomTypeParamNN
+          ├─ Classical  (non-trainable)
+          │   ├─ DampedMTPElectrostatics
+          │   ├─ PointInducedDipole
+          │   └─ DFTD3Dispersion
+          └─ [train] APNet3D3_AtomType_MPNN
+        """
+        from apnet_pt.model_print import ModelInfo, get_model_info
+
+        def _subtract_counts(info, child_info):
+            info.n_params = max(0, info.n_params - child_info.n_params)
+            info.n_params_total = max(
+                0, info.n_params_total - child_info.n_params_total
+            )
+            return info
+
+        children = []
+
+        # 1. AtomHirshfeldMPNN — frozen, called ×2 (once per monomer)
+        dimer_prop = getattr(self.model, "dimer_prop_model", None)
+        at_param = getattr(dimer_prop, "AtomTypeParam", None) if dimer_prop else None
+        atom_model = getattr(at_param, "atom_model", None) if at_param else None
+        atom_info = None
+        if atom_model is not None:
+            atom_info = get_model_info(atom_model)
+            children.append(atom_info)
+
+        # 2. AtomTypeParamNN — frozen, called ×2; show without its nested child
+        if at_param is not None:
+            atnn_info = get_model_info(at_param)
+            if atom_info is not None:
+                atnn_info = _subtract_counts(atnn_info, atom_info)
+            atnn_info.children = []  # flattened view: sibling, not nested
+            children.append(atnn_info)
+
+        # 3. Classical sub-models (no trainable params, non-nn.Module computations)
+        classical_children = [
+            ModelInfo(
+                name="DampedMTPElectrostatics",
+                inputs=[
+                    "q_A",
+                    "\u03bc_A",
+                    "Q_A",
+                    "K_A",
+                    "q_B",
+                    "\u03bc_B",
+                    "Q_B",
+                    "K_B",
+                ],
+                outputs=["E_elst_cl"],
+                frozen=True,
+                n_params=0,
+                n_params_total=0,
+            ),
+            ModelInfo(
+                name="PointInducedDipole",
+                inputs=[
+                    "q_A",
+                    "\u03bc_A",
+                    "Q_A",
+                    "HFVR_A",
+                    "q_B",
+                    "\u03bc_B",
+                    "Q_B",
+                    "HFVR_B",
+                ],
+                outputs=["E_ind_cl"],
+                frozen=True,
+                n_params=0,
+                n_params_total=0,
+            ),
+            ModelInfo(
+                name="DFTD3Dispersion",
+                inputs=["Z_A", "R_A", "Z_B", "R_B"],
+                outputs=["E_disp_D3"],
+                frozen=True,
+                n_params=0,
+                n_params_total=0,
+            ),
+        ]
+        children.append(
+            ModelInfo(
+                name="Classical",
+                is_group=True,
+                frozen=True,
+                n_params=0,
+                n_params_total=0,
+                children=classical_children,
+            )
+        )
+
+        # 4. APNet3D3_AtomType_MPNN — the trainable short-range model
+        mpnn_info = get_model_info(self.model)
+        if dimer_prop is not None:
+            mpnn_info = _subtract_counts(mpnn_info, get_model_info(dimer_prop))
+        children.append(mpnn_info)
+
+        n_total = sum(child.n_params_total for child in children)
+        n_train = sum(child.n_params for child in children)
+
+        return ModelInfo(
+            name="APNet3D3_AtomType_Model",
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            children=children,
+        )
 
     def compile_model(self):
         self.model.to(self.device)
