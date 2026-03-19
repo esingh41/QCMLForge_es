@@ -106,6 +106,27 @@ class APNet2_dAPNet2_MPNN(nn.Module):
             "r_cut": self.r_cut,
         }
 
+    def get_model_info(self):
+        """Return a ModelInfo describing this module for print_model_tree."""
+        from apnet_pt.model_print import ModelInfo, get_model_info, _safe_numel
+
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        children = []
+        if self.apnet2_model is not None:
+            children.append(get_model_info(self.apnet2_model))
+        return ModelInfo(
+            name="APNet2_dAPNet2_MPNN",
+            role="Applies a frozen APNet2 backbone and learns a delta correction readout",
+            inputs=["h_AB", "h_BA", "cutoff"],
+            outputs=["dE_total"],
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            n_calls=1,
+            children=children,
+        )
+
     def forward(
         self,
         ZA,
@@ -266,6 +287,23 @@ class dAPNet2_MPNN(nn.Module):
         return {
             "n_neuron": self.n_neuron,
         }
+
+    def get_model_info(self):
+        """Return a ModelInfo describing this module for print_model_tree."""
+        from apnet_pt.model_print import ModelInfo, _safe_numel
+
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        return ModelInfo(
+            name="dAPNet2_MPNN",
+            role="Learns a delta correction from frozen APNet2 pair embeddings",
+            inputs=["h_AB", "h_BA", "cutoff"],
+            outputs=["dE_total"],
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            n_calls=1,
+        )
 
     def forward(
         self,
@@ -499,6 +537,36 @@ class APNet2_dAPNet2Model:
         self.model_save_path = None
         self.prebatched = ds_prebatched
         return
+
+    def get_model_info(self):
+        """Return a ModelInfo tree for the dAPNet2 harness."""
+        from apnet_pt.model_print import ModelInfo, get_model_info
+
+        children = []
+
+        atom_model = getattr(self, "atom_model", None)
+        if atom_model is not None:
+            atom_info = get_model_info(atom_model)
+            atom_info.n_calls = 2
+            atom_info.call_note = (
+                "run separately for monomer A and monomer B (shared weights)"
+            )
+            children.append(atom_info)
+
+        apnet2_model = getattr(self, "apnet2_model", None)
+        if apnet2_model is not None:
+            apnet2_nn = getattr(apnet2_model, "model", apnet2_model)
+            apnet2_info = get_model_info(apnet2_nn)
+            children.append(apnet2_info)
+
+        children.append(get_model_info(self.model))
+        return ModelInfo(
+            name="dAPNet2Model",
+            frozen=all(child.frozen for child in children),
+            n_params=sum(child.n_params for child in children),
+            n_params_total=sum(child.n_params_total for child in children),
+            children=children,
+        )
 
     @torch.inference_mode()
     def predict_from_dataset(self):
@@ -1645,6 +1713,35 @@ class dAPNet2Model:
         self.model_save_path = None
         self.prebatched = ds_prebatched
         return
+
+    def get_model_info(self):
+        """Return a ModelInfo tree for the dAPNet2 harness."""
+        from apnet_pt.model_print import ModelInfo, get_model_info
+
+        children = []
+
+        atom_model = getattr(self, "atom_model", None)
+        if atom_model is not None:
+            atom_info = get_model_info(atom_model)
+            atom_info.n_calls = 2
+            atom_info.call_note = (
+                "run separately for monomer A and monomer B (shared weights)"
+            )
+            children.append(atom_info)
+
+        apnet2_model = getattr(self, "apnet2_model", None)
+        if apnet2_model is not None:
+            apnet2_nn = getattr(apnet2_model, "model", apnet2_model)
+            children.append(get_model_info(apnet2_nn))
+
+        children.append(get_model_info(self.model))
+        return ModelInfo(
+            name="dAPNet2Model",
+            frozen=all(child.frozen for child in children),
+            n_params=sum(child.n_params for child in children),
+            n_params_total=sum(child.n_params_total for child in children),
+            children=children,
+        )
 
     @torch.inference_mode()
     def predict_from_dataset(self):
