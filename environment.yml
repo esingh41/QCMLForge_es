@@ -27,9 +27,9 @@ dependencies:
       - qm-tools-aw==1.4.5
       # Install optional PyG wheels after env creation when you need them.
       # CPU example:
-      #   pip install torch-geometric==2.7.0 torch-scatter -f https://data.pyg.org/whl/torch-2.10.0+cpu.html
+      #   pip install torch-geometric==2.7.0 -f https://data.pyg.org/whl/torch-2.10.0+cpu.html
       # CUDA 12.6 example:
-      #   pip install torch-geometric==2.7.0 torch-scatter -f https://data.pyg.org/whl/torch-2.10.0+cu126.html
+      #   pip install torch-geometric==2.7.0 -f https://data.pyg.org/whl/torch-2.10.0+cu126.html
       - waitress==3.0.2
       - yarl==1.18.3
       - pytorch-minimize
