@@ -8,6 +8,23 @@ import os
 from pprint import pprint
 
 
+def maybe_skip_training_after_dataset_setup(model_name, dataset, build_dataset_only):
+    """Print dataset info and optionally stop after dataset construction."""
+    print(dataset)
+    if dataset is not None:
+        try:
+            print(f"Dataset size: {len(dataset)}")
+        except Exception as exc:
+            print(f"Unable to determine dataset size: {exc}")
+    if build_dataset_only:
+        print(
+            f"Dataset build complete for {model_name}; "
+            "skipping training (--build_dataset_only)."
+        )
+        return True
+    return False
+
+
 def train_atom_model(
     atom_model_type="AtomModel",
     model_path="./models/am_amw_1.pt",
@@ -30,6 +47,7 @@ def train_atom_model(
     use_nn_screening=False,
     precompute_hfvr=False,
     ds_use_lmdb=False,
+    build_dataset_only=False,
 ):
     """
     Train a single-atom model of the specified type using data in data_dir.
@@ -57,6 +75,7 @@ def train_atom_model(
         use_nn_screening (bool): If true, enable learned neural-network screening used by induced-dipole models.
         precompute_hfvr (bool): If true, enable precomputation of HF/VR features where supported.
         ds_use_lmdb (bool): If true, configure dataset to use LMDB storage (applied to InducedDipoleModel).
+        build_dataset_only (bool): If true, build/process the dataset and exit without training.
 
     """
     if atom_model_type == "AtomModel":
@@ -138,7 +157,12 @@ def train_atom_model(
     dataloader_num_workers = 0
     if torch.cuda.is_available() and omp_num_threads > 2:
         dataloader_num_workers = omp_num_threads - 2
-    print(atom_model.dataset)
+    if maybe_skip_training_after_dataset_setup(
+        atom_model_type,
+        atom_model.dataset,
+        build_dataset_only,
+    ):
+        return
     atom_model.train(
         n_epochs=n_epochs,
         batch_size=batch_size,
@@ -189,6 +213,7 @@ def train_pairwise_model(
     no_disp_nn=False,
     freeze_dimer_prop_model=True,
     freeze_atom_model=True,
+    build_dataset_only=False,
 ):
     # Ensure param_start_mean and param_start_std are lists
     """
@@ -228,6 +253,7 @@ def train_pairwise_model(
         ap2_pretrained_model_only (str or None): If provided for APNet3-fused variants, load AP2 weights from this path into the APNet.
         ds_type (str): Dataset energy-type selector (e.g., "total_component_energies", "fsapt_energies").
         no_disp_nn (bool): Skip the dispersion readout when training APNet3-fused-d3 and compute D3 at predict time instead.
+        build_dataset_only (bool): If true, build/process the dataset and exit without training.
 
     """
     if not isinstance(param_start_mean, (list, tuple)):
@@ -570,6 +596,13 @@ def train_pairwise_model(
             ds_prebatched=True,
             ds_random_seed=random_seed,
         )
+    dataset = getattr(apnet, "dataset", None)
+    if maybe_skip_training_after_dataset_setup(
+        apnet_model_type,
+        dataset,
+        build_dataset_only,
+    ):
+        return
     train_kwargs = dict(
         model_path=model_out,
         n_epochs=n_epochs,
@@ -877,6 +910,12 @@ def main():
         default=False,
         help="APNet3-fused/APNet3-fused-d3: unfreeze the atom-type submodel feeding DimerProp during training (default: frozen).",
     )
+    args.add_argument(
+        "--build_dataset_only",
+        action="store_true",
+        default=False,
+        help="Build/process the requested dataset and exit without training.",
+    )
     args = args.parse_args()
     # Parse param_start_mean and param_start_std
     args.param_start_mean = parse_param_list(args.param_start_mean)
@@ -905,6 +944,7 @@ def main():
             use_nn_screening=args.use_nn_screening,
             precompute_hfvr=args.precompute_hfvr,
             ds_use_lmdb=args.ds_use_lmdb,
+            build_dataset_only=args.build_dataset_only,
         )
     if args.train_apnet != "":
         train_pairwise_model(
@@ -941,6 +981,7 @@ def main():
             no_disp_nn=args.no_disp_nn,
             freeze_dimer_prop_model=not args.unfreeze_dimer_prop_model,
             freeze_atom_model=not args.unfreeze_atom_model,
+            build_dataset_only=args.build_dataset_only,
         )
     return
 
