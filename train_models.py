@@ -290,10 +290,10 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel
     else:
         raise ValueError("Invalid Atom Model Type")
-    if end_lr is not None and apnet_model_type not in [
-        "APNetD3",
-        "APNet3D3",
-        "APNet3-d3-fused",
+    if end_lr is not None and apnet_model_type.lower() not in [
+        "apnetd3",
+        "apnet3d3",
+        "apnet3-d3-fused",
     ]:
         raise ValueError("end_lr is currently only supported for APNetD3 training")
     print("Training {}...".format(apnet_model_type))
