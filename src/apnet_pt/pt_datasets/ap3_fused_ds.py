@@ -1020,8 +1020,8 @@ class ap3_fused_module_dataset(Dataset):
             ]
         elif self.spec_type == 10:
             return [
-                "100K_saptpbe0-d4_totals_train.pkl",
-                "100K_saptpbe0-d4_totals_test.pkl",
+                "124K_saptpbe0-d4_totals_train.pkl",
+                "124K_saptpbe0-d4_totals_test.pkl",
             ]
         elif self.spec_type is None:
             os.system(f"touch {self.raw_dir}/tmp.txt")
@@ -1647,8 +1647,8 @@ class ap3_fused_module_dataset_lmdb(Dataset):
             ]
         elif self.spec_type == 10:
             return [
-                "100K_saptpbe0-d4_totals_train.pkl",
-                "100K_saptpbe0-d4_totals_test.pkl",
+                "124K_saptpbe0-d4_totals_train.pkl",
+                "124K_saptpbe0-d4_totals_test.pkl",
             ]
         elif self.spec_type is None:
             os.system(f"touch {self.raw_dir}/tmp.txt")
