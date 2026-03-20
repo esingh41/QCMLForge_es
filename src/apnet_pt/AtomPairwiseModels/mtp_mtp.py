@@ -2915,6 +2915,7 @@ class AM_DimerParam_Model:
                     param_start_mean=config["param_start_mean"],
                     param_start_std=config["param_start_std"],
                     n_params=config.get("n_params", 1),
+                    freeze_atom_model=freeze_atom_model,
                 )
             # elif model_type == "AtomTypeParamMPNN":
             #     self.model = AtomTypeParamMPNN(
@@ -2942,6 +2943,7 @@ class AM_DimerParam_Model:
                     param_start_mean=param_start_mean,
                     param_start_std=param_start_std,
                     n_params=n_params,
+                    freeze_atom_model=freeze_atom_model,
                 )
             # elif model_type == "AtomTypeParamMPNN":
             #     self.model = AtomTypeParamMPNN(

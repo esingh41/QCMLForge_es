@@ -386,7 +386,7 @@ def train_pairwise_model(
             ignore_database_null=True,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=atom_type_param_model_path,
-            freeze_atom_model=freeze_atom_model,
+            freeze_atom_model=True,
         )
         atom_type_elst_model = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
             ds_root=None,
@@ -438,7 +438,7 @@ def train_pairwise_model(
             ignore_database_null=True,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=atom_type_param_model_path,
-            freeze_atom_model=freeze_atom_model,
+            freeze_atom_model=True,
         )
         atom_type_elst_model = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
             ds_root=None,
@@ -491,6 +491,7 @@ def train_pairwise_model(
             ignore_database_null=True,
             atom_model_pre_trained_path=am_model_path,
             pre_trained_model_path=atom_type_param_model_path,
+            freeze_atom_model=True,
         )
         atom_type_elst_model = AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
             ds_root=None,
@@ -500,6 +501,7 @@ def train_pairwise_model(
             atom_model_type="AtomTypeParamNN",
             pre_trained_model_path=atom_type_param_model_path2,
             elst_damping_type=elst_damping_type,
+            freeze_atom_model=freeze_atom_model,
         )
         am_model_path = None
         print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
@@ -873,7 +875,7 @@ def main():
         "--unfreeze_atom_model",
         action="store_true",
         default=False,
-        help="APNet3-fused/APNet3-fused-d3: unfreeze the atom_model inside DimerProp/AtomTypeParamNN during training (default: frozen).",
+        help="APNet3-fused/APNet3-fused-d3: unfreeze the atom-type submodel feeding DimerProp during training (default: frozen).",
     )
     args = args.parse_args()
     # Parse param_start_mean and param_start_std

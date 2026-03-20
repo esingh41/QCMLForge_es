@@ -234,3 +234,4 @@ d3data.json
 simple-dftd3/
 tmp.xyz
 .nfs*
+train_saptdft.py
