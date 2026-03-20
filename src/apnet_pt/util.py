@@ -15,7 +15,7 @@ from torch_geometric.data import Dataset
 from torch_geometric.loader import DataLoader
 
 
-def scatter_sum_compile(src, index, dim_size, reduce="sum"):
+def scatter_sum_compile(src, index, dim_size, reduce="sum", dim=0):
     """
     Compile-friendly version of torch_geometric scatter for sum reduction.
     
@@ -47,8 +47,10 @@ def scatter_sum_compile(src, index, dim_size, reduce="sum"):
     # if reduce not in ["sum", "add"]:
     #     raise ValueError(f"Only 'sum' and 'add' reductions supported, got '{reduce}'")
     
-    out_shape = (dim_size,) + src.shape[1:]
-    output = torch.zeros(out_shape, dtype=src.dtype, device=src.device)
+    if dim != 0:
+        raise ValueError(f"Only dim=0 is supported, got dim={dim}")
+
+    output = src.new_zeros((dim_size, *src.shape[1:]))
     
     index_shape = (index.size(0),) + (1,) * (src.dim() - 1)
     index_expanded = index.view(index_shape).expand_as(src)

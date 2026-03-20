@@ -25,7 +25,7 @@ jobs:
       shell: bash -l {0}
       run: |
         # Install torch-scatter and torch-geometric from pre-built wheels (CPU version for CI)
-        pip install torch-geometric huggingface_hub -f https://data.pyg.org/whl/torch-2.7.0+cpu.html
+        pip install torch-geometric==2.7.0 torch-scatter huggingface_hub -f https://data.pyg.org/whl/torch-2.10.0+cpu.html
     
     - name: Install package
       shell: bash -l {0}

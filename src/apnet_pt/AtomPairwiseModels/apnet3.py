@@ -467,9 +467,9 @@ class APNet3_MPNN(nn.Module):
             hAB (Tensor): Learned atom-pair feature matrix for A->B edges used by short-range readouts.
             hBA (Tensor): Learned atom-pair feature matrix for B->A edges used by short-range readouts.
         """
-        natomA = torch.tensor(ZA.size(0), dtype=torch.long)
-        natomB = torch.tensor(ZB.size(0), dtype=torch.long)
-        ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
+        natomA = ZA.size(0)
+        natomB = ZB.size(0)
+        ndimer = total_charge_A.size(0)
 
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)

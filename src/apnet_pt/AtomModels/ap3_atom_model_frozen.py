@@ -1009,9 +1009,7 @@ class InducedDipoleMPNN(torch.nn.Module):
             h_list = torch.stack(h_list, dim=1)
             molecule_ind.requires_grad_(False)
             molecule_ind = molecule_ind.long()
-            num_mols = (
-                int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
-            )
+            num_mols = natom_per_mol.size(0)
             total_charge_pred = scatter_sum_compile(
                 charge, molecule_ind, num_mols, reduce="sum"
             )
@@ -1062,7 +1060,7 @@ class InducedDipoleMPNN(torch.nn.Module):
         e_target = idx_map[e_target]
 
         R_mask = R[keep_mask, :]
-        natom_filtered = keep_mask.sum()
+        natom_filtered = R_mask.size(0)
 
         #  [edges]
         dR, dR_xyz = get_distances(R_mask, R_mask, e_source, e_target)
@@ -1088,7 +1086,7 @@ class InducedDipoleMPNN(torch.nn.Module):
                 )
 
             # [atoms x message_embedding_dim]
-            m_i = scatter_sum_compile(m_ij, e_source, int(natom_filtered), reduce="sum")  # type: ignore
+            m_i = scatter_sum_compile(m_ij, e_source, natom_filtered, reduce="sum")
 
             # [atomx x hidden_dim]
             h_next = self.charge_update_layers[i](m_i)
@@ -1150,7 +1148,7 @@ class InducedDipoleMPNN(torch.nn.Module):
         charge[keep_mask] = filtered_charge
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
-        num_mols = int(molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+        num_mols = natom_per_mol.size(0)
         total_charge_pred = scatter_sum_compile(
             charge, molecule_ind, num_mols, reduce="sum"
         )

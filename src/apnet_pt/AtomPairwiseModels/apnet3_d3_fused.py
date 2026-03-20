@@ -1087,6 +1087,10 @@ class APNet3D3_AtomType_Model:
 
     def compile_model(self):
         self.model.to(self.device)
+        batch = self.example_input()
+        batch.to(self.device)
+        with torch.inference_mode():
+            self.model(batch)
         torch._dynamo.config.dynamic_shapes = True
         torch._dynamo.config.capture_dynamic_output_shape_ops = False
         torch._dynamo.config.capture_scalar_outputs = False
@@ -1482,9 +1486,7 @@ class APNet3D3_AtomType_Model:
                 h_BAs.append(hBA)
                 cutoffs.append(cutoff)
                 dimer_inds.append(dimer_batch.dimer_ind)
-                ndimers.append(
-                    torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long)
-                )
+                ndimers.append(dimer_batch.total_charge_A.size(0))
                 # update correct indices in predictions
                 for idx, valid_idx in enumerate(valid_indices):
                     predictions[i + valid_idx] = E_sr_dimer[idx].cpu().numpy()

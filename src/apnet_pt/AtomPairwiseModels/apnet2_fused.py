@@ -1085,9 +1085,7 @@ class APNet2_AM_Model:
                 h_BAs.append(hBA)
                 cutoffs.append(cutoff)
                 dimer_inds.append(dimer_batch.dimer_ind)
-                ndimers.append(
-                    torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long)
-                )
+                ndimers.append(dimer_batch.total_charge_A.size(0))
                 predictions[i : i + batch_size] = E_sr_dimer.cpu().numpy()
             elif return_pairs:
                 E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = preds
