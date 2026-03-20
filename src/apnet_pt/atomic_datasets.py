@@ -14,6 +14,7 @@ from apnet_pt import constants
 from torch_geometric.data import Data
 from torch_geometric.data import Batch, Dataset
 from . import util
+from .lmdb_utils import acquire_lmdb_env, release_lmdb_env
 
 import os.path as osp
 import torch
@@ -1599,28 +1600,36 @@ class atomic_module_dataset_lmdb(Dataset):
         if not osp.exists(self.lmdb_path):
             os.makedirs(self.lmdb_path, exist_ok=True)
 
-        try:
-            self.lmdb_env = lmdb.open(
-                self.lmdb_path,
-                map_size=self.lmdb_map_size,
-                readonly=self.lmdb_readonly,
-                max_dbs=0,
-                lock=not self.lmdb_readonly,
-                max_readers=256,
-            )
+        for attempt in range(2):
+            try:
+                self.lmdb_env = acquire_lmdb_env(
+                    lmdb,
+                    self.lmdb_path,
+                    map_size=self.lmdb_map_size,
+                    readonly=self.lmdb_readonly,
+                    max_dbs=0,
+                    lock=not self.lmdb_readonly,
+                    max_readers=256,
+                )
 
-            # Read metadata
-            with self.lmdb_env.begin() as txn:
-                metadata_bytes = txn.get(b"__metadata__")
-                if metadata_bytes:
-                    metadata = json.loads(metadata_bytes.decode("utf-8"))
-                    self._length = metadata.get("length", 0)
-                else:
-                    self._length = 0
-        except Exception as e:
-            print(f"Error initializing LMDB: {e}")
-            self.lmdb_env = None
-            self._length = 0
+                with self.lmdb_env.begin() as txn:
+                    metadata_bytes = txn.get(b"__metadata__")
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        self._length = metadata.get("length", 0)
+                    else:
+                        self._length = 0
+                return
+            except Exception as e:
+                if attempt == 0 and "already open in this process" in str(e):
+                    import gc
+
+                    gc.collect()
+                    continue
+                print(f"Error initializing LMDB: {e}")
+                self.lmdb_env = None
+                self._length = 0
+                return
 
     def _close_lmdb(self):
         """
@@ -1629,7 +1638,7 @@ class atomic_module_dataset_lmdb(Dataset):
         If an LMDB environment is open, it is closed and `self.lmdb_env` is set to `None`.
         """
         if self.lmdb_env is not None:
-            self.lmdb_env.close()
+            release_lmdb_env(self.lmdb_path, self.lmdb_env)
             self.lmdb_env = None
 
     def __del__(self):
@@ -1656,7 +1665,7 @@ class atomic_module_dataset_lmdb(Dataset):
         # Close LMDB environment before pickling
         if "lmdb_env" in state and state["lmdb_env"] is not None:
             try:
-                state["lmdb_env"].close()
+                release_lmdb_env(state["lmdb_path"], state["lmdb_env"])
             except:
                 pass
         # Remove unpicklable objects
@@ -1726,6 +1735,23 @@ class atomic_module_dataset_lmdb(Dataset):
             return ["lmdb_missing"]
 
         if osp.exists(self.lmdb_path):
+            env_path = osp.abspath(self.lmdb_path)
+            existing_env = getattr(self, "lmdb_env", None)
+            existing_env_path = osp.abspath(getattr(self, "lmdb_path", ""))
+
+            if existing_env is not None and existing_env_path == env_path:
+                try:
+                    with existing_env.begin() as txn:
+                        metadata_bytes = txn.get(b"__metadata__")
+                        if metadata_bytes:
+                            metadata = json.loads(metadata_bytes.decode("utf-8"))
+                            length = metadata.get("length", 0)
+
+                            if length > 0:
+                                return [f"lmdb_atomic_induced_dipole_spec_{self.spec_type}"]
+                except Exception as e:
+                    print(f"Error checking LMDB: {e}")
+
             env = None
             try:
                 env = lmdb.open(
@@ -2140,32 +2166,41 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
         if not osp.exists(self.lmdb_path):
             os.makedirs(self.lmdb_path, exist_ok=True)
 
-        try:
-            self.lmdb_env = lmdb.open(
-                self.lmdb_path,
-                map_size=self.lmdb_map_size,
-                readonly=self.lmdb_readonly,
-                max_dbs=0,
-                lock=not self.lmdb_readonly,
-                max_readers=256,
-            )
+        for attempt in range(2):
+            try:
+                self.lmdb_env = acquire_lmdb_env(
+                    lmdb,
+                    self.lmdb_path,
+                    map_size=self.lmdb_map_size,
+                    readonly=self.lmdb_readonly,
+                    max_dbs=0,
+                    lock=not self.lmdb_readonly,
+                    max_readers=256,
+                )
 
-            with self.lmdb_env.begin() as txn:
-                metadata_bytes = txn.get(b"__metadata__")
-                if metadata_bytes:
-                    metadata = json.loads(metadata_bytes.decode("utf-8"))
-                    self._length = metadata.get("length", 0)
-                else:
-                    self._length = 0
-        except Exception as e:
-            print(f"Error initializing LMDB: {e}")
-            self.lmdb_env = None
-            self._length = 0
+                with self.lmdb_env.begin() as txn:
+                    metadata_bytes = txn.get(b"__metadata__")
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        self._length = metadata.get("length", 0)
+                    else:
+                        self._length = 0
+                return
+            except Exception as e:
+                if attempt == 0 and "already open in this process" in str(e):
+                    import gc
+
+                    gc.collect()
+                    continue
+                print(f"Error initializing LMDB: {e}")
+                self.lmdb_env = None
+                self._length = 0
+                return
 
     def _close_lmdb(self):
         """Close LMDB environment"""
         if self.lmdb_env is not None:
-            self.lmdb_env.close()
+            release_lmdb_env(self.lmdb_path, self.lmdb_env)
             self.lmdb_env = None
 
     def __del__(self):
@@ -2204,6 +2239,22 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
             return ["lmdb_missing"]
 
         if osp.exists(self.lmdb_path):
+            env_path = osp.abspath(self.lmdb_path)
+            existing_env = getattr(self, "lmdb_env", None)
+            existing_env_path = osp.abspath(getattr(self, "lmdb_path", ""))
+
+            if existing_env is not None and existing_env_path == env_path:
+                try:
+                    with existing_env.begin() as txn:
+                        metadata_bytes = txn.get(b"__metadata__")
+                        if metadata_bytes:
+                            metadata = json.loads(metadata_bytes.decode("utf-8"))
+                            length = metadata.get("length", 0)
+                            if length > 0:
+                                return [f"lmdb_monomer_ap3_spec_{self.spec_type}"]
+                except Exception as e:
+                    print(f"Error checking LMDB: {e}")
+
             env = None
             try:
                 env = lmdb.open(
