@@ -1094,14 +1094,24 @@ class AtomHirshfeldModel:
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False
-            train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t, hfvr_MAE_t = (
-                self.train_batches(
-                    rank, train_loader, criterion, optimizer, rank_device
-                )
+            (
+                train_loss,
+                charge_MAE_t,
+                dipole_MAE_t,
+                qpole_MAE_t,
+                hfvr_MAE_t,
+                vw_MAE_t,
+            ) = self.train_batches(
+                rank, train_loader, criterion, optimizer, rank_device
             )
-            test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v = (
-                self.evaluate_batches(rank, test_loader, criterion, rank_device)
-            )
+            (
+                test_loss,
+                charge_MAE_v,
+                dipole_MAE_v,
+                qpole_MAE_v,
+                hfvr_MAE_v,
+                vw_MAE_v,
+            ) = self.evaluate_batches(rank, test_loader, criterion, rank_device)
 
             if rank == 0:
                 if test_loss < lowest_test_loss:
@@ -1123,7 +1133,7 @@ class AtomHirshfeldModel:
                 test_loss = 0.0
                 # if (world_size==1 or rank == 0):
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {test_lowered}",
+                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f} {test_lowered}",
                     flush=True,
                 )
         if world_size > 1:
