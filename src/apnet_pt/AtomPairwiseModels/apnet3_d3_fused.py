@@ -832,6 +832,9 @@ class APNet3D3_AtomType_Model:
             config = model_io.load_config_from_checkpoint(checkpoint) or {}
             use_atom_props = config.get("use_atom_props", True)
             no_disp_nn = config.get("no_disp_nn", False)
+            use_precomputed_classical = config.get(
+                "use_precomputed_classical", use_precomputed_classical
+            )
             if freeze_dimer_prop_model is None:
                 freeze_dimer_prop_model = config.get("freeze_dimer_prop_model", True)
             resolved_d3_damping_parameters = resolve_d3_damping_parameters(
@@ -875,6 +878,7 @@ class APNet3D3_AtomType_Model:
                 freeze_dimer_prop_model=freeze_dimer_prop_model,
                 d3_damping_parameters=resolved_d3_damping_parameters,
             )
+        self.use_precomputed_classical = use_precomputed_classical
         self.d3_damping_parameters = deepcopy(resolved_d3_damping_parameters)
         self.model.d3_damping_parameters = deepcopy(resolved_d3_damping_parameters)
         if hasattr(self.dimer_prop_model, "set_d3_damping_parameters"):
@@ -902,16 +906,19 @@ class APNet3D3_AtomType_Model:
 
         self.device = device
         if hasattr(self.dimer_prop_model, "set_forward"):
-            if self.model.no_disp_nn:
+            if self.use_precomputed_classical:
+                self.dimer_prop_model.set_forward("ap3_atomMPNN")
+            elif self.model.no_disp_nn:
                 self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole")
             else:
                 self.dimer_prop_model.set_forward(
                     "ap3_elst_damping__induced_dipole__disp"
                 )
             self.dimer_prop_model.to(device)
-            self.dimer_prop_model.polarizability_table = (
-                self.dimer_prop_model.polarizability_table.to(self.device)
-            )
+            if hasattr(self.dimer_prop_model, "polarizability_table"):
+                self.dimer_prop_model.polarizability_table = (
+                    self.dimer_prop_model.polarizability_table.to(self.device)
+                )
         elif hasattr(self.dimer_prop_model, "dimer_model"):
             self.dimer_prop_model.dimer_model.set_forward(
                 "ap3_elst_damping__induced_dipole"
@@ -1393,6 +1400,40 @@ class APNet3D3_AtomType_Model:
         self.model.return_hidden_states = value
         return self
 
+    def _predict_classical_components(self, dimer_batch, include_disp=False):
+        if not hasattr(self.dimer_prop_model, "set_forward"):
+            raise ValueError(
+                "Prediction-time classical reconstruction requires a DimerProp"
+            )
+
+        forward_name = (
+            "ap3_elst_damping__induced_dipole__disp"
+            if include_disp
+            else "ap3_elst_damping__induced_dipole"
+        )
+        restore_name = (
+            "ap3_atomMPNN"
+            if self.use_precomputed_classical
+            else (
+                "ap3_elst_damping__induced_dipole"
+                if self.model.no_disp_nn
+                else "ap3_elst_damping__induced_dipole__disp"
+            )
+        )
+
+        self.dimer_prop_model.set_forward(forward_name)
+        with torch.no_grad():
+            E_classical, _, _ = self.dimer_prop_model(dimer_batch)
+        self.dimer_prop_model.set_forward(restore_name)
+
+        E_elst = E_classical[:, 0]
+        E_ind = E_classical[:, 1]
+        if include_disp:
+            E_disp = E_classical[:, 2]
+        else:
+            E_disp = torch.zeros_like(E_elst)
+        return E_elst, E_ind, E_disp
+
     def _assemble_pairs(
         self,
         inp_batch,
@@ -1584,8 +1625,85 @@ class APNet3D3_AtomType_Model:
             dimer_batch = ap3_fused_collate_update_no_target(data)
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
+            if self.use_precomputed_classical:
+                E_elst, E_ind, E_disp = self._predict_classical_components(
+                    dimer_batch,
+                    include_disp=True,
+                )
+                ndimer = dimer_batch.total_charge_A.size(0)
+                E_elst_dimer = scatter_sum_compile(
+                    E_elst, dimer_batch.dimer_ind_full, ndimer
+                )
+                E_ind_dimer = scatter_sum_compile(
+                    E_ind, dimer_batch.dimer_ind_full, ndimer
+                )
+                if self.model.no_disp_nn:
+                    E_disp_dimer = scatter_sum_compile(
+                        E_disp, dimer_batch.dimer_ind_full, ndimer
+                    )
+                    E_sr_dimer_3col = preds[0]
+                    E_out4 = torch.zeros((ndimer, 4), device=E_sr_dimer_3col.device)
+                    E_out4[:, :3] = E_sr_dimer_3col
+                    E_out4[:, 0] += E_elst_dimer
+                    E_out4[:, 2] += E_ind_dimer
+                    E_out4[:, 3] = E_disp_dimer
+                    E_sr_3col = preds[1]
+                    E_sr_out4 = torch.zeros(
+                        (E_sr_3col.size(0), 4), device=E_sr_3col.device
+                    )
+                    E_sr_out4[:, :3] = E_sr_3col
+                    if self.model.return_hidden_states:
+                        preds = (
+                            E_out4,
+                            E_sr_out4,
+                            E_elst,
+                            E_ind,
+                            E_disp,
+                            preds[5],
+                            preds[6],
+                            preds[7],
+                        )
+                    else:
+                        preds = (
+                            E_out4,
+                            E_sr_out4,
+                            E_elst,
+                            E_ind,
+                            E_disp,
+                            preds[5],
+                            preds[6],
+                        )
+                else:
+                    E_out4 = preds[0].clone()
+                    E_out4[:, 0] += E_elst_dimer
+                    E_out4[:, 2] += E_ind_dimer
+                    E_disp_dimer = scatter_sum_compile(
+                        E_disp, dimer_batch.dimer_ind_full, ndimer
+                    )
+                    E_out4[:, 3] += E_disp_dimer
+                    if self.model.return_hidden_states:
+                        preds = (
+                            E_out4,
+                            preds[1],
+                            E_elst,
+                            E_ind,
+                            E_disp,
+                            preds[5],
+                            preds[6],
+                            preds[7],
+                        )
+                    else:
+                        preds = (
+                            E_out4,
+                            preds[1],
+                            E_elst,
+                            E_ind,
+                            E_disp,
+                            preds[5],
+                            preds[6],
+                        )
             # If no_disp_nn=True, model outputs 3 cols; expand to 4 by computing D3 at predict time
-            if self.model.no_disp_nn:
+            if self.model.no_disp_nn and not self.use_precomputed_classical:
                 # Switch dimer_prop_model to full classical (elst + ind + D3 disp)
                 self.dimer_prop_model.set_forward(
                     "ap3_elst_damping__induced_dipole__disp"
@@ -1772,6 +1890,8 @@ units angstrom
             if self.use_precomputed_classical:
                 labels[:, 0] -= batch.E_classical_elst
                 labels[:, 2] -= batch.E_classical_ind
+                if not self.model.no_disp_nn:
+                    labels[:, 3] -= batch.E_classical_disp
             comp_errors = preds - labels
             batch_loss = (
                 torch.mean(torch.square(comp_errors))
@@ -1814,6 +1934,8 @@ units angstrom
                 if self.use_precomputed_classical:
                     labels[:, 0] -= batch.E_classical_elst
                     labels[:, 2] -= batch.E_classical_ind
+                    if not self.model.no_disp_nn:
+                        labels[:, 3] -= batch.E_classical_disp
                 comp_errors = preds - labels
                 batch_loss = (
                     torch.mean(torch.square(comp_errors))
