@@ -1814,8 +1814,8 @@ class APNet3D3_AtomType_Model:
                         predictions[i + idx] = np.array(
                             [np.nan, np.nan, np.nan, np.nan]
                         )
-        if verbose:
-            print(f"Predictions for {i} to {i + batch_size} out of {N}")
+            if verbose:
+                print(f"Predictions for {i} to {i + batch_size} out of {N}")
         if self.model.return_hidden_states:
             return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
         if return_pairs:

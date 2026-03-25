@@ -1377,6 +1377,110 @@ def test_ap3_d3_precomputed_checkpoint_does_not_add_d3_twice():
     )
 
 
+def test_ap3_d3_live_classical_forward_includes_all_classical_terms():
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3d3 = APNet3D3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+        am_dimer_param_model=atom_type_elst_model,
+        use_precomputed_classical=False,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+
+    batch = ap3d3._qcel_example_input(
+        [mol_cliff_water_close],
+        batch_size=1,
+        r_cut=ap3d3.model.r_cut,
+        r_cut_im=ap3d3.model.r_cut_im,
+    )
+    E_out, E_sr, E_elst, E_ind, E_disp, _, _ = ap3d3.model(batch)
+
+    sr_dimer = scatter_sum_compile(E_sr, batch.dimer_ind, 1)
+    elst_dimer = scatter_sum_compile(E_elst, batch.dimer_ind_full, 1)
+    ind_dimer = scatter_sum_compile(E_ind, batch.dimer_ind_full, 1)
+    disp_dimer = scatter_sum_compile(E_disp, batch.dimer_ind_full, 1)
+
+    reconstructed = sr_dimer.clone()
+    reconstructed[:, 0] += elst_dimer
+    reconstructed[:, 2] += ind_dimer
+    reconstructed[:, 3] += disp_dimer
+
+    predictions = ap3d3.predict_qcel_mols([mol_cliff_water_close], batch_size=1)
+
+    assert np.allclose(
+        E_out.detach().cpu().numpy(), reconstructed.detach().cpu().numpy()
+    )
+    assert np.allclose(predictions, E_out.detach().cpu().numpy())
+
+
+def test_ap3_d3_live_classical_training_uses_full_labels():
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+    ap3d3 = APNet3D3_AtomType_Model(
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+        am_dimer_param_model=atom_type_elst_model,
+        use_precomputed_classical=False,
+        ignore_database_null=True,
+        use_GPU=False,
+    )
+
+    batch = ap3d3._qcel_example_input(
+        [mol_cliff_water_close],
+        batch_size=1,
+        r_cut=ap3d3.model.r_cut,
+        r_cut_im=ap3d3.model.r_cut_im,
+    )
+    full_labels = torch.tensor([[1.5, 2.5, 3.5, 4.5]], dtype=torch.float32)
+    batch.y = full_labels.clone()
+    batch.E_classical_elst = torch.tensor([10.0], dtype=torch.float32)
+    batch.E_classical_ind = torch.tensor([20.0], dtype=torch.float32)
+    batch.E_classical_disp = torch.tensor([30.0], dtype=torch.float32)
+
+    captured = {}
+
+    def capture_loss(preds, labels):
+        captured["labels"] = labels.detach().cpu().clone()
+        return torch.mean((preds - labels) ** 2)
+
+    optimizer = torch.optim.SGD(ap3d3.model.parameters(), lr=0.0)
+    train_one_epoch = ap3d3._APNet3D3_AtomType_Model__train_batches_single_proc
+    train_one_epoch([batch], capture_loss, optimizer, ap3d3.device, None)
+
+    assert torch.allclose(captured["labels"], full_labels)
+    assert torch.allclose(batch.y, full_labels)
+
+
 def test_ap3d3_frozen():
     import pandas as pd
 
