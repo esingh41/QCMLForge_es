@@ -224,7 +224,10 @@ def test_ap3_model_tree(ap3_model):
         "DampedMTPElectrostatics",
         "PointInducedDipole",
     }
+    hirshfeld = next(child for child in info.children if child.name == "AtomHirshfeldMPNN")
+    assert hirshfeld.n_calls == 2
     atpnn = next(child for child in info.children if child.name == "AtomTypeParamNN")
+    assert atpnn.n_calls == 2
     assert atpnn.children == []
     assert info.n_params_total == count_params(ap3_model.model)
 

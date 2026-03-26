@@ -1108,6 +1108,13 @@ class APNet3_AtomType_Model:
         """Return a ModelInfo assembling the APNet3 architecture tree."""
         from apnet_pt.model_print import ModelInfo, get_model_info
 
+        def _mark_dual_monomer_calls(info):
+            info.n_calls = 2
+            info.call_note = (
+                "run separately for monomer A and monomer B (shared weights)"
+            )
+            return info
+
         def _subtract_counts(info, child_info):
             info.n_params = max(0, info.n_params - child_info.n_params)
             info.n_params_total = max(
@@ -1121,11 +1128,11 @@ class APNet3_AtomType_Model:
         atom_model = getattr(at_param, "atom_model", None) if at_param else None
         atom_info = None
         if atom_model is not None:
-            atom_info = get_model_info(atom_model)
+            atom_info = _mark_dual_monomer_calls(get_model_info(atom_model))
             children.append(atom_info)
 
         if at_param is not None:
-            atnn_info = get_model_info(at_param)
+            atnn_info = _mark_dual_monomer_calls(get_model_info(at_param))
             if atom_info is not None:
                 atnn_info = _subtract_counts(atnn_info, atom_info)
             atnn_info.children = []

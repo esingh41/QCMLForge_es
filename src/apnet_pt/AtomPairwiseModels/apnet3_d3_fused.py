@@ -334,7 +334,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
 
         n_total = sum(_safe_numel(p) for p in self.parameters())
         n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
-        outputs = ["E_exch_NN", "\u0394E_elst_NN", "\u0394E_ind_NN"]
+        outputs = ["\u0394E_elst_NN", "E_exch_NN", "\u0394E_ind_NN"]
         if not self.no_disp_nn:
             outputs.append("\u0394E_disp_NN")
         inputs = [
@@ -1135,8 +1135,8 @@ class APNet3D3_AtomType_Model:
 
         Produces the human-readable flattened view:
           APNet3D3_AtomType_Model
-          ├─ [frozen ×2] AtomHirshfeldMPNN
-          ├─ [frozen ×2] AtomTypeParamNN
+          ├─ [frozen x2] AtomHirshfeldMPNN
+          ├─ [frozen x2] AtomTypeParamNN
           ├─ Classical  (non-trainable)
           │   ├─ DampedMTPElectrostatics
           │   ├─ PointInducedDipole
@@ -1144,6 +1144,13 @@ class APNet3D3_AtomType_Model:
           └─ [train] APNet3D3_AtomType_MPNN
         """
         from apnet_pt.model_print import ModelInfo, get_model_info
+
+        def _mark_dual_monomer_calls(info):
+            info.n_calls = 2
+            info.call_note = (
+                "run separately for monomer A and monomer B (shared weights)"
+            )
+            return info
 
         def _subtract_counts(info, child_info):
             info.n_params = max(0, info.n_params - child_info.n_params)
@@ -1154,18 +1161,18 @@ class APNet3D3_AtomType_Model:
 
         children = []
 
-        # 1. AtomHirshfeldMPNN — frozen, called ×2 (once per monomer)
+        # 1. AtomHirshfeldMPNN — frozen, called x2 (once per monomer)
         dimer_prop = getattr(self.model, "dimer_prop_model", None)
         at_param = getattr(dimer_prop, "AtomTypeParam", None) if dimer_prop else None
         atom_model = getattr(at_param, "atom_model", None) if at_param else None
         atom_info = None
         if atom_model is not None:
-            atom_info = get_model_info(atom_model)
+            atom_info = _mark_dual_monomer_calls(get_model_info(atom_model))
             children.append(atom_info)
 
-        # 2. AtomTypeParamNN — frozen, called ×2; show without its nested child
+        # 2. AtomTypeParamNN — frozen, called x2; show without its nested child
         if at_param is not None:
-            atnn_info = get_model_info(at_param)
+            atnn_info = _mark_dual_monomer_calls(get_model_info(at_param))
             if atom_info is not None:
                 atnn_info = _subtract_counts(atnn_info, atom_info)
             atnn_info.children = []  # flattened view: sibling, not nested

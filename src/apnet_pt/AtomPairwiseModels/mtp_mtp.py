@@ -921,24 +921,31 @@ class AtomTypeParamNN(nn.Module):
 
     def get_model_info(self):
         """Return a ModelInfo describing this module for print_model_tree."""
-        from apnet_pt.model_print import ModelInfo, get_model_info
+        from apnet_pt.model_print import ModelInfo, _safe_numel, get_model_info
 
-        n_total = sum(p.numel() for p in self.parameters())
-        n_train = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        source_name = (
+            type(self.atom_model).__name__
+            if hasattr(self, "atom_model") and self.atom_model is not None
+            else "atom_model"
+        )
         children = []
         if hasattr(self, "atom_model") and self.atom_model is not None:
             children.append(get_model_info(self.atom_model))
         return ModelInfo(
             name="AtomTypeParamNN",
-            role="Predicts electrostatic damping exponent K from atom hidden states",
-            inputs=["h_list  [from AtomHirshfeldMPNN]"],
+            role=(
+                "Predicts electrostatic damping exponent K from atom hidden "
+                "states for one monomer"
+            ),
+            inputs=[f"h_list [from {source_name}]"],
             outputs=["K"],
             passes=["q", "\u03bc", "Q", "HFVR", "VW"],
             frozen=(n_train == 0),
             n_params=n_train,
             n_params_total=n_total,
-            n_calls=2,
-            call_note="run separately for monomer A and monomer B (shared weights)",
+            n_calls=1,
             children=children,
         )
 

@@ -140,20 +140,22 @@ class AtomHirshfeldMPNN(MessagePassing):
 
     def get_model_info(self):
         """Return a ModelInfo describing this module for print_model_tree."""
-        from apnet_pt.model_print import ModelInfo
+        from apnet_pt.model_print import ModelInfo, _safe_numel
 
-        n_total = sum(p.numel() for p in self.parameters())
-        n_train = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
         return ModelInfo(
             name="AtomHirshfeldMPNN",
-            role="Jointly predicts atomic multipoles and Hirshfeld volume ratio / valence width",
+            role=(
+                "Predicts atomic multipoles, Hirshfeld volume ratio, valence "
+                "width, and latent atom embeddings for one monomer"
+            ),
             inputs=["Z", "R"],
             outputs=["q", "\u03bc", "Q", "HFVR", "VW", "h_list"],
             frozen=(n_train == 0),
             n_params=n_train,
             n_params_total=n_total,
-            n_calls=2,
-            call_note="run separately for monomer A and monomer B (shared weights)",
+            n_calls=1,
         )
 
     def _make_layers(self, layer_nodes, activations):
