@@ -1377,6 +1377,123 @@ def test_ap3_d3_precomputed_checkpoint_does_not_add_d3_twice():
     )
 
 
+def test_ap3_d3_precomputed_train_and_infer_small_dataset(tmp_path):
+    batch_size = 2
+    qcel_molecules = [mol_cliff_water_close] * 4
+    energy_labels = [
+        np.array(
+            [
+                -10.779292828139122,
+                11.390991215401051,
+                -3.414543432719425,
+                -2.436025699701581,
+            ]
+        )
+        for _ in qcel_molecules
+    ]
+
+    atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model_pre_trained_path=am_path,
+        pre_trained_model_path=at_hf_vw_path,
+    )
+    atom_type_elst_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AM_DimerParam_Model(
+        ds_root=None,
+        use_GPU=False,
+        ignore_database_null=True,
+        atom_model=atom_type_hf_vw_model.model,
+        atom_model_type="AtomTypeParamNN",
+        pre_trained_model_path=at_elst_path,
+    )
+
+    root = tmp_path / "ap3d3_small_ds"
+    (root / "raw").mkdir(parents=True, exist_ok=True)
+    ds = ap3_fused_module_dataset(
+        root=str(root),
+        r_cut=5.0,
+        r_cut_im=8.0,
+        spec_type=None,
+        max_size=None,
+        force_reprocess=True,
+        atomic_batch_size=4,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+        datapoint_storage_n_objects=6,
+        batch_size=batch_size,
+        num_devices=1,
+        skip_processed=True,
+        skip_compile=True,
+        print_level=0,
+        qcel_molecules=qcel_molecules,
+        energy_labels=energy_labels,
+        in_memory=True,
+        random_seed=None,
+    )
+
+    assert hasattr(ds[0], "E_classical_disp")
+    assert torch.isfinite(ds[0].E_classical_disp).all()
+
+    ap3d3 = APNet3D3_AtomType_Model(
+        dataset=ds,
+        ds_root=None,
+        atom_type_model=atom_type_hf_vw_model.model,
+        dimer_prop_model=atom_type_elst_model.dimer_model,
+        am_dimer_param_model=atom_type_elst_model,
+        use_precomputed_classical=True,
+        ignore_database_null=True,
+        use_GPU=False,
+        no_disp_nn=False,
+    )
+
+    assert ap3d3.use_precomputed_classical is True
+    assert ap3d3.model.no_disp_nn is False
+
+    ap3d3.train(
+        ds,
+        n_epochs=1,
+        skip_compile=True,
+        transfer_learning=False,
+        lr=5e-4,
+        split_percent=0.5,
+        dataloader_num_workers=0,
+    )
+
+    predictions = ap3d3.predict_qcel_mols(qcel_molecules, batch_size=batch_size)
+
+    assert predictions.shape == (len(qcel_molecules), 4)
+    assert np.isfinite(predictions).all()
+
+    batch = ap3d3._qcel_example_input(
+        qcel_molecules,
+        batch_size=len(qcel_molecules),
+        r_cut=ap3d3.model.r_cut,
+        r_cut_im=ap3d3.model.r_cut_im,
+    )
+    E_residual, _, _, _, _, _, _ = ap3d3.model(batch)
+
+    ap3d3.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+    E_classical, _, _ = ap3d3.dimer_prop_model(batch)
+    ap3d3.dimer_prop_model.set_forward("ap3_atomMPNN")
+
+    ndimer = batch.total_charge_A.size(0)
+    elst_dimer = scatter_sum_compile(E_classical[:, 0], batch.dimer_ind_full, ndimer)
+    ind_dimer = scatter_sum_compile(E_classical[:, 1], batch.dimer_ind_full, ndimer)
+    disp_dimer = scatter_sum_compile(E_classical[:, 2], batch.dimer_ind_full, ndimer)
+
+    expected = E_residual.clone()
+    expected[:, 0] += elst_dimer
+    expected[:, 2] += ind_dimer
+    expected[:, 3] += disp_dimer
+
+    assert np.allclose(predictions, expected.detach().cpu().numpy(), atol=1e-5)
+    assert np.allclose(
+        predictions[:, 3],
+        (E_residual[:, 3] + disp_dimer).detach().cpu().numpy(),
+        atol=1e-5,
+    )
+
+
 def test_ap3_d3_live_classical_forward_includes_all_classical_terms():
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,

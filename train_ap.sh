@@ -8,8 +8,8 @@ export iter=1
 # AtomModel training supports internal DDP via --world_size_ddp.
 # export WORLD_SIZE_DDP="${WORLD_SIZE_DDP:-$(python3 -c 'import torch; print(max(1, torch.cuda.device_count()))')}"
 # export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
-export WORLD_SIZE_DDP=4
-export OMP_NUM_THREADS=4
+export WORLD_SIZE_DDP=1
+export OMP_NUM_THREADS=16
 
 python3 \
     -u \
