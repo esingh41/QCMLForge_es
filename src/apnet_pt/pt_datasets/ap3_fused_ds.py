@@ -941,7 +941,7 @@ class ap3_fused_module_dataset(Dataset):
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True
                 )
-        elif not self.skip_processed:
+        elif not self.skip_processed and dimer_prop_model is None:
             if atom_model_path is None:
                 atom_model_path = resolve_pretrained_path("am_ensemble/am_0.pt")
             self.atom_model = AtomModel(
@@ -1542,7 +1542,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True
                 )
-        elif not self.skip_processed:
+        elif not self.skip_processed and dimer_prop_model is None:
             if atom_model_path is None:
                 atom_model_path = resolve_pretrained_path("am_ensemble/am_0.pt")
             self.atom_model = AtomModel(

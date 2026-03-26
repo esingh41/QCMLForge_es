@@ -735,6 +735,10 @@ class APNet3D3_AtomType_Model:
 
         use_GPU will check for a GPU and use it if available unless set to false.
         """
+        if use_GPU is None and dimer_prop_model is not None:
+            model_param = next(dimer_prop_model.parameters(), None)
+            if model_param is not None and model_param.device.type != "cuda":
+                use_GPU = False
         if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
@@ -1526,18 +1530,22 @@ class APNet3D3_AtomType_Model:
         pair_ind_batch = []
         pair_disp_batch = []
 
-        indsA = inp_batch["e_ABfull_source"]
-        indsB = inp_batch["e_ABfull_target"]
+        indsA = inp_batch["e_ABfull_source"].detach().cpu().numpy()
+        indsB = inp_batch["e_ABfull_target"].detach().cpu().numpy()
 
         dimer_inds, atoms_per_dimer = torch.unique(
             inp_batch.dimer_ind_full, return_counts=True
         )
-        indsA_monomer = inp_batch.indA
-        indsB_monomer = inp_batch.indB
+        dimer_inds = dimer_inds.detach().cpu().tolist()
+        indsA_monomer = inp_batch.indA.detach().cpu().numpy()
+        indsB_monomer = inp_batch.indB.detach().cpu().numpy()
+        E_elst_mtp = E_elst_mtp.detach().cpu().numpy()
+        E_ind_mtp = E_ind_mtp.detach().cpu().numpy()
+        E_disp = E_disp.detach().cpu().numpy()
 
         for i in dimer_inds:
-            size_A = torch.sum(indsA_monomer == i)  # Finding size of each monomer
-            size_B = torch.sum(indsB_monomer == i)
+            size_A = int(np.sum(indsA_monomer == i))
+            size_B = int(np.sum(indsB_monomer == i))
             indA_to_dimer.append(np.full((size_A,), i))
             indB_to_dimer.append(np.full((size_B,), i))
             indA_to_atom.append(np.arange(size_A))
@@ -1556,7 +1564,7 @@ class APNet3D3_AtomType_Model:
             assert i == indB_to_dimer[indB]
             atomA = indA_to_atom[indA]
             atomB = indB_to_atom[indB]
-            pair_elst_batch[i][atomA, atomB] += e_elst.numpy()
+            pair_elst_batch[i][atomA, atomB] += e_elst
         for e_ind, indA, indB in zip(E_ind_mtp, indsA, indsB):
             i = indA_to_dimer[indA]
             assert i == indB_to_dimer[indB]
@@ -1594,6 +1602,7 @@ class APNet3D3_AtomType_Model:
             r_cut_im = self.model.r_cut_im
 
         N = len(mols)
+        effective_batch_size = N if self.use_precomputed_classical else batch_size
         predictions = np.zeros((N, 4))
         if return_pairs:
             pairwise_energies = []
@@ -1606,8 +1615,8 @@ class APNet3D3_AtomType_Model:
             h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
         # self.model.to(self.device)
         self.dimer_prop_model.to(self.device)
-        for i in range(0, N, batch_size):
-            upper_bound = min(i + batch_size, N)
+        for i in range(0, N, effective_batch_size):
+            upper_bound = min(i + effective_batch_size, N)
             # Need to capture what dimers are invalid and return None to report nan for these systems
             data = [
                 qcel_dimer_to_fused_data(
@@ -1822,7 +1831,9 @@ class APNet3D3_AtomType_Model:
                             [np.nan, np.nan, np.nan, np.nan]
                         )
             if verbose:
-                print(f"Predictions for {i} to {i + batch_size} out of {N}")
+                print(
+                    f"Predictions for {i} to {i + effective_batch_size} out of {N}"
+                )
         if self.model.return_hidden_states:
             return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
         if return_pairs:
@@ -2757,7 +2768,7 @@ units angstrom
         split_percent=0.9,
         model_path=None,
         shuffle=True,
-        dataloader_num_workers=4,
+        dataloader_num_workers=0,
         world_size=1,
         omp_num_threads_per_process=6,
         lr_decay=None,

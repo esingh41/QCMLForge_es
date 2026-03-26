@@ -48,6 +48,13 @@ from ..util import scatter_sum_compile
 max_Z = 118
 
 
+def _polarizability_table_on_device(
+    polarizability_table: torch.Tensor,
+    device: torch.device,
+) -> torch.Tensor:
+    return polarizability_table.to(device=device)
+
+
 class NoisyConstantEmbedding(nn.Embedding):
     def __init__(self, num_embeddings, embedding_dim, mean=3.0, std=0.01):
         super().__init__(num_embeddings, embedding_dim)
@@ -1749,6 +1756,10 @@ def induced_dipole_induction(
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
 
     # Use index_select for vectorized lookup
+    polarizability_table = _polarizability_table_on_device(
+        polarizability_table,
+        ZA.device,
+    )
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
@@ -2206,6 +2217,10 @@ def induced_dipole_induction_optimized(
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
 
     # Use index_select for vectorized lookup
+    polarizability_table = _polarizability_table_on_device(
+        polarizability_table,
+        ZA.device,
+    )
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
@@ -2418,6 +2433,10 @@ def induced_dipole_induction_optimized_no_correction(
     # print(f"{alpha_0_A = }")
     # print(f"{alpha_0_B = }")
     # Use index_select for vectorized lookup
+    polarizability_table = _polarizability_table_on_device(
+        polarizability_table,
+        ZA.device,
+    )
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
     # print(f"{alpha_0_A = }")
@@ -2608,6 +2627,10 @@ def induced_dipole(
     alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
 
     # Use index_select for vectorized lookup
+    polarizability_table = _polarizability_table_on_device(
+        polarizability_table,
+        ZA.device,
+    )
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
 
