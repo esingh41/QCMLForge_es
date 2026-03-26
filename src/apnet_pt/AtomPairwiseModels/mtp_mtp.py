@@ -919,6 +919,29 @@ class AtomTypeParamNN(nn.Module):
             "n_params": self.n_params,
         }
 
+    def get_model_info(self):
+        """Return a ModelInfo describing this module for print_model_tree."""
+        from apnet_pt.model_print import ModelInfo, get_model_info
+
+        n_total = sum(p.numel() for p in self.parameters())
+        n_train = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        children = []
+        if hasattr(self, "atom_model") and self.atom_model is not None:
+            children.append(get_model_info(self.atom_model))
+        return ModelInfo(
+            name="AtomTypeParamNN",
+            role="Predicts electrostatic damping exponent K from atom hidden states",
+            inputs=["h_list  [from AtomHirshfeldMPNN]"],
+            outputs=["K"],
+            passes=["q", "\u03bc", "Q", "HFVR", "VW"],
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            n_calls=2,
+            call_note="run separately for monomer A and monomer B (shared weights)",
+            children=children,
+        )
+
     def forward(
         self,
         batch,

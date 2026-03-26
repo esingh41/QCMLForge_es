@@ -280,6 +280,38 @@ class APNet3_AtomType_MPNN(nn.Module):
             "freeze_dimer_prop_model": self.freeze_dimer_prop_model,
         }
 
+    def get_model_info(self):
+        """Return a ModelInfo describing this module for print_model_tree."""
+        from apnet_pt.model_print import ModelInfo, _safe_numel
+
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        return ModelInfo(
+            name="APNet3_AtomType_MPNN",
+            role="Predicts short-range SAPT corrections from classical atom properties and pair features",
+            inputs=[
+                "h_A",
+                "h_B",
+                "q_A",
+                "q_B",
+                "HFVR_A",
+                "HFVR_B",
+                "VW_A",
+                "VW_B",
+                "E_elst_cl",
+                "E_ind_cl",
+            ],
+            outputs=["dE_elst_NN", "E_exch_NN", "dE_ind_NN", "E_disp_NN"],
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            n_calls=1,
+            call_note=(
+                "intra-monomer MPNN layers are applied independently to monomer A "
+                "and B with shared weights before pairwise readout"
+            ),
+        )
+
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
         if nedge == 0:
@@ -1071,6 +1103,77 @@ class APNet3_AtomType_Model:
         self.shuffle = False
         self.model_save_path = None
         return
+
+    def get_model_info(self):
+        """Return a ModelInfo assembling the APNet3 architecture tree."""
+        from apnet_pt.model_print import ModelInfo, get_model_info
+
+        def _subtract_counts(info, child_info):
+            info.n_params = max(0, info.n_params - child_info.n_params)
+            info.n_params_total = max(
+                0, info.n_params_total - child_info.n_params_total
+            )
+            return info
+
+        children = []
+        dimer_prop = getattr(self.model, "dimer_prop_model", None)
+        at_param = getattr(dimer_prop, "AtomTypeParam", None) if dimer_prop else None
+        atom_model = getattr(at_param, "atom_model", None) if at_param else None
+        atom_info = None
+        if atom_model is not None:
+            atom_info = get_model_info(atom_model)
+            children.append(atom_info)
+
+        if at_param is not None:
+            atnn_info = get_model_info(at_param)
+            if atom_info is not None:
+                atnn_info = _subtract_counts(atnn_info, atom_info)
+            atnn_info.children = []
+            children.append(atnn_info)
+
+        classical_children = [
+            ModelInfo(
+                name="DampedMTPElectrostatics",
+                inputs=["q_A", "mu_A", "Q_A", "K_A", "q_B", "mu_B", "Q_B", "K_B"],
+                outputs=["E_elst_cl"],
+                frozen=True,
+                n_params=0,
+                n_params_total=0,
+            ),
+            ModelInfo(
+                name="PointInducedDipole",
+                inputs=["q_A", "mu_A", "Q_A", "HFVR_A", "q_B", "mu_B", "Q_B", "HFVR_B"],
+                outputs=["E_ind_cl"],
+                frozen=True,
+                n_params=0,
+                n_params_total=0,
+            ),
+        ]
+        children.append(
+            ModelInfo(
+                name="Classical",
+                is_group=True,
+                frozen=True,
+                n_params=0,
+                n_params_total=0,
+                children=classical_children,
+            )
+        )
+
+        mpnn_info = get_model_info(self.model)
+        if dimer_prop is not None:
+            mpnn_info = _subtract_counts(mpnn_info, get_model_info(dimer_prop))
+        children.append(mpnn_info)
+
+        n_total = sum(child.n_params_total for child in children)
+        n_train = sum(child.n_params for child in children)
+        return ModelInfo(
+            name="APNet3_AtomType_Model",
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            children=children,
+        )
 
     @torch.inference_mode()
     def predict_from_dataset(self):

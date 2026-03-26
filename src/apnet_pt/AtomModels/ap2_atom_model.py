@@ -258,6 +258,23 @@ class AtomMPNN(MessagePassing):
             "r_cut": self.r_cut,
         }
 
+    def get_model_info(self):
+        """Return a ModelInfo describing this module for print_model_tree."""
+        from apnet_pt.model_print import ModelInfo, _safe_numel
+
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        return ModelInfo(
+            name="AtomMPNN",
+            role="Predicts atomic multipoles and latent atom embeddings for one monomer",
+            inputs=["Z", "R"],
+            outputs=["q", "mu", "Q", "h_list"],
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            n_calls=1,
+        )
+
     def _make_layers(self, layer_nodes, activations):
         layers = []
         for i in range(len(layer_nodes) - 1):
@@ -627,6 +644,20 @@ class AtomModel:
         self.train_shuffle = None
         # torch.jit.enable_onednn_fusion(True)
         return
+
+    def get_model_info(self):
+        """Return a ModelInfo tree for the AtomModel harness."""
+        from apnet_pt.model_print import ModelInfo, get_model_info
+
+        child = get_model_info(self.model)
+        return ModelInfo(
+            name="AtomModel",
+            role="Harness for single-monomer multipole prediction and training",
+            n_params=child.n_params,
+            n_params_total=child.n_params_total,
+            frozen=child.frozen,
+            children=[child],
+        )
 
     def set_pretrained_model(self, model_path=None, model_id=None):
         """
