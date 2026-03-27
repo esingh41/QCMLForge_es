@@ -156,11 +156,9 @@ class TestModelInfo:
 
 
 class TestAtomHirshfeldMPNNInfo:
-    def test_n_calls_is_2(self, hirshfeld):
+    def test_n_calls_is_1(self, hirshfeld):
         info = hirshfeld.get_model_info()
-        assert info.n_calls == 2, (
-            "AtomHirshfeldMPNN must report n_calls=2 (runs for A and B)"
-        )
+        assert info.n_calls == 1, "AtomHirshfeldMPNN runs once per monomer batch"
 
     def test_name(self, hirshfeld):
         info = hirshfeld.get_model_info()
@@ -179,10 +177,9 @@ class TestAtomHirshfeldMPNNInfo:
         assert "VW" in joined
         assert "h_list" in joined
 
-    def test_call_note_nonempty(self, hirshfeld):
+    def test_call_note_empty(self, hirshfeld):
         info = hirshfeld.get_model_info()
-        assert info.call_note, "call_note must explain dual-monomer execution"
-        assert "monomer" in info.call_note.lower()
+        assert info.call_note == ""
 
     def test_frozen_when_requires_grad_false(self, hirshfeld):
         # Freeze and check
@@ -208,9 +205,9 @@ class TestAtomHirshfeldMPNNInfo:
 
 
 class TestAtomTypeParamNNInfo:
-    def test_n_calls_is_2(self, atpnn):
+    def test_n_calls_is_1(self, atpnn):
         info = atpnn.get_model_info()
-        assert info.n_calls == 2, "AtomTypeParamNN must report n_calls=2"
+        assert info.n_calls == 1, "AtomTypeParamNN runs once per monomer batch"
 
     def test_name(self, atpnn):
         info = atpnn.get_model_info()
@@ -220,15 +217,56 @@ class TestAtomTypeParamNNInfo:
         info = atpnn.get_model_info()
         assert "K" in info.outputs
 
-    def test_call_note_nonempty(self, atpnn):
+    def test_inputs_reference_runtime_atom_model_name(self, atpnn):
         info = atpnn.get_model_info()
-        assert info.call_note, "call_note must explain dual-monomer execution"
-        assert "monomer" in info.call_note.lower()
+        assert info.inputs == ["h_list [from AtomHirshfeldMPNN]"]
+
+    def test_inputs_reference_atom_mpnn_when_used(self):
+        atom_model = AtomMPNN(n_message=1, n_rbf=4, n_neuron=16, n_embed=4)
+        atpnn = AtomTypeParamNN(
+            atom_model=atom_model,
+            n_message=1,
+            n_neuron=16,
+            n_embed=4,
+            n_params=1,
+            freeze_atom_model=True,
+        )
+        info = atpnn.get_model_info()
+        assert info.inputs == ["h_list [from AtomMPNN]"]
+
+    def test_inputs_reference_nested_atomtypeparam_when_used(self):
+        inner = AtomTypeParamNN(
+            atom_model=AtomMPNN(n_message=1, n_rbf=4, n_neuron=16, n_embed=4),
+            n_message=1,
+            n_neuron=16,
+            n_embed=4,
+            n_params=1,
+            freeze_atom_model=True,
+        )
+        outer = AtomTypeParamNN(
+            atom_model=inner,
+            n_message=1,
+            n_neuron=16,
+            n_embed=4,
+            n_params=1,
+            freeze_atom_model=True,
+        )
+        info = outer.get_model_info()
+        assert info.inputs == ["h_list [from AtomTypeParamNN]"]
+
+    def test_call_note_empty(self, atpnn):
+        info = atpnn.get_model_info()
+        assert info.call_note == ""
 
     def test_child_is_atom_hirshfeld(self, atpnn):
         info = atpnn.get_model_info()
         child_names = [c.name for c in info.children]
         assert "AtomHirshfeldMPNN" in child_names
+
+    def test_child_hirshfeld_runs_once(self, atpnn):
+        info = atpnn.get_model_info()
+        child = next(c for c in info.children if c.name == "AtomHirshfeldMPNN")
+        assert child.n_calls == 1
 
     def test_frozen_reflects_frozen_atom_model(self, atpnn):
         """AtomTypeParamNN with frozen atom_model should show frozen=True
@@ -263,8 +301,8 @@ class TestAPNet3D3AtomTypeMPNNInfo:
 
     def test_outputs_sapt_components(self, ap3d3_mpnn):
         info = ap3d3_mpnn.get_model_info()
-        joined = ", ".join(info.outputs)
-        assert "exch" in joined.lower() or "E_exch" in joined
+        assert info.outputs[:3] == ["ΔE_elst_NN", "E_exch_NN", "ΔE_ind_NN"]
+        assert info.outputs[3:] == ["ΔE_disp_NN"]
 
     def test_param_count_nonnegative(self, ap3d3_mpnn):
         """Param count may be 0 for an uninitalized LazyLinear model (no forward yet)."""

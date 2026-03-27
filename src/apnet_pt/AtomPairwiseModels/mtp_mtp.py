@@ -48,6 +48,13 @@ from ..util import scatter_sum_compile
 max_Z = 118
 
 
+def _polarizability_table_on_device(
+    polarizability_table: torch.Tensor,
+    device: torch.device,
+) -> torch.Tensor:
+    return polarizability_table.to(device=device)
+
+
 class NoisyConstantEmbedding(nn.Embedding):
     def __init__(self, num_embeddings, embedding_dim, mean=3.0, std=0.01):
         super().__init__(num_embeddings, embedding_dim)
@@ -921,24 +928,31 @@ class AtomTypeParamNN(nn.Module):
 
     def get_model_info(self):
         """Return a ModelInfo describing this module for print_model_tree."""
-        from apnet_pt.model_print import ModelInfo, get_model_info
+        from apnet_pt.model_print import ModelInfo, _safe_numel, get_model_info
 
-        n_total = sum(p.numel() for p in self.parameters())
-        n_train = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        source_name = (
+            type(self.atom_model).__name__
+            if hasattr(self, "atom_model") and self.atom_model is not None
+            else "atom_model"
+        )
         children = []
         if hasattr(self, "atom_model") and self.atom_model is not None:
             children.append(get_model_info(self.atom_model))
         return ModelInfo(
             name="AtomTypeParamNN",
-            role="Predicts electrostatic damping exponent K from atom hidden states",
-            inputs=["h_list  [from AtomHirshfeldMPNN]"],
+            role=(
+                "Predicts electrostatic damping exponent K from atom hidden "
+                "states for one monomer"
+            ),
+            inputs=[f"h_list [from {source_name}]"],
             outputs=["K"],
             passes=["q", "\u03bc", "Q", "HFVR", "VW"],
             frozen=(n_train == 0),
             n_params=n_train,
             n_params_total=n_total,
-            n_calls=2,
-            call_note="run separately for monomer A and monomer B (shared weights)",
+            n_calls=1,
             children=children,
         )
 
@@ -1742,6 +1756,10 @@ def induced_dipole_induction(
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
 
     # Use index_select for vectorized lookup
+    polarizability_table = _polarizability_table_on_device(
+        polarizability_table,
+        ZA.device,
+    )
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
@@ -2199,6 +2217,10 @@ def induced_dipole_induction_optimized(
     alpha_0_B = torch.zeros_like(hirshfeld_volume_ratio_B)
 
     # Use index_select for vectorized lookup
+    polarizability_table = _polarizability_table_on_device(
+        polarizability_table,
+        ZA.device,
+    )
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
@@ -2411,6 +2433,10 @@ def induced_dipole_induction_optimized_no_correction(
     # print(f"{alpha_0_A = }")
     # print(f"{alpha_0_B = }")
     # Use index_select for vectorized lookup
+    polarizability_table = _polarizability_table_on_device(
+        polarizability_table,
+        ZA.device,
+    )
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_0_B = torch.index_select(polarizability_table, 0, ZB.long())
     # print(f"{alpha_0_A = }")
@@ -2601,6 +2627,10 @@ def induced_dipole(
     alpha_0_A = torch.zeros_like(hirshfeld_volume_ratio_A)
 
     # Use index_select for vectorized lookup
+    polarizability_table = _polarizability_table_on_device(
+        polarizability_table,
+        ZA.device,
+    )
     alpha_0_A = torch.index_select(polarizability_table, 0, ZA.long())
     alpha_A = alpha_0_A * hirshfeld_volume_ratio_A ** (4 / 3.0)
 
@@ -2837,7 +2867,9 @@ class AM_DimerParam_Model:
             self.atom_model = AtomHirshfeldMPNN()
             am_type = AtomHirshfeldMPNN
         elif atom_model_type == "AtomTypeParamNN":
-            self.atom_model = AtomTypeParamNN()
+            self.atom_model = AtomTypeParamNN(
+                freeze_atom_model=freeze_atom_model,
+            )
             am_type = AtomTypeParamNN
         # elif atom_model_type == "AtomTypeParamMPNN":
         #     self.atom_model = AtomTypeParamMPNN()
@@ -2871,6 +2903,7 @@ class AM_DimerParam_Model:
                     param_start_mean=am_config["param_start_mean"],
                     param_start_std=am_config["param_start_std"],
                     n_params=am_config["n_params"],
+                    freeze_atom_model=freeze_atom_model,
                 )
             # elif atom_model_type == "AtomTypeParamMPNN":
             #     self.atom_model = am_type(
@@ -2915,6 +2948,7 @@ class AM_DimerParam_Model:
                     param_start_mean=config["param_start_mean"],
                     param_start_std=config["param_start_std"],
                     n_params=config.get("n_params", 1),
+                    freeze_atom_model=freeze_atom_model,
                 )
             # elif model_type == "AtomTypeParamMPNN":
             #     self.model = AtomTypeParamMPNN(
@@ -2942,6 +2976,7 @@ class AM_DimerParam_Model:
                     param_start_mean=param_start_mean,
                     param_start_std=param_start_std,
                     n_params=n_params,
+                    freeze_atom_model=freeze_atom_model,
                 )
             # elif model_type == "AtomTypeParamMPNN":
             #     self.model = AtomTypeParamMPNN(
