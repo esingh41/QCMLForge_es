@@ -138,6 +138,26 @@ class AtomHirshfeldMPNN(MessagePassing):
             "r_cut": self.r_cut,
         }
 
+    def get_model_info(self):
+        """Return a ModelInfo describing this module for print_model_tree."""
+        from apnet_pt.model_print import ModelInfo, _safe_numel
+
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        return ModelInfo(
+            name="AtomHirshfeldMPNN",
+            role=(
+                "Predicts atomic multipoles, Hirshfeld volume ratio, valence "
+                "width, and latent atom embeddings for one monomer"
+            ),
+            inputs=["Z", "R"],
+            outputs=["q", "\u03bc", "Q", "HFVR", "VW", "h_list"],
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            n_calls=1,
+        )
+
     def _make_layers(self, layer_nodes, activations):
         layers = []
         for i in range(len(layer_nodes) - 1):
@@ -619,6 +639,12 @@ class AtomHirshfeldModel:
             [],
         )
         total_loss = 0.0
+
+        def _concat_or_empty(error_tensors):
+            if error_tensors:
+                return torch.cat(error_tensors)
+            return torch.empty(0)
+
         self.model.eval()
         with torch.no_grad():
             for batch in data_loader:
@@ -661,16 +687,16 @@ class AtomHirshfeldModel:
                 )
                 total_loss += batch_loss.detach()
 
-            charge_errors_t.append(q_error.detach())
-            dipole_errors_t.extend(d_error.detach())
-            qpole_errors_t.extend(qp_error.detach())
-            hfvr_errors_t.extend(hfvr_error.detach())
-            vw_errors_t.extend(vw_error.detach())
-        charge_errors_t = torch.cat(charge_errors_t)
-        dipole_errors_t = torch.cat(dipole_errors_t)
-        qpole_errors_t = torch.cat(qpole_errors_t)
-        hfvr_errors_t = torch.cat(hfvr_errors_t)
-        vw_errors_t = torch.cat(vw_errors_t)
+                charge_errors_t.append(q_error.detach().reshape(-1).cpu())
+                dipole_errors_t.append(d_error.detach().cpu())
+                qpole_errors_t.append(qp_error.detach().cpu())
+                hfvr_errors_t.append(hfvr_error.detach().reshape(-1).cpu())
+                vw_errors_t.append(vw_error.detach().reshape(-1).cpu())
+        charge_errors_t = _concat_or_empty(charge_errors_t)
+        dipole_errors_t = _concat_or_empty(dipole_errors_t)
+        qpole_errors_t = _concat_or_empty(qpole_errors_t)
+        hfvr_errors_t = _concat_or_empty(hfvr_errors_t)
+        vw_errors_t = _concat_or_empty(vw_errors_t)
         return (
             total_loss,
             charge_errors_t,
@@ -682,6 +708,12 @@ class AtomHirshfeldModel:
 
     def pretrain_statistics(self, train_loader, test_loader, criterion):
         t1 = time.time()
+
+        def _mean_abs(error_tensor):
+            if error_tensor.numel() == 0:
+                return 0.0
+            return torch.mean(torch.abs(error_tensor)).item()
+
         with torch.no_grad():
             (
                 _,
@@ -693,11 +725,11 @@ class AtomHirshfeldModel:
             ) = self.evaluate_model_collate_eval(
                 train_loader,  # loss_fn=criterion
             )
-            charge_MAE_t = np.mean(np.abs(charge_errors_t))
-            dipole_MAE_t = np.mean(np.abs(dipole_errors_t))
-            qpole_MAE_t = np.mean(np.abs(qpole_errors_t))
-            hfvr_MAE_t = np.mean(np.abs(hfvr_errors_t))
-            vw_MAE_t = np.mean(np.abs(vw_errors_t))
+            charge_MAE_t = _mean_abs(charge_errors_t)
+            dipole_MAE_t = _mean_abs(dipole_errors_t)
+            qpole_MAE_t = _mean_abs(qpole_errors_t)
+            hfvr_MAE_t = _mean_abs(hfvr_errors_t)
+            vw_MAE_t = _mean_abs(vw_errors_t)
 
             (
                 charge_errors_t,
@@ -705,7 +737,7 @@ class AtomHirshfeldModel:
                 qpole_errors_t,
                 hfvr_errors_t,
                 vw_errors_t,
-            ) = [], [], [], []
+            ) = [], [], [], [], []
             (
                 test_loss,
                 charge_errors_v,
@@ -716,11 +748,11 @@ class AtomHirshfeldModel:
             ) = self.evaluate_model_collate_eval(
                 test_loader,  # loss_fn=criterion
             )
-            charge_MAE_v = np.mean(np.abs(charge_errors_v))
-            dipole_MAE_v = np.mean(np.abs(dipole_errors_v))
-            qpole_MAE_v = np.mean(np.abs(qpole_errors_v))
-            hfvr_MAE_v = np.mean(np.abs(hfvr_errors_v))
-            vw_MAE_v = np.mean(np.abs(vw_errors_v))
+            charge_MAE_v = _mean_abs(charge_errors_v)
+            dipole_MAE_v = _mean_abs(dipole_errors_v)
+            qpole_MAE_v = _mean_abs(qpole_errors_v)
+            hfvr_MAE_v = _mean_abs(hfvr_errors_v)
+            vw_MAE_v = _mean_abs(vw_errors_v)
             (
                 charge_errors_v,
                 dipole_errors_v,
@@ -1015,10 +1047,8 @@ class AtomHirshfeldModel:
 
         self.model.to(rank_device)
         if world_size > 1 and rank_device == "cpu":
-            torch._dynamo.config.dynamic_shapes = True
-            torch._dynamo.config.capture_dynamic_output_shape_ops = True
-            torch._dynamo.config.capture_scalar_outputs = True
-            self.model = torch.compile(self.model, dynamic=True)
+            # NOTE: torch.compile() with DDP on CPU is unstable here.
+            # Skip compilation for CPU DDP training.
             self.model = DDP(
                 self.model,
             )
@@ -1076,14 +1106,24 @@ class AtomHirshfeldModel:
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False
-            train_loss, charge_MAE_t, dipole_MAE_t, qpole_MAE_t, hfvr_MAE_t = (
-                self.train_batches(
-                    rank, train_loader, criterion, optimizer, rank_device
-                )
+            (
+                train_loss,
+                charge_MAE_t,
+                dipole_MAE_t,
+                qpole_MAE_t,
+                hfvr_MAE_t,
+                vw_MAE_t,
+            ) = self.train_batches(
+                rank, train_loader, criterion, optimizer, rank_device
             )
-            test_loss, charge_MAE_v, dipole_MAE_v, qpole_MAE_v, hfvr_MAE_v = (
-                self.evaluate_batches(rank, test_loader, criterion, rank_device)
-            )
+            (
+                test_loss,
+                charge_MAE_v,
+                dipole_MAE_v,
+                qpole_MAE_v,
+                hfvr_MAE_v,
+                vw_MAE_v,
+            ) = self.evaluate_batches(rank, test_loader, criterion, rank_device)
 
             if rank == 0:
                 if test_loss < lowest_test_loss:
@@ -1105,7 +1145,7 @@ class AtomHirshfeldModel:
                 test_loss = 0.0
                 # if (world_size==1 or rank == 0):
                 print(
-                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {test_lowered}",
+                    f"  EPOCH: {epoch:4d} ({dt:<7.2f} sec)     MAE: {charge_MAE_t:>7.4f}/{charge_MAE_v:<7.4f} {dipole_MAE_t:>7.4f}/{dipole_MAE_v:<7.4f} {qpole_MAE_t:>7.4f}/{qpole_MAE_v:<7.4f} {hfvr_MAE_t:>7.4f}/{hfvr_MAE_v:<7.4f} {vw_MAE_t:>7.4f}/{vw_MAE_v:<7.4f} {test_lowered}",
                     flush=True,
                 )
         if world_size > 1:

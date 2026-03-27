@@ -641,7 +641,7 @@ if __name__ == "__main__":
     # test_train_ap3_atomTypeparamMPNN()
     # test_train_ap3_atom_model()
     # train_ap3_atom_model()
-    debug_ap3_atom_model()
+    test_inference_ap3_atom_model()
     # test_inference_ap3_atom_model()
     # test_ddp_train_ap3_atom_model()
     # test_mtp_elst_dimers()

@@ -229,6 +229,27 @@ class APNet2_MPNN(nn.Module):
             "r_cut": self.r_cut,
         }
 
+    def get_model_info(self):
+        """Return a ModelInfo describing this module for print_model_tree."""
+        from apnet_pt.model_print import ModelInfo, _safe_numel
+
+        n_total = sum(_safe_numel(p) for p in self.parameters())
+        n_train = sum(_safe_numel(p) for p in self.parameters() if p.requires_grad)
+        return ModelInfo(
+            name="APNet2_MPNN",
+            role="Predicts SAPT interaction components from monomer multipoles and pair features",
+            inputs=["h_A", "h_B", "q_A", "mu_A", "Q_A", "q_B", "mu_B", "Q_B"],
+            outputs=["E_elst", "E_exch", "E_indu", "E_disp"],
+            frozen=(n_train == 0),
+            n_params=n_train,
+            n_params_total=n_total,
+            n_calls=1,
+            call_note=(
+                "intra-monomer update layers run independently on monomer A and B "
+                "with shared weights before pairwise readout"
+            ),
+        )
+
     def _make_layers(self, layer_nodes, activations):
         layers = []
         # Start with a LazyLinear so we don't have to fix input dim
@@ -909,6 +930,25 @@ class APNet2Model:
         self.model_save_path = None
         self.prebatched = ds_prebatched
         return
+
+    def get_model_info(self):
+        """Return a ModelInfo tree for the APNet2 harness."""
+        from apnet_pt.model_print import ModelInfo, get_model_info
+
+        atom_info = get_model_info(self.atom_model)
+        atom_info.n_calls = 2
+        atom_info.call_note = (
+            "run separately for monomer A and monomer B (shared weights)"
+        )
+        mpnn_info = get_model_info(self.model)
+        children = [atom_info, mpnn_info]
+        return ModelInfo(
+            name="APNet2Model",
+            frozen=all(child.frozen for child in children),
+            n_params=sum(child.n_params for child in children),
+            n_params_total=sum(child.n_params_total for child in children),
+            children=children,
+        )
 
     @torch.inference_mode()
     def predict_from_dataset(self):

@@ -58,7 +58,8 @@ def weight_references(
     torch.tensor
         Weights of all reference systems
     """
-    refcn = reference_cn()[numbers]
+    refcn_table = reference_cn().to(device=numbers.device, dtype=cn.dtype)
+    refcn = refcn_table[numbers]
     mask = refcn >= 0
 
     zero = torch.tensor(0.0, device=cn.device, dtype=cn.dtype)
