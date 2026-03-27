@@ -2867,7 +2867,9 @@ class AM_DimerParam_Model:
             self.atom_model = AtomHirshfeldMPNN()
             am_type = AtomHirshfeldMPNN
         elif atom_model_type == "AtomTypeParamNN":
-            self.atom_model = AtomTypeParamNN()
+            self.atom_model = AtomTypeParamNN(
+                freeze_atom_model=freeze_atom_model,
+            )
             am_type = AtomTypeParamNN
         # elif atom_model_type == "AtomTypeParamMPNN":
         #     self.atom_model = AtomTypeParamMPNN()
@@ -2901,6 +2903,7 @@ class AM_DimerParam_Model:
                     param_start_mean=am_config["param_start_mean"],
                     param_start_std=am_config["param_start_std"],
                     n_params=am_config["n_params"],
+                    freeze_atom_model=freeze_atom_model,
                 )
             # elif atom_model_type == "AtomTypeParamMPNN":
             #     self.atom_model = am_type(

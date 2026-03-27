@@ -1,7 +1,7 @@
+#!/usr/bin/env bash
 # for seed in 0 # 1 2 3 4
 # do
 # done
-#!/usr/bin/env bash
 
 export iter=1
 

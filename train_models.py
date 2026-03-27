@@ -316,11 +316,14 @@ def train_pairwise_model(
         APNet = AtomPairwiseModels.mtp_mtp.AtomTypeParamModel
     else:
         raise ValueError("Invalid Atom Model Type")
-    if end_lr is not None and apnet_model_type.lower() not in [
+    normalized_type = apnet_model_type.lower()
+    supports_end_lr = normalized_type in {
         "apnetd3",
         "apnet3d3",
         "apnet3-d3-fused",
-    ]:
+        "apnet3-fused-d3",
+    }
+    if end_lr is not None and not supports_end_lr:
         raise ValueError("end_lr is currently only supported for APNetD3 training")
     print("Training {}...".format(apnet_model_type))
     if torch.cuda.is_available():

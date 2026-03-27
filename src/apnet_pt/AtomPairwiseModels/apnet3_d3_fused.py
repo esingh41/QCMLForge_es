@@ -737,8 +737,8 @@ class APNet3D3_AtomType_Model:
         """
         if use_GPU is None and dimer_prop_model is not None:
             model_param = next(dimer_prop_model.parameters(), None)
-            if model_param is not None and model_param.device.type != "cuda":
-                use_GPU = False
+            if model_param is not None and model_param.device.type == "cuda":
+                use_GPU = True
         if torch.cuda.is_available() and use_GPU is not False:
             device = torch.device("cuda:0")
             print("running on the GPU")
@@ -2232,17 +2232,23 @@ units angstrom
             batch = batch.to(rank_device)
             E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
             preds = E_sr_dimer.reshape(-1, n_comp)
-            comp_errors = preds - batch.y[:, :n_comp]
+            labels = batch.y[:, :n_comp].clone()
+            if self.use_precomputed_classical:
+                labels[:, 0] -= batch.E_classical_elst
+                labels[:, 2] -= batch.E_classical_ind
+                if not self.model.no_disp_nn:
+                    labels[:, 3] -= batch.E_classical_disp
+            comp_errors = preds - labels
             if loss_fn is None:
                 batch_loss = torch.mean(torch.square(comp_errors))
             else:
-                batch_loss = loss_fn(preds.flatten(), batch.y[:, :n_comp].flatten())
+                batch_loss = loss_fn(preds.flatten(), labels.flatten())
 
             batch_loss.backward()
             optimizer.step()
 
             total_loss += batch_loss.item()
-            total_errors = preds.sum(dim=1) - batch.y[:, :n_comp].sum(dim=1)
+            total_errors = preds.sum(dim=1) - labels.sum(dim=1)
             total_error += torch.sum(torch.abs(total_errors)).item()
             elst_error += torch.sum(torch.abs(comp_errors[:, 0])).item()
             exch_error += torch.sum(torch.abs(comp_errors[:, 1])).item()
@@ -2295,14 +2301,20 @@ units angstrom
                 batch = batch.to(rank_device)
                 E_sr_dimer, E_sr, E_elst_sr, E_elst_lr, hAB, hBA = self.model(batch)
                 preds = E_sr_dimer.reshape(-1, n_comp)
-                comp_errors = preds - batch.y[:, :n_comp]
+                labels = batch.y[:, :n_comp].clone()
+                if self.use_precomputed_classical:
+                    labels[:, 0] -= batch.E_classical_elst
+                    labels[:, 2] -= batch.E_classical_ind
+                    if not self.model.no_disp_nn:
+                        labels[:, 3] -= batch.E_classical_disp
+                comp_errors = preds - labels
                 if loss_fn is None:
                     batch_loss = torch.mean(torch.square(comp_errors))
                 else:
-                    batch_loss = loss_fn(preds.flatten(), batch.y[:, :n_comp].flatten())
+                    batch_loss = loss_fn(preds.flatten(), labels.flatten())
 
                 total_loss += batch_loss.item()
-                total_errors = preds.sum(dim=1) - batch.y[:, :n_comp].sum(dim=1)
+                total_errors = preds.sum(dim=1) - labels.sum(dim=1)
                 total_error += torch.sum(torch.abs(total_errors)).item()
                 elst_error += torch.sum(torch.abs(comp_errors[:, 0])).item()
                 exch_error += torch.sum(torch.abs(comp_errors[:, 1])).item()
