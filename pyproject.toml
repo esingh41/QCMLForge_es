@@ -37,3 +37,8 @@ license = {text = "MIT"}
 enabled = true
 dev_template = "{tag}.{ccount}+git.{sha}"
 dirty_template = "{tag}.{ccount}+git.{sha}.dirty"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    'ignore:To copy construct from a tensor, it is recommended to use sourceTensor.detach\(\)\.clone\(\):UserWarning',
+]

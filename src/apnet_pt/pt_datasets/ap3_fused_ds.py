@@ -194,9 +194,9 @@ def pairwise_edges_im(RA, RB, r_cut_im, full_indices=False):
 
 def ap3_fused_collate_update(batch):
     """
-    AP3 collate function with precomputed classical energies subtracted from targets.
-    If E_classical_elst and E_classical_ind are present in the data objects,
-    they will be subtracted from y so the model learns the residual.
+    AP3 collate function with precomputed classical energies attached.
+    If classical terms are present in the data objects, they are batched so the
+    model can learn residual corrections against the corresponding targets.
     """
     monA_edge_offset, monB_edge_offset = 0, 0
     local_e_ABsr_source = []
@@ -214,8 +214,10 @@ def ap3_fused_collate_update(batch):
     local_indA = []
     local_indB = []
 
-    has_precomputed = hasattr(batch[0], "E_classical_elst") and hasattr(
-        batch[0], "E_classical_ind"
+    has_precomputed = (
+        hasattr(batch[0], "E_classical_elst")
+        and hasattr(batch[0], "E_classical_ind")
+        and hasattr(batch[0], "E_classical_disp")
     )
     # print(f"Batch has precomputed classical energies: {has_precomputed}")
 
@@ -367,6 +369,9 @@ def ap3_fused_collate_update(batch):
         )
         batched_data.E_classical_ind = torch.tensor(
             [data.E_classical_ind for data in batch]
+        )
+        batched_data.E_classical_disp = torch.tensor(
+            [data.E_classical_disp for data in batch]
         )
 
     return batched_data
@@ -937,7 +942,7 @@ class ap3_fused_module_dataset(Dataset):
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True
                 )
-        elif not self.skip_processed:
+        elif not self.skip_processed and dimer_prop_model is None:
             if atom_model_path is None:
                 atom_model_path = resolve_pretrained_path("am_ensemble/am_0.pt")
             self.atom_model = AtomModel(
@@ -1021,8 +1026,8 @@ class ap3_fused_module_dataset(Dataset):
             ]
         elif self.spec_type == 10:
             return [
-                "35K_saptpbe0-d4_totals_train.pkl",
-                "35K_saptpbe0-d4_totals_test.pkl",
+                "124K_saptpbe0-d4_totals_train.pkl",
+                "124K_saptpbe0-d4_totals_test.pkl",
             ]
         elif self.spec_type is None:
             os.system(f"touch {self.raw_dir}/tmp.txt")
@@ -1104,7 +1109,11 @@ class ap3_fused_module_dataset(Dataset):
 
         with torch.no_grad():
             if hasattr(self.dimer_prop_model, "set_forward"):
+                self.dimer_prop_model.set_forward(
+                    "ap3_elst_damping__induced_dipole__disp"
+                )
                 result = self.dimer_prop_model(temp_batch)
+                self.dimer_prop_model.set_forward("ap3_atomMPNN")
                 E_classical = result[0]
             elif hasattr(self.dimer_prop_model, "dimer_model"):
                 result = self.dimer_prop_model.dimer_model(temp_batch)
@@ -1117,9 +1126,15 @@ class ap3_fused_module_dataset(Dataset):
             if E_classical.ndim == 1:
                 E_elst_pairs = E_classical
                 E_ind_pairs = torch.zeros_like(E_classical)
+                E_disp_pairs = torch.zeros_like(E_classical)
             elif E_classical.ndim == 2:
                 E_elst_pairs = E_classical[:, 0]
                 E_ind_pairs = E_classical[:, 1]
+                E_disp_pairs = (
+                    E_classical[:, 2]
+                    if E_classical.shape[1] > 2
+                    else torch.zeros_like(E_classical[:, 0])
+                )
             else:
                 raise ValueError(
                     f"Expected E_classical to be 1D or 2D, got shape {E_classical.shape}"
@@ -1148,6 +1163,15 @@ class ap3_fused_module_dataset(Dataset):
             full_expanded[:N_full] = E_ind_full_dimer
             E_ind_dimer = full_expanded
 
+            E_disp_full_dimer = scatter_sum_compile(
+                E_disp_pairs, temp_batch.dimer_ind_full, ndimer
+            )
+            E_disp_full_dimer = E_disp_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_disp_full_dimer.shape
+            full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_disp_full_dimer
+            E_disp_dimer = full_expanded
+
             # rows, cols = E_ind_dimer.shape
             # padded = E_ind_dimer.new_zeros((rows, cols + 3))
             # padded[:, 2:3] = E_ind_dimer
@@ -1156,6 +1180,7 @@ class ap3_fused_module_dataset(Dataset):
             for j, data in enumerate(batch_data_list):
                 data.E_classical_elst = E_elst_dimer[j].cpu()
                 data.E_classical_ind = E_ind_dimer[j].cpu()
+                data.E_classical_disp = E_disp_dimer[j].cpu()
 
     def process(self):
         self.data = []
@@ -1518,7 +1543,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
                 self.atom_model.model = torch.compile(
                     self.atom_model.model, dynamic=True
                 )
-        elif not self.skip_processed:
+        elif not self.skip_processed and dimer_prop_model is None:
             if atom_model_path is None:
                 atom_model_path = resolve_pretrained_path("am_ensemble/am_0.pt")
             self.atom_model = AtomModel(
@@ -1568,6 +1593,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
         self.lmdb_path = osp.join(
             root, "processed", f"lmdb_ap3_fused{self.split_name}_spec_{self.spec_type}"
         )
+        print(self.lmdb_path)
 
     @property
     def split_name(self):
@@ -1656,8 +1682,8 @@ class ap3_fused_module_dataset_lmdb(Dataset):
             ]
         elif self.spec_type == 10:
             return [
-                "35K_saptpbe0-d4_totals_train.pkl",
-                "35K_saptpbe0-d4_totals_test.pkl",
+                "124K_saptpbe0-d4_totals_train.pkl",
+                "124K_saptpbe0-d4_totals_test.pkl",
             ]
         elif self.spec_type is None:
             os.system(f"touch {self.raw_dir}/tmp.txt")
@@ -1782,7 +1808,11 @@ class ap3_fused_module_dataset_lmdb(Dataset):
 
         with torch.no_grad():
             if hasattr(self.dimer_prop_model, "set_forward"):
+                self.dimer_prop_model.set_forward(
+                    "ap3_elst_damping__induced_dipole__disp"
+                )
                 result = self.dimer_prop_model(temp_batch)
+                self.dimer_prop_model.set_forward("ap3_atomMPNN")
                 E_classical = result[0]
             elif hasattr(self.dimer_prop_model, "dimer_model"):
                 result = self.dimer_prop_model.dimer_model(temp_batch)
@@ -1795,9 +1825,15 @@ class ap3_fused_module_dataset_lmdb(Dataset):
             if E_classical.ndim == 1:
                 E_elst_pairs = E_classical
                 E_ind_pairs = torch.zeros_like(E_classical)
+                E_disp_pairs = torch.zeros_like(E_classical)
             elif E_classical.ndim == 2:
                 E_elst_pairs = E_classical[:, 0]
                 E_ind_pairs = E_classical[:, 1]
+                E_disp_pairs = (
+                    E_classical[:, 2]
+                    if E_classical.shape[1] > 2
+                    else torch.zeros_like(E_classical[:, 0])
+                )
             else:
                 raise ValueError(
                     f"Expected E_classical to be 1D or 2D, got shape {E_classical.shape}"
@@ -1822,9 +1858,19 @@ class ap3_fused_module_dataset_lmdb(Dataset):
             full_expanded[:N_full] = E_ind_full_dimer
             E_ind_dimer = full_expanded
 
+            E_disp_full_dimer = scatter_sum_compile(
+                E_disp_pairs, temp_batch.dimer_ind_full, ndimer
+            )
+            E_disp_full_dimer = E_disp_full_dimer.unsqueeze(-1)
+            N_full, num_cols = E_disp_full_dimer.shape
+            full_expanded = E_disp_full_dimer.new_zeros((ndimer, num_cols))
+            full_expanded[:N_full] = E_disp_full_dimer
+            E_disp_dimer = full_expanded
+
             for j, data in enumerate(batch_data_list):
                 data.E_classical_elst = E_elst_dimer[j].cpu()
                 data.E_classical_ind = E_ind_dimer[j].cpu()
+                data.E_classical_disp = E_disp_dimer[j].cpu()
 
     def _store_to_lmdb(self, data_objects, start_idx):
         """Store data objects to LMDB"""

@@ -14,6 +14,7 @@ Tests the freeze chain:
 import os
 from typing import Any, cast
 
+import qcelemental as qcel
 import torch
 from apnet_pt.AtomPairwiseModels.apnet3_d3_fused import (
     APNet3D3_AtomType_MPNN,
@@ -26,6 +27,10 @@ from apnet_pt.AtomPairwiseModels.mtp_mtp import (
     AtomTypeParamModel,
     AtomTypeParamNN,
     DimerProp,
+)
+from apnet_pt.pt_datasets.ap3_fused_ds import (
+    ap3_fused_collate_update_no_target,
+    qcel_dimer_to_fused_data,
 )
 
 torch.manual_seed(42)
@@ -92,6 +97,65 @@ def _has_any_trainable(module):
 def _has_any_frozen(module):
     """Return True if at least one parameter in module has requires_grad=False."""
     return any(not p.requires_grad for p in module.parameters())
+
+
+def _make_ap3d3_batch():
+    mol = qcel.models.Molecule.from_data(
+        """
+0 1
+8   -0.702196054   -0.056060256   0.009942262
+1   -1.022193224    0.846775782  -0.011488714
+1    0.257521062    0.042121496   0.005218999
+--
+0 1
+8    2.268880784    0.026340101   0.000508029
+1    2.645502399   -0.412039965   0.766632411
+1    2.641145101   -0.449872874  -0.744894473
+units angstrom
+"""
+    )
+    batch = ap3_fused_collate_update_no_target(
+        [qcel_dimer_to_fused_data(mol, dimer_ind=0)]
+    )
+    batch.y = torch.zeros((1, 4), dtype=torch.float32)
+    return batch
+
+
+def _randomize_initialized_parameters(module, seed=42, scale=0.05):
+    generator = torch.Generator().manual_seed(seed)
+    with torch.no_grad():
+        for param in module.parameters():
+            if isinstance(param, torch.nn.parameter.UninitializedParameter):
+                continue
+            random_values = torch.randn(
+                param.shape,
+                generator=generator,
+                device=param.device,
+                dtype=param.dtype,
+            )
+            param.copy_(random_values * scale)
+
+
+def _clone_named_params(module, predicate=None):
+    snapshots = {}
+    for name, param in module.named_parameters():
+        if isinstance(param, torch.nn.parameter.UninitializedParameter):
+            continue
+        if predicate is not None and not predicate(name, param):
+            continue
+        snapshots[name] = param.detach().clone()
+    return snapshots
+
+
+def _any_param_changed(module, before, predicate=None):
+    for name, param in module.named_parameters():
+        if name not in before:
+            continue
+        if predicate is not None and not predicate(name, param):
+            continue
+        if not torch.equal(param.detach(), before[name]):
+            return True
+    return False
 
 
 # ===========================================================================
@@ -168,24 +232,16 @@ class TestAMDimerParamModelFreezePassthrough:
 
     def test_freeze_passthrough_unfrozen(self):
         """
-        freeze_atom_model=False should keep the outer AtomTypeParamNN trainable.
-
-        The nested atom_model remains partially frozen because
-        AM_DimerParam_Model constructs its AtomTypeParamNN without forwarding
-        freeze_atom_model, so AtomTypeParamNN falls back to its default
-        freeze_atom_model=True for the inner model.
+        freeze_atom_model=False should keep the full AtomTypeParam stack trainable.
         """
         hf_vw = _build_atom_type_hf_vw_model(freeze_atom_model=False)
         elst = _build_atom_type_elst_model(hf_vw, freeze_atom_model=False)
-        assert _has_any_trainable(elst.dimer_model.AtomTypeParam), (
-            "elst AtomTypeParam should have trainable params when "
+        assert _all_params_trainable(elst.dimer_model.AtomTypeParam), (
+            "elst AtomTypeParam should be trainable throughout when "
             "freeze_atom_model=False"
         )
-        assert _has_any_frozen(elst.dimer_model.AtomTypeParam), (
-            "elst AtomTypeParam should retain frozen params from the inner atom_model"
-        )
-        assert _has_any_frozen(elst.dimer_model.AtomTypeParam.atom_model), (
-            "elst AtomTypeParam.atom_model should still contain frozen params"
+        assert _all_params_trainable(elst.dimer_model.AtomTypeParam.atom_model), (
+            "nested atom_model should also stay trainable when freeze_atom_model=False"
         )
 
 
@@ -440,11 +496,8 @@ class TestCombinedFreezeBehavior:
         Both dimer_prop_model and atom_model unfrozen.
 
         freeze_dimer_prop_model=False means MPNN doesn't freeze dimer_prop_model.
-        freeze_atom_model=False means DimerProp doesn't additionally freeze atom_model.
-        However, the inner AtomTypeParamNN constructed at line 2704 in mtp_mtp.py
-        always freezes its own atom_model (the hf_vw model) since it defaults
-        freeze_atom_model=True. So the dimer_prop_model has a mix of trainable
-        (elst readout layers) and frozen (hf_vw model's inner atom_model) params.
+        freeze_atom_model=False means the nested AtomTypeParamNN stack also stays
+        trainable end-to-end.
         """
         hf_vw = _build_atom_type_hf_vw_model(freeze_atom_model=False)
         elst = _build_atom_type_elst_model(hf_vw, freeze_atom_model=False)
@@ -454,13 +507,8 @@ class TestCombinedFreezeBehavior:
             use_precomputed_classical=True,
             freeze_dimer_prop_model=False,
         )
-        # dimer_prop_model has SOME trainable params (elst's own readout layers)
-        assert _has_any_trainable(model.dimer_prop_model), (
-            "dimer_prop_model should have some trainable params when both freezes are False"
-        )
-        # But also has SOME frozen params (the innermost AtomMPNN frozen at AtomTypeParamNN.__init__)
-        assert _has_any_frozen(model.dimer_prop_model), (
-            "dimer_prop_model should have some frozen params (inner atom_model frozen by default)"
+        assert _all_params_trainable(model.dimer_prop_model), (
+            "dimer_prop_model should stay trainable throughout when both freezes are False"
         )
 
 
@@ -490,8 +538,8 @@ class TestCombinedFreezeBehaviorD3:
         """
         Both dimer_prop_model and atom_model unfrozen (D3 variant).
 
-        Same behavior as non-D3: the inner AtomTypeParamNN always freezes its
-        atom_model by default. So dimer_prop_model has mixed trainable/frozen params.
+        Same behavior as non-D3: the nested AtomTypeParamNN stack remains
+        trainable throughout.
         """
         hf_vw = _build_atom_type_hf_vw_model(freeze_atom_model=False)
         elst = _build_atom_type_elst_model(hf_vw, freeze_atom_model=False)
@@ -501,11 +549,8 @@ class TestCombinedFreezeBehaviorD3:
             use_precomputed_classical=True,
             freeze_dimer_prop_model=False,
         )
-        assert _has_any_trainable(model.dimer_prop_model), (
-            "dimer_prop_model should have some trainable params when both freezes are False"
-        )
-        assert _has_any_frozen(model.dimer_prop_model), (
-            "dimer_prop_model should have some frozen params (inner atom_model frozen by default)"
+        assert _all_params_trainable(model.dimer_prop_model), (
+            "dimer_prop_model should stay trainable throughout when both freezes are False"
         )
 
     def test_dimer_prop_frozen_overrides_atom_unfrozen(self):
@@ -677,3 +722,97 @@ class TestOptimizerParamCounts:
             f"Unfrozen D3 model should have more trainable params "
             f"({n_trainable_unfrozen}) than frozen D3 model ({n_trainable_frozen})"
         )
+
+
+# ===========================================================================
+# 11. Train-step verification for AP3D3 fine-tuning freeze behavior
+# ===========================================================================
+
+
+class TestAP3D3TrainStepFreezeBehavior:
+    def test_train_step_keeps_atomhirshfeld_frozen_but_updates_atomtype_and_ap3d3(self):
+        """
+        Mimic AP3D3 fine-tuning:
+
+        - AtomHirshfeldMPNN stays frozen
+        - the DampedMTPElectrostatics AtomTypeParamNN stays trainable
+        - AP3D3 short-range MPNN stays trainable
+        """
+        torch.manual_seed(7)
+
+        hf_vw = _build_atom_type_hf_vw_model(freeze_atom_model=True)
+        elst = _build_atom_type_elst_model(hf_vw, freeze_atom_model=False)
+        elst.dimer_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+
+        model = APNet3D3_AtomType_MPNN(
+            dimer_prop_model=elst.dimer_model,
+            n_message=1,
+            n_rbf=4,
+            n_neuron=16,
+            n_embed=4,
+            use_precomputed_classical=False,
+            freeze_dimer_prop_model=False,
+            no_disp_nn=False,
+        )
+
+        batch = _make_ap3d3_batch()
+
+        with torch.no_grad():
+            model(batch)
+        _randomize_initialized_parameters(model, seed=11)
+
+        atom_type_param = model.dimer_prop_model.AtomTypeParam
+        atom_hirshfeld = atom_type_param.atom_model.atom_model
+
+        hirshfeld_before = _clone_named_params(atom_hirshfeld)
+        atomtype_before = _clone_named_params(
+            atom_type_param,
+            predicate=lambda name, param: param.requires_grad
+            and not name.startswith("atom_model."),
+        )
+        ap3d3_before = _clone_named_params(
+            model,
+            predicate=lambda name, param: param.requires_grad
+            and not name.startswith("dimer_prop_model."),
+        )
+
+        assert hirshfeld_before, "Expected AtomHirshfeldMPNN to have initialized params"
+        assert atomtype_before, "Expected AtomTypeParamNN to expose trainable params"
+        assert ap3d3_before, "Expected AP3D3 readout/message-passing params"
+
+        optimizer = torch.optim.Adam(
+            [param for param in model.parameters() if param.requires_grad],
+            lr=1e-2,
+        )
+        target = cast(torch.Tensor, batch.y)
+
+        for _ in range(2):
+            optimizer.zero_grad()
+            preds, *_ = model(batch)
+            loss = torch.nn.functional.mse_loss(preds, target)
+            loss.backward()
+            optimizer.step()
+
+        assert all(not param.requires_grad for param in atom_hirshfeld.parameters()), (
+            "AtomHirshfeldMPNN should remain frozen"
+        )
+        assert all(param.grad is None for param in atom_hirshfeld.parameters()), (
+            "Frozen AtomHirshfeldMPNN params should not accumulate gradients"
+        )
+        assert _any_param_changed(atom_hirshfeld, hirshfeld_before) is False, (
+            "Frozen AtomHirshfeldMPNN params should not change during training"
+        )
+
+        assert _any_param_changed(
+            atom_type_param,
+            atomtype_before,
+            predicate=lambda name, param: param.requires_grad
+            and not name.startswith("atom_model."),
+        ), "AtomTypeParamNN trainable params should update during training"
+
+        assert _any_param_changed(
+            model,
+            ap3d3_before,
+            predicate=lambda name, param: param.requires_grad
+            and not name.startswith("dimer_prop_model."),
+        ), "AP3D3 trainable params should update during training"

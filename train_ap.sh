@@ -1,6 +1,37 @@
+#!/usr/bin/env bash
 # for seed in 0 # 1 2 3 4
 # do
 # done
+
+export iter=1
+
+# AtomModel training supports internal DDP via --world_size_ddp.
+# export WORLD_SIZE_DDP="${WORLD_SIZE_DDP:-$(python3 -c 'import torch; print(max(1, torch.cuda.device_count()))')}"
+# export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
+export WORLD_SIZE_DDP=1
+export OMP_NUM_THREADS=16
+
+python3 \
+    -u \
+    ./train_models.py \
+    --train_am \
+    AtomHirshfeldModel \
+    --am_model_path \
+    ./models/ap3_saptpbe0/1/am_1.pt \
+    --random_seed \
+    1 \
+    --n_epochs_atom \
+    500 \
+    --lr \
+    5e-4 \
+    --data_dir \
+    ./data_dimer_1 \
+    --spec_type_am \
+    1 \
+    --world_size_ddp \
+    "${WORLD_SIZE_DDP}" \
+    --omp_num_threads \
+    "${OMP_NUM_THREADS}"
 
 # for seed in 0 # 1 2 3 4
 # do
@@ -19,20 +50,20 @@
         # --am_model_path ./models/ap3_ensemble/1/am_3.pt \
 # done
 # export iter=1
-python3 -u ./train_models.py \
-    --train_apnet APNet3-fused-d3 \
-    --am_model_path ./models/ap3d3_ensemble/am_3.pt \
-    --atom_type_param_model_path  ./models/ap3d3_ensemble/am_h+1_3.pt \
-    --atom_type_param_model_path2 ./models/ap3d3_ensemble/am_elst_h+1_CLIFF.pt \
-    --random_seed 1 \
-    --n_epochs 25 \
-    --data_dir ~/gits/qcmlforge/data_dimer_1 \
-    --spec_type_ap 10 \
-    --lr 5e-5 \
-    --ds_in_memory False \
-    --ds_class_type lmdb \
-    --ap_model_path ./models/ap3_ensemble/1/ap3_d3_no_disp_nn_1_saptpbe0.pt \
-    --no_disp_nn
+# python3 -u ./train_models.py \
+#     --train_apnet APNet3-fused-d3 \
+#     --am_model_path ./models/ap3d3_ensemble/am_3.pt \
+#     --atom_type_param_model_path  ./models/ap3d3_ensemble/am_h+1_3.pt \
+#     --atom_type_param_model_path2 ./models/ap3d3_ensemble/am_elst_h+1_CLIFF.pt \
+#     --random_seed 1 \
+#     --n_epochs 25 \
+#     --data_dir ~/gits/qcmlforge/data_dimer_1 \
+#     --spec_type_ap 10 \
+#     --lr 5e-5 \
+#     --ds_in_memory False \
+#     --ds_class_type lmdb \
+#     --ap_model_path ./models/ap3_ensemble/1/ap3_d3_no_disp_nn_1_saptpbe0.pt \
+#     --no_disp_nn
 
 # AP3-fused FSAPT training
 # python3 -u ./train_models.py \
