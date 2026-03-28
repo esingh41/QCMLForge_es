@@ -1,11 +1,13 @@
 from apnet_pt import AtomModels
 from apnet_pt import AtomPairwiseModels
-import torch
 import argparse
-import numpy as np
-import random
+import inspect
 import os
+import random
 from pprint import pprint
+
+import numpy as np
+import torch
 
 
 def maybe_skip_training_after_dataset_setup(model_name, dataset, build_dataset_only):
@@ -619,6 +621,20 @@ def train_pairwise_model(
         train_kwargs["end_lr"] = end_lr
     else:
         train_kwargs["lr_decay"] = lr_decay
+    supported_train_kwargs = inspect.signature(apnet.train).parameters
+    unsupported_train_kwargs = sorted(
+        key for key in train_kwargs if key not in supported_train_kwargs
+    )
+    if unsupported_train_kwargs:
+        print(
+            "Skipping unsupported train() kwargs for "
+            f"{apnet_model_type}: {', '.join(unsupported_train_kwargs)}"
+        )
+        train_kwargs = {
+            key: value
+            for key, value in train_kwargs.items()
+            if key in supported_train_kwargs
+        }
     apnet.train(**train_kwargs)
     return
 

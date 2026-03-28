@@ -2484,6 +2484,7 @@ units angstrom
                         f"  (Pre-training) ({dt:<7.2f} sec)  MAE: {total_MAE_t:>7.3f}/{total_MAE_v:<7.3f} {elst_MAE_t:>7.3f}/{elst_MAE_v:<7.3f} {exch_MAE_t:>7.3f}/{exch_MAE_v:<7.3f} {indu_MAE_t:>7.3f}/{indu_MAE_v:<7.3f} {disp_MAE_t:>7.3f}/{disp_MAE_v:<7.3f}",
                         flush=True,
                     )
+        model_saved = False
         for epoch in range(n_epochs):
             t1 = time.time()
             test_lowered = False
@@ -2511,6 +2512,7 @@ units angstrom
                             self.model_save_path,
                             metadata={"training_mode": "ddp", "epoch": epoch},
                         )
+                        model_saved = True
                 else:
                     test_lowered = " "
                 dt = time.time() - t1
@@ -2537,6 +2539,16 @@ units angstrom
 
         if world_size > 1:
             self.__cleanup()
+        if rank == 0 and self.model_save_path and not model_saved:
+            print("Saving final model (no validation improvement checkpoint was written)")
+            self.save_model(
+                self.model_save_path,
+                metadata={
+                    "training_mode": "ddp",
+                    "epoch": n_epochs - 1,
+                    "checkpoint_reason": "final_no_improvement",
+                },
+            )
         return
 
     ########################################################################
@@ -2699,6 +2711,7 @@ units angstrom
 
         # (6) Main training loop
         lowest_test_loss = test_loss
+        model_saved = False
         for epoch in range(n_epochs):
             t1 = time.time()
             t_out = __train_batch(
@@ -2741,6 +2754,7 @@ units angstrom
                             "epoch": epoch,
                         },
                     )
+                    model_saved = True
                 self.model.to(rank_device)
 
             if is_fsapt or not transfer_learning:
@@ -2768,6 +2782,16 @@ units angstrom
                 )
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
+        if self.model_save_path and not model_saved:
+            print("Saving final model (no validation improvement checkpoint was written)")
+            self.save_model(
+                self.model_save_path,
+                metadata={
+                    "training_mode": "single_proc",
+                    "epoch": n_epochs - 1,
+                    "checkpoint_reason": "final_no_improvement",
+                },
+            )
         self.model = best_model
         self.model.to(rank_device)
         return
