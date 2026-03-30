@@ -1605,8 +1605,9 @@ class ap3_fused_module_dataset_lmdb(Dataset):
             os.makedirs(self.lmdb_path, exist_ok=True)
 
         for attempt in range(2):
+            env = None
             try:
-                self.lmdb_env = acquire_lmdb_env(
+                env = acquire_lmdb_env(
                     self.lmdb,
                     self.lmdb_path,
                     map_size=self.lmdb_map_size,
@@ -1616,15 +1617,18 @@ class ap3_fused_module_dataset_lmdb(Dataset):
                     max_readers=256,
                 )
 
-                with self.lmdb_env.begin() as txn:
+                with env.begin() as txn:
                     metadata_bytes = txn.get(b"__metadata__")
                     if metadata_bytes:
                         metadata = self.json.loads(metadata_bytes.decode("utf-8"))
                         self._length = metadata.get("length", 0)
                     else:
                         self._length = 0
+                self.lmdb_env = env
                 return
             except Exception as e:
+                if env is not None:
+                    release_lmdb_env(self.lmdb_path, env)
                 if attempt == 0 and "already open in this process" in str(e):
                     import gc
 
@@ -1703,36 +1707,15 @@ class ap3_fused_module_dataset_lmdb(Dataset):
             return ["lmdb_missing"]
 
         if osp.exists(self.lmdb_path):
-            env_path = osp.abspath(self.lmdb_path)
-            existing_env = getattr(self, "lmdb_env", None)
-            existing_env_path = osp.abspath(getattr(self, "lmdb_path", ""))
-
-            if existing_env is not None and existing_env_path == env_path:
-                try:
-                    with existing_env.begin() as txn:
-                        metadata_bytes = txn.get(b"__metadata__")
-                        if metadata_bytes:
-                            import json
-
-                            metadata = json.loads(metadata_bytes.decode("utf-8"))
-                            length = metadata.get("length", 0)
-                            if length > 0:
-                                return [
-                                    f"lmdb_ap3_fused{self.split_name}_spec_{self.spec_type}"
-                                ]
-                except Exception as e:
-                    print(f"Error checking LMDB: {e}")
-
             env = None
             try:
-                import lmdb
-
-                env = lmdb.open(
+                env = acquire_lmdb_env(
+                    self.lmdb,
                     self.lmdb_path,
                     readonly=True,
                     lock=False,
                     max_dbs=0,
-                    create=False,
+                    map_size=self.lmdb_map_size,
                     max_readers=256,
                 )
                 with env.begin() as txn:
@@ -1755,10 +1738,7 @@ class ap3_fused_module_dataset_lmdb(Dataset):
                 print(f"Error checking LMDB: {e}")
             finally:
                 if env is not None:
-                    try:
-                        env.close()
-                    except:
-                        pass
+                    release_lmdb_env(self.lmdb_path, env)
 
         return ["lmdb_missing"]
 
