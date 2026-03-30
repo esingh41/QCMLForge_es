@@ -10,13 +10,12 @@ dependencies:
   - pip
   - pytest=7.4.4
   - python=3.12.8
-  - pytorch=2.7.0
+  - pytorch=2.10.*
   - cuda=12.6.*
   - pytorch-mutex=1.0
   - requests=2.32.3
   - setuptools=72.1.0
   - torchaudio
-  - torchtriton
   - torchvision
   - matplotlib
   - pydantic==2.*
@@ -26,9 +25,11 @@ dependencies:
   - pip:
       - qcelemental==0.29.0
       - qm-tools-aw==1.4.5
-      # torch-geometric and torch-scatter with explicit wheel URLs for CUDA 12.8
-      # For CPU-only systems, change +cu128 to +cpu in the URLs below
-      # - torch-geometric==2.6.1 -f https://data.pyg.org/whl/torch-2.7.0+cu126.html
+      # Install optional PyG wheels after env creation when you need them.
+      # CPU example:
+      #   pip install torch-geometric==2.7.0 -f https://data.pyg.org/whl/torch-2.10.0+cpu.html
+      # CUDA 12.6 example:
+      #   pip install torch-geometric==2.7.0 -f https://data.pyg.org/whl/torch-2.10.0+cu126.html
       - waitress==3.0.2
       - yarl==1.18.3
       - pytorch-minimize

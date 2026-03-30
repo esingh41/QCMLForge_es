@@ -440,9 +440,9 @@ class APNet2_MPNN(nn.Module):
             - The function performs intramonomer message passing to produce invariant and directional hidden states, assembles atom-pair features, predicts per-pair SAPT components via readout networks, applies a distance-based short-range cutoff, aggregates per-pair energies to per-dimer energies, and computes multipole electrostatic contributions using supplied multipole moments.
             - Shapes of returned tensors depend on the number of dimers, number of intermolecular edges, and model configuration.
         """
-        natomA = torch.tensor(ZA.size(0), dtype=torch.long)
-        natomB = torch.tensor(ZB.size(0), dtype=torch.long)
-        ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
+        natomA = ZA.size(0)
+        natomB = ZB.size(0)
+        ndimer = total_charge_A.size(0)
 
         # interatomic distances
         dR_sr, dR_sr_xyz = self.get_distances(RA, RB, e_ABsr_source, e_ABsr_target)

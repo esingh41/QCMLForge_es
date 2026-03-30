@@ -213,7 +213,7 @@ class AtomTypeParamMPNN(nn.Module):
         e_target = idx_map[e_target]
 
         R = R[keep_mask, :]
-        natom_filtered = keep_mask.sum()
+        natom_filtered = R.size(0)
 
         dR, dR_xyz = get_distances(R, R, e_source, e_target)
         rbf = self.distance_layer(dR)
@@ -225,9 +225,7 @@ class AtomTypeParamMPNN(nn.Module):
             for i in range(self.n_message):
                 # [edges x message_embedding_dim]
                 m_ij = self.get_messages(h_list[0], h_list[-1], rbf, e_source, e_target)
-                m_i = scatter_sum_compile(
-                    m_ij, e_source, int(natom_filtered), reduce="sum"
-                )
+                m_i = scatter_sum_compile(m_ij, e_source, natom_filtered, reduce="sum")
                 # [atomx x hidden_dim]
                 h_next = self.param_update_layers[p][i](m_i)
                 h_list.append(h_next)

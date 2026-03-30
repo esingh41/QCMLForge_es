@@ -1723,9 +1723,7 @@ class APNet3_AtomType_Model:
                 h_BAs.append(hBA)
                 cutoffs.append(cutoff)
                 dimer_inds.append(dimer_batch.dimer_ind)
-                ndimers.append(
-                    torch.tensor(dimer_batch.total_charge_A.size(0), dtype=torch.long)
-                )
+                ndimers.append(dimer_batch.total_charge_A.size(0))
                 # update correct indices in predictions
                 for idx, valid_idx in enumerate(valid_indices):
                     predictions[i + valid_idx] = E_sr_dimer[idx].cpu().numpy()
