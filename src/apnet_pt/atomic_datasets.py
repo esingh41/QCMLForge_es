@@ -14,6 +14,7 @@ from apnet_pt import constants
 from torch_geometric.data import Data
 from torch_geometric.data import Batch, Dataset
 from . import util
+from .lmdb_utils import acquire_lmdb_env, release_lmdb_env
 
 import os.path as osp
 import torch
@@ -113,10 +114,10 @@ def atomic_collate_update_prebatched(batch):
 def atomic_collate_update(batch):
     """
     Batch a list of atomic PyG Data objects into a single Data with reindexed atoms and optional full-edge indices.
-    
+
     Parameters:
         batch (list[Data]): Sequence of PyG Data objects representing molecules/monomers. Each item must provide `x`, `edge_index`, per-atom targets (`charges`, `dipoles`, `quadrupoles`), `R`, `molecule_ind`, and `total_charge`. If present, `edge_index_full` will also be preserved and reindexed.
-    
+
     Returns:
         Data: A single PyG Data object containing:
             - concatenated `x`, `R`, `charges`, `dipoles`, and `quadrupoles`
@@ -169,13 +170,13 @@ def atomic_collate_update(batch):
 def atomic_hfvr_vw_collate_update(batch):
     """
     Collate a list of PyG Data objects into a single batched Data, reindexing atom-level edge indices so each molecule occupies a unique index range.
-    
+
     Concise description:
     - Reindexes `edge_index` (and `edge_index_full` if present) by offsetting atom indices so no collisions occur across molecules.
     - Sets `molecule_ind` so each atom is tagged with its source-molecule index.
     - Concatenates per-atom fields (`x`, `R`, `volume_ratios`, `valence_widths`) and computes `natom_per_mol`.
     - Aggregates per-molecule `total_charge` into a tensor.
-    
+
     Returns:
         Data: A PyG Data object containing the batched graph with fields `x`, `edge_index`, `R`, `molecule_ind`, `total_charge`, `natom_per_mol`, `volume_ratios`, `valence_widths`, and optionally `edge_index_full`.
     """
@@ -221,10 +222,10 @@ def atomic_hfvr_vw_collate_update(batch):
 def atomic_hirshfeld_collate_update(batch):
     """
     Reindex per-atom indices across a list of atomic PyG Data objects and combine them into a single batched Data object.
-    
+
     Parameters:
         batch (Sequence[Data]): Sequence of per-molecule PyG Data objects. Each item must contain `x`, `edge_index`, `charges`, `dipoles`, `quadrupoles`, `R`, `molecule_ind`, `total_charge`, `volume_ratios`, and `valence_widths`. Items may optionally include `edge_index_full`.
-    
+
     Returns:
         Data: A single PyG Data object representing the batch with:
             - `x`: concatenated atom features
@@ -282,10 +283,10 @@ def atomic_hirshfeld_collate_update(batch):
 def atomic_collate_update_no_target(batch):
     """
     Collate a list of PyG Data objects (without per-atom target tensors) into a single batched Data object with reindexed atoms and edges.
-    
+
     Parameters:
         batch (list): List of torch_geometric.data.Data objects. Each element must provide `x`, `R`, `edge_index`, `molecule_ind`, and `total_charge`. If present, `edge_index_full` will be preserved and concatenated.
-    
+
     Returns:
         torch_geometric.data.Data: Batched Data containing:
             - `x`: concatenated atomic feature matrix,
@@ -406,7 +407,7 @@ class AtomicDataLoader(torch.utils.data.DataLoader):
     ):
         """
         Initialize an AtomicDataLoader with dataset, batching, and collation configuration.
-        
+
         Parameters:
             dataset (Dataset | Sequence[BaseData] | DatasetAdapter): Source of data examples; if an OnDiskDataset is provided, the loader will use an in-memory index range (range(len(dataset))) instead of the dataset object itself.
             batch_size (int): Number of examples per batch.
@@ -443,12 +444,12 @@ class AtomicDataLoader(torch.utils.data.DataLoader):
 def edges(R, r_cut, full_indices=False):
     """
     Compute edge index arrays for atom pairs within a cutoff and optionally for all off-diagonal pairs.
-    
+
     Parameters:
         R (array-like): Shape (N, 3) of Cartesian positions for N atoms.
         r_cut (float): Distance cutoff; pairs with distance < r_cut and > 0 are included in the short-range edges.
         full_indices (bool): If True, also return indices for all atom pairs excluding self-pairs.
-    
+
     Returns:
         edges (np.ndarray): Array of shape [2, n_edges] containing index pairs for atom pairs with distance < r_cut and > 0.
         full_edges (np.ndarray, optional): Array of shape [2, n_pairs] containing index pairs for all off-diagonal atom pairs; returned only when `full_indices` is True.
@@ -472,16 +473,16 @@ def edges(R, r_cut, full_indices=False):
 def qcel_mon_to_pyg_data(mon, r_cut=5.0, custom=False, full_indices=False):
     """
     Convert a QCel monomer into a PyTorch Geometric Data object for atomic graph representations.
-    
+
     Creates a Data object with per-atom features and connectivity suitable for graph-based models. Coordinates are converted to Angstroms.
-    
+
     Parameters:
         mon: QCel monomer
             Monomer object providing atomic_numbers, geometry (in atomic units), and molecular_charge.
         r_cut (float): cutoff distance in Angstroms used to build short-range edges.
         custom (bool): if True, build index-only edges via the custom edge builder; otherwise use the standard edge construction.
         full_indices (bool): if True and not using `custom`, include `edge_index_full` containing all atom-pair indices in addition to the short-range `edge_index`.
-    
+
     Returns:
         Data: PyG Data containing the following fields:
             - x: atomic numbers (tensor, long)
@@ -537,7 +538,7 @@ def create_atomic_data(
 ):
     """
     Construct a PyG Data object representing an isolated molecule from atomic inputs.
-    
+
     Parameters:
         Z (Sequence[int]): Atomic numbers for each atom.
         R (array-like[N, 3] or torch.Tensor[N, 3]): Cartesian coordinates in angstroms.
@@ -548,7 +549,7 @@ def create_atomic_data(
         edge_index_only (bool, optional): When `custom=True`, if True only compute edge indices (no edge features). Default True.
         custom (bool, optional): If True, use alternate edge builders (`edge_function_system`/`edge_function_system_index_only`) instead of `edges`. Default False.
         full_indices (bool, optional): If True and `custom=False`, compute and include both short-range `edge_index` and `edge_index_full` (all atom pairs). Default False.
-    
+
     Returns:
         torch_geometric.data.Data: A Data object containing:
           - x (Tensor[N]): atomic numbers (int64)
@@ -623,7 +624,7 @@ class atomic_module_dataset(Dataset):
     ):
         """
         Initialize the atomic_module_dataset and prepare processed data access.
-        
+
         Parameters:
             root (str): Root directory for raw and processed dataset files.
             transform, pre_transform: Optional PyG transform callables applied on load or before processing.
@@ -635,14 +636,14 @@ class atomic_module_dataset(Dataset):
             force_reprocess (bool): If True, remove existing processed files for the selected spec_type before processing.
             in_memory (bool): If True, load all processed Data objects into memory and replace get() with an in-memory accessor.
             batch_size (int): Default batch size to be used by train/test loader helpers.
-        
+
         Behavior:
             - Validates spec_type and raises ValueError for unsupported values.
             - Creates the root directory if it does not exist.
             - If force_reprocess is enabled, removes existing processed files for the chosen spec_type.
             - When in_memory is True, loads all processed files into memory and sets get() to return from the in-memory cache.
             - Stores provided configuration on the instance (e.g., spec_type, testing, MAX_SIZE, batch_size).
-        
+
         Raises:
             ValueError: If spec_type is not one of the supported integers.
         """
@@ -703,12 +704,12 @@ class atomic_module_dataset(Dataset):
         # spec_4 = "spec_4" # 'pbe0/aug-cc-pvtz' APNET2
         """
         Map the dataset configuration to the expected raw input filenames.
-        
+
         When `testing` is True returns a single testing filename; otherwise returns a list of expected raw pickle filenames based on `spec_type` (supports spec_type values 1, 2, 3, 4, 6, 9, 10, 11, and 12). The returned names correspond to the raw monomer data files the dataset will look for when processing.
-        
+
         Returns:
             list[str]: Filenames expected to exist in the raw data directory.
-        
+
         Raises:
             ValueError: If `spec_type` is not one of the supported values.
         """
@@ -844,18 +845,18 @@ class atomic_module_dataset(Dataset):
     def process(self, r_cut=5.0, edge_index_only=True):
         """
         Process raw monomer files into PyG Data objects, apply optional filters/transforms, and save processed items to disk.
-        
+
         This method:
         - Loads monomer data from each path in self.raw_paths.
         - Converts each monomer into a PyG Data object (including cartesian multipoles mapped to per-atom charges, dipoles, and quadrupoles).
         - Applies self.pre_filter and self.pre_transform when present.
         - Writes each processed Data to self.processed_dir with naming dependent on self.spec_type and self.split or testing mode.
         - Stops early when self.MAX_SIZE is reached.
-        
+
         Parameters:
             r_cut (float): Radial cutoff (in the same distance units used by the dataset) passed to the conversion routine for building edges.
             edge_index_only (bool): If True, indicates that only short-range edge indices should be considered when building graph edges; when False, full pairwise indices may be retained. (The conversion call may override this flag.)
-        
+
         Returns:
             None
         """
@@ -967,7 +968,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
     ):
         """
         Initialize the Hirshfeld multipole PyG dataset and optionally preload processed items into memory.
-        
+
         Parameters:
             root (str): Path to the dataset root directory where raw and processed files live.
             transform (callable, optional): Transform applied to data objects on access.
@@ -979,7 +980,7 @@ class atomic_hirshfeld_module_dataset(Dataset):
             force_reprocess (bool): If True, ignore existing processed files and reprocess raw data.
             in_memory (bool): If True, load all processed data into memory and replace get() with get_in_memory().
             batch_size (int): Default batch size used by convenience loader helpers.
-        
+
         Raises:
             ValueError: If `spec_type` is not one of the allowed values.
         """
@@ -1127,9 +1128,9 @@ class atomic_hirshfeld_module_dataset(Dataset):
     def train_test_loaders(self):
         """
         Create randomized train and test DataLoader pairs from the dataset.
-        
+
         The dataset is shuffled and split with 90% of samples used for training and 10% for testing. The returned training DataLoader shuffles batches; the test DataLoader does not.
-        
+
         Returns:
             (train_loader, test_loader): A tuple where `train_loader` provides batches drawn from the 90% training split with shuffling enabled, and `test_loader` provides batches drawn from the remaining 10% with shuffling disabled. Both loaders use `self.batch_size` and `atomic_hirshfeld_collate_update` as the collate function.
         """
@@ -1180,7 +1181,7 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     ):
         """
         Initialize the dataset and optionally preload processed items while configuring a model to precompute Hirshfeld volume ratios and valence widths.
-        
+
         Parameters:
             root (str): Root directory for raw/processed dataset files.
             atomtype_hfvr_model (torch.nn.Module): Pretrained model used to compute per-atom Hirshfeld volume ratios (hfvr) and valence widths (vw); the model will be set to evaluation mode and gradients disabled.
@@ -1251,10 +1252,10 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     def raw_file_names(self):
         """
         Expected raw filenames for supported spec_type values.
-        
+
         Returns:
             list[str]: A list containing the raw filename(s) that should exist for this dataset instance.
-        
+
         Raises:
             ValueError: If `spec_type` is not one of 5, 9, 10, 11, or 12.
         """
@@ -1275,9 +1276,9 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     def processed_file_names(self):
         """
         Determine the list of processed filenames for the induced-dipole precomputed dataset.
-        
+
         Searches the processed directory for files matching "monomer_induced_dipole_precomputed_{spec_type}_*.pt", returns their basenames sorted using natural ordering, and limits the result to `self.MAX_SIZE` if set. If `self.force_reprocess` is true, returns ["file"]. If no matching files are found, returns a single placeholder filename "data_missing_0.pt".
-        
+
         Returns:
             list[str]: A list of processed file basenames (or a placeholder) for this dataset instance.
         """
@@ -1298,9 +1299,9 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     def download(self):
         """
         Indicate that automatic downloading of raw files is unsupported.
-        
+
         Prints the dataset's expected raw_file_names and raises a ValueError.
-        
+
         @raises ValueError: Always raised to signal that downloads are not available.
         """
         print(self.raw_file_names)
@@ -1309,9 +1310,9 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     def process(self, r_cut=5.0, edge_index_only=True):
         """
         Process raw monomer files, precompute Hirshfeld volume ratios and valence widths using the configured model, and save processed PyG Data objects to disk.
-        
+
         Loads monomers from each raw_path, converts each monomer into a PyG Data object, attaches cartesian multipole targets (charges, dipoles, quadrupoles), computes per-atom `volume_ratios` and `valence_widths` by calling `self.atomtype_hfvr_model` (with gradients disabled), applies optional `pre_filter` and `pre_transform`, and writes each processed item to self.processed_dir using the filename pattern "monomer_induced_dipole_precomputed_{spec_type}_{idx}.pt".
-        
+
         Parameters:
             r_cut (float): Distance cutoff (in angstroms) used when constructing atomic neighborhood/edges for the PyG Data conversion.
             edge_index_only (bool): Present for API compatibility; not used by this processing routine.
@@ -1390,7 +1391,7 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     def len(self):
         """
         Get the number of available processed dataset items.
-        
+
         Returns:
             n (int): Number of processed files described by `processed_file_names`.
         """
@@ -1399,10 +1400,10 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     def get(self, idx):
         """
         Load a processed precomputed induced-dipole monomer item by index.
-        
+
         Parameters:
             idx (int): Index of the processed item to load.
-        
+
         Returns:
             data (torch_geometric.data.Data): The loaded PyG Data object from
             processed_dir/monomer_induced_dipole_precomputed_{spec_type}_{idx}.pt.
@@ -1418,10 +1419,10 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     def get_in_memory(self, idx):
         """
         Retrieve a preloaded dataset item by its index.
-        
+
         Parameters:
             idx (int): Integer index of the item in the in-memory cache.
-        
+
         Returns:
             The cached data object stored at the given index.
         """
@@ -1430,9 +1431,9 @@ class atomic_induced_dipole_precomputed_dataset(Dataset):
     def train_test_loaders(self):
         """
         Create randomized train and test DataLoader pairs from the dataset.
-        
+
         The dataset is shuffled and split with 90% of samples used for training and 10% for testing. The returned training DataLoader shuffles batches; the test DataLoader does not.
-        
+
         Returns:
             (train_loader, test_loader): A tuple where `train_loader` provides batches drawn from the 90% training split with shuffling enabled, and `test_loader` provides batches drawn from the remaining 10% with shuffling disabled. Both loaders use `self.batch_size` and `atomic_hirshfeld_collate_update` as the collate function.
         """
@@ -1484,7 +1485,7 @@ class atomic_module_dataset_lmdb(Dataset):
     ):
         """
         Initialize the LMDB-backed atomic dataset and prepare storage, caching, and optional in-memory loading.
-        
+
         Parameters:
             root (str): Root directory for dataset files and LMDB storage.
             transform (callable, optional): Function applied to each example on access.
@@ -1502,7 +1503,7 @@ class atomic_module_dataset_lmdb(Dataset):
             atomtype_hfvr_model (torch.nn.Module, optional): Pretrained model used during processing to precompute
                 Hirshfeld volume ratios and valence widths; if provided, the model is set to evaluation mode and
                 gradients are disabled.
-        
+
         Notes:
             - Validates spec_type and initializes LMDB paths and environment.
             - If in_memory is True, all items are loaded and self.get is overridden to return from the in-memory cache.
@@ -1581,7 +1582,7 @@ class atomic_module_dataset_lmdb(Dataset):
     def _init_lmdb_path(self, root):
         """
         Set the LMDB directory path for this dataset on the instance.
-        
+
         Parameters:
             root (str or os.PathLike): Base dataset root directory; sets self.lmdb_path to
                 root/processed/lmdb_atomic_induced_dipole_spec_{self.spec_type}.
@@ -1593,43 +1594,57 @@ class atomic_module_dataset_lmdb(Dataset):
     def _init_lmdb(self):
         """
         Initialize and open the LMDB environment for this dataset instance.
-        
+
         Creates the LMDB directory if it does not exist, opens the LMDB environment using the instance's configuration (map size, readonly mode, etc.), and loads the stored metadata length into self._length (defaults to 0 if missing). On failure, sets self.lmdb_env to None, sets self._length to 0, and prints an error message.
         """
         if not osp.exists(self.lmdb_path):
             os.makedirs(self.lmdb_path, exist_ok=True)
 
-        try:
-            self.lmdb_env = lmdb.open(
-                self.lmdb_path,
-                map_size=self.lmdb_map_size,
-                readonly=self.lmdb_readonly,
-                max_dbs=0,
-                lock=not self.lmdb_readonly,
-                max_readers=256,
-            )
+        for attempt in range(2):
+            try:
+                self.lmdb_env = acquire_lmdb_env(
+                    lmdb,
+                    self.lmdb_path,
+                    map_size=self.lmdb_map_size,
+                    readonly=self.lmdb_readonly,
+                    max_dbs=0,
+                    lock=not self.lmdb_readonly,
+                    max_readers=256,
+                )
 
-            # Read metadata
-            with self.lmdb_env.begin() as txn:
-                metadata_bytes = txn.get(b"__metadata__")
-                if metadata_bytes:
-                    metadata = json.loads(metadata_bytes.decode("utf-8"))
-                    self._length = metadata.get("length", 0)
-                else:
-                    self._length = 0
-        except Exception as e:
-            print(f"Error initializing LMDB: {e}")
-            self.lmdb_env = None
-            self._length = 0
+                with self.lmdb_env.begin() as txn:
+                    metadata_bytes = txn.get(b"__metadata__")
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        self._length = metadata.get("length", 0)
+                    else:
+                        self._length = 0
+                return
+            except Exception as e:
+                if attempt == 0 and "already open in this process" in str(e):
+                    import gc
+
+                    if self.lmdb_env is not None:
+                        release_lmdb_env(self.lmdb_path, self.lmdb_env)
+                        self.lmdb_env = None
+                        self._length = 0
+                    gc.collect()
+                    continue
+                print(f"Error initializing LMDB: {e}")
+                if self.lmdb_env is not None:
+                    release_lmdb_env(self.lmdb_path, self.lmdb_env)
+                self.lmdb_env = None
+                self._length = 0
+                return
 
     def _close_lmdb(self):
         """
         Close the LMDB environment and clear the cached environment reference.
-        
+
         If an LMDB environment is open, it is closed and `self.lmdb_env` is set to `None`.
         """
         if self.lmdb_env is not None:
-            self.lmdb_env.close()
+            release_lmdb_env(self.lmdb_path, self.lmdb_env)
             self.lmdb_env = None
 
     def __del__(self):
@@ -1642,9 +1657,9 @@ class atomic_module_dataset_lmdb(Dataset):
     def __getstate__(self):
         """
         Return a picklable state dict with LMDB-related resources closed and removed.
-        
+
         Closes the LMDB environment if present, clears the in-memory cache and cache keys, and resets the worker identifier so the resulting state contains only picklable entries.
-        
+
         Returns:
             state (dict): A shallow copy of the object's __dict__ adapted for pickling:
                 - `lmdb_env` set to None
@@ -1656,9 +1671,10 @@ class atomic_module_dataset_lmdb(Dataset):
         # Close LMDB environment before pickling
         if "lmdb_env" in state and state["lmdb_env"] is not None:
             try:
-                state["lmdb_env"].close()
-            except:
+                release_lmdb_env(state["lmdb_path"], state["lmdb_env"])
+            except Exception:
                 pass
+            self.lmdb_env = None
         # Remove unpicklable objects
         state["lmdb_env"] = None
         state["_cache"] = {}
@@ -1669,7 +1685,7 @@ class atomic_module_dataset_lmdb(Dataset):
     def __setstate__(self, state):
         """
         Restore the object's state after unpickling and reinitialize its LMDB environment.
-        
+
         The object's dictionary is updated from the given `state`, and any LMDB resources
         are reopened so the instance is ready for use in the current process.
         """
@@ -1681,15 +1697,15 @@ class atomic_module_dataset_lmdb(Dataset):
     def raw_file_names(self):
         """
         Return the expected raw filename(s) for this dataset based on its `spec_type`.
-        
+
         For spec_type 5 returns ["monomers_ap3_spec_5_pbe0.pkl"];
         for spec_type 9 returns ["monomers_ap3_spec_5_pbe0.pkl"];
         for spec_type 10 returns ["monomers_ap3_spec_10_HF.pkl"];
         for spec_type 11 or 12 returns ["SPICE_monomer_spec_{spec_type}.pkl"].
-        
+
         Returns:
             list[str]: A list containing one raw filename expected to exist in the raw directory.
-        
+
         Raises:
             ValueError: If `spec_type` is not one of 5, 9, 10, 11, or 12.
         """
@@ -1707,12 +1723,12 @@ class atomic_module_dataset_lmdb(Dataset):
     def processed_file_names(self):
         """
         Determine which processed-file marker to report for this dataset based on LMDB availability and metadata.
-        
+
         Checks in order:
         - If force_reprocess is True, reports a placeholder indicating reprocessing is required.
         - If an LMDB path is configured and the LMDB exists with a stored metadata length greater than zero, returns the LMDB dataset marker name for the current spec_type.
         - Otherwise reports that LMDB is missing.
-        
+
         Returns:
             list[str]: A single-item list containing one of:
                 - "file" when force_reprocess is True.
@@ -1726,17 +1742,18 @@ class atomic_module_dataset_lmdb(Dataset):
             return ["lmdb_missing"]
 
         if osp.exists(self.lmdb_path):
-            env = None
+            lmdb_env = None
             try:
-                env = lmdb.open(
+                lmdb_env = acquire_lmdb_env(
+                    lmdb,
                     self.lmdb_path,
+                    map_size=self.lmdb_map_size,
                     readonly=True,
                     lock=False,
                     max_dbs=0,
-                    create=False,
                     max_readers=256,
                 )
-                with env.begin() as txn:
+                with lmdb_env.begin() as txn:
                     metadata_bytes = txn.get(b"__metadata__")
                     if metadata_bytes:
                         metadata = json.loads(metadata_bytes.decode("utf-8"))
@@ -1747,20 +1764,17 @@ class atomic_module_dataset_lmdb(Dataset):
             except Exception as e:
                 print(f"Error checking LMDB: {e}")
             finally:
-                if env is not None:
-                    try:
-                        env.close()
-                    except:
-                        pass
+                if lmdb_env is not None:
+                    release_lmdb_env(self.lmdb_path, lmdb_env)
 
         return ["lmdb_missing"]
 
     def download(self):
         """
         Indicate that automatic downloading is not supported for this dataset.
-        
+
         This method notifies callers that no remote download is available and prints the dataset's expected raw file names.
-        
+
         Raises:
             ValueError: Always raised with the message "Downloads are not available!".
         """
@@ -1770,13 +1784,13 @@ class atomic_module_dataset_lmdb(Dataset):
     def _store_to_lmdb(self, data_objects, start_idx):
         """
         Write the given sequence of data objects into the dataset's LMDB starting at the provided index.
-        
+
         Each object is serialized and stored under an integer key derived from its index; the LMDB "__metadata__" entry is updated to reflect the new total length and dataset attributes.
-        
+
         Parameters:
             data_objects (Iterable): Iterable of objects to store (each will be serialized).
             start_idx (int): Index at which the first object will be stored; subsequent objects use consecutive indices.
-        
+
         Raises:
             RuntimeError: If the LMDB environment is not initialized.
         """
@@ -1805,9 +1819,9 @@ class atomic_module_dataset_lmdb(Dataset):
     def process(self, r_cut=5.0, edge_index_only=True):
         """
         Process raw monomer files into PyG Data objects and store them in the dataset's LMDB.
-        
+
         Processes each raw file in self.raw_paths, converts QCArchive/QCel monomers to PyG Data (with full edge indices), attaches cartesian multipole targets (charges, dipoles, quadrupoles), and either precomputes or loads Hirshfeld-derived volume_ratios and valence_widths. Applies self.pre_filter and self.pre_transform when present, batches processed items for efficient LMDB insertion via self._store_to_lmdb, and respects self.MAX_SIZE. Skips entries with NaNs in raw Hirshfeld properties when no precomputed model is provided.
-        
+
         Parameters:
             r_cut (float): Distance cutoff (in angstroms) used when building interatomic edges.
             edge_index_only (bool): Present for API compatibility; when True/False does not change processing here (full edge indices are produced).
@@ -1895,9 +1909,9 @@ class atomic_module_dataset_lmdb(Dataset):
     def len(self):
         """
         Get the number of items stored in the LMDB-backed dataset.
-        
+
         If the LMDB environment is not initialized or the metadata entry is missing, returns 0. The value is cached on first successful read in `self._length`.
-        
+
         Returns:
             int: Number of entries recorded in the LMDB metadata, or 0 if unavailable.
         """
@@ -1940,13 +1954,13 @@ class atomic_module_dataset_lmdb(Dataset):
     def get(self, idx):
         """
         Return the dataset item stored at the given index from the LMDB store, using and updating an LRU cache.
-        
+
         Parameters:
             idx (int): Integer index of the item to retrieve.
-        
+
         Returns:
             The deserialized Python object stored for the given index.
-        
+
         Raises:
             RuntimeError: If the LMDB environment has not been initialized.
             IndexError: If the specified index is not present in the LMDB.
@@ -1988,10 +2002,10 @@ class atomic_module_dataset_lmdb(Dataset):
     def get_in_memory(self, idx):
         """
         Retrieve a cached dataset item by index.
-        
+
         Parameters:
             idx (int): Index of the item in the in-memory cache.
-        
+
         Returns:
             data: The stored data object at the given index.
         """
@@ -2000,9 +2014,9 @@ class atomic_module_dataset_lmdb(Dataset):
     def train_test_loaders(self):
         """
         Create randomized train and test DataLoader objects using a 90% / 10% split of the dataset.
-        
+
         The split is performed by a random permutation of indices; the training loader is shuffled and the test loader is not.
-        
+
         Returns:
             tuple: (train_loader, test_loader) — two AtomicDataLoader instances for the training and test subsets, respectively.
         """
@@ -2045,9 +2059,9 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
     ):
         """
         Initialize an LMDB-backed dataset for Hirshfeld valence-width training.
-        
+
         This constructor prepares LMDB storage (creating directories if needed), configures caching and in-memory loading, validates supported spec types, and optionally preloads all items into memory.
-        
+
         Parameters:
             root (str): Filesystem path used as dataset root and LMDB location.
             transform (callable, optional): PyG transform applied on access (kept for compatibility).
@@ -2062,7 +2076,7 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
             lmdb_map_size (int, optional): Maximum LMDB map size in bytes used when creating the environment. Default 1099511627776 (1 TB).
             lmdb_readonly (bool, optional): If True, open LMDB in read-only mode. Default False.
             cache_size (int, optional): Size of the LRU cache (number of recently accessed items to retain in memory). Default 1000.
-        
+
         Raises:
             ValueError: If spec_type is not one of the supported values (1, 5, 10).
         """
@@ -2140,32 +2154,47 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
         if not osp.exists(self.lmdb_path):
             os.makedirs(self.lmdb_path, exist_ok=True)
 
-        try:
-            self.lmdb_env = lmdb.open(
-                self.lmdb_path,
-                map_size=self.lmdb_map_size,
-                readonly=self.lmdb_readonly,
-                max_dbs=0,
-                lock=not self.lmdb_readonly,
-                max_readers=256,
-            )
+        for attempt in range(2):
+            try:
+                self.lmdb_env = acquire_lmdb_env(
+                    lmdb,
+                    self.lmdb_path,
+                    map_size=self.lmdb_map_size,
+                    readonly=self.lmdb_readonly,
+                    max_dbs=0,
+                    lock=not self.lmdb_readonly,
+                    max_readers=256,
+                )
 
-            with self.lmdb_env.begin() as txn:
-                metadata_bytes = txn.get(b"__metadata__")
-                if metadata_bytes:
-                    metadata = json.loads(metadata_bytes.decode("utf-8"))
-                    self._length = metadata.get("length", 0)
-                else:
-                    self._length = 0
-        except Exception as e:
-            print(f"Error initializing LMDB: {e}")
-            self.lmdb_env = None
-            self._length = 0
+                with self.lmdb_env.begin() as txn:
+                    metadata_bytes = txn.get(b"__metadata__")
+                    if metadata_bytes:
+                        metadata = json.loads(metadata_bytes.decode("utf-8"))
+                        self._length = metadata.get("length", 0)
+                    else:
+                        self._length = 0
+                return
+            except Exception as e:
+                if attempt == 0 and "already open in this process" in str(e):
+                    import gc
+
+                    if self.lmdb_env is not None:
+                        release_lmdb_env(self.lmdb_path, self.lmdb_env)
+                        self.lmdb_env = None
+                        self._length = 0
+                    gc.collect()
+                    continue
+                print(f"Error initializing LMDB: {e}")
+                if self.lmdb_env is not None:
+                    release_lmdb_env(self.lmdb_path, self.lmdb_env)
+                self.lmdb_env = None
+                self._length = 0
+                return
 
     def _close_lmdb(self):
         """Close LMDB environment"""
         if self.lmdb_env is not None:
-            self.lmdb_env.close()
+            release_lmdb_env(self.lmdb_path, self.lmdb_env)
             self.lmdb_env = None
 
     def __del__(self):
@@ -2204,17 +2233,18 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
             return ["lmdb_missing"]
 
         if osp.exists(self.lmdb_path):
-            env = None
+            lmdb_env = None
             try:
-                env = lmdb.open(
+                lmdb_env = acquire_lmdb_env(
+                    lmdb,
                     self.lmdb_path,
+                    map_size=self.lmdb_map_size,
                     readonly=True,
                     lock=False,
                     max_dbs=0,
-                    create=False,
                     max_readers=256,
                 )
-                with env.begin() as txn:
+                with lmdb_env.begin() as txn:
                     metadata_bytes = txn.get(b"__metadata__")
                     if metadata_bytes:
                         metadata = json.loads(metadata_bytes.decode("utf-8"))
@@ -2224,11 +2254,8 @@ class atomic_hirshfeld_valencewdith_only_module_dataset(Dataset):
             except Exception as e:
                 print(f"Error checking LMDB: {e}")
             finally:
-                if env is not None:
-                    try:
-                        env.close()
-                    except:
-                        pass
+                if lmdb_env is not None:
+                    release_lmdb_env(self.lmdb_path, lmdb_env)
 
         return ["lmdb_missing"]
 
