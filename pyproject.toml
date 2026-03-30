@@ -20,7 +20,7 @@ dependencies = [
     "qm_tools_aw",
     "numpy>=2.2.0",
     "qcelemental>=0.29.0",
-    "torch-geometric>=2.7,<2.8",
+    "torch-geometric>=2.7",
     "pytorch-minimize",
     "qcportal>=0.59",
     "huggingface_hub>=0.30.0",
