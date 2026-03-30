@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-cd /home/awallace43/gits/qcmlforge.ap3d3_am
-export PYTHONPATH="/home/awallace43/gits/qcmlforge.ap3d3_am/src${PYTHONPATH:+:$PYTHONPATH}"
+cd /home/amwalla3/gits/qcmlforge.ap3d3_am
+export PYTHONPATH="/home/amwalla3/gits/qcmlforge.ap3d3_am/src${PYTHONPATH:+:$PYTHONPATH}"
 
 ITER=1
 MODEL_DIR=./models/ap3_saptpbe0/1
@@ -36,9 +36,9 @@ python3 \
     --spec_type_am \
     4 \
     --world_size_ddp \
-    1 \
+    4 \
     --omp_num_threads \
-    16
+    4
 
 # Hirshfeld volume-ratio/valence-width AtomTypeParamNN on PBE0 monomers (spec 1) using AP2 h_list
 python3 \
