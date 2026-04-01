@@ -277,7 +277,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         e_target = idx_map[e_target]
 
         R = R[keep_mask, :]
-        natom_filtered = keep_mask.sum()
+        natom_filtered = R.size(0)
 
         #  [edges]
         dR, dR_xyz = get_distances(R, R, e_source, e_target)
@@ -378,7 +378,7 @@ class AtomHirshfeldMPNN(MessagePassing):
         charge[keep_mask] = filtered_charge
         molecule_ind.requires_grad_(False)
         molecule_ind = molecule_ind.long()
-        num_mols = (molecule_ind.max().item()) + 1 if molecule_ind.numel() > 0 else 1
+        num_mols = natom_per_mol.size(0)
         total_charge_pred = scatter_sum_compile(
             charge, molecule_ind, num_mols, reduce="sum"
         )

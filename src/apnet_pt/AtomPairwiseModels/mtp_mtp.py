@@ -3634,7 +3634,7 @@ units angstrom
             preds = scatter_sum_compile(
                 preds,
                 batch.dimer_ind,
-                dim_size=torch.tensor(batch.total_charge_A.size(0), dtype=torch.long),
+                dim_size=batch.total_charge_A.size(0),
             )
             comp_errors = preds - ref
             # print(f"{preds = }")

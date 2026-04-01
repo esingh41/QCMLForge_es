@@ -230,7 +230,7 @@ class APNet2_dAPNet2_MPNN(nn.Module):
         )
 
         # Need to ensure that the output is the same size as input dimers
-        ndimer = torch.tensor(total_charge_A.size(0), dtype=torch.long)
+        ndimer = total_charge_A.size(0)
         N_sr, num_cols = E.shape
         E_expanded = E.new_zeros((ndimer, num_cols))
         E_expanded[:N_sr] = E
