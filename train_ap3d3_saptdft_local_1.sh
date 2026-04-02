@@ -2,74 +2,74 @@
 
 set -euo pipefail
 
-cd /home/amwalla3/gits/qcmlforge.ap3d3_am
-export PYTHONPATH="/home/amwalla3/gits/qcmlforge.ap3d3_am/src${PYTHONPATH:+:$PYTHONPATH}"
+# cd /home/amwalla3/gits/qcmlforge.ap3d3_am
+# export PYTHONPATH="/home/amwalla3/gits/qcmlforge.ap3d3_am/src${PYTHONPATH:+:$PYTHONPATH}"
 
 ITER=1
 MODEL_DIR=./models/ap3_saptpbe0/1
 mkdir -p "${MODEL_DIR}"
 
 # AP2 AtomMPNN on PBE0 monomers (spec 4 -> monomers_ap3_spec_1_pbe0.pkl)
-python3 \
-    -u \
-    ./train_models.py \
-    --train_am \
-    AtomModel \
-    --am_model_path \
-    ./models/ap3_saptpbe0/1/am_ap2_1.pt \
-    --random_seed \
-    1 \
-    --n_epochs_atom \
-    500 \
-    --lr \
-    5e-4 \
-    --n_message_atom \
-    3 \
-    --n_rbf_atom \
-    8 \
-    --n_neuron_atom \
-    128 \
-    --n_embed_atom \
-    8 \
-    --data_dir \
-    ../qcmlforge/data_dir \
-    --spec_type_am \
-    4 \
-    --world_size_ddp \
-    4 \
-    --omp_num_threads \
-    4
+# python3 \
+#     -u \
+#     ./train_models.py \
+#     --train_am \
+#     AtomModel \
+#     --am_model_path \
+#     ./models/ap3_saptpbe0/1/am_ap2_1.pt \
+#     --random_seed \
+#     1 \
+#     --n_epochs_atom \
+#     500 \
+#     --lr \
+#     5e-4 \
+#     --n_message_atom \
+#     3 \
+#     --n_rbf_atom \
+#     8 \
+#     --n_neuron_atom \
+#     128 \
+#     --n_embed_atom \
+#     8 \
+#     --data_dir \
+#     ../qcmlforge/data_dir \
+#     --spec_type_am \
+#     4 \
+#     --world_size_ddp \
+#     4 \
+#     --omp_num_threads \
+#     4
 
 # Hirshfeld volume-ratio/valence-width AtomTypeParamNN on PBE0 monomers (spec 1) using AP2 h_list
-python3 \
-    -u \
-    ./train_models.py \
-    --train_apnet \
-    AtomTypeParamModel \
-    --am_model_path \
-    ./models/ap3_saptpbe0/1/am_ap2_1.pt \
-    --random_seed \
-    1 \
-    --lr \
-    5e-5 \
-    --ap_model_path \
-    ./models/ap3_saptpbe0/1/atp_hfvr_1.pt \
-    --n_epochs \
-    100 \
-    --n_rbf \
-    8 \
-    --n_neuron \
-    32 \
-    --n_embed \
-    8 \
-    --data_dir \
-    ../qcmlforge/data_dir \
-    --spec_type_ap \
-    1 \
-    --world_size_ddp \
-    1 \
-    --omp_num_threads \
-    16
+# python3 \
+#     -u \
+#     ./train_models.py \
+#     --train_apnet \
+#     AtomTypeParamModel \
+#     --am_model_path \
+#     ./models/ap3_saptpbe0/1/am_ap2_1.pt \
+#     --random_seed \
+#     1 \
+#     --lr \
+#     5e-5 \
+#     --ap_model_path \
+#     ./models/ap3_saptpbe0/1/atp_hfvr_1.pt \
+#     --n_epochs \
+#     100 \
+#     --n_rbf \
+#     8 \
+#     --n_neuron \
+#     32 \
+#     --n_embed \
+#     8 \
+#     --data_dir \
+#     ../qcmlforge/data_dir \
+#     --spec_type_ap \
+#     1 \
+#     --world_size_ddp \
+#     1 \
+#     --omp_num_threads \
+#     16
 
 # Electrostatic K AtomTypeParamNN on Splinter SAPT0/aug-cc-pVDZ dimers (spec 2)
 python3 \
