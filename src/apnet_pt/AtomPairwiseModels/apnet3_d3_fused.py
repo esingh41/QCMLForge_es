@@ -37,6 +37,7 @@ from .mtp_mtp import (
     AtomTypeParamNN,
     DimerProp,
     AtomTypeParamModel,
+    isolate_atom_parameter_predictions_ap3,
     load_dimer_prop_from_checkpoint,
 )
 
@@ -621,6 +622,8 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         E_sr_dimer = scatter_sum_compile(E_sr, dimer_ind, ndimer)
         if self.use_precomputed_classical:
             E_output = E_sr_dimer
+            if self.return_hidden_states:
+                return E_output, E_sr, 0, 0, 0, hAB, hBA, cutoff
             return E_output, E_sr, 0, 0, 0, hAB, hBA
         else:
             E_elst_full_dimer = scatter_sum_compile(
@@ -1449,6 +1452,36 @@ class APNet3D3_AtomType_Model:
             E_disp = torch.zeros_like(E_elst)
         return E_elst, E_ind, E_disp
 
+    def _predict_all_classical_and_submodel_properties(self, dimer_batch):
+        if not hasattr(self.dimer_prop_model, "set_forward"):
+            raise ValueError(
+                "Prediction-time classical reconstruction requires a DimerProp"
+            )
+
+        restore_name = (
+            "ap3_atomMPNN"
+            if self.use_precomputed_classical
+            else (
+                "ap3_elst_damping__induced_dipole"
+                if self.model.no_disp_nn
+                else "ap3_elst_damping__induced_dipole__disp"
+            )
+        )
+
+        self.dimer_prop_model.set_forward("ap3_elst_damping__induced_dipole__disp")
+        with torch.no_grad():
+            E_classical, v_A, v_B = self.dimer_prop_model(dimer_batch)
+        self.dimer_prop_model.set_forward(restore_name)
+
+        return E_classical[:, 0], E_classical[:, 1], E_classical[:, 2], v_A, v_B
+
+    def _ensure_hidden_state_preds(self, preds):
+        if len(preds) == 8:
+            return preds
+        if len(preds) == 7:
+            return (*preds, None)
+        raise ValueError(f"Unexpected prediction tuple length: {len(preds)}")
+
     def _assemble_pairs(
         self,
         inp_batch,
@@ -1833,9 +1866,7 @@ class APNet3D3_AtomType_Model:
                             [np.nan, np.nan, np.nan, np.nan]
                         )
             if verbose:
-                print(
-                    f"Predictions for {i} to {i + effective_batch_size} out of {N}"
-                )
+                print(f"Predictions for {i} to {i + effective_batch_size} out of {N}")
         if self.model.return_hidden_states:
             return predictions, h_ABs, h_BAs, cutoffs, dimer_inds, ndimers
         if return_pairs:
@@ -1848,6 +1879,262 @@ class APNet3D3_AtomType_Model:
                 pairwise_disp_energies,
             )
         return predictions
+
+    @torch.inference_mode()
+    def predict_qcel_mols_properties(
+        self,
+        mols,
+        batch_size=1,
+        r_cut=None,
+        r_cut_im=None,
+        verbose=False,
+    ):
+        print(
+            "Warning: predict_qcel_mols_properties is not for performance; "
+            "it recomputes extra submodel outputs to return all properties."
+        )
+
+        if r_cut is None:
+            r_cut = self.model.r_cut
+        if r_cut_im is None:
+            r_cut_im = self.model.r_cut_im
+
+        N = len(mols)
+        effective_batch_size = N if self.use_precomputed_classical else batch_size
+        predictions = np.zeros((N, 4))
+        pairwise_energies = []
+        pairwise_elst_energies = []
+        pairwise_ind_energies = []
+        pairwise_disp_energies = []
+        h_ABs, h_BAs, cutoffs, dimer_inds, ndimers = [], [], [], [], []
+        classical_components = {
+            "elst": [None] * N,
+            "ind": [None] * N,
+            "disp": [None] * N,
+        }
+        submodel_properties = {
+            "A": [None] * N,
+            "B": [None] * N,
+        }
+
+        previous_return_hidden_states = self.model.return_hidden_states
+        self.model.return_hidden_states = True
+
+        try:
+            self.dimer_prop_model.to(self.device)
+            for i in range(0, N, effective_batch_size):
+                upper_bound = min(i + effective_batch_size, N)
+                data = [
+                    qcel_dimer_to_fused_data(
+                        dimer,
+                        r_cut=r_cut,
+                        r_cut_im=r_cut_im,
+                        dimer_ind=n,
+                        check_validity=True,
+                    )
+                    for n, dimer in enumerate(mols[i:upper_bound])
+                ]
+                valid_indices = [j for j, d in enumerate(data) if d is not None]
+                all_indices = list(range(len(data)))
+                if len(valid_indices) < len(data):
+                    if verbose:
+                        print(
+                            f"Skipping {len(data) - len(valid_indices)} invalid dimers in batch {i} to {upper_bound}"
+                        )
+                    data = [data[j] for j in valid_indices]
+
+                if len(data) == 0:
+                    for idx in all_indices:
+                        predictions[i + idx] = np.array(
+                            [np.nan, np.nan, np.nan, np.nan]
+                        )
+                        pairwise_energies.append([])
+                        pairwise_elst_energies.append([])
+                        pairwise_ind_energies.append([])
+                        pairwise_disp_energies.append([])
+                    continue
+
+                dimer_batch = ap3_fused_collate_update_no_target(data)
+                dimer_batch.to(device=self.device)
+                preds = self._ensure_hidden_state_preds(self.model(dimer_batch))
+
+                E_elst_all, E_ind_all, E_disp_all, v_A, v_B = (
+                    self._predict_all_classical_and_submodel_properties(dimer_batch)
+                )
+
+                if self.use_precomputed_classical:
+                    ndimer = dimer_batch.total_charge_A.size(0)
+                    E_elst_dimer = scatter_sum_compile(
+                        E_elst_all, dimer_batch.dimer_ind_full, ndimer
+                    )
+                    E_ind_dimer = scatter_sum_compile(
+                        E_ind_all, dimer_batch.dimer_ind_full, ndimer
+                    )
+                    if self.model.no_disp_nn:
+                        E_disp_dimer = scatter_sum_compile(
+                            E_disp_all, dimer_batch.dimer_ind_full, ndimer
+                        )
+                        E_sr_dimer_3col = preds[0]
+                        E_out4 = torch.zeros((ndimer, 4), device=E_sr_dimer_3col.device)
+                        E_out4[:, :3] = E_sr_dimer_3col
+                        E_out4[:, 0] += E_elst_dimer
+                        E_out4[:, 2] += E_ind_dimer
+                        E_out4[:, 3] = E_disp_dimer
+                        E_sr_3col = preds[1]
+                        E_sr_out4 = torch.zeros(
+                            (E_sr_3col.size(0), 4), device=E_sr_3col.device
+                        )
+                        E_sr_out4[:, :3] = E_sr_3col
+                        preds = (
+                            E_out4,
+                            E_sr_out4,
+                            E_elst_all,
+                            E_ind_all,
+                            E_disp_all,
+                            preds[5],
+                            preds[6],
+                            preds[7],
+                        )
+                    else:
+                        E_out4 = preds[0].clone()
+                        E_out4[:, 0] += E_elst_dimer
+                        E_out4[:, 2] += E_ind_dimer
+                        E_disp_dimer = scatter_sum_compile(
+                            E_disp_all, dimer_batch.dimer_ind_full, ndimer
+                        )
+                        E_out4[:, 3] += E_disp_dimer
+                        preds = (
+                            E_out4,
+                            preds[1],
+                            E_elst_all,
+                            E_ind_all,
+                            E_disp_all,
+                            preds[5],
+                            preds[6],
+                            preds[7],
+                        )
+
+                if self.model.no_disp_nn and not self.use_precomputed_classical:
+                    ndimer = dimer_batch.total_charge_A.size(0)
+                    E_disp_dimer = scatter_sum_compile(
+                        E_disp_all, dimer_batch.dimer_ind_full, ndimer
+                    )
+                    E_sr_dimer_3col = preds[0]
+                    E_out4 = torch.zeros((ndimer, 4), device=E_sr_dimer_3col.device)
+                    E_out4[:, :3] = E_sr_dimer_3col
+                    E_out4[:, 3] = E_disp_dimer
+                    E_sr_3col = preds[1]
+                    E_sr_out4 = torch.zeros(
+                        (E_sr_3col.size(0), 4), device=E_sr_3col.device
+                    )
+                    E_sr_out4[:, :3] = E_sr_3col
+                    preds = (
+                        E_out4,
+                        E_sr_out4,
+                        preds[2],
+                        preds[3],
+                        E_disp_all,
+                        preds[5],
+                        preds[6],
+                        preds[7],
+                    )
+
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA, cutoff = preds
+                h_ABs.append(hAB)
+                h_BAs.append(hBA)
+                cutoffs.append(cutoff)
+                dimer_inds.append(dimer_batch.dimer_ind)
+                ndimers.append(dimer_batch.total_charge_A.size(0))
+
+                pairwise_batch = self._assemble_pairs(
+                    dimer_batch.cpu(),
+                    E_sr_dimer.cpu(),
+                    E_sr.cpu(),
+                    E_elst.cpu(),
+                    E_ind.cpu(),
+                    E_disp.cpu(),
+                )
+                classical_pair_batch = self._assemble_mtp_pairs(
+                    dimer_batch.cpu(),
+                    E_elst_all.cpu(),
+                    E_ind_all.cpu(),
+                    E_disp_all.cpu(),
+                )
+                mol_props_A = isolate_atom_parameter_predictions_ap3(
+                    dimer_batch.batch_atomic_A.cpu(),
+                    tuple(t.detach().cpu() for t in v_A),
+                )
+                mol_props_B = isolate_atom_parameter_predictions_ap3(
+                    dimer_batch.batch_atomic_B.cpu(),
+                    tuple(t.detach().cpu() for t in v_B),
+                )
+
+                cnt = 0
+                for idx in all_indices:
+                    if idx in valid_indices:
+                        predictions[i + idx] = E_sr_dimer[cnt].cpu().numpy()
+                        pairwise_energies.append(pairwise_batch[cnt])
+                        pairwise_elst_energies.append(classical_pair_batch[0][cnt])
+                        pairwise_ind_energies.append(classical_pair_batch[1][cnt])
+                        pairwise_disp_energies.append(classical_pair_batch[2][cnt])
+                        classical_components["elst"][i + idx] = classical_pair_batch[0][
+                            cnt
+                        ].sum()
+                        classical_components["ind"][i + idx] = classical_pair_batch[1][
+                            cnt
+                        ].sum()
+                        classical_components["disp"][i + idx] = classical_pair_batch[2][
+                            cnt
+                        ].sum()
+                        submodel_properties["A"][i + idx] = {
+                            "charges": mol_props_A[0][cnt],
+                            "dipoles": mol_props_A[1][cnt],
+                            "quadrupoles": mol_props_A[2][cnt],
+                            "hidden_states": mol_props_A[3][cnt],
+                            "hirshfeld_volume_ratios": mol_props_A[4][cnt],
+                            "valence_widths": mol_props_A[5][cnt],
+                            "electrostatic_damping_parameters": mol_props_A[6][cnt],
+                        }
+                        submodel_properties["B"][i + idx] = {
+                            "charges": mol_props_B[0][cnt],
+                            "dipoles": mol_props_B[1][cnt],
+                            "quadrupoles": mol_props_B[2][cnt],
+                            "hidden_states": mol_props_B[3][cnt],
+                            "hirshfeld_volume_ratios": mol_props_B[4][cnt],
+                            "valence_widths": mol_props_B[5][cnt],
+                            "electrostatic_damping_parameters": mol_props_B[6][cnt],
+                        }
+                        cnt += 1
+                    else:
+                        predictions[i + idx] = np.array(
+                            [np.nan, np.nan, np.nan, np.nan]
+                        )
+                        pairwise_energies.append([])
+                        pairwise_elst_energies.append([])
+                        pairwise_ind_energies.append([])
+                        pairwise_disp_energies.append([])
+
+                if verbose:
+                    print(
+                        f"Predictions for {i} to {i + effective_batch_size} out of {N}"
+                    )
+        finally:
+            self.model.return_hidden_states = previous_return_hidden_states
+
+        return {
+            "predictions": predictions,
+            "pairwise_energies": pairwise_energies,
+            "pairwise_elst_energies": pairwise_elst_energies,
+            "pairwise_ind_energies": pairwise_ind_energies,
+            "pairwise_disp_energies": pairwise_disp_energies,
+            "h_ABs": h_ABs,
+            "h_BAs": h_BAs,
+            "cutoffs": cutoffs,
+            "dimer_inds": dimer_inds,
+            "ndimers": ndimers,
+            "classical_components": classical_components,
+            "submodel_properties": submodel_properties,
+        }
 
     def example_input(
         self,
@@ -2542,7 +2829,9 @@ units angstrom
         if world_size > 1:
             self.__cleanup()
         if rank == 0 and self.model_save_path and not model_saved:
-            print("Saving final model (no validation improvement checkpoint was written)")
+            print(
+                "Saving final model (no validation improvement checkpoint was written)"
+            )
             self.save_model(
                 self.model_save_path,
                 metadata={
@@ -2785,7 +3074,9 @@ units angstrom
             if not self.device == "CPU":
                 torch.cuda.empty_cache()
         if self.model_save_path and not model_saved:
-            print("Saving final model (no validation improvement checkpoint was written)")
+            print(
+                "Saving final model (no validation improvement checkpoint was written)"
+            )
             self.save_model(
                 self.model_save_path,
                 metadata={
