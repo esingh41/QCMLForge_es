@@ -213,6 +213,7 @@ def train_pairwise_model(
     ap2_pretrained_model_only=None,
     ds_type="total_component_energies",
     no_disp_nn=False,
+    use_precomputed_classical=None,
     freeze_dimer_prop_model=True,
     freeze_atom_model=True,
     build_dataset_only=False,
@@ -431,10 +432,11 @@ def train_pairwise_model(
         )
         am_model_path = None
         print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
-        if ds_type == "fsapt_energies":
-            use_precomputed_classical = False
-        else:
-            use_precomputed_classical = True
+        if use_precomputed_classical is None:
+            if ds_type == "fsapt_energies":
+                use_precomputed_classical = False
+            else:
+                use_precomputed_classical = True
         apnet = APNet(
             atom_type_model=atom_type_hf_vw_model.model,
             dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -483,10 +485,11 @@ def train_pairwise_model(
         )
         am_model_path = None
         print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
-        if ds_type == "fsapt_energies":
-            use_precomputed_classical = False
-        else:
-            use_precomputed_classical = True
+        if use_precomputed_classical is None:
+            if ds_type == "fsapt_energies":
+                use_precomputed_classical = False
+            else:
+                use_precomputed_classical = True
         apnet = APNet(
             atom_type_model=atom_type_hf_vw_model.model,
             dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -536,10 +539,11 @@ def train_pairwise_model(
         )
         am_model_path = None
         print(f"{ds_atomic_batch_size=}, {ds_datapoint_storage_n_objects=}")
-        if ds_type == "fsapt_energies":
-            use_precomputed_classical = False
-        else:
-            use_precomputed_classical = True
+        if use_precomputed_classical is None:
+            if ds_type == "fsapt_energies":
+                use_precomputed_classical = False
+            else:
+                use_precomputed_classical = True
         apnet = APNet(
             atom_type_model=atom_type_hf_vw_model.model,
             dimer_prop_model=atom_type_elst_model.dimer_model,
@@ -894,6 +898,16 @@ def main():
         help="Load dataset in memory (default: False).",
     )
     args.add_argument(
+        "--use_precomputed_classical",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Override whether APNet3-fused/APNet3-fused-d3 uses precomputed "
+            "classical terms. When unset, the existing model-specific default "
+            "behavior is used."
+        ),
+    )
+    args.add_argument(
         "--ds_class_type",
         type=str,
         default="pt",
@@ -998,6 +1012,7 @@ def main():
             ap2_pretrained_model_only=args.ap2_pretrained_model_only,
             ds_type=args.ds_type,
             no_disp_nn=args.no_disp_nn,
+            use_precomputed_classical=args.use_precomputed_classical,
             freeze_dimer_prop_model=not args.unfreeze_dimer_prop_model,
             freeze_atom_model=not args.unfreeze_atom_model,
             build_dataset_only=args.build_dataset_only,

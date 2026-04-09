@@ -206,7 +206,7 @@ class APNet3D3_AtomType_MPNN(nn.Module):
         r_cut_im=8.0,
         r_cut=5.0,
         return_hidden_states=False,
-        use_precomputed_classical=False,
+        use_precomputed_classical=None,
         use_atom_props=True,
         no_disp_nn=False,
         freeze_dimer_prop_model=None,
@@ -839,9 +839,10 @@ class APNet3D3_AtomType_Model:
             config = model_io.load_config_from_checkpoint(checkpoint) or {}
             use_atom_props = config.get("use_atom_props", True)
             no_disp_nn = config.get("no_disp_nn", False)
-            use_precomputed_classical = config.get(
-                "use_precomputed_classical", use_precomputed_classical
-            )
+            if use_precomputed_classical is None:
+                use_precomputed_classical = config.get(
+                    "use_precomputed_classical", False
+                )
             if freeze_dimer_prop_model is None:
                 freeze_dimer_prop_model = config.get("freeze_dimer_prop_model", True)
             resolved_d3_damping_parameters = resolve_d3_damping_parameters(
@@ -868,6 +869,8 @@ class APNet3D3_AtomType_Model:
         else:
             if freeze_dimer_prop_model is None:
                 freeze_dimer_prop_model = True
+            if use_precomputed_classical is None:
+                use_precomputed_classical = False
             resolved_d3_damping_parameters = resolve_d3_damping_parameters(
                 d3_damping_parameters
             )
