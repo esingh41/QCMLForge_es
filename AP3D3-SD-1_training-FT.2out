@@ -1,0 +1,216 @@
+---------------------------------------
+Begin Slurm Prolog: Apr-08-2026 20:54:41
+Job ID:    6343219
+User ID:   awallace43
+Account:   gts-cs207-chemx
+Job name:  AP3D3-SD-1
+Partition: gpu-v100
+QOS:       inferno
+---------------------------------------
+/var/lib/slurm/slurmd/job6343219/slurm_script: line 15: /storage/home/hcoda1/3/awallace43/p-cs207-0/miniconda/etc/profile.d/conda.sh: No such file or directory
+
+CondaError: Run 'conda init' before 'conda activate'
+
+Namespace(am_model_path='./models/ap3_saptpbe0/1/am_ap2_1.pt', atom_type_param_model_path='./models/ap3_saptpbe0/1/atp_hfvr_1.pt', atom_mpnn_pretrained_path=None, atom_type_param_model_path2='./models/ap3_saptpbe0/1/atp_elst_1.pt', ap_model_path='./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt', ap_pretrained_model_path=None, ap2_pretrained_model_only=None, train_am='', train_apnet='APNet3-fused-d3', dimer_eval_type='elst_damping', elst_damping_type='CLIFF', random_seed=1, spec_type_am=3, spec_type_ap=10, data_dir='/tmp/ap3_saptpbe0_1/data_dir', n_epochs_atom=500, n_epochs=50, ds_max_size=None, lr=5e-05, end_lr=None, lr_decay=None, m1='', m2='', r_cut_im=8.0, r_cut=5.0, n_rbf=8, n_neuron=128, n_embed=8, n_params=2, n_message_atom=3, n_rbf_atom=8, n_neuron_atom=128, n_embed_atom=8, r_cut_atom=5.0, use_nn_screening=False, precompute_hfvr=False, ds_use_lmdb=False, param_start_mean=2.0, param_start_std=0.1, world_size_ddp=1, omp_num_threads=1, ds_in_memory=False, ds_class_type='lmdb', DimerProp_model_type='AtomTypeParamNN', ds_type='total_component_energies', no_disp_nn=False, unfreeze_dimer_prop_model=True, unfreeze_atom_model=True, build_dataset_only=False)
+Training APNet3-fused-d3...
+World Size 1
+
+Training from ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+
+Setting AtomTypeParams...
+running on the CPU
+Loading pre-trained AtomMPNN model from ./models/ap3_saptpbe0/1/am_ap2_1.pt
+Loading pre-trained MTP-MTP model from ./models/ap3_saptpbe0/1/atp_hfvr_1.pt
+running on the CPU
+Using provided AtomMPNN model: AtomTypeParamNN(
+  (atom_model): AtomMPNN()
+  (guess_layer): ModuleList(
+    (0-1): 2 x NoisyConstantEmbedding(119, 1)
+  )
+  (param_readout_layers): ModuleList(
+    (0-1): 2 x ModuleList(
+      (0-3): 4 x Sequential(
+        (0): Linear(in_features=8, out_features=64, bias=True)
+        (1): ReLU()
+        (2): Linear(in_features=64, out_features=32, bias=True)
+        (3): ReLU()
+        (4): Linear(in_features=32, out_features=16, bias=True)
+        (5): ReLU()
+        (6): Linear(in_features=16, out_features=1, bias=True)
+      )
+    )
+  )
+)
+Loading pre-trained MTP-MTP AtomTypeParamNN from ./models/ap3_saptpbe0/1/atp_elst_1.pt
+self.dataset=None
+ds_atomic_batch_size=16, ds_datapoint_storage_n_objects=16
+running on the GPU
+running on the GPU
+No atom model provided.
+    Assuming atomic multipoles and embeddings are
+    pre-computed and passed as input to the model.
+
+Using LMDB dataset class
+self.ds_type = 'total_component_energies'
+self.ds_class_type = 'lmdb'
+self.dataset_class = <class 'apnet_pt.pt_datasets.ap3_fused_ds.ap3_fused_module_dataset_lmdb'>
+Using provided DimerProp model: DimerProp(
+  (AtomTypeParam): AtomTypeParamNN(
+    (atom_model): AtomTypeParamNN(
+      (atom_model): AtomMPNN()
+      (guess_layer): ModuleList(
+        (0-1): 2 x NoisyConstantEmbedding(119, 1)
+      )
+      (param_readout_layers): ModuleList(
+        (0-1): 2 x ModuleList(
+          (0-3): 4 x Sequential(
+            (0): Linear(in_features=8, out_features=64, bias=True)
+            (1): ReLU()
+            (2): Linear(in_features=64, out_features=32, bias=True)
+            (3): ReLU()
+            (4): Linear(in_features=32, out_features=16, bias=True)
+            (5): ReLU()
+            (6): Linear(in_features=16, out_features=1, bias=True)
+          )
+        )
+      )
+    )
+    (guess_layer): ModuleList(
+      (0): NoisyConstantEmbedding(119, 1)
+    )
+    (param_readout_layers): ModuleList(
+      (0): ModuleList(
+        (0-3): 4 x Sequential(
+          (0): Linear(in_features=8, out_features=128, bias=True)
+          (1): ReLU()
+          (2): Linear(in_features=128, out_features=64, bias=True)
+          (3): ReLU()
+          (4): Linear(in_features=64, out_features=32, bias=True)
+          (5): ReLU()
+          (6): Linear(in_features=32, out_features=1, bias=True)
+        )
+      )
+    )
+  )
+)
+Loading pre-trained APNet3D3_AtomType_MPNN model from ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+Loaded embedded DimerProp from checkpoint
+True True False True
+Processing Split dataset...
+running on the GPU
+self.dataset = None
+root='/tmp/ap3_saptpbe0_1/data_dir', self.spec_type=10, self.in_memory=False
+/tmp/ap3_saptpbe0_1/data_dir/processed/lmdb_ap3_fused_train_spec_10
+running on the GPU
+self.dataset = None
+root='/tmp/ap3_saptpbe0_1/data_dir', self.spec_type=10, self.in_memory=False
+/tmp/ap3_saptpbe0_1/data_dir/processed/lmdb_ap3_fused_test_spec_10
+running on the GPU
+self.dataset = None
+root='/tmp/ap3_saptpbe0_1/data_dir', self.spec_type=10, self.in_memory=False
+/tmp/ap3_saptpbe0_1/data_dir/processed/lmdb_ap3_fused_train_spec_10
+running on the GPU
+self.dataset = None
+root='/tmp/ap3_saptpbe0_1/data_dir', self.spec_type=10, self.in_memory=False
+/tmp/ap3_saptpbe0_1/data_dir/processed/lmdb_ap3_fused_test_spec_10
+self.dataset=[ap3_fused_module_dataset_lmdb(79692), ap3_fused_module_dataset_lmdb(44664)]
+[ap3_fused_module_dataset_lmdb(79692), ap3_fused_module_dataset_lmdb(44664)]
+Dataset size: 2
+Saving training results to...
+./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+~~ Training APNet3-fused Model ~~
+   Labeled data for total_component_energies
+    Training on 79692 samples, Testing on 44664 samples
+
+Network Hyperparameters:
+  self.model.n_message=3
+  self.model.n_neuron=128
+  self.model.n_embed=8
+  self.model.n_rbf=8
+  self.model.r_cut=5.0
+  self.model.r_cut_im=8.0
+
+Training Hyperparameters:
+  n_epochs=50
+  lr=5e-05
+
+  lr_decay=None
+
+  end_lr=None
+
+  batch_size=16
+Running single-process training
+  (Pre-training)( 267.86s)  MAE:   1.045/ 1.391    0.570/0.821     0.662/0.531     0.335/0.621     0.513/0.651  
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:    0 (442.37 s)  MAE:   0.715/0.988     0.478/0.683     0.242/0.211     0.290/0.513     0.258/0.214   *
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:    1 (451.84 s)  MAE:   0.623/0.944     0.437/0.661     0.199/0.207     0.268/0.489     0.161/0.152   *
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:    2 (437.73 s)  MAE:   0.599/0.927     0.424/0.650     0.190/0.203     0.263/0.490     0.127/0.135   *
+  EPOCH:    3 (456.87 s)  MAE:   0.582/0.935     0.416/0.644     0.184/0.197     0.260/0.512     0.104/0.120    
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:    4 (482.10 s)  MAE:   0.572/0.908     0.411/0.640     0.177/0.197     0.265/0.483     0.089/0.109   *
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:    5 (481.36 s)  MAE:   0.563/0.908     0.406/0.639     0.174/0.200     0.263/0.487     0.080/0.102   *
+  EPOCH:    6 (484.55 s)  MAE:   0.561/0.908     0.402/0.634     0.171/0.191     0.266/0.494     0.074/0.098    
+  EPOCH:    7 (440.79 s)  MAE:   0.554/0.912     0.399/0.632     0.168/0.193     0.265/0.500     0.070/0.093    
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:    8 (438.35 s)  MAE:   0.553/0.899     0.396/0.633     0.166/0.194     0.268/0.491     0.066/0.089   *
+  EPOCH:    9 (481.66 s)  MAE:   0.555/0.905     0.394/0.631     0.163/0.194     0.276/0.498     0.064/0.088    
+  EPOCH:   10 (455.17 s)  MAE:   0.554/0.916     0.392/0.629     0.162/0.194     0.280/0.516     0.061/0.086    
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:   11 (479.92 s)  MAE:   0.554/0.914     0.390/0.628     0.160/0.197     0.284/0.525     0.059/0.085   *
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:   12 (479.00 s)  MAE:   0.563/0.909     0.388/0.627     0.160/0.195     0.298/0.514     0.058/0.082   *
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:   13 (445.01 s)  MAE:   0.563/0.963     0.387/0.630     0.160/0.207     0.298/0.567     0.056/0.083   *
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:   14 (451.46 s)  MAE:   0.576/0.938     0.386/0.629     0.163/0.215     0.312/0.534     0.055/0.081   *
+Model saved to ./models/ap3_saptpbe0/1/ap3d3_1_saptpbe0_2.pt
+  EPOCH:   15 (475.83 s)  MAE:   0.573/0.933     0.385/0.630     0.163/0.202     0.310/0.543     0.053/0.081   *
+  EPOCH:   16 (449.29 s)  MAE:   0.577/0.938     0.384/0.629     0.162/0.207     0.314/0.551     0.052/0.080    
+  EPOCH:   17 (476.73 s)  MAE:   0.574/0.974     0.382/0.630     0.162/0.211     0.311/0.589     0.052/0.079    
+  EPOCH:   18 (457.25 s)  MAE:   0.578/0.958     0.382/0.629     0.168/0.209     0.315/0.575     0.051/0.077    
+  EPOCH:   19 (462.09 s)  MAE:   0.580/0.962     0.381/0.629     0.167/0.211     0.323/0.575     0.050/0.078    
+  EPOCH:   20 (448.82 s)  MAE:   0.583/0.969     0.380/0.631     0.167/0.211     0.325/0.589     0.049/0.077    
+  EPOCH:   21 (496.59 s)  MAE:   0.584/0.975     0.379/0.629     0.169/0.215     0.327/0.590     0.049/0.076    
+  EPOCH:   22 (480.72 s)  MAE:   0.581/0.987     0.378/0.632     0.168/0.217     0.324/0.603     0.048/0.076    
+  EPOCH:   23 (438.66 s)  MAE:   0.583/0.979     0.378/0.630     0.169/0.216     0.327/0.597     0.048/0.076    
+  EPOCH:   24 (438.90 s)  MAE:   0.579/1.009     0.377/0.631     0.168/0.219     0.327/0.626     0.047/0.075    
+  EPOCH:   25 (439.55 s)  MAE:   0.589/1.004     0.377/0.632     0.169/0.219     0.337/0.625     0.047/0.075    
+  EPOCH:   26 (469.30 s)  MAE:   0.582/1.023     0.375/0.633     0.167/0.228     0.331/0.638     0.046/0.075    
+  EPOCH:   27 (449.94 s)  MAE:   0.581/1.008     0.375/0.634     0.171/0.223     0.331/0.627     0.046/0.076    
+  EPOCH:   28 (446.10 s)  MAE:   0.584/1.016     0.374/0.635     0.172/0.225     0.336/0.636     0.046/0.075    
+  EPOCH:   29 (485.32 s)  MAE:   0.582/1.030     0.374/0.636     0.173/0.222     0.335/0.653     0.045/0.074    
+  EPOCH:   30 (479.17 s)  MAE:   0.588/1.032     0.373/0.635     0.173/0.230     0.341/0.650     0.045/0.074    
+  EPOCH:   31 (467.84 s)  MAE:   0.581/1.052     0.372/0.634     0.173/0.229     0.335/0.672     0.045/0.074    
+  EPOCH:   32 (472.34 s)  MAE:   0.589/1.069     0.373/0.635     0.174/0.240     0.344/0.683     0.045/0.075    
+  EPOCH:   33 (439.40 s)  MAE:   0.586/1.055     0.372/0.640     0.180/0.244     0.340/0.662     0.045/0.074    
+  EPOCH:   34 (440.16 s)  MAE:   0.588/1.045     0.373/0.637     0.182/0.249     0.344/0.653     0.045/0.074    
+  EPOCH:   35 (470.99 s)  MAE:   0.583/1.082     0.372/0.637     0.181/0.238     0.340/0.698     0.044/0.074    
+  EPOCH:   36 (450.19 s)  MAE:   0.577/1.091     0.371/0.637     0.182/0.243     0.334/0.706     0.044/0.074    
+  EPOCH:   37 (463.01 s)  MAE:   0.577/1.083     0.371/0.635     0.185/0.251     0.334/0.700     0.044/0.074    
+  EPOCH:   38 (438.90 s)  MAE:   0.580/1.096     0.369/0.638     0.181/0.249     0.340/0.708     0.043/0.074    
+  EPOCH:   39 (439.41 s)  MAE:   0.574/1.097     0.369/0.639     0.183/0.249     0.333/0.706     0.043/0.073    
+  EPOCH:   40 (451.65 s)  MAE:   0.573/1.112     0.369/0.639     0.187/0.244     0.330/0.726     0.043/0.073    
+  EPOCH:   41 (460.13 s)  MAE:   0.564/1.095     0.368/0.643     0.184/0.263     0.324/0.699     0.043/0.075    
+  EPOCH:   42 (440.42 s)  MAE:   0.575/1.120     0.368/0.639     0.191/0.253     0.331/0.733     0.043/0.073    
+  EPOCH:   43 (438.67 s)  MAE:   0.564/1.089     0.368/0.642     0.188/0.256     0.323/0.696     0.043/0.074    
+  EPOCH:   44 (438.41 s)  MAE:   0.561/1.098     0.366/0.640     0.187/0.250     0.322/0.715     0.042/0.073    
+  EPOCH:   45 (476.88 s)  MAE:   0.553/1.106     0.365/0.643     0.183/0.257     0.314/0.706     0.042/0.073    
+  EPOCH:   46 (459.80 s)  MAE:   0.561/1.175     0.364/0.643     0.185/0.246     0.321/0.793     0.042/0.073    
+  EPOCH:   47 (463.95 s)  MAE:   0.550/1.117     0.364/0.641     0.185/0.251     0.312/0.733     0.041/0.073    
+  EPOCH:   48 (439.84 s)  MAE:   0.544/1.135     0.362/0.641     0.181/0.244     0.308/0.753     0.041/0.071    
+  EPOCH:   49 (502.34 s)  MAE:   0.537/1.146     0.361/0.644     0.179/0.251     0.303/0.754     0.041/0.072    
+---------------------------------------
+Begin Slurm Epilog: Apr-09-2026 03:35:07
+Job ID:        6343219
+User ID:       awallace43
+Account:       gts-cs207-chemx
+Job name:      AP3D3-SD-1
+Resources:     cpu=8,gres/gpu:v100=1,mem=96G,node=1
+Rsrc Used:     cput=2-05:23:36,vmem=0,walltime=06:40:27,mem=52658764K,energy_used=0
+Partition:     gpu-v100
+QOS:           inferno
+Nodes:         atl1-1-03-002-31-0
+---------------------------------------
