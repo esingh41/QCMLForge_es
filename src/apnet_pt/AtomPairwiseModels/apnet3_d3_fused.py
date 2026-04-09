@@ -6,6 +6,7 @@ import warnings
 import time
 from ..pt_datasets.ap2_fused_ds import (
     ap2_fused_module_dataset,
+    ap2_fused_module_dataset_lmdb,
     APNet2_fused_DataLoader,
     qcel_dimer_to_fused_data,
 )
@@ -774,6 +775,11 @@ class APNet3D3_AtomType_Model:
         print(f"{self.ds_type = }")
         print(f"{self.ds_class_type = }")
         print(f"{self.dataset_class = }")
+        ap2_dataset_class = (
+            ap2_fused_module_dataset_lmdb
+            if self.ds_class_type == "lmdb"
+            else ap2_fused_module_dataset
+        )
 
         if dimer_prop_model_pre_trained_path:
             print(
@@ -995,7 +1001,7 @@ class APNet3D3_AtomType_Model:
                         device=self.device,
                     )
                 else:
-                    return ap2_fused_module_dataset(
+                    return ap2_dataset_class(
                         root=ds_root,
                         r_cut=r_cut,
                         r_cut_im=r_cut_im,
@@ -1078,7 +1084,7 @@ class APNet3D3_AtomType_Model:
                     ]
                 else:
                     return [
-                        ap2_fused_module_dataset(
+                        ap2_dataset_class(
                             root=ds_root,
                             r_cut=r_cut,
                             r_cut_im=r_cut_im,
@@ -1098,7 +1104,7 @@ class APNet3D3_AtomType_Model:
                             energy_labels=ds_energy_labels[0],
                             in_memory=ds_in_memory,
                         ),
-                        ap2_fused_module_dataset(
+                        ap2_dataset_class(
                             root=ds_root,
                             r_cut=r_cut,
                             r_cut_im=r_cut_im,
