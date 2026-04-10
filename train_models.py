@@ -217,6 +217,7 @@ def train_pairwise_model(
     freeze_dimer_prop_model=True,
     freeze_atom_model=True,
     build_dataset_only=False,
+    include_total_mse=False,
 ):
     # Ensure param_start_mean and param_start_std are lists
     """
@@ -257,6 +258,7 @@ def train_pairwise_model(
         ds_type (str): Dataset energy-type selector (e.g., "total_component_energies", "fsapt_energies").
         no_disp_nn (bool): Skip the dispersion readout when training APNet3-fused-d3 and compute D3 at predict time instead.
         build_dataset_only (bool): If true, build/process the dataset and exit without training.
+        include_total_mse (bool): If true, add an extra MSE term on the total energy in addition to the four component-wise terms.
 
     """
     if not isinstance(param_start_mean, (list, tuple)):
@@ -620,6 +622,7 @@ def train_pairwise_model(
         lr=lr,
         dataloader_num_workers=4,
         random_seed=random_seed,
+        include_total_mse=include_total_mse,
     )
     if apnet_model_type in ["APNetD3", "APNet3D3", "APNet3-d3-fused"]:
         train_kwargs["end_lr"] = end_lr
@@ -926,6 +929,15 @@ def main():
         help="Dataset type for APNet3-fused only (default: total_component_energies, other options: fsapt_energies)",
     )
     args.add_argument(
+        "--include_total_mse",
+        action="store_true",
+        default=False,
+        help=(
+            "AP2/AP3-D3 training: add a fifth MSE term on the total energy "
+            "in addition to the four component losses."
+        ),
+    )
+    args.add_argument(
         "--no_disp_nn",
         action="store_true",
         default=False,
@@ -1016,6 +1028,7 @@ def main():
             freeze_dimer_prop_model=not args.unfreeze_dimer_prop_model,
             freeze_atom_model=not args.unfreeze_atom_model,
             build_dataset_only=args.build_dataset_only,
+            include_total_mse=args.include_total_mse,
         )
     return
 
