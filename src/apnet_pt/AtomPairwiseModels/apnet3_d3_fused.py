@@ -71,6 +71,21 @@ def lr_lambda(epoch, decay_factor, initial_lr, min_lr=4e-5):
     return max(lr, min_lr) / initial_lr
 
 
+def compute_component_mse_loss(preds, labels, loss_fn=None, include_total_mse=False):
+    """Compute component MSE and optionally add a total-energy MSE term."""
+    comp_errors = preds - labels
+    batch_loss = (
+        torch.mean(torch.square(comp_errors))
+        if loss_fn is None
+        else loss_fn(preds, labels)
+    )
+    if include_total_mse:
+        total_preds = torch.sum(preds, dim=1)
+        total_labels = torch.sum(labels, dim=1)
+        batch_loss = batch_loss + torch.mean(torch.square(total_preds - total_labels))
+    return batch_loss, comp_errors
+
+
 class AsymptoticDecayLR(torch.optim.lr_scheduler._LRScheduler):
     def __init__(self, optimizer, decay_coefficient, last_epoch=-1):
         self.decay_coefficient = decay_coefficient
@@ -2185,7 +2200,13 @@ units angstrom
         dist.destroy_process_group()
 
     def __train_batches_single_proc(
-        self, dataloader, loss_fn, optimizer, rank_device, scheduler
+        self,
+        dataloader,
+        loss_fn,
+        optimizer,
+        rank_device,
+        scheduler,
+        include_total_mse=False,
     ):
         """
         Single-process training loop body.
@@ -2208,11 +2229,11 @@ units angstrom
                 labels[:, 2] -= batch.E_classical_ind
                 if not self.model.no_disp_nn:
                     labels[:, 3] -= batch.E_classical_disp
-            comp_errors = preds - labels
-            batch_loss = (
-                torch.mean(torch.square(comp_errors))
-                if (loss_fn is None)
-                else loss_fn(preds, labels)
+            batch_loss, comp_errors = compute_component_mse_loss(
+                preds,
+                labels,
+                loss_fn=loss_fn,
+                include_total_mse=include_total_mse,
             )
             batch_loss.backward()
             optimizer.step()
@@ -2236,7 +2257,9 @@ units angstrom
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     # @torch.inference_mode()
-    def __evaluate_batches_single_proc(self, dataloader, loss_fn, rank_device):
+    def __evaluate_batches_single_proc(
+        self, dataloader, loss_fn, rank_device, include_total_mse=False
+    ):
         n_comp = 3 if self.model.no_disp_nn else 4
         self.model.eval()
         comp_errors_t = []
@@ -2252,11 +2275,11 @@ units angstrom
                     labels[:, 2] -= batch.E_classical_ind
                     if not self.model.no_disp_nn:
                         labels[:, 3] -= batch.E_classical_disp
-                comp_errors = preds - labels
-                batch_loss = (
-                    torch.mean(torch.square(comp_errors))
-                    if (loss_fn is None)
-                    else loss_fn(preds, labels)
+                batch_loss, comp_errors = compute_component_mse_loss(
+                    preds,
+                    labels,
+                    loss_fn=loss_fn,
+                    include_total_mse=include_total_mse,
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
@@ -2328,7 +2351,13 @@ units angstrom
         return total_loss, total_MAE_t
 
     def __train_batches_fsapt_single_proc(
-        self, dataloader, loss_fn, optimizer, rank_device, scheduler
+        self,
+        dataloader,
+        loss_fn,
+        optimizer,
+        rank_device,
+        scheduler,
+        include_total_mse=False,
     ):
         """
         Single-process training loop for FSAPT fragment energies.
@@ -2393,11 +2422,11 @@ units angstrom
 
             # Labels are [batch_size, 5], we use first n_comp components
             labels = batch.y[:, :n_comp]
-            comp_errors = preds - labels
-            batch_loss = (
-                torch.mean(torch.square(comp_errors))
-                if (loss_fn is None)
-                else loss_fn(preds, labels)
+            batch_loss, comp_errors = compute_component_mse_loss(
+                preds,
+                labels,
+                loss_fn=loss_fn,
+                include_total_mse=include_total_mse,
             )
             batch_loss.backward()
             optimizer.step()
@@ -2419,7 +2448,9 @@ units angstrom
         )
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
-    def __evaluate_batches_fsapt_single_proc(self, dataloader, loss_fn, rank_device):
+    def __evaluate_batches_fsapt_single_proc(
+        self, dataloader, loss_fn, rank_device, include_total_mse=False
+    ):
         """
         Single-process evaluation loop for FSAPT fragment energies.
         """
@@ -2487,11 +2518,11 @@ units angstrom
                 #     labels[:, 0] -= batch.E_classical_elst if hasattr(batch, 'E_classical_elst') else 0
                 #     labels[:, 2] -= batch.E_classical_ind if hasattr(batch, 'E_classical_ind') else 0
 
-                comp_errors = preds - labels
-                batch_loss = (
-                    torch.mean(torch.square(comp_errors))
-                    if (loss_fn is None)
-                    else loss_fn(preds, labels)
+                batch_loss, comp_errors = compute_component_mse_loss(
+                    preds,
+                    labels,
+                    loss_fn=loss_fn,
+                    include_total_mse=include_total_mse,
                 )
                 total_loss += batch_loss.item()
                 comp_errors_t.append(comp_errors.detach().cpu())
@@ -2513,7 +2544,14 @@ units angstrom
     ########################################################################
 
     def __train_batches(
-        self, rank, dataloader, loss_fn, optimizer, rank_device, scheduler
+        self,
+        rank,
+        dataloader,
+        loss_fn,
+        optimizer,
+        rank_device,
+        scheduler,
+        include_total_mse=False,
     ):
         n_comp = 3 if self.model.no_disp_nn else 4
         self.model.train()
@@ -2536,11 +2574,12 @@ units angstrom
                 labels[:, 2] -= batch.E_classical_ind
                 if not self.model.no_disp_nn:
                     labels[:, 3] -= batch.E_classical_disp
-            comp_errors = preds - labels
-            if loss_fn is None:
-                batch_loss = torch.mean(torch.square(comp_errors))
-            else:
-                batch_loss = loss_fn(preds.flatten(), labels.flatten())
+            batch_loss, comp_errors = compute_component_mse_loss(
+                preds,
+                labels,
+                loss_fn=loss_fn,
+                include_total_mse=include_total_mse,
+            )
 
             batch_loss.backward()
             optimizer.step()
@@ -2583,7 +2622,9 @@ units angstrom
         return total_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t
 
     # @torch.inference_mode()
-    def __evaluate_batches(self, rank, dataloader, loss_fn, rank_device):
+    def __evaluate_batches(
+        self, rank, dataloader, loss_fn, rank_device, include_total_mse=False
+    ):
         n_comp = 3 if self.model.no_disp_nn else 4
         self.model.eval()
         total_loss = 0.0
@@ -2605,11 +2646,12 @@ units angstrom
                     labels[:, 2] -= batch.E_classical_ind
                     if not self.model.no_disp_nn:
                         labels[:, 3] -= batch.E_classical_disp
-                comp_errors = preds - labels
-                if loss_fn is None:
-                    batch_loss = torch.mean(torch.square(comp_errors))
-                else:
-                    batch_loss = loss_fn(preds.flatten(), labels.flatten())
+                batch_loss, comp_errors = compute_component_mse_loss(
+                    preds,
+                    labels,
+                    loss_fn=loss_fn,
+                    include_total_mse=include_total_mse,
+                )
 
                 total_loss += batch_loss.item()
                 total_errors = preds.sum(dim=1) - labels.sum(dim=1)
@@ -2659,6 +2701,7 @@ units angstrom
         num_workers,
         lr_decay=None,
         end_lr=None,
+        include_total_mse=False,
     ):
         print(f"{self.device.type=}")
         if self.device.type == "cpu":
@@ -2765,10 +2808,22 @@ units angstrom
         t1 = time.time()
         with torch.no_grad():
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
-                self.__evaluate_batches(rank, train_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank,
+                    train_loader,
+                    criterion,
+                    rank_device,
+                    include_total_mse=include_total_mse,
+                )
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(rank, test_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank,
+                    test_loader,
+                    criterion,
+                    rank_device,
+                    include_total_mse=include_total_mse,
+                )
             )
             dt = time.time() - t1
             if rank == 0:
@@ -2794,10 +2849,17 @@ units angstrom
                     optimizer,
                     rank_device,
                     scheduler,
+                    include_total_mse=include_total_mse,
                 )
             )
             test_loss, total_MAE_v, elst_MAE_v, exch_MAE_v, indu_MAE_v, disp_MAE_v = (
-                self.__evaluate_batches(rank, test_loader, criterion, rank_device)
+                self.__evaluate_batches(
+                    rank,
+                    test_loader,
+                    criterion,
+                    rank_device,
+                    include_total_mse=include_total_mse,
+                )
             )
 
             if rank == 0:
@@ -2867,6 +2929,7 @@ units angstrom
         end_lr=None,
         skip_compile=False,
         transfer_learning=False,
+        include_total_mse=False,
     ):
         # (1) Compile Model
         rank_device = self.device
@@ -2975,8 +3038,23 @@ units angstrom
 
         # (5) Evaluate once pre-training
         t0 = time.time()
-        t_out = __evaluate_batch(train_loader, criterion, rank_device)
-        v_out = __evaluate_batch(test_loader, criterion, rank_device)
+        component_batch_kwargs = (
+            {"include_total_mse": include_total_mse}
+            if is_fsapt or not transfer_learning
+            else {}
+        )
+        t_out = __evaluate_batch(
+            train_loader,
+            criterion,
+            rank_device,
+            **component_batch_kwargs,
+        )
+        v_out = __evaluate_batch(
+            test_loader,
+            criterion,
+            rank_device,
+            **component_batch_kwargs,
+        )
         if is_fsapt or not transfer_learning:
             train_loss, total_MAE_t, elst_MAE_t, exch_MAE_t, indu_MAE_t, disp_MAE_t = (
                 t_out
@@ -3015,9 +3093,19 @@ units angstrom
         for epoch in range(n_epochs):
             t1 = time.time()
             t_out = __train_batch(
-                train_loader, criterion, optimizer, rank_device, scheduler
+                train_loader,
+                criterion,
+                optimizer,
+                rank_device,
+                scheduler,
+                **component_batch_kwargs,
             )
-            v_out = __evaluate_batch(test_loader, criterion, rank_device)
+            v_out = __evaluate_batch(
+                test_loader,
+                criterion,
+                rank_device,
+                **component_batch_kwargs,
+            )
             if is_fsapt or not transfer_learning:
                 (
                     train_loss,
@@ -3114,6 +3202,7 @@ units angstrom
         random_seed=42,
         skip_compile=True,
         transfer_learning=False,
+        include_total_mse=False,
     ):
         """
         hyperparameters match the defaults in the original code:
@@ -3174,6 +3263,7 @@ units angstrom
         print(f"  {lr=}\n", flush=True)
         print(f"  {lr_decay=}\n", flush=True)
         print(f"  {end_lr=}\n", flush=True)
+        print(f"  {include_total_mse=}\n", flush=True)
         print(f"  {batch_size=}", flush=True)
 
         if self.device.type == "cuda":
@@ -3205,6 +3295,7 @@ units angstrom
                     dataloader_num_workers,
                     lr_decay,
                     end_lr,
+                    include_total_mse,
                 ),
                 nprocs=world_size,
                 join=True,
@@ -3224,6 +3315,7 @@ units angstrom
                 end_lr=end_lr,
                 skip_compile=skip_compile,
                 transfer_learning=transfer_learning,
+                include_total_mse=include_total_mse,
             )
         return
 
