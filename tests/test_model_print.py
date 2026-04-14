@@ -14,9 +14,14 @@ Covers the AP3D3 architecture tree:
 """
 
 import io
+import sys
+from pathlib import Path
 from typing import cast
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 import apnet_pt
 from apnet_pt import ModelInfo, get_model_info, print_model_tree
 from apnet_pt.AtomModels.ap2_atom_model import AtomMPNN
@@ -552,18 +557,23 @@ def test_visual_tree_ascii(ap3d3_model, capsys):
     assert "APNet3D3_AtomType_Model" in captured.out
 
 
+def test_ap3d3_model_info_prints_unicode_tree(capsys=None):
+    ap3d3_model = build_demo_ap3d3_model()
+    ap3d3_model.info()
+
+    if capsys is None:
+        return
+
+    captured = capsys.readouterr()
+    assert "APNet3D3_AtomType_Model" in captured.out
+    assert "├─" in captured.out or "└─" in captured.out
+
+
 if __name__ == "__main__":
     demo_model = build_demo_ap3d3_model()
-    print("\n" + "=" * 70)
-    print("AP3D3 Model Architecture Tree (ASCII)")
-    print("=" * 70)
-    print_model_tree(demo_model, unicode=False)
-    print("=" * 70)
 
     print("\n" + "=" * 70)
-    print("AP3D3 Model Architecture Tree (Unicode)")
+    print("AP3D3 Model info() Output")
     print("=" * 70)
-    print_model_tree(demo_model)
+    demo_model.info()
     print("=" * 70)
-
-    # pytest.main([__file__, "-s"])
