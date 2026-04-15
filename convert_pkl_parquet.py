@@ -1,4 +1,5 @@
 import ast
+import re
 
 import numpy as np
 import pandas as pd
@@ -8,8 +9,17 @@ import qcelemental as qcel
 def _parse_1d_array(value, dtype):
     if isinstance(value, np.ndarray):
         return value.astype(dtype, copy=False)
-    text = str(value).replace('[', ' ').replace(']', ' ').replace(',', ' ')
-    return np.fromstring(text, sep=' ', dtype=dtype)
+    text = str(value).strip()
+    # Convert wrappers like np.int64(1), np.float64(-0.12), etc. to inner values.
+    while True:
+        new_text = re.sub(r"np\.\w+\(([^()]+)\)", r"\1", text)
+        if new_text == text:
+            break
+        text = new_text
+
+    text = text.replace("array(", "").replace("[", " ").replace("]", " ")
+    text = text.replace("(", " ").replace(")", " ").replace(",", " ")
+    return np.fromstring(text, sep=" ", dtype=dtype)
 
 
 def _parse_2d_coords(value):
@@ -32,58 +42,64 @@ def _parse_indices(value):
     arr = _parse_1d_array(text, dtype=int)
     return arr.tolist()
 
+
 def pkl_to_parquet(pickle_file):
     df = pd.read_pickle(pickle_file)
-    if 'qcel_molecule' in df.columns:
-        df["qcel_molecule"] = df["qcel_molecule"].apply(lambda x: x.to_string('psi4'))
-    for col in df.select_dtypes(include=['object', 'string']).columns:
+    for col in df.select_dtypes(include=["object", "string"]).columns:
+        if col == "qcel_molecule":
+            continue
         df[col] = df[col].astype(str)
-    root = pickle_file.rpartition(".")[0] 
-    df.to_parquet(f'{root}.parquet')
+    # if "qcel_molecule" in df.columns:
+    #     df["qcel_molecule"] = df["qcel_molecule"].apply(lambda x: x.to_string(dtype="psi4"))
+    if "qcel_molecule" in df.columns:
+        df["qcel_molecule"] = df["qcel_molecule"].apply(lambda x: x.json())
+    root = pickle_file.rpartition(".")[0]
+    df.to_parquet(f"{root}.parquet")
+
 
 def parquet_to_pkl(parquet_file):
     df = pd.read_parquet(parquet_file)
-    if 'qcel_molecule' in df.columns:
-        df['qcel_molecule'] = df['qcel_molecule'].apply(lambda x : qcel.models.Molecule.from_string(x, fix_com=True, fix_orientation=True))
-    if 'ZA' in df.columns:
-        df['ZA'] = df['ZA'].apply(lambda x: _parse_1d_array(x, dtype=int))
-    if 'RA' in df.columns:
-        df['RA'] = df['RA'].apply(_parse_2d_coords)
-    if 'ZB' in df.columns:
-        df['ZB'] = df['ZB'].apply(lambda x: _parse_1d_array(x, dtype=int))
-    if 'RB' in df.columns:
-        df['RB'] = df['RB'].apply(_parse_2d_coords)
-    if 'Frag1_indices' in df.columns:
-        df['Frag1_indices'] = df['Frag1_indices'].apply(_parse_indices)
-    if 'Frag2_indices' in df.columns:
-        df['Frag2_indices'] = df['Frag2_indices'].apply(_parse_indices)
+    row = df.iloc[0]
+    print(row["ZA"])
+    print(type(row["ZA"]))
+    if "qcel_molecule" in df.columns:
+        df["qcel_molecule"] = df["qcel_molecule"].apply(
+            lambda x: qcel.models.Molecule.from_data(x, dtype="json")
+        )
+    if "ZA" in df.columns:
+        df["ZA"] = df["ZA"].apply(lambda x: _parse_1d_array(x, dtype=int))
+    if "RA" in df.columns:
+        df["RA"] = df["RA"].apply(_parse_2d_coords)
+    if "ZB" in df.columns:
+        df["ZB"] = df["ZB"].apply(lambda x: _parse_1d_array(x, dtype=int))
+    if "RB" in df.columns:
+        df["RB"] = df["RB"].apply(_parse_2d_coords)
+    if "Frag1_indices" in df.columns:
+        df["Frag1_indices"] = df["Frag1_indices"].apply(_parse_indices)
+    if "Frag2_indices" in df.columns:
+        df["Frag2_indices"] = df["Frag2_indices"].apply(_parse_indices)
 
     root = parquet_file.rpartition(".")[0]
     df.to_pickle(f"{root}.pkl")
     return df
 
 
-#How do I keep track of the old data types though is my question
+# How do I keep track of the old data types though is my question
 def main():
-    df = pd.read_pickle("small_189K_saptpbe0-d4_totals_train.pkl").head(20)
-    print(df.info())
-    print(df.dtypes)
+    df = pd.read_pickle("189K_saptpbe0-d4_totals_train.pkl")
     row = df.iloc[0]
-    print(f"{row['ZA'] = }")
-    print(f"{type(row['ZA']) = }")
-    print(f"{row['RA'] = }")
-    print(f"{type(row['RA']) = }")
-    print(f"{row['Frag1_indices'] = }")
-    print(f"{type(row['Frag1_indices']) = }")
-    print(f"{row['Frag1_indices'] = }")
-    print(f"{type(row['Frag1_indices']) = }")
-    # print(df[["ZA", "ZB"]].to_string())
+    print(f"{row['qcel_molecule'] = }")
     return
-    # df.to_pickle("small_189K_saptpbe0-d4_totals_train.pkl")
-    # return
-    pkl_to_parquet("small_189K_saptpbe0-d4_totals_train.pkl")
-    return
+    
+    # Doing these in the Psi4 environment with the newer pandas
+    # pkl_to_parquet("189K_saptpbe0-d4_totals_train.pkl")
+    # pkl_to_parquet("189K_saptpbe0-d4_totals_test.pkl")
 
 
+
+    # Then do these in qcml environment
+    parquet_to_pkl("189K_saptpbe0-d4_totals_train.parquet")
+    parquet_to_pkl("189K_saptpbe0-d4_totals_test.parquet")
+    return
 if __name__ == "__main__":
     main()
