@@ -59,7 +59,6 @@ def pkl_to_parquet(pickle_file):
 
 def parquet_to_pkl(parquet_file):
     df = pd.read_parquet(parquet_file)
-    row = df.iloc[0]
     if "qcel_molecule" in df.columns:
         df["qcel_molecule"] = df["qcel_molecule"].apply(
             lambda x: qcel.models.Molecule.from_data(x, dtype="json")
@@ -76,6 +75,10 @@ def parquet_to_pkl(parquet_file):
         df["Frag1_indices"] = df["Frag1_indices"].apply(_parse_indices)
     if "Frag2_indices" in df.columns:
         df["Frag2_indices"] = df["Frag2_indices"].apply(_parse_indices)
+    if "id" in df.columns:
+        df["id"] = df["id"].apply(lambda x: str(x))
+    if "dimerpair" in df.columns:
+        df["dimerpair"] = df["dimerpair"].apply(lambda x: str(x))
 
     root = parquet_file.rpartition(".")[0]
     df.to_pickle(f"{root}.pkl")
