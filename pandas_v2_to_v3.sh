@@ -20,8 +20,6 @@ if ! command -v conda >/dev/null 2>&1; then
     exit 1
 fi
 
-eval "$(conda shell.bash hook)"
-
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -42,8 +40,7 @@ for INPUT_PKL in "$@"; do
     cp "$INPUT_PKL" "$TMP_PKL"
 
     # Step 1: qcml (pandas 2) — read old pkl, write parquet
-    conda activate qcml
-    PYTHONPATH="$SCRIPT_DIR" python - "$TMP_PKL" "$TMP_PARQUET" <<'PY'
+    PYTHONPATH="$SCRIPT_DIR" conda run -n qcml python - "$TMP_PKL" "$TMP_PARQUET" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[0].rsplit("/", 1)[0])  # no-op, PYTHONPATH already set
 from convert_pkl_parquet import pkl_to_parquet
@@ -61,8 +58,7 @@ if auto_parquet != out_parquet:
 PY
 
     # Step 2: psi4 (pandas 3) — read parquet, write pandas-3 pkl
-    conda activate psi4
-    PYTHONPATH="$SCRIPT_DIR" python - "$TMP_PARQUET" "$INPUT_PKL" <<'PY'
+    PYTHONPATH="$SCRIPT_DIR" conda run -n psi4 python - "$TMP_PARQUET" "$INPUT_PKL" <<'PY'
 import sys, os
 from convert_pkl_parquet import parquet_to_pkl
 
