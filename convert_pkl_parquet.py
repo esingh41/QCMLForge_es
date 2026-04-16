@@ -60,8 +60,6 @@ def pkl_to_parquet(pickle_file):
 def parquet_to_pkl(parquet_file):
     df = pd.read_parquet(parquet_file)
     row = df.iloc[0]
-    print(row["ZA"])
-    print(type(row["ZA"]))
     if "qcel_molecule" in df.columns:
         df["qcel_molecule"] = df["qcel_molecule"].apply(
             lambda x: qcel.models.Molecule.from_data(x, dtype="json")
@@ -86,6 +84,11 @@ def parquet_to_pkl(parquet_file):
 
 # How do I keep track of the old data types though is my question
 def main():
+    df = pd.read_pickle("small_189K_saptpbe0-d4_totals_train.pkl")
+    df = pd.read_pickle("test_og_small_pdv3.pkl")
+    # df = pd.read_pickle("og_small_pdv3.pkl")
+    print(df.info())
+    return
     df = pd.read_pickle("189K_saptpbe0-d4_totals_train.pkl")
     row = df.iloc[0]
     print(f"{row['qcel_molecule'] = }")
