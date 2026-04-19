@@ -969,8 +969,8 @@ class ap3_fused_fsapt_module_dataset_lmdb(Dataset):
             ]
         elif self.spec_type == 8:
             return [
-                "90K_fsaptpbe0-d4_fsapt_train.pkl",
-                "90K_fsaptpbe0-d4_fsapt_test.pkl",
+                "2836K_fsaptpbe0-d4_fsapt_train.pkl",
+                "2836K_fsaptpbe0-d4_fsapt_test.pkl",
             ]
 
     @property
