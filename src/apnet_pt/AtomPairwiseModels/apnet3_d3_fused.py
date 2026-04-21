@@ -1699,6 +1699,9 @@ class APNet3D3_AtomType_Model:
                     )
                 # create a new data list with only valid data
                 data = [data[j] for j in valid_indices]
+            if len(data) == 0:
+                predictions[i : upper_bound] = np.nan
+                continue
             dimer_batch = ap3_fused_collate_update_no_target(data)
             dimer_batch.to(device=self.device)
             preds = self.model(dimer_batch)
