@@ -124,6 +124,11 @@ def dimer_fused_data(
     """
     atomic_props_A = atomic_datasets.create_atomic_data(ZA, RA, TQA, r_cut=r_cut)
     atomic_props_B = atomic_datasets.create_atomic_data(ZB, RB, TQB, r_cut=r_cut)
+    if atomic_props_A is None or atomic_props_B is None:
+        print(
+            f"Unsupported element in dimer with dimer_ind {dimer_ind}. Skipping this data point:\n  {constants.ALLOWED_ELEMENTS=}\n  {ZA=}\n  {ZB=}"
+        )
+        return None
     if check_validity:
         valid = assert_molecule_featurization_is_valid(atomic_props_A, dimer_ind)
         if not valid:
