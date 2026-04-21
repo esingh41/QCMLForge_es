@@ -1689,7 +1689,6 @@ class APNet3D3_AtomType_Model:
                 )
                 for n, dimer in enumerate(mols[i:upper_bound])
             ]
-            print(data)
             # get indices that are None
             valid_indices = [j for j, d in enumerate(data) if d is not None]
             all_indices = list(range(len(data)))
