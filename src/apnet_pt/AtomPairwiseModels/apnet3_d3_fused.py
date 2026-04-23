@@ -2375,7 +2375,7 @@ units angstrom
         for n, batch in enumerate(dataloader):
             optimizer.zero_grad()
             batch = batch.to(rank_device, non_blocking=True)
-            E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
+            E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = self.model(batch)
             # For FSAPT training, use only MPNN predictions (E_sr),
             # not classical frozen components (E_elst, E_ind)
             full_pairwise_energies = torch.zeros(
@@ -2383,6 +2383,7 @@ units angstrom
             )
             full_pairwise_energies[:, 0] = E_elst
             full_pairwise_energies[:, 2] = E_ind
+            full_pairwise_energies[:, 3] = E_disp
             # Everything is ordered based on e_ABfull_source/target, so we
             # need to map e_ABsr edges to full edges. We can do this by
             # learning the mapping from e_ABsr to e_ABfull.
@@ -2464,7 +2465,7 @@ units angstrom
         with torch.no_grad():
             for n, batch in enumerate(dataloader):
                 batch = batch.to(rank_device, non_blocking=True)
-                E_sr_dimer, E_sr, E_elst, E_ind, hAB, hBA = self.model(batch)
+                E_sr_dimer, E_sr, E_elst, E_ind, E_disp, hAB, hBA = self.model(batch)
                 # For FSAPT evaluation, use only MPNN predictions (E_sr),
                 # not classical frozen components (E_elst, E_ind)
                 full_pairwise_energies = torch.zeros(
@@ -2473,6 +2474,7 @@ units angstrom
                 # Don't initialize with frozen classical values
                 full_pairwise_energies[:, 0] = E_elst
                 full_pairwise_energies[:, 2] = E_ind
+                full_pairwise_energies[:, 3] = E_disp
                 # Everything is ordered based on e_ABfull_source/target, so we
                 # need to map e_ABsr edges to full edges. We can do this by
                 # learning the mapping from e_ABsr to e_ABfull.
