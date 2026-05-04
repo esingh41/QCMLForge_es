@@ -1701,6 +1701,12 @@ class APNet3D3_AtomType_Model:
                 data = [data[j] for j in valid_indices]
             if len(data) == 0:
                 predictions[i : upper_bound] = np.nan
+                if return_pairs:
+                    pairwise_energies.extend([None] * (upper_bound - i))
+                if return_classical_pairs:
+                    pairwise_elst_energies.extend([None] * (upper_bound - i))
+                    pairwise_ind_energies.extend([None] * (upper_bound - i))
+                    pairwise_disp_energies.extend([None] * (upper_bound - i))
                 continue
             dimer_batch = ap3_fused_collate_update_no_target(data)
             dimer_batch.to(device=self.device)
@@ -1848,14 +1854,14 @@ class APNet3D3_AtomType_Model:
                     E_ind.cpu(),
                     E_disp.cpu(),
                 )
-                for idx, valid_idx in enumerate(valid_indices):
-                    predictions[i + valid_idx] = E_sr_dimer[idx].cpu().numpy()
-                cnt = 0
+                valid_lookup = {
+                    valid_idx: cnt for cnt, valid_idx in enumerate(valid_indices)
+                }
                 for idx in all_indices:
                     if idx in valid_indices:
+                        cnt = valid_lookup[idx]
                         predictions[i + idx] = E_sr_dimer[cnt].cpu().numpy()
                         pairwise_energies.append(v[cnt])
-                        cnt += 1
                     else:
                         predictions[i + idx] = np.array(
                             [np.nan, np.nan, np.nan, np.nan]
@@ -1869,14 +1875,16 @@ class APNet3D3_AtomType_Model:
                     E_ind,
                     E_disp,
                 )
-                cnt = 0
+                valid_lookup = {
+                    valid_idx: cnt for cnt, valid_idx in enumerate(valid_indices)
+                }
                 for idx in all_indices:
                     if idx in valid_indices:
+                        cnt = valid_lookup[idx]
                         predictions[i + idx] = E_sr_dimer[cnt].cpu().numpy()
                         pairwise_elst_energies.append(v[0][cnt])
                         pairwise_ind_energies.append(v[1][cnt])
                         pairwise_disp_energies.append(v[2][cnt])
-                        cnt += 1
                     else:
                         predictions[i + idx] = np.array(
                             [np.nan, np.nan, np.nan, np.nan]
@@ -1885,8 +1893,12 @@ class APNet3D3_AtomType_Model:
                         pairwise_ind_energies.append([])
                         pairwise_disp_energies.append([])
             else:
-                for cnt, idx in enumerate(all_indices):
+                valid_lookup = {
+                    valid_idx: cnt for cnt, valid_idx in enumerate(valid_indices)
+                }
+                for idx in all_indices:
                     if idx in valid_indices:
+                        cnt = valid_lookup[idx]
                         predictions[i + idx] = preds[0][cnt].cpu().numpy()
                     else:
                         predictions[i + idx] = np.array(
@@ -3187,6 +3199,9 @@ units angstrom
                     "checkpoint_reason": "final_no_improvement",
                 },
             )
+            cpu_model = model_io.unwrap_model(self.model).to("cpu")
+            best_model = deepcopy(cpu_model)
+            self.model.to(rank_device)
         self.model = best_model
         self.model.to(rank_device)
         return

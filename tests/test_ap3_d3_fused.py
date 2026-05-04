@@ -951,9 +951,10 @@ def test_classical_ap3_dispersion():
     print(f"{ap3_disp=}")
     assert np.allclose(
         ap3_disp, simple_dftd3_energies, atol=1e-5
-    ), f"AP3 dispersion energies {ap3_disp} should be close to simple DFTD3 energies {
-        simple_dftd3_energies
-    }"
+    ), (
+        f"AP3 dispersion energies {ap3_disp} should be close to "
+        f"simple DFTD3 energies {simple_dftd3_energies}"
+    )
     return
 
 
@@ -1362,6 +1363,7 @@ def test_ap3_d3_fused_classical_pair_sums_do_not_spoil_exchange():
 def test_ap3_d3_precomputed_checkpoint_does_not_add_d3_twice():
     ap3d3 = APNet3D3_AtomType_Model(
         pre_trained_model_path="./models/ap3_ensemble/1/ap3_d3_nn_1.pt",
+        use_precomputed_classical=True,
     )
 
     assert ap3d3.use_precomputed_classical is True
@@ -1731,6 +1733,7 @@ no_reorient
 
 
 def test_unsupported_element():
+    torch.manual_seed(42)
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
         ds_root=None,
         use_GPU=False,
@@ -1765,6 +1768,20 @@ def test_unsupported_element():
         ]
     )
     assert np.allclose(preds[0], ref_pred[0], atol=1e-4), f"Prediction for supported molecule does not match reference. Got {preds[0]}, expected {ref_pred[0]}"
+    assert np.isnan(preds[1]).all(), (
+        f"Unsupported molecule should return all-NaN predictions, got {preds[1]}"
+    )
+
+    preds = ap3_d3.predict_qcel_mols(
+        mols=[unsupported_atom, mol_cliff_water_close], batch_size=2
+    )
+    assert np.isnan(preds[0]).all(), (
+        f"Unsupported molecule should return all-NaN predictions, got {preds[0]}"
+    )
+    assert np.allclose(preds[1], ref_pred[0], atol=1e-4), (
+        "Prediction for supported molecule after invalid entry does not match "
+        f"reference. Got {preds[1]}, expected {ref_pred[0]}"
+    )
 
 
 if __name__ == "__main__":

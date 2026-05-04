@@ -1561,6 +1561,7 @@ class ap2_fused_module_dataset_lmdb(Dataset):
         self.lmdb_env = None
         self.lmdb_path = None
         self._length = None
+        self._raw_cursor = None
         self._worker_id = None
 
         if os.path.exists(root) is False:
@@ -1639,8 +1640,12 @@ class ap2_fused_module_dataset_lmdb(Dataset):
                     if metadata_bytes:
                         metadata = self.json.loads(metadata_bytes.decode("utf-8"))
                         self._length = metadata.get("length", 0)
+                        self._raw_cursor = metadata.get(
+                            "raw_cursor", self._length
+                        )
                     else:
                         self._length = 0
+                        self._raw_cursor = 0
                 self.lmdb_env = env
                 return
             except Exception as e:
@@ -1654,6 +1659,7 @@ class ap2_fused_module_dataset_lmdb(Dataset):
                 print(f"Error initializing LMDB: {e}")
                 self.lmdb_env = None
                 self._length = 0
+                self._raw_cursor = 0
                 return
 
     def _close_lmdb(self):
@@ -1706,7 +1712,7 @@ class ap2_fused_module_dataset_lmdb(Dataset):
     def download(self):
         return ap2_fused_module_dataset.download(self)
 
-    def _store_to_lmdb(self, data_objects, start_idx):
+    def _store_to_lmdb(self, data_objects, start_idx, raw_cursor):
         import pickle
 
         if self.lmdb_env is None:
@@ -1717,15 +1723,20 @@ class ap2_fused_module_dataset_lmdb(Dataset):
                 txn.put(str(idx).encode("utf-8"), pickle.dumps(data_obj))
             metadata = {
                 "length": start_idx + len(data_objects),
+                "raw_cursor": raw_cursor,
                 "r_cut": self.r_cut,
                 "r_cut_im": self.r_cut_im,
                 "spec_type": self.spec_type,
             }
             txn.put(b"__metadata__", self.json.dumps(metadata).encode("utf-8"))
         self._length = start_idx + len(data_objects)
+        self._raw_cursor = raw_cursor
 
     def process(self):
-        idx = 0
+        stored_idx = self._length if self.skip_processed and self._length else 0
+        resume_raw_cursor = (
+            self._raw_cursor if self.skip_processed and self._raw_cursor else 0
+        )
         data_objects = []
         RAs, RBs, ZAs, ZBs, TQAs, TQBs, targets = [], [], [], [], [], [], []
         if self.qcel_molecules is not None and self.energy_labels is not None:
@@ -1774,10 +1785,11 @@ class ap2_fused_module_dataset_lmdb(Dataset):
                 targets.extend(target)
 
         print("Creating data objects...")
+        processed_raw_cursor = resume_raw_cursor
         for i in range(len(RAs)):
-            if self.skip_processed and self._length is not None and idx < self._length:
-                idx += 1
+            if self.skip_processed and i < resume_raw_cursor:
                 continue
+            processed_raw_cursor = i + 1
             y = torch.tensor(targets[i], dtype=torch.float32)
             data = dimer_fused_data(
                 RAs[i],
@@ -1799,16 +1811,16 @@ class ap2_fused_module_dataset_lmdb(Dataset):
                 continue
             data_objects.append(data)
             if len(data_objects) >= self.datapoint_storage_n_objects:
-                start_idx = idx - len(data_objects) + 1
-                self._store_to_lmdb(data_objects, start_idx)
+                self._store_to_lmdb(data_objects, stored_idx, i + 1)
+                stored_idx += len(data_objects)
                 data_objects = []
-                if self.MAX_SIZE is not None and idx > self.MAX_SIZE:
+                if self.MAX_SIZE is not None and i > self.MAX_SIZE:
                     break
-            idx += 1
 
         if len(data_objects) > 0:
-            start_idx = idx - len(data_objects)
-            self._store_to_lmdb(data_objects, start_idx)
+            self._store_to_lmdb(data_objects, stored_idx, processed_raw_cursor)
+        elif processed_raw_cursor > resume_raw_cursor:
+            self._store_to_lmdb([], stored_idx, processed_raw_cursor)
 
     def len(self):
         if self._length is not None:
@@ -1820,8 +1832,10 @@ class ap2_fused_module_dataset_lmdb(Dataset):
             if metadata_bytes:
                 metadata = self.json.loads(metadata_bytes.decode("utf-8"))
                 self._length = metadata.get("length", 0)
+                self._raw_cursor = metadata.get("raw_cursor", self._length)
             else:
                 self._length = 0
+                self._raw_cursor = 0
         return self._length
 
     def _check_worker_init(self):
