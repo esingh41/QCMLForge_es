@@ -1607,16 +1607,16 @@ def test_ap3_spec7():
         os.remove(i)
 
 
-def test_ap3d3_spec10_non_precomputed_lmdb_training(tmp_path):
+def test_ap3d3_spec5_non_precomputed_lmdb_training(tmp_path):
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(
         Path(data_path) / "raw" / "t_train_19.pkl",
-        raw_dir / "152K_saptpbe0-d4_totals_train.pkl",
+        raw_dir / "t_train.pkl",
     )
     shutil.copy2(
         Path(data_path) / "raw" / "t_test_19.pkl",
-        raw_dir / "152K_saptpbe0-d4_totals_test.pkl",
+        raw_dir / "t_test.pkl",
     )
 
     atom_type_hf_vw_model = apnet_pt.AtomPairwiseModels.mtp_mtp.AtomTypeParamModel(
@@ -1640,7 +1640,7 @@ def test_ap3d3_spec10_non_precomputed_lmdb_training(tmp_path):
         ignore_database_null=False,
         ds_force_reprocess=True,
         use_GPU=False,
-        ds_spec_type=10,
+        ds_spec_type=5,
         ds_in_memory=False,
         ds_class_type="lmdb",
         ds_atomic_batch_size=4,
@@ -1669,8 +1669,8 @@ def test_ap3d3_spec10_non_precomputed_lmdb_training(tmp_path):
         shuffle=False,
     )
 
-    assert (tmp_path / "processed" / "lmdb_ap2_fused_train_spec_10").exists()
-    assert (tmp_path / "processed" / "lmdb_ap2_fused_test_spec_10").exists()
+    assert (tmp_path / "processed" / "lmdb_ap2_fused_train_spec_5").exists()
+    assert (tmp_path / "processed" / "lmdb_ap2_fused_test_spec_5").exists()
 
 
 def test_ap2_spec7():
