@@ -110,6 +110,12 @@ class DimerProp(nn.Module):
         )
         return
 
+    def info(self):
+        """Print a Unicode model tree for this model."""
+        from apnet_pt.model_print import model_tree_string
+
+        print(model_tree_string(self, unicode=True))
+
     def set_forward(self, dimer_eval):
         """
         Configure which forward method the instance will use and set related resources.
@@ -946,6 +952,12 @@ class AtomTypeParamNN(nn.Module):
             n_calls=1,
             children=children,
         )
+
+    def info(self):
+        """Print a Unicode model tree for this model."""
+        from apnet_pt.model_print import model_tree_string
+
+        print(model_tree_string(self, unicode=True))
 
     def forward(
         self,

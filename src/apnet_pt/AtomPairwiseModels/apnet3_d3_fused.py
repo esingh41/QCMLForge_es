@@ -383,6 +383,12 @@ class APNet3D3_AtomType_MPNN(nn.Module):
             ),
         )
 
+    def info(self):
+        """Print a Unicode model tree for this model."""
+        from apnet_pt.model_print import model_tree_string
+
+        print(model_tree_string(self, unicode=True))
+
     def get_messages(self, h0, h, rbf, e_source, e_target):
         nedge = e_source.numel()
         if nedge == 0:
@@ -1281,6 +1287,12 @@ class APNet3D3_AtomType_Model:
             n_params_total=n_total,
             children=children,
         )
+
+    def info(self):
+        """Print a Unicode model tree for this model."""
+        from apnet_pt.model_print import model_tree_string
+
+        print(model_tree_string(self, unicode=True))
 
     def compile_model(self):
         self.model.to(self.device)
