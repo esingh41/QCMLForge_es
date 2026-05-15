@@ -84,6 +84,7 @@ def parse_geoms(
                     qcel_dimer.append(mol_qcel)
                     qcel_monA.append(mol_qcel.get_fragment(0))
                     qcel_monB.append(mol_qcel.get_fragment(1))
+                    print(f"succesfully built molecule and fragments for geometry found at {filepath}")
 
             except Exception as e:
                 print(f"Error processing file at {filepath}: \n {e}")
@@ -125,6 +126,7 @@ def compute_psi4_time_estimation_variables(
         wfn = psi4.core.Wavefunction.build(mol, psi4.core.get_global_option("BASIS"))
         bs = wfn.basisset()
         grid = psi4.core.DFTGrid.build(mol, bs)
+        print("compute vars: built wfn & grid")
 
     except Exception as e:
         print(f"Error when building grid or wavefunction: \n {e}")
@@ -142,6 +144,7 @@ def compute_psi4_time_estimation_variables(
             "JKFIT",
             psi4.core.get_global_option("BASIS"),
         )
+        print("compute vars: built aux basis")
 
     except Exception as e:
         print(f"Error when building the auxillary basis: \n {e}")
@@ -186,22 +189,17 @@ def build_inference_table(
             monA_tvars.append(compute_psi4_time_estimation_variables(row["qcel_monA"], basis))
             monB_tvars.append(compute_psi4_time_estimation_variables(row["qcel_monB"], basis))
  
-    df_copy[["dimer time vars", "monA time vars", "monB time vars"]] =  list(zip(dimer_tvars, monA_tvars, monB_tvars))
+    df_copy[["dimer_tvars", "monA_tvars", "monB_tvars"]] = list(zip(dimer_tvars, monA_tvars, monB_tvars))
 
     # explode again and insert lotr strings 
-    df_copy = df_copy.loc[df_copy.index.repeat(len(methods))].copy()
+    df_copy = df_copy.iloc[np.repeat(np.arange(len(df_copy)), len(methods))].copy()
     df_copy["Level of Theory"] = lotr_strings
 
     # reorder indicies
     a = len(df)
-    b = len(lotr_strings)
+    b = len(df_copy) // a
 
-    order = (
-        np.arange(a * b)
-        .reshape(a, b)
-        .T
-        .ravel()
-    )
+    order = np.arange(len(df_copy)).reshape(a, b).T.ravel()
 
     df_copy = df_copy.iloc[order].copy()
     df_copy.index = np.repeat(np.arange(b), a)
@@ -245,7 +243,7 @@ def predict_ie_errors_batch(
                 m1=lotr,
                 m2="CCSD(T)/CBS/CP",
             )
-            errors.extend(IE_pred.to_list())
+            errors.extend(IE_pred.tolist())
             print(f"completed interaction energy error estimation for all geometries at {lotr}")
 
         except Exception as e:
@@ -256,10 +254,16 @@ def predict_ie_errors_batch(
     df["ERROR ESTIMATES (kcal/mol)"] = errors
     return
 
+def load_coeffs(
+    path: str
+) -> pd.DataFrame:
+    return pd.read_pickle(path).set_index("method")
+
 def predict_timing(
-        method: str,
-        uhf_ref: bool,
-        t_vars: np.ndarray,
+    method: str,
+    uhf_ref: bool,
+    t_vars: np.ndarray,
+    coeffs_from_pkl: bool
 ) -> float:
     """
     Predict timing for a given method and input variables using dictionary of saved 
@@ -276,10 +280,18 @@ def predict_timing(
 
     polynomial_lambda_expr = polynomial_expressions[method]["poly"]
 
-    if uhf_ref:
-        coeffs = polynomial_expressions[method]["unr_coeffs"]
-    else: 
-        coeffs = polynomial_expressions[method]["res_coeffs"]
+    if uhf_ref: 
+        if coeffs_from_pkl:
+            df = pd.read_pickle("./time_fit_inference_df_unrestricted.pkl").set_index("method")
+            coeffs = df.at[method, "coefficients"]
+        else:
+            coeffs = polynomial_expressions[method]["unr_coeffs"]
+    else:
+        if coeffs_from_pkl:
+            df = pd.read_pickle("./time_fit_inference_df_restricted.pkl").set_index("method")
+            coeffs = df.at[method, "coefficients"]
+        else:
+            coeffs = polynomial_expressions[method]["res_coeffs"]
 
     return np.log10(polynomial_lambda_expr(coeffs, t_vars))
 
@@ -306,22 +318,25 @@ def predict_timings_batch(
             a = predict_timing(
                 method, 
                 (0 if row["qcel_dimer"].molecular_multiplicity == 1 else 1), 
-                d_tvars
+                d_tvars,
+                0
             )
 
             b = predict_timing(
                 method, 
                 (0 if row["qcel_monA"].molecular_multiplicity == 1 else 1), 
-                a_tvars
+                a_tvars,
+                0
             )
             
             c = predict_timing(
                 method, 
                 (0 if row["qcel_monB"].molecular_multiplicity == 1 else 1), 
-                b_tvars
+                b_tvars,
+                0
             )
 
-            supermolecular_times.append(a + b + c)
+            supermolecular_times.append(np.log10(10**a + 10**b + 10**c))
 
         except Exception as e:
             print(f"timing polynomial error: \n {e}")
@@ -333,13 +348,37 @@ def predict_timings_batch(
 geom_path = "./test_geoms"
 n_threads = 4 # testing purposes
 
-method_list = ["HF", "wB97X-V", "MP2"]
-basis_list = ["cc-pvdz", "aug-cc-pvdz"]
+method_list = [
+    "HF", 
+    "PBE-D3", 
+    "wB97X-D", 
+    "wB97X-V", 
+    "MP2", 
+    "B3LYP-D3", 
+    "B2PLYP-D3", 
+    "M05-2X", 
+    "FNO-CCSD", 
+    "FNO-CCSD(T)"
+    ]
+
+basis_list = [
+    "cc-pVDZ", 
+    "cc-pVTZ", 
+    "cc-pVQZ", 
+    "aug-cc-pVQZ", 
+    "aug-cc-pVTZ", 
+    "aug-cc-pVDZ"
+    ]
+
 
 def main():
     # set threads and supress output
     psi4.core.be_quiet()
     psi4.set_num_threads(n_threads)
+
+    # load coeffs
+    # restricted_coeffs = load_coeffs("./time_fit_inference_df_restricted.pkl")
+    # unrestricted_coeffs = load_coeffs("./time_fit_inference_df_unrestricted.pkl")
 
     # Parse through a database of dimer geometry files, build initial dataframe
     df1 = parse_geoms(geom_path)
@@ -353,10 +392,11 @@ def main():
     # Run infrence on rows of the dataframe in batch mode (energies and timings)
     predict_ie_errors_batch(df2)
     predict_timings_batch(df2)
+    pd.set_option("display.max_rows", None)
+    pd.set_option("display.max_columns", None)
     pp(df2)
 
     return df2
 
 if __name__ == "__main__":
     main()
-

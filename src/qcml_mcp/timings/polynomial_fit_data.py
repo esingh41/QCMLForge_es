@@ -241,7 +241,7 @@ polynomial_expressions = {
         "poly": lambda p, t: (
             p[0]
             + p[4] * ((t[0] + t[1]) ** 5)               # ERI Transformation
-            + p[1] * (t[1] * (t[0] + t[1]) ** 2 * t[3]) # K Build
+            + p[1] * (t[0] * (t[0] + t[1]) ** 2 * t[3]) # K Build
             + p[2] * (t[0]**2 * t[1]**4)                # CCSD Iterations
             + p[3] * (t[0]**3 * t[1]**4)                # Triples Evaluation
         ),
