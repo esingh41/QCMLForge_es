@@ -162,14 +162,21 @@ def compute_psi4_time_estimation_variables(
 def build_inference_table(
         df: pd.DataFrame,
         methods: list[str],
-        bases: list[str]
+        bases: list[str],
+        cp: bool
     ) -> pd.DataFrame:
     """
     Modifies a pandas.Dataframe for batch prediction of (supermolecular) 
     interaction energy errors & timings. Timing variables are calculated
     per molecular system/basis-set pair and copied over to all LOTs considered. 
     """
-    lotr_strings = [m + "/" + b + "/unCP" for b in bases for m in methods] # pretty sure everything I ran was not CP-corrected
+    cp_str = "/unCP"
+
+    if cp:
+        print("Warning: using un-counterpoise corrected models for counterpoise corrected timing predictions")
+        cp_str = "/CP"
+
+    lotr_strings = [m + "/" + b + cp_str for b in bases for m in methods] # pretty sure everything I ran was not CP-corrected
     lotr_strings = lotr_strings * len(df)
 
     df_copy = df.copy()
@@ -182,7 +189,8 @@ def build_inference_table(
     print("Warning: using a JK auxiliary basis for MP2 and B2PLYP-D3 timing predictions")
 
     for idx in sorted(df_copy.index.unique()):
-        row = df_copy.loc[idx].iloc[0]
+        rows = df_copy.loc[[idx]]   
+        row = rows.iloc[0]          
 
         for basis in bases:
             dimer_tvars.append(compute_psi4_time_estimation_variables(row["qcel_dimer"], basis))
@@ -233,8 +241,9 @@ def predict_ie_errors_batch(
     errors = []
 
     for idx in sorted(df.index.unique()):
-        mols = df.loc[idx]["qcel_dimer"].to_list()
-        lotr = df.loc[idx].iloc[0]["Level of Theory"]
+        rows = df.loc[[idx]]
+        mols = rows["qcel_dimer"].to_list()
+        lotr = rows.iloc[0]["Level of Theory"]
         
         try:
             IE_pred = apnet_pt.pretrained_models.dapnet2_model_predict(
@@ -347,6 +356,7 @@ def predict_timings_batch(
 
 geom_path = "./test_geoms"
 n_threads = 4 # testing purposes
+using_CP = 1
 
 method_list = [
     "HF", 
@@ -387,7 +397,8 @@ def main():
     df2 = build_inference_table(
         df1,
         method_list,
-        basis_list)
+        basis_list,
+        using_CP)
     
     # Run infrence on rows of the dataframe in batch mode (energies and timings)
     predict_ie_errors_batch(df2)
@@ -395,6 +406,7 @@ def main():
     pd.set_option("display.max_rows", None)
     pd.set_option("display.max_columns", None)
     pp(df2)
+    # pp(df2.iloc[80:99])
 
     return df2
 
