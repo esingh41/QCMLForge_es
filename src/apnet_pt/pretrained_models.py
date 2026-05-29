@@ -7,6 +7,7 @@ from importlib import resources
 import numpy as np
 import pandas as pd
 from qcelemental.models.molecule import Molecule
+import time
 
 from apnet_pt.pt_datasets.dapnet_ds import clean_str_for_filename
 
@@ -243,6 +244,7 @@ def apnet2_model_predict(
     if compile:
         print("Compiling models...")
         ap2.compile_model()
+    print("Using deepcopy")
     models = [copy.deepcopy(ap2) for _ in range(num_models)]
     for i in range(additional_models_start, num_models):
         if ap2_fused:
@@ -256,15 +258,24 @@ def apnet2_model_predict(
             )
     pred_IEs = np.zeros((len(mols), 5))
     print("Processing mols...")
+    
+    total_time_elapsed = 0
     for i in range(num_models):
+        print(f"On model {i}")
+        model_start = time.perf_counter()
         IEs = models[i].predict_qcel_mols(
             mols,
             batch_size=batch_size,
         )
+        elapsed = time.perf_counter() - model_start
+        print(f"AP2 model {i} inference: {elapsed:.6f} s, {IEs.shape = }")
         pred_IEs[:, 1:] += IEs
         pred_IEs[:, 0] += np.sum(IEs, axis=1)
+        print(f"{IEs = }")
+        total_time_elapsed += elapsed
+        
     pred_IEs /= num_models
-    return pred_IEs
+    return pred_IEs, total_time_elapsed
 
 
 def apnet2_model_predict_pairs(
