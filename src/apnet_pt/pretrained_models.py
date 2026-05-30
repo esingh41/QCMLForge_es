@@ -6,6 +6,7 @@ from importlib import resources
 
 import numpy as np
 import pandas as pd
+import torch
 from qcelemental.models.molecule import Molecule
 import time
 
@@ -258,7 +259,10 @@ def apnet2_model_predict(
             )
     pred_IEs = np.zeros((len(mols), 5))
     print("Processing mols...")
-    
+
+    if torch.cuda.is_available():
+        torch.cuda.memory._record_memory_history(max_entries=10000)
+
     total_time_elapsed = 0
     for i in range(num_models):
         print(f"On model {i}")
@@ -273,7 +277,11 @@ def apnet2_model_predict(
         pred_IEs[:, 0] += np.sum(IEs, axis=1)
         print(f"{IEs = }")
         total_time_elapsed += elapsed
-        
+
+    if torch.cuda.is_available():
+        torch.cuda.memory._dump_snapshot(f"profile_ap2_b{batch_size}_sc{len(mols)}.pkl")
+        torch.cuda.memory._record_memory_history(enabled=None)
+
     pred_IEs /= num_models
     return pred_IEs, total_time_elapsed
 
