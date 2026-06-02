@@ -40,7 +40,11 @@ jobs:
 
         snapshot_download(
             repo_id="awallace3/qcmlforge",
-            allow_patterns=["am_ensemble/*", "ap2_ensemble/*"],
+            allow_patterns=[
+                "am_ensemble/*",
+                "ap2_ensemble/*",
+                "dapnet2/B3LYP-D3aug-cc-pVTZCP_CCSD_LP_T_RP_CBSCP.pt",
+            ],
         )
         PY
     
